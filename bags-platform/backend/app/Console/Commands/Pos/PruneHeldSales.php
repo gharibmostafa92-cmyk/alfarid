@@ -6,6 +6,7 @@ namespace App\Console\Commands\Pos;
 
 use App\Models\PosHeldSale;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Removes abandoned parked POS carts so held rows cannot accumulate forever.
@@ -23,25 +24,21 @@ class PruneHeldSales extends Command
 
         $deleted = 0;
         do {
-            // Fetch batch IDs excluding actively leased carts, safe for PostgreSQL syntax
-            $ids = PosHeldSale::query()
-                ->where('created_at', '<', $cutoff)
-                ->where(function ($q): void {
-                    $q->whereNull('resumed_at')
-                        ->orWhere('resumed_at', '<', now()->subMinutes(10));
-                })
-                ->orderBy('id')
-                ->limit(500)
-                ->pluck('id')
-                ->all();
+            $count = DB::transaction(function () use ($cutoff): int {
+                $ids = PosHeldSale::query()
+                    ->where('created_at', '<', $cutoff)
+                    ->where(fn ($q) => $q->whereNull('resumed_at')
+                        ->orWhere('resumed_at', '<', now()->subMinutes(10)))
+                    ->orderBy('created_at')
+                    ->orderBy('id')
+                    ->limit(500)
+                    ->lock('for update skip locked')
+                    ->pluck('id');
 
-            if (empty($ids)) {
-                break;
-            }
-
-            $count = PosHeldSale::query()->whereIn('id', $ids)->delete();
+                return PosHeldSale::query()->whereIn('id', $ids)->delete();
+            });
             $deleted += $count;
-        } while (count($ids) === 500);
+        } while ($count === 500);
 
         $this->info("Pruned {$deleted} held sale(s) older than {$days} day(s).");
 

@@ -31,6 +31,7 @@ class WalletService
         'topup',
         'checkout_payment',
         'refund',
+        'refund_reversal',
         'return_refund',
         'adjustment',
         'order_reversal',
@@ -69,7 +70,7 @@ class WalletService
         // float($signed) already lost precision before this method was reached.
         $signed = BigDecimal::of(is_string($amount) ? $amount : (string) $amount)
             ->toScale(2, RoundingMode::HalfUp);
-        if ($signed->isZero() && in_array($type, ['checkout_payment', 'order_reversal', 'return_refund'], true)) {
+        if ($signed->isZero() && in_array($type, ['checkout_payment', 'order_reversal', 'return_refund', 'adjustment'], true)) {
             throw new BusinessException('مبلغ حركة المحفظة لا يمكن أن يكون صفرًا.', [], 422);
         }
         $this->assertAmountSign($type, $signed);
@@ -140,6 +141,9 @@ class WalletService
         // Zero movements remain permitted by explicit product decision (task2 F17 follow-up).
         if ($type === 'checkout_payment' && $amount->isPositive()) {
             throw new BusinessException('دفع المحفظة لا يمكن أن يكون مبلغًا موجبًا.');
+        }
+        if ($type === 'refund_reversal' && ! $amount->isNegative()) {
+            throw new BusinessException('عكس الاسترداد يتطلب مبلغًا سالبًا.', [], 422);
         }
         if (in_array($type, self::CREDIT_OR_ZERO_TYPES, true) && $amount->isNegative()) {
             throw new BusinessException('نوع حركة المحفظة لا يقبل مبلغًا سالبًا.');

@@ -40,6 +40,16 @@ class ProductService
         // Replay existing product on retried create_key to prevent duplicate entries and numbered slug suffixes.
         $createKey = is_string($data['create_key'] ?? null) && $data['create_key'] !== '' ? $data['create_key'] : null;
         unset($data['create_key']);
+        foreach (['code', 'slug'] as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $trimmed = trim($data[$field]);
+                if ($trimmed === '') {
+                    unset($data[$field]);
+                } else {
+                    $data[$field] = $trimmed;
+                }
+            }
+        }
         $requestHash = IdempotencyFingerprint::hash($data);
         if ($createKey !== null) {
             $existing = Product::withTrashed()->where('created_by', $user->id)->where('create_key', $createKey)->first();

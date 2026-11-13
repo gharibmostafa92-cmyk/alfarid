@@ -103,10 +103,13 @@ export function SophieMegaDropdown({
     }
     adding.current = true;
     setAddError('');
-    const ok = await addItem(spot.defaultVariantId, 1);
-    adding.current = false;
-    if (ok) onAddToCart?.();
-    else setAddError(useCartStore.getState().error || 'تعذّرت الإضافة، حاول تاني.');
+    try {
+      const ok = await addItem(spot.defaultVariantId, 1);
+      if (ok) onAddToCart?.();
+      else setAddError(useCartStore.getState().error || 'تعذّرت الإضافة، حاول تاني.');
+    } finally {
+      adding.current = false;
+    }
   };
 
   const spotIsMultiVariant = spot?.variantCount !== 1;

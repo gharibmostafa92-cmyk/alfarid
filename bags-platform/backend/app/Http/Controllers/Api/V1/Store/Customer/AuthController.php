@@ -13,7 +13,6 @@ use App\Http\Requests\Store\Customer\RegisterRequest;
 use App\Http\Requests\Store\Customer\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Jobs\SendCustomerPhoneVerification;
-use App\Models\Customer;
 use App\Rules\TurnstileToken;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Customer\CustomerMessageBudget;
@@ -140,14 +139,10 @@ class AuthController extends Controller
         }
 
         // M5: never disclose whether a phone number already belongs to an
-        // account. Known numbers get the same acknowledgement as new ones and
-        // no SMS is sent, so the endpoint cannot be used to enumerate customers.
-        $existing = Customer::withTrashed()->where('phone', $phone)->exists();
-
-        if (! $existing) {
-            SendCustomerPhoneVerification::dispatch($phone, $networkKey)
-                ->onConnection(config('auth.customer_password_reset.connection', 'database'));
-        }
+        // account. Always enqueue the same work; the service re-checks
+        // existence inside the job so response timing stays identical.
+        SendCustomerPhoneVerification::dispatch($phone, $networkKey)
+            ->onConnection(config('auth.customer_password_reset.connection', 'database'));
 
         return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم إذا كان متاحًا.']);
     }

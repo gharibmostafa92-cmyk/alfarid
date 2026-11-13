@@ -178,6 +178,7 @@ export function SophieHeader() {
   const { data: meData } = useAuthMe(token, mounted);
   useEffect(() => {
     if (!mounted || !token || !meData) return;
+    if (useAuthStore.getState().token !== token) return;
     useAuthStore.setState({
       user: (meData.data as Record<string, unknown>) ?? null,
       destination: (meData.redirect?.destination as Destination | null) ?? null,

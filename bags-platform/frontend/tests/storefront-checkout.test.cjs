@@ -21,6 +21,53 @@ function load(relative, dependencies = {}) {
   return compiled.exports;
 }
 
+test('public links reject unsafe navigation and encode mail query delimiters', () => {
+  const { safeStoreHref, safeMailtoHref, safeTelHref } = load('apps/storefront/src/lib/core/safe-href.ts');
+  assert.equal(safeStoreHref('/shop?q=bags'), '/shop?q=bags');
+  assert.equal(safeStoreHref('/\t/evil.test'), null);
+  assert.equal(safeStoreHref('javascript:alert(1)'), null);
+  assert.equal(safeStoreHref('https://shop.test@evil.test'), null);
+  assert.equal(safeMailtoHref('sales?team=retail@shop.test'), 'mailto:sales%3Fteam%3Dretail@shop.test');
+  assert.equal(safeMailtoHref('sales@shop.test?subject=hello'), null);
+  assert.equal(safeMailtoHref('sales\r\n@shop.test'), null);
+  assert.equal(safeTelHref('+20 (100) 123-4567'), 'tel:+201001234567');
+  assert.equal(safeTelHref('+201001234567?ext=2'), null);
+});
+
+test('guest order history expires without extending older orders on a new checkout', (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  const values = new Map();
+  const descriptor = Object.getOwnPropertyDescriptor(global, 'localStorage');
+  Object.defineProperty(global, 'localStorage', { configurable: true, value: {
+    getItem: key => values.get(key),
+    setItem: (key, value) => values.set(key, value),
+  } });
+  t.after(() => descriptor
+    ? Object.defineProperty(global, 'localStorage', descriptor)
+    : delete global.localStorage);
+  const { readGuestOrders, rememberGuestOrder } = load('apps/storefront/src/lib/orders/guest-orders.ts');
+  for (let i = 0; i < 12; i++) rememberGuestOrder(`ORD-${i}`);
+  assert.equal(readGuestOrders().length, 10);
+  now += 24 * 60 * 60_000;
+  rememberGuestOrder('ORD-new');
+  now += 6 * 24 * 60 * 60_000;
+  assert.deepEqual(readGuestOrders(), ['ORD-new']);
+});
+
+test('media middleware rejects encoded path separators and traversal before rewriting', () => {
+  const { middleware } = load('apps/storefront/src/middleware.ts', {
+    'next/server': { NextResponse: class extends Response {
+      static next() { return new Response(null, { status: 200 }); }
+    } },
+  });
+  for (const pathname of ['/store-media/%2e%2e/private.pdf', '/store-media/%252e%252e/private.pdf',
+    '/store-media/a%2fb.webp', '/store-media/a%5cb.webp', '/store-media/a%00.webp']) {
+    assert.equal(middleware({ nextUrl: { pathname } }).status, 404, pathname);
+  }
+  assert.equal(middleware({ nextUrl: { pathname: '/store-media/bags/a%20b.webp' } }).status, 200);
+});
+
 test('InstaPay instructions expire at the deadline even beyond the maximum timer delay', t => {
   const startedAt = Date.UTC(2026, 10, 7);
   const deadline = startedAt + 30 * 24 * 60 * 60 * 1000;

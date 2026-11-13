@@ -70,7 +70,7 @@ class PricingService
      *
      * @return array{channel: PriceListType, eligible: bool, group: object|null}
      */
-    public function contextFor(?Customer $customer, ?array $variantIds = null): array
+    public function contextFor(?Customer $customer, ?array $variantIds = null, ?int $branchId = null): array
     {
         $eligible = $customer !== null && $customer->status === CustomerStatus::Approved;
         if ($eligible) {
@@ -81,7 +81,8 @@ class PricingService
         $channel = $this->channelFor($customer);
         $context = ['channel' => $channel, 'eligible' => $eligible, 'group' => $group];
         if ($variantIds !== null) {
-            $context['items'] = $this->eligibleItems(null, PHP_FLOAT_MAX, null, Carbon::now(), $variantIds)
+            $context['branch_id'] = $branchId;
+            $context['items'] = $this->eligibleItems(null, PHP_FLOAT_MAX, $branchId, Carbon::now(), $variantIds)
                 ->where(function ($q) use ($channel, $eligible, $customer, $group): void {
                     $q->whereIn('price_lists.type', array_unique([$channel->value, PriceListType::Retail->value]));
                     if ($eligible) {
@@ -504,7 +505,7 @@ class PricingService
         Builder $baseQuery,
         array $ctx,
     ): ?PriceListItem {
-        if (isset($ctx['items']) && $branchId === null) {
+        if (isset($ctx['items']) && ($ctx['branch_id'] ?? null) === $branchId) {
             return ($ctx['items'][$variant->id] ?? collect())
                 ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
                 ->sort(function ($a, $b): int {

@@ -125,10 +125,12 @@ export const useCartStore = create<CartState>((set, get) => {
               : navigator.locks.request('alfarid-store-cart', execute)),
           );
         } catch (e) {
-          if ((e as Error)?.name === 'AbortError' || (e as Error)?.name === 'TimeoutError') {
+          const name = (e as Error)?.name;
+          if (name === 'AbortError' || name === 'TimeoutError') {
             set({ busy: false, loading: false, error: 'تعذّر تحديث السلة بسبب بطء الاستجابة. حاول مجددًا.' });
             return false;
           }
+          if (name === 'SecurityError' || name === 'NotSupportedError') return execute();
           throw e;
         }
       }

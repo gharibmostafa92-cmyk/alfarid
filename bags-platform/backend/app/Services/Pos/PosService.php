@@ -350,48 +350,52 @@ class PosService
         ]));
 
         // Respect upcoming scheduled price boundaries within the 10-second cache window.
+        // F-13: one UNION per direction instead of four round-trips; the
+        // predicates (and the +1s end-boundary grace) are unchanged.
         $windowEnd = $now->copy()->addSeconds(10);
-        $boundaries = [
+        $startsAt = DB::query()->fromSub(
             DB::table('price_lists')
+                ->selectRaw('starts_at AS b')
                 ->where('is_active', true)
                 ->where(fn ($q) => $q->whereNull('branch_id')->orWhere('branch_id', $branchId))
                 ->where('starts_at', '>', $now)
                 ->where('starts_at', '<=', $windowEnd)
-                ->min('starts_at'),
-            DB::table('price_list_items')
-                ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
-                ->where('price_lists.is_active', true)
-                ->where(fn ($q) => $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId))
-                ->where('price_list_items.starts_at', '>', $now)
-                ->where('price_list_items.starts_at', '<=', $windowEnd)
-                ->min('price_list_items.starts_at'),
-        ];
-        $endBoundaries = [
+                ->unionAll(
+                    DB::table('price_list_items')
+                        ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
+                        ->selectRaw('price_list_items.starts_at AS b')
+                        ->where('price_lists.is_active', true)
+                        ->where(fn ($q) => $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId))
+                        ->where('price_list_items.starts_at', '>', $now)
+                        ->where('price_list_items.starts_at', '<=', $windowEnd)
+                ),
+            'u'
+        )->min('b');
+        $endsAt = DB::query()->fromSub(
             DB::table('price_lists')
+                ->selectRaw('ends_at AS b')
                 ->where('is_active', true)
                 ->where(fn ($q) => $q->whereNull('branch_id')->orWhere('branch_id', $branchId))
                 ->where('ends_at', '>=', $now)
                 ->where('ends_at', '<', $windowEnd)
-                ->min('ends_at'),
-            DB::table('price_list_items')
-                ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
-                ->where('price_lists.is_active', true)
-                ->where(fn ($q) => $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId))
-                ->where('price_list_items.ends_at', '>=', $now)
-                ->where('price_list_items.ends_at', '<', $windowEnd)
-                ->min('price_list_items.ends_at'),
-        ];
+                ->unionAll(
+                    DB::table('price_list_items')
+                        ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
+                        ->selectRaw('price_list_items.ends_at AS b')
+                        ->where('price_lists.is_active', true)
+                        ->where(fn ($q) => $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId))
+                        ->where('price_list_items.ends_at', '>=', $now)
+                        ->where('price_list_items.ends_at', '<', $windowEnd)
+                ),
+            'u'
+        )->min('b');
 
         $validUntil = $windowEnd->getTimestamp();
-        foreach ($boundaries as $b) {
-            if ($b !== null) {
-                $validUntil = min($validUntil, \Illuminate\Support\Carbon::parse($b)->getTimestamp());
-            }
+        if ($startsAt !== null) {
+            $validUntil = min($validUntil, \Illuminate\Support\Carbon::parse($startsAt)->getTimestamp());
         }
-        foreach ($endBoundaries as $b) {
-            if ($b !== null) {
-                $validUntil = min($validUntil, \Illuminate\Support\Carbon::parse($b)->getTimestamp() + 1);
-            }
+        if ($endsAt !== null) {
+            $validUntil = min($validUntil, \Illuminate\Support\Carbon::parse($endsAt)->getTimestamp() + 1);
         }
 
         Cache::put($cacheKey, [
@@ -450,6 +454,9 @@ class PosService
                 'cash_difference' => (string) $cashDifference,
                 'notes' => $notes,
             ]);
+
+            // F-02: closures join the staff audit trail like reopen/force-close.
+            $this->auditShift($shift, User::query()->findOrFail($shift->user_id), 'pos_shift.close', ['cash_difference' => (string) $cashDifference]);
 
             return $shift->fresh();
         });
@@ -523,6 +530,9 @@ class PosService
                 'notes' => $mergedNote,
             ]);
 
+            // F-02: approvals join the staff audit trail like reopen/force-close.
+            $this->auditShift($shift, $approver, 'pos_shift.approve', ['cash_difference' => (string) ($shift->cash_difference ?? '0')]);
+
             return $shift->fresh();
         });
     }
@@ -550,6 +560,11 @@ class PosService
             app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
             if ($shift->status !== PosShiftStatus::ClosedPendingApproval) {
                 throw new BusinessException('الوردية ليست في انتظار الاعتماد.');
+            }
+            // F-02: segregation of duties — nobody reopens their own shift,
+            // mirroring the approveShift self-ban.
+            if ((int) $shift->user_id === (int) $approver->id) {
+                throw new BusinessException('لا يمكن إعادة فتح وردية فتحتها بنفسك؛ يلزم مشرف آخر.');
             }
 
             // Lock User and Treasury to prevent race conditions with concurrent openShift
@@ -585,8 +600,9 @@ class PosService
                 'closed_at' => null,
                 'actual_closing_cash' => null,
                 'cash_difference' => null,
-                // The voided force-closure no longer taints the next approval.
-                'force_closed_by' => null,
+                // F-02: the force-close taint is preserved on purpose — the
+                // supervisor who force-closed still cannot approve the final
+                // closure even after a recount reopen.
                 'notes' => $reason,
             ]);
 
@@ -634,6 +650,10 @@ class PosService
             $shift = $this->lockOpenShift($shift);
             app(BranchAccess::class)->assertBranch($approver->id, $shift->branch_id);
             app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
+            // F-02: segregation of duties — nobody force-closes their own shift.
+            if ((int) $shift->user_id === (int) $approver->id) {
+                throw new BusinessException('لا يمكن الإغلاق القسري لوردية فتحتها بنفسك؛ يلزم مشرف آخر.');
+            }
 
             $totals = $this->computeShiftTotals($shift);
             // Decimal-only compare so cent fractions reconcile exactly.
@@ -1046,9 +1066,24 @@ class PosService
                 $credit = min(max(0.0, $exchangeCredit), $returnValue);
                 $netRefund = round($returnValue - $credit, 2);
 
-                $cardCovered = min($maxCardRefund, $credit);
-                $cardRefund = round(min(max(0.0, $maxCardRefund - $cardCovered), $netRefund), 2);
-                $cashRefund = round($netRefund - $cardRefund, 2);
+                // F-01: chain-wide tender caps. An exchange order carries credit
+                // funded by a prior return; that credit inherits the funding
+                // chain's tender mix (exchange_order_id -> funding return ->
+                // return_of_order_id -> source tender). Caps are computed over
+                // the whole chain so card-originated credit can never drain
+                // drawer cash, while cash-originated credit restores exactly the
+                // cash physically paid in the chain.
+                [$chainCashPaid, $chainCardPaid, $chainCashRefunded, $chainCardRefunded] =
+                    $this->chainTenderCaps($originalOrder, $previousCashRefunded, $previousCardRefunded);
+                $cashCap = max(0.0, round($chainCashPaid - $chainCashRefunded, 2));
+                $cardCap = max(0.0, round($chainCardPaid - $chainCardRefunded, 2));
+
+                $cardCovered = min($cardCap, $credit);
+                $cardRefund = round(min(max(0.0, $cardCap - $cardCovered), $netRefund), 2);
+                $cashRefund = round(min(max(0.0, $cashCap), $netRefund - $cardRefund), 2);
+                // Fail closed: value fitting neither cap routes to card
+                // (admin-reviewed refund) instead of leaving the drawer as cash.
+                $cardRefund = round($cardRefund + max(0.0, $netRefund - $cardRefund - $cashRefund), 2);
 
                 $locationId = $this->inventory->receivingLocation((int) $shift->branch_id);
                 $levels = $this->inventory->lockLevels(array_map(fn ($variantId) => [
@@ -1340,6 +1375,55 @@ class PosService
     }
 
     /**
+     * F-01: chain-wide tender totals for refund caps.
+     *
+     * Walks funding returns (exchange_order_id) back to their source tenders
+     * (return_of_order_id) so exchange credit inherits the tender mix that
+     * funded it. Plain orders have no funding returns and collapse exactly to
+     * their own tender — no behavior change outside exchange chains.
+     *
+     * @return array{0: float, 1: float, 2: float, 3: float} [cashPaid, cardPaid, cashRefunded, cardRefunded]
+     */
+    private function chainTenderCaps(Order $originalOrder, float $previousCashRefunded, float $previousCardRefunded): array
+    {
+        $cashPaid = (float) $originalOrder->cash_amount;
+        $cardPaid = (float) $originalOrder->card_amount;
+        $cashRefunded = $previousCashRefunded;
+        $cardRefunded = $previousCardRefunded;
+
+        $visited = [$originalOrder->id => true];
+        $queue = [$originalOrder->id];
+        while ($queue !== []) {
+            $currentId = array_shift($queue);
+            $funding = Order::withTrashed()->where('exchange_order_id', $currentId)->get();
+            foreach ($funding as $fundingReturn) {
+                if (isset($visited[$fundingReturn->id])) {
+                    continue;
+                }
+                $visited[$fundingReturn->id] = true;
+                $source = $fundingReturn->return_of_order_id
+                    ? Order::withTrashed()->find($fundingReturn->return_of_order_id)
+                    : null;
+                if ($source === null) {
+                    continue;
+                }
+                $cashPaid += (float) $source->cash_amount;
+                $cardPaid += (float) $source->card_amount;
+                $cashRefunded += (float) Order::withTrashed()
+                    ->where('return_of_order_id', $source->id)->sum('cash_amount');
+                $cardRefunded += (float) Order::withTrashed()
+                    ->where('return_of_order_id', $source->id)->sum('card_amount');
+                if (! isset($visited[$source->id])) {
+                    $visited[$source->id] = true;
+                    $queue[] = $source->id;
+                }
+            }
+        }
+
+        return [$cashPaid, $cardPaid, $cashRefunded, $cardRefunded];
+    }
+
+    /**
      * Parks an in-progress sale payload to free the POS terminal.
      *
      * @param  PosShift  $shift  Active shift
@@ -1451,24 +1535,24 @@ class PosService
         $baseQuery = ProductVariant::query()
             ->where('is_active', true)
             ->whereHas('product', fn ($q) => $q->where('is_active', true)->whereNotNull('published_at'))
-            ->with(['product.media', 'media'])
+            // F-13: only the images collection is ever rendered (first image
+            // per row), so other collections never leave the database.
+            ->with([
+                'product.media' => fn ($q) => $q->where('collection_name', 'images')->orderBy('order_column'),
+                'media' => fn ($q) => $q->where('collection_name', 'images')->orderBy('order_column'),
+            ])
             ->orderBy('id');
 
-        $nextCursor = null;
+        // F-13: fixed paging on every page. The old <=3000 single-fetch mode
+        // hydrated thousands of Eloquent + Spatie media models per catalog
+        // refresh; catalogs up to one page are byte-identical to before.
         if ($cursor !== null && $cursor !== '') {
             $paginator = $baseQuery->cursorPaginate(500, ['*'], 'cursor', $cursor);
-            $variants = collect($paginator->items());
-            $nextCursor = $paginator->nextCursor()?->encode();
         } else {
-            $totalCount = (clone $baseQuery)->count();
-            if ($totalCount > 3000) {
-                $paginator = $baseQuery->cursorPaginate(500);
-                $variants = collect($paginator->items());
-                $nextCursor = $paginator->nextCursor()?->encode();
-            } else {
-                $variants = $baseQuery->get();
-            }
+            $paginator = $baseQuery->cursorPaginate(500);
         }
+        $variants = collect($paginator->items());
+        $nextCursor = $paginator->nextCursor()?->encode();
 
         if ($variants->isEmpty()) {
             return [
@@ -1703,7 +1787,9 @@ class PosService
             ?? $this->settings->get('pos_max_discount_percent')
             ?? config('inventory.pos_max_discount_percent', 20));
 
-        return collect($rawItems)->map(function (array $item) use ($branchId, $customer, $overridePrice, $enforceStock, $variants, $stockByVariant, $maxDiscount, $actor): array {
+        $pricingContext = $this->pricing->contextFor($customer, $ids, $branchId);
+
+        return collect($rawItems)->map(function (array $item) use ($branchId, $customer, $overridePrice, $enforceStock, $variants, $stockByVariant, $maxDiscount, $actor, $pricingContext): array {
             $qty = (float) $item['qty'];
             DiscreteQuantity::assertWhole($qty, false, 'كمية البيع يجب أن تكون عددًا صحيحًا موجبًا.');
 
@@ -1741,7 +1827,7 @@ class PosService
                     throw new BusinessException("سعر بيع الصنف [{$variant->sku}] أقل من التكلفة؛ يلزم اعتماد مدير.");
                 }
             } else {
-                $priceData = $this->pricing->resolve($variant, $customer, $qty, $branchId);
+                $priceData = $this->pricing->resolve($variant, $customer, $qty, $branchId, $pricingContext);
                 $unitPrice = (float) $priceData['unit_price'];
             }
 

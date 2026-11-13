@@ -12,9 +12,11 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Finance\FinanceArgs;
 use App\Services\Ai\Finance\FinancePresenter;
+use App\Services\Finance\WalletService;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Inventory\BranchAccess;
+use Brick\Math\BigDecimal;
 use Illuminate\Auth\Access\AuthorizationException;
 
 final class ExplainOrderMoneyTool implements AgentTool
@@ -81,12 +83,31 @@ final class ExplainOrderMoneyTool implements AgentTool
         }
 
         $returnIds = $order->returnRequests->pluck('id')->all();
-        $walletTxs = CustomerWalletTransaction::query()
+        $returnReferences = ['return_request', 'return_requests', ReturnRequest::class];
+        $walletRows = CustomerWalletTransaction::query()
             ->where(fn ($q) => $q
-                ->where(fn ($w) => $w->whereIn('reference_type', ['order', Order::class])->where('reference_id', $order->id))
-                ->orWhere(fn ($w) => $w->whereIn('reference_type', ['return_request', ReturnRequest::class])->whereIn('reference_id', $returnIds === [] ? [-1] : $returnIds)))
-            ->orderBy('id')->get()->map(function (CustomerWalletTransaction $t) {
-                $isReturn = in_array($t->reference_type, ['return_request', ReturnRequest::class], true);
+                ->where(fn ($w) => $w->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id))
+                ->orWhere(fn ($w) => $w->whereIn('reference_type', $returnReferences)->whereIn('reference_id', $returnIds === [] ? [-1] : $returnIds)))
+            ->orderBy('id')->get();
+        $walletDebits = $walletRows->reduce(
+            fn (BigDecimal $carry, CustomerWalletTransaction $t): BigDecimal => BigDecimal::of((string) $t->amount)->isNegative()
+                ? $carry->plus(BigDecimal::of((string) $t->amount)->abs())
+                : $carry,
+            BigDecimal::zero(),
+        );
+        $walletCredits = $walletRows->reduce(
+            fn (BigDecimal $carry, CustomerWalletTransaction $t): BigDecimal => BigDecimal::of((string) $t->amount)->isPositive()
+                ? $carry->plus((string) $t->amount)
+                : $carry,
+            BigDecimal::zero(),
+        );
+        $walletInDec = $walletDebits->minus($walletCredits);
+        if ($walletInDec->isNegative()) {
+            $walletInDec = BigDecimal::zero();
+        }
+        $walletIn = $walletInDec->toFloat();
+        $walletTxs = $walletRows->map(function (CustomerWalletTransaction $t) use ($returnReferences) {
+                $isReturn = in_array($t->reference_type, $returnReferences, true);
 
                 return [
                     'at' => $t->created_at?->toIso8601String(),
@@ -99,8 +120,8 @@ final class ExplainOrderMoneyTool implements AgentTool
 
         $treasuryTxsQuery = TreasuryTransaction::query()
             ->where(fn ($q) => $q
-                ->where(fn ($w) => $w->whereIn('reference_type', ['order', Order::class])->where('reference_id', $order->id))
-                ->orWhere(fn ($w) => $w->whereIn('reference_type', ['return_request', ReturnRequest::class])->whereIn('reference_id', $returnIds === [] ? [-1] : $returnIds)));
+                ->where(fn ($w) => $w->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id))
+                ->orWhere(fn ($w) => $w->whereIn('reference_type', $returnReferences)->whereIn('reference_id', $returnIds === [] ? [-1] : $returnIds)));
 
         $hasExternalTreasuryTx = false;
         if ($branch !== null) {
@@ -109,9 +130,10 @@ final class ExplainOrderMoneyTool implements AgentTool
                 ->exists();
         }
 
-        $treasuryTxs = (clone $treasuryTxsQuery)
+        $treasuryRows = (clone $treasuryTxsQuery)
             ->when($branch !== null, fn ($q) => $q->whereHas('treasury', fn ($treasury) => $treasury->where('branch_id', $branch)))
-            ->with('treasury:id,name')->orderBy('id')->get()->map(function (TreasuryTransaction $tx) {
+            ->with('treasury:id,name')->orderBy('id')->get();
+        $treasuryTxs = $treasuryRows->map(function (TreasuryTransaction $tx) {
                 $txType = $tx->type instanceof \BackedEnum ? $tx->type->value : (string) $tx->type;
 
                 return [
@@ -124,11 +146,12 @@ final class ExplainOrderMoneyTool implements AgentTool
                 ];
             })->values()->all();
 
-        $total = (float) $order->grand_total;
-        $walletDebits = array_sum(array_map(fn ($w) => $w['amount'] < 0 ? abs($w['amount']) : 0.0, $walletTxs));
-        $walletCredits = array_sum(array_map(fn ($w) => $w['amount'] > 0 ? $w['amount'] : 0.0, $walletTxs));
-        $walletIn = max(0.0, $walletDebits - $walletCredits);
-        $treasuryNet = array_sum(array_column($treasuryTxs, 'amount'));
+        $totalDec = BigDecimal::of((string) $order->grand_total)->toScale(2);
+        $total = $totalDec->toFloat();
+        $treasuryNetDec = $treasuryRows->reduce(
+            fn (BigDecimal $carry, TreasuryTransaction $t): BigDecimal => $carry->plus((string) $t->amount),
+            BigDecimal::zero(),
+        );
         $hasRefundTx = count(array_filter(
             $walletTxs,
             fn ($w) => in_array($w['type'], ['return_refund', 'refund', 'checkout_refund', 'order_reversal'], true) && $w['amount'] > 0
@@ -146,11 +169,11 @@ final class ExplainOrderMoneyTool implements AgentTool
             }
         }
         if (in_array($order->payment_status, ['refunded', 'partially_refunded', 'refund_pending'], true) && ! $hasRefundTx) {
-            $warnings[] = 'الطلب مسترد لكن لا يوجد قيد استرداد مرتبط به.';
+            $warnings[] = 'الطلب مسترد لكن لا يوجد قيد استرداد مرتبط به مباشرة؛ قد تكون التسوية مسجلة كمستند تعديل محفظة مستقل (wallet_adjustment).';
         }
-        $movementSum = $walletIn + max(0.0, $treasuryNet);
-        if ($order->payment_status === 'paid' && $movementSum > 0 && abs($movementSum - $total) > 0.005) {
-            $warnings[] = 'مجموع الحركات ('.$this->presenter->money($movementSum).') لا يساوي إجمالي الطلب ('.$this->presenter->money($total).').';
+        $movementSum = $walletInDec->plus($treasuryNetDec->isPositive() ? $treasuryNetDec : BigDecimal::zero());
+        if ($order->payment_status === 'paid' && $movementSum->isPositive() && ! $movementSum->isEqualTo($totalDec)) {
+            $warnings[] = 'مجموع الحركات ('.$this->presenter->money((string) $movementSum).') لا يساوي إجمالي الطلب ('.$this->presenter->money((string) $totalDec).').';
         }
 
         $explanation = $this->buildExplanation($order, $total, $walletIn, $treasuryTxs, $walletTxs);

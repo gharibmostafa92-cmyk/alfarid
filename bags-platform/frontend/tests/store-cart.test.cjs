@@ -121,7 +121,7 @@ test('two tabs serialize their first additions and share one guest session', asy
   let releaseFirst;
   const firstResponse = new Promise(resolve => { releaseFirst = resolve; });
   let pendingLock = Promise.resolve();
-  const navigator = { locks: { request(name, callback) {
+  const navigator = { locks: { request(name, options, callback = options) {
     assert.equal(name, 'alfarid-store-cart');
     pendingLock = pendingLock.then(callback);
     return pendingLock;

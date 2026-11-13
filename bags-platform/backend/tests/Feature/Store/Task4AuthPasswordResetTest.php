@@ -51,6 +51,16 @@ class Task4AuthPasswordResetTest extends TestCase
         $response->assertOk();
     }
 
+    public function test_forgot_password_accepts_international_egyptian_phone_format(): void
+    {
+        Customer::factory()->create(['phone' => '01012345678']);
+
+        $this->postJson('/api/v1/store/auth/forgot-password', [
+            'email' => null,
+            'phone' => '+20 101 234 5678',
+        ])->assertOk();
+    }
+
     public function test_forgot_password_accepts_email_with_empty_string_phone(): void
     {
         $customer = Customer::factory()->create([

@@ -65,7 +65,11 @@ export default function TrackOrderPage() {
     }
     try {
       const raw = sessionStorage.getItem('last_order');
-      const parsed = raw ? (JSON.parse(raw) as { order_number?: string; recipient_phone?: string }) : null;
+      const parsed = raw ? (JSON.parse(raw) as { order_number?: string; recipient_phone?: string; expiresAt?: number }) : null;
+      if (parsed && !(typeof parsed.expiresAt === 'number' && parsed.expiresAt > Date.now())) {
+        sessionStorage.removeItem('last_order');
+        return;
+      }
       if (parsed?.order_number === initial && typeof parsed.recipient_phone === 'string') {
         setPhone(parsed.recipient_phone);
       }

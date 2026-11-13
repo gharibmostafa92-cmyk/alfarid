@@ -64,6 +64,13 @@ const fieldMap: Record<string, keyof CheckoutForm | 'banner'> = {
   expected_total: 'banner',
 };
 
+export function normalizeCheckoutPhone(value: string) {
+  const compact = value.trim().replace(/[\s().-]/g, '');
+  if (/^\+?20(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
+  if (/^0020(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
+  return compact;
+}
+
 export function buildAddressLine(
   form: Pick<CheckoutForm, 'street' | 'building' | 'floor' | 'apartment'>,
 ) {
@@ -209,6 +216,7 @@ export function useCheckout() {
     quoteRevision,
   ]);
   const liveQuote = shownQuote(quote, quotedFor, quoteKey, cartBusy, cartLoading);
+  const cartSignature = cartFingerprint(items);
 
   // A reload after a lost response must recover the same attempt, never create a second order.
   useEffect(() => {
@@ -221,7 +229,7 @@ export function useCheckout() {
       const mismatchedCart =
         items.length > 0 &&
         typeof saved?.fingerprint === 'string' &&
-        saved.fingerprint !== cartFingerprint(items);
+        saved.fingerprint !== cartSignature;
       if (saved && (expired || mismatchedCart)) {
         clearPendingStorage();
         return;
@@ -268,7 +276,7 @@ export function useCheckout() {
     } catch {
       /* Storage is optional; the in-memory attempt remains safe. */
     }
-  }, [hydrated, attemptOwner]);
+  }, [hydrated, attemptOwner, cartSignature]);
 
   const loadCities = useCallback(() => {
     setCitiesError(false);
@@ -431,7 +439,7 @@ export function useCheckout() {
     const e: Partial<Record<keyof CheckoutForm, string>> = {};
     if (!form.fullName.trim()) e.fullName = 'الاسم مطلوب';
     if (!form.phone.trim()) e.phone = 'رقم الموبايل مطلوب';
-    else if (!/^[0-9+\s().-]{7,}$/.test(form.phone.trim())) e.phone = 'رقم موبايل غير صالح';
+    else if (!/^\+?[0-9]{7,15}$/.test(normalizeCheckoutPhone(form.phone))) e.phone = 'رقم موبايل غير صالح';
     if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) {
       e.email = 'بريد إلكتروني غير صالح';
     }
@@ -576,7 +584,7 @@ export function useCheckout() {
       pending.current ??= {
         body: {
           recipient_name: form.fullName.trim(),
-          recipient_phone: form.phone.trim(),
+          recipient_phone: normalizeCheckoutPhone(form.phone),
           recipient_email: form.email.trim() || undefined,
           city_id: form.cityId!,
           shipping_address_line: addressLine,
@@ -608,15 +616,20 @@ export function useCheckout() {
       );
       if (attemptOwner === 'guest') rememberGuestOrder(res.data.order_number);
       try {
-        sessionStorage.setItem('last_order', JSON.stringify(res.data));
+        const { order_number, status, payment_method, payment_status, grand_total, items, recipient_phone } = res.data;
+        sessionStorage.setItem('last_order', JSON.stringify({
+          order_number, status, payment_method, payment_status, grand_total, items,
+          recipient_phone: attemptOwner === 'guest' ? recipient_phone : undefined,
+          expiresAt: Date.now() + 30 * 60_000,
+        }));
       } catch {
         /* Receipt storage must never turn a successful order into a retry. */
       }
       pending.current = null;
       clearPendingStorage();
       setUncertain(false);
-      await loadCart();
       router.replace(`/checkout/success?order=${encodeURIComponent(res.data.order_number)}`);
+      void loadCart().catch(() => {});
     } catch (e) {
       handleError(e);
       const response = (
@@ -637,7 +650,7 @@ export function useCheckout() {
         status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
 
       if (status === 429) {
-        setUncertain(false);
+        // A rate-limited retry cannot resolve an earlier request that may have committed.
         const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response
           ?.headers?.['retry-after'];
         setBanner({

@@ -12,6 +12,8 @@ use Tests\TestCase;
 
 class Task2Slice1SchemaTest extends TestCase
 {
+    use LazilyRefreshDatabase;
+
 
     public function test_critical_01_treasury_transactions_type_check_is_dropped_and_customer_receipt_reversal_allowed(): void
     {

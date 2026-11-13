@@ -6,6 +6,7 @@ namespace App\Observers;
 
 use App\Jobs\RefreshCatalogRetailPrices;
 use App\Models\Category;
+use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -98,15 +99,15 @@ class CatalogRetailPriceObserver
 
     public function deleted(Model $model): void
     {
-        $this->refresh($model);
+        $this->refresh($model, true);
     }
 
     public function restored(Model $model): void
     {
-        $this->refresh($model);
+        $this->refresh($model, true);
     }
 
-    private function refresh(Model $model): void
+    private function refresh(Model $model, bool $force = false): void
     {
         if ($model instanceof StockLevel) {
             PosService::invalidateCatalogVersionCache((int) $model->branch_id);
@@ -114,14 +115,29 @@ class CatalogRetailPriceObserver
             PosService::invalidateCatalogVersionCache(null);
         }
 
-        if ($model instanceof Category || $model instanceof Product) {
-            // These models affect the POS catalog version. The price snapshot
-            // comes from variants, price lists and stock.
+        if ($model instanceof Category) {
+            // Categories only affect the POS catalog version; the price
+            // snapshot comes from variants, price lists and stock.
             return;
         }
 
         $productIds = [];
-        if ($model instanceof ProductVariant) {
+        if ($model instanceof Product) {
+            // Snapshot columns are written by the refresh job itself; only
+            // publishability/category changes warrant another refresh.
+            if (! $force && ! $model->wasRecentlyCreated && ! $model->wasChanged(['status', 'sales_channel', 'category_id'])) {
+                return;
+            }
+            $productIds = [$model->id];
+        } elseif ($model instanceof PriceList) {
+            // Header changes (active window, priority, branch) alter every
+            // product priced by this list.
+            $variantIds = PriceListItem::query()
+                ->where('price_list_id', $model->id)
+                ->pluck('product_variant_id')
+                ->all();
+            $productIds = ProductVariant::withTrashed()->whereIn('id', $variantIds)->pluck('product_id')->all();
+        } elseif ($model instanceof ProductVariant) {
             $productIds = [$model->product_id, $model->getRawOriginal('product_id')];
         } elseif ($model instanceof PriceListItem || $model instanceof StockLevel) {
             $variantIds = [$model->product_variant_id, $model->getRawOriginal('product_variant_id')];

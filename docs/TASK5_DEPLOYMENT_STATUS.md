@@ -2,7 +2,7 @@
 
 Source roadmap: `_archive_unused/tasks_execution/task5.txt` (Finance, Treasury, POS Shift Settlement, Wallet Adjustments, Reporting, Reconciliation, and Migration Safety — F01–F21).
 Live Cloud Run revision baseline and historical audit notes are tracked in [Task execution audit](TASKS_EXECUTION_AUDIT.md) and [`docs/.last-deployed`](.last-deployed).
-Date: 2026-11-12
+Date: 2026-11-13
 
 ---
 
@@ -25,14 +25,17 @@ All items below are implemented and verified locally in the working tree on top 
 
 1. **New migration — POS shift settlement timestamp (`F03`):**
    - File: `bags-platform/backend/database/migrations/2026_11_12_000082_add_settled_at_to_pos_shifts.php`
+   - Note: the repository also contains `2026_11_12_000082_pos_task6_backend_fixes.php`; both share the `000082` prefix and apply in filename order. This is harmless because no production migration has run yet, but a future migration-number cleanup should rename one file before the next release.
    - Action: Adds nullable `pos_shifts.settled_at` timestamp under `SET LOCAL lock_timeout = '3s'`, backfills existing `approved` shifts with `settled_at = COALESCE(approved_at, updated_at, now())`, and guards rollback cleanly.
    - Deployment step: Rehearse on a Neon clone/branch with migration-owner credentials, then run `php artisan migrate --force`.
-2. **Hardened existing/pending unapplied migrations (`F07`):**
-   - `bags-platform/backend/database/migrations/2026_11_12_000053_guard_wallet_adjustment_amount.php`: Now runs `$withinTransaction = false`, adds `wallet_adjustments_amount_positive` with `NOT VALID` inside a `SET LOCAL lock_timeout = '3s'` transaction, then validates in a separate `VALIDATE CONSTRAINT` statement (`SHARE UPDATE EXCLUSIVE`, avoiding long `ACCESS EXCLUSIVE` locks).
-   - `bags-platform/backend/database/migrations/2026_11_12_000070_align_treasury_shift_expense_precision.php`: `down()` now pre-scans `pos_shifts` and `expenses` for values with `ABS(col) >= 10000000000` and aborts with `RuntimeException` before attempting a narrowing `numeric(12,2)` table rewrite.
+2. **Hardened existing/pending unapplied migrations (`F07`, `HIGH-05`):**
+   - `bags-platform/backend/database/migrations/2026_11_10_000002_backfill_wallet_transaction_types.php`: `$withinTransaction = false`; explicit transaction with `SET LOCAL lock_timeout = '5s'`; drops and recreates both `wallet_immutable` and `wallet_no_truncate` triggers so the backfill cannot be blocked by the append-only guard.
+   - `bags-platform/backend/database/migrations/2026_11_12_000069_restrict_treasury_branch_deletes.php`: discovers the actual `branch_id` foreign key from `pg_constraint` instead of assuming a name, creates it `NOT VALID` when absent, swaps via a length-safe `_new` constraint name, then validates outside the transaction. No `RuntimeException` on unexpected names.
+   - `bags-platform/backend/database/migrations/2026_11_12_000053_guard_wallet_adjustment_amount.php`: runs `$withinTransaction = false`, adds `wallet_adjustments_amount_positive` with `NOT VALID` inside a `SET LOCAL lock_timeout = '3s'` transaction, then validates in a separate `VALIDATE CONSTRAINT` statement (`SHARE UPDATE EXCLUSIVE`, avoiding long `ACCESS EXCLUSIVE` locks).
+   - `bags-platform/backend/database/migrations/2026_11_12_000070_align_treasury_shift_expense_precision.php`: `down()` pre-scans `pos_shifts` and `expenses` for values with `ABS(col) >= 10000000000` and aborts with `RuntimeException` before attempting a narrowing `numeric(12,2)` table rewrite.
 3. **Already-present prerequisite Task5 schema migrations (also pending prod if unapplied):**
-   - `2026_11_12_000008_treasury_ledger_immutability_trigger.php`, `000032`, `000068_treasury_ledger_integrity.php` (`F02`: append-only + `TRUNCATE` trigger + `RESTRICT` FK on `treasury_transactions`).
-   - `2026_11_12_000073_drop_legacy_treasury_transactions_type_check.php` (`F01`: drops conflicting legacy `treasury_transactions_type_check` so `customer_receipt_reversal` succeeds).
+   - `2026_11_12_000008_ledger_immutability_guards.php`, `000032_restrict_financial_history_deletes.php`, `000068_treasury_ledger_integrity.php` (`F02`: append-only + `TRUNCATE` trigger + `RESTRICT` FK on `treasury_transactions`).
+   - `2026_11_12_000073_add_stock_movements_report_index.php` (`F17`: reporting index; the older audit note that referenced a `drop_legacy_treasury_transactions_type_check` file was inaccurate — that filename does not exist in the tree).
 4. **Seeder update — POS shift permissions (`F18`):**
    - File: `bags-platform/backend/database/seeders/FinancialPermissionSeeder.php`
    - Action: Adds `pos_shifts.view`, `pos_shifts.approve`, `pos_shifts.force_close`.
@@ -52,16 +55,22 @@ All items below are implemented and verified locally in the working tree on top 
   - `ExpenseService::void` & `ExpenseController::destroy`: Moved `assertExpenseAccess` inside `DB::transaction` on locked `$expense`, added optional `OperationIdempotencyService` support via `Idempotency-Key` header.
   - `PosShiftAdminController.php` & `TreasuryTransferController.php`: Restricted `PosShiftAdminController::index` to reject out-of-branch filters with `403`; updated `TreasuryTransferController::index`/`show` to `OR` branch visibility (with eager `loadMissing`) while retaining `AND` for `approve`/`reject`; wired `OperationIdempotencyService` to `approve()` endpoints.
 - **Slice 4 — Reports, Reconciliation & Statement Timeout (`F05`, `F06`, `F11`, `F15`, `F16`, `F17`):**
-  - `StatementBudget.php`: Added `try ... finally` restoration of `statement_timeout` guarding aborted-transaction rollback safety.
-  - `ReportService.php`: Moved `periodBounds` validation before `StatementBudget::run`; fixed cross-period order revenue duplication via `HAVING MIN(created_at) >= ? AND < ?` and bounded return legs (`boundSalesToPeriod: false`); unified `inventoryReport` cache key under per-branch `Cache::lock` with pure `stripInventoryCosts()` projection and business-timezone dead-stock cutoff; eliminated PHP float arithmetic drift via `BigDecimal` accumulation and `moneyFloat()`; enforced strict `!Y-m-d` validation and bound `$businessToday` in `calculateSuppliersReport`.
-  - `ReconcileFinance.php`: Scoped wallet reconciliation (`w_ledger`, `w_sums`, `w_problems`, `customers` count) to run only when `--branch_id` is `NULL`, isolating branch-level runs cleanly.
+  - `StatementBudget.php`: Applies the budget with isolation `SET TRANSACTION` plus a single `SET LOCAL statement_timeout` (2 round trips); the previous-timeout select/finally was removed because transaction rollback restores the session setting.
+  - `ReportService.php`: Revenue recognizes an order only in its first-sale period via `whereExists` current-window sale + `whereNotExists` earlier sale, eliminating cross-period duplication without `MIN()`; branch attribution is order-level (`o.allocated_branch_id`). COGS for order-linked sale movements joins orders and uses the same order branch, while returns/non-order movements use the movement branch so one branch never sees only one side of a sale. Inventory valuation sums raw decimal rows with `BigDecimal` (no `array_sum` float path); supplier report orders by `ABS(current_balance) DESC, name ASC` before the 500-row cap.
+  - `ReconcileFinance.php`: Scoped wallet reconciliation (`w_ledger`, `w_totals`, `w_problems`, `customers` count) to run only when `--branch_id` is `NULL`, isolating branch-level runs cleanly; retention raised from 14 to 90 days for auditability; samples decoded once; ledger totals now come from window aggregates instead of separate full-table `SUM` scans.
+- **Audit round 2 — Daily close, order-money tool, transfers, expense dates (`HIGH-02`, `MEDIUM-01`..`MEDIUM-05`, `HIGH-03`, `HIGH-04`):**
+  - `DailyCloseBriefingTool`: business-timezone default date, exclusive next-day end bound, net cash sales (`cash_amount`/cash fallback minus POS return cash), one grouped transfer count query, `BigDecimal` throughout (no `bcsub`/`bccomp`), deterministic oldest-safe selection, and pending-out aggregation outside the drawer loop in `FinanceWriteGuards::suggestTopUp`.
+  - `ExplainOrderMoneyTool`: uses `WalletService::ORDER_REFERENCES` plus both return aliases, decimal-exact movement sums, accurate refund warning that mentions independent `wallet_adjustment` documents, and no float tolerance.
+  - `TreasuryService::createTransfer`: reserves pending incoming transfers against `MAX_TREASURY_BALANCE`; new creator-only `cancelTransfer` + `POST /treasury-transfers/{id}/cancel` (stored as `rejected` with a cancellation reason) while approved/rejected statuses keep their existing check constraint.
+  - `ExpenseController::store`: date bounds use `app.business_timezone` (Cairo by default), so an expense dated today remains valid after UTC midnight.
+  - `FinanceWriteGuards`: deactivation is allowed for zero-balance accounts without unsettled shifts or pending transfers; branch moves remain strict. Duplicate treasury codes map to HTTP 409 instead of 500.
 
 #### 3. Frontend Package Changes Pending Build & Deploy
 
-- `bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts`: Added optional `idempotencyKey?: string` on `expensesApi.void` and `shiftsApi.approve`, plus `shiftsApi.reject`, `shiftsApi.reopen`, and `shiftsApi.forceClose` endpoints matching `PosShiftAdminController`.
+- `bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts`: Added optional `idempotencyKey?: string` on `expensesApi.void` and `shiftsApi.approve`, plus `shiftsApi.reject`, `shiftsApi.reopen`, and `shiftsApi.forceClose` endpoints matching `PosShiftAdminController`; `paymentNoticesApi.approve` always generates a key when omitted; `PosShift` now exposes `approved_at`/`settled_at`/`approved_by`; `TreasuryTransfer.status` is the literal union and its treasury relations include `code`/`branch_id`/`type`.
 - **No new environment variables or queue worker topology changes required** beyond redeploying the updated API image, rebuilding frontend apps (`backoffice` / workspace packages), running `php artisan migrate --force` (migration owner), and running `php artisan db:seed --class=FinancialPermissionSeeder --force`.
 - **Operational deployment sequence:**
-  1. Rehearse migrations (`000008`, `000032`, `000053`, `000068`–`000073`, `000082`) on a Neon Staging Branch with the migration-owner role.
+  1. Rehearse migrations (`000002`, `000008`, `000032`, `000053`, `000068`–`000070`, `000082`) on a Neon Staging Branch with the migration-owner role.
   2. Apply `php artisan migrate --force` and `php artisan db:seed --class=FinancialPermissionSeeder --force` during deployment window.
   3. Build & push updated Cloud Run API container image (`alfarid-api`) and promote after `/up` and `/health/ready` checks pass.
   4. Rebuild & deploy frontend apps consuming `@alfarid/api-client`.

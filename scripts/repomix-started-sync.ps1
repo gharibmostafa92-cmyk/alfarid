@@ -238,7 +238,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 5. POS Terminal
-    if ($p -match 'apps/pos/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt' -and $p -notmatch 'productionreceipt') {
+    if ($p -match 'apps/pos/|packages/pos-core/|pos-core/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt' -and $p -notmatch 'productionreceipt') {
         if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         if ($configs.ContainsKey('repomix.pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.pos-terminal.json') }
     }

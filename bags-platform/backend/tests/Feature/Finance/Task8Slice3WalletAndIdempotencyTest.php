@@ -82,12 +82,14 @@ class Task8Slice3WalletAndIdempotencyTest extends TestCase
         } catch (BusinessException) {
         }
 
-        // Zero movements match the documented product decision without crashing on checkout_payment/refund.
-        $zeroPayment = $wallet->record($customer->id, 0, 'checkout_payment', 'order', 501);
-        $this->assertSame('0.00', (string) $zeroPayment->amount);
-
-        $zeroRefund = $wallet->record($customer->id, 0, 'return_refund', 'return_request', 502);
-        $this->assertSame('0.00', (string) $zeroRefund->amount);
+        foreach (['checkout_payment' => 'order', 'return_refund' => 'return_request'] as $type => $reference) {
+            try {
+                $wallet->record($customer->id, 0, $type, $reference, 501);
+                $this->fail("Expected a zero {$type} to be rejected.");
+            } catch (BusinessException $exception) {
+                $this->assertSame(422, $exception->status);
+            }
+        }
     }
 
     public function test_f08_wallet_adjustment_blocks_suspended_or_rejected_customer_and_reverse_locks_db_row(): void

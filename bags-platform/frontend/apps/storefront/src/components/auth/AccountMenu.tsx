@@ -14,11 +14,11 @@ export function AccountMenu() {
   useEffect(() => setHydrated(true), []);
 
   if (!hydrated) return null;
-  if (!token) return <Link href="/auth/login">تسجيل الدخول</Link>;
+  if (!token) return <Link href="/auth/login" aria-label="تسجيل الدخول">تسجيل الدخول</Link>;
   return (
     <div className="flex items-center gap-4 text-sm">
-      <Link href={home ?? '/'}>مرحبًا {String(user?.name ?? '')}</Link>
-      <button type="button" disabled={busy} onClick={() => { setBusy(true); void logoutWeb(); }}>
+      <Link href={home ?? '/'} aria-label="حسابي">مرحبًا {String(user?.name ?? '')}</Link>
+      <button type="button" disabled={busy} aria-label={busy ? 'جارٍ تسجيل الخروج' : 'تسجيل الخروج'} onClick={() => { setBusy(true); void logoutWeb(); }}>
         {busy ? 'جارٍ تسجيل الخروج…' : 'تسجيل الخروج'}
       </button>
     </div>

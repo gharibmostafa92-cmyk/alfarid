@@ -26,7 +26,7 @@ return new class extends Migration
 
         // F01: validate treasury_transactions_type_sign_check added NOT VALID in 000068.
         if (DB::selectOne("SELECT 1 FROM pg_constraint WHERE conrelid = 'treasury_transactions'::regclass AND conname = 'treasury_transactions_type_sign_check'") !== null) {
-            DB::statement('ALTER TABLE treasury_transactions VALIDATE CONSTRAINT treasury_transactions_type_sign_check');
+            $this->validate('treasury_transactions', 'treasury_transactions_type_sign_check');
         }
 
         // F01: ensure legacy NOT VALID separate_approver is gone and approver_required is present and validated.
@@ -37,7 +37,7 @@ return new class extends Migration
                 DB::statement("ALTER TABLE treasury_transfers ADD CONSTRAINT treasury_transfers_approver_required CHECK (status <> 'approved' OR (approved_by IS NOT NULL AND approved_by <> created_by)) NOT VALID");
             }
         });
-        DB::statement('ALTER TABLE treasury_transfers VALIDATE CONSTRAINT treasury_transfers_approver_required');
+        $this->validate('treasury_transfers', 'treasury_transfers_approver_required');
 
         // F10: composite index for per-branch dead-stock LATERAL lookup.
         ConcurrentIndex::ensure(
@@ -60,6 +60,14 @@ return new class extends Migration
             WHERE o.status = 'returned'
               AND o.returned_at IS NULL
             SQL);
+    }
+
+    private function validate(string $table, string $constraint): void
+    {
+        DB::transaction(function () use ($table, $constraint): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+        });
     }
 
     public function down(): void

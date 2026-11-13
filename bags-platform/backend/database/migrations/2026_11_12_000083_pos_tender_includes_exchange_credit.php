@@ -37,8 +37,7 @@ return new class extends Migration
                 SQL);
         });
 
-        DB::statement("SET statement_timeout = '10s'");
-        DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+        $this->validateTenderConstraint();
     }
 
     public function down(): void
@@ -64,8 +63,16 @@ return new class extends Migration
 
         $hasExchangeCredits = (bool) DB::scalar("SELECT EXISTS(SELECT 1 FROM orders WHERE COALESCE(exchange_credit, 0) > 0)");
         if (! $hasExchangeCredits) {
-            DB::statement("SET statement_timeout = '10s'");
-            DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+            $this->validateTenderConstraint();
         }
+    }
+
+    private function validateTenderConstraint(): void
+    {
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement("SET LOCAL statement_timeout = '10s'");
+            DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+        });
     }
 };

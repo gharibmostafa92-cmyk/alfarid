@@ -86,6 +86,42 @@ class Task2Slice3ReportsAndAiTest extends TestCase
         $this->assertStringNotContainsString('alert(1)', $topUp['prompt']);
     }
 
+    public function test_medium_05_expense_date_uses_business_timezone_after_utc_midnight(): void
+    {
+        $this->seed([\Database\Seeders\SettingSeeder::class, \Database\Seeders\FinancialPermissionSeeder::class]);
+
+        $branch = Branch::query()->firstOrCreate(['code' => 'T2_EXP_TZ'], ['name' => 'TZ Branch', 'is_active' => true]);
+        $treasury = Treasury::query()->create([
+            'code' => 'T2_EXP_TZ_TR_'.uniqid(),
+            'name' => 'TZ Safe',
+            'type' => 'main_safe',
+            'branch_id' => $branch->id,
+            'is_active' => true,
+        ]);
+        $treasury->forceFill(['current_balance' => '1000.00'])->save();
+
+        $user = User::factory()->create(['branch_id' => $branch->id]);
+        $user->assignRole(\Spatie\Permission\Models\Role::findOrCreate(StaffRole::SuperAdmin->value, 'staff'));
+        $token = $user->createToken('test')->plainTextToken;
+
+        // 22:30 UTC is already the next day in Africa/Cairo; the business date must win.
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-12 22:30:00', 'UTC'));
+        try {
+            $response = $this->withHeader('Authorization', "Bearer {$token}")
+                ->withHeader('Idempotency-Key', (string) \Illuminate\Support\Str::uuid())
+                ->postJson('/api/v1/admin/expenses', [
+                    'branch_id' => $branch->id,
+                    'treasury_id' => $treasury->id,
+                    'category' => 'office',
+                    'amount' => '50.00',
+                    'expense_date' => '2026-11-13',
+                ]);
+            $response->assertStatus(201);
+        } finally {
+            $this->travelBack();
+        }
+    }
+
     public function test_medium_05_expense_date_boundaries_reject_future_or_extreme_dates(): void
     {
         $this->seed([\Database\Seeders\SettingSeeder::class, \Database\Seeders\FinancialPermissionSeeder::class]);

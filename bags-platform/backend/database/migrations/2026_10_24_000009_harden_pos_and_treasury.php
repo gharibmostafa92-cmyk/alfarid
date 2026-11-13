@@ -72,6 +72,9 @@ SQL);
             DB::statement("ALTER TABLE {$table} DROP CONSTRAINT IF EXISTS {$constraint},
                 ADD CONSTRAINT {$constraint} CHECK ({$expression}) NOT VALID");
         });
-        DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+        DB::transaction(function () use ($table, $constraint): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+        });
     }
 };

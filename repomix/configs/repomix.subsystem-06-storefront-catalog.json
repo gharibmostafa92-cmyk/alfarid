@@ -90,7 +90,13 @@
                     "bags-platform/frontend/apps/pos/src/stores/pos-cart.store.ts",
                     "bags-platform/frontend/apps/pos/src/stores/pos-cart.core.ts",
                     "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
-                    "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php"
+                    "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php",
+                    "bags-platform/frontend/apps/storefront/next.config.mjs",
+                    "bags-platform/frontend/packages/pos-core/src/components/terminal/Cart.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/terminal/CartLine.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/terminal/Catalog.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/stores/pos-cart.core.ts",
+                    "bags-platform/frontend/packages/pos-core/src/stores/pos-cart.store.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

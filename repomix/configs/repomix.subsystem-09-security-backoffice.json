@@ -83,7 +83,10 @@
                     "bags-platform/frontend/apps/storefront/src/store/auth.store.ts",
                     "bags-platform/frontend/apps/storefront/src/hooks/use-auth-me.ts",
                     "bags-platform/frontend/apps/storefront/src/components/auth/HumanVerification.tsx",
-                    "bags-platform/frontend/apps/storefront/src/components/auth/LoginScreen.tsx"
+                    "bags-platform/frontend/apps/storefront/src/components/auth/LoginScreen.tsx",
+                    "bags-platform/frontend/apps/backoffice/tailwind.config.js",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/AccountMenu.tsx",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/PhoneVerification.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

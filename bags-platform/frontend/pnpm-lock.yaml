@@ -24,6 +24,9 @@ importers:
       '@alfarid/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@alfarid/pos-core':
+        specifier: workspace:*
+        version: link:../../packages/pos-core
       '@alfarid/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -109,6 +112,9 @@ importers:
       '@alfarid/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@alfarid/pos-core':
+        specifier: workspace:*
+        version: link:../../packages/pos-core
       '@alfarid/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -261,6 +267,37 @@ importers:
         version: 5.9.3
 
   packages/config: {}
+
+  packages/pos-core:
+    dependencies:
+      '@alfarid/api-client':
+        specifier: workspace:*
+        version: link:../api-client
+      '@alfarid/utils':
+        specifier: workspace:*
+        version: link:../utils
+      zustand:
+        specifier: ^5.0.3
+        version: 5.0.15(@types/react@19.3.0)(react@19.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.8
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.0.3
+        version: 19.3.0(@types/react@19.3.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vite:
+        specifier: ^6.1.0
+        version: 6.4.4(@types/node@20.19.43)(jiti@1.21.7)
 
   packages/ui:
     dependencies:

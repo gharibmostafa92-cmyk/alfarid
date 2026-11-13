@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const POS = path.join(__dirname, '../apps/backoffice/src/pages/pos');
+const POS = path.join(__dirname, '../packages/pos-core/src');
 const money = require(path.join(POS, 'lib/money.ts'));
 const { normAr } = require(path.join(POS, 'lib/arabic.ts'));
 const { normalizeError, PosApiError } = require(path.join(POS, 'lib/pos-error.ts'));

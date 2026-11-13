@@ -157,7 +157,7 @@ test('production CSP excludes local HTTP images while development previews retai
     const { middleware } = load('apps/storefront/src/middleware.ts', {
       'next/server': { NextResponse: { next: () => ({ headers: new Headers() }) } },
     });
-    const request = { headers: new Headers(), nextUrl: { hostname: 'localhost' } };
+    const request = { headers: new Headers(), nextUrl: { hostname: 'localhost', pathname: '/' } };
     process.env.NODE_ENV = 'production';
     const production = middleware(request).headers.get('Content-Security-Policy').split('; ').find(x => x.startsWith('img-src'));
     assert.ok(!production.includes('http://localhost'));

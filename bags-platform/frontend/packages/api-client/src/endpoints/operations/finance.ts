@@ -94,16 +94,24 @@ export const expensesApi = {
       .then((r) => one<Expense>(r)),
 };
 
+export type TreasuryTransferStatus = "pending" | "approved" | "rejected";
+type TransferTreasury = {
+  id: number;
+  name: string;
+  code: string;
+  branch_id: number | null;
+  type: TreasuryType;
+};
 export interface TreasuryTransfer {
   id: number;
   transfer_number: string;
   from_treasury_id: number;
   to_treasury_id: number;
   amount: string;
-  status: string;
+  status: TreasuryTransferStatus;
   notes: string | null;
-  from_treasury?: Named;
-  to_treasury?: Named;
+  from_treasury?: TransferTreasury;
+  to_treasury?: TransferTreasury;
   creator?: Named;
   approver?: Named;
   rejecter?: Named;
@@ -167,6 +175,9 @@ export interface PosShift {
   branch?: Named;
   treasury?: Named;
   approver?: Named;
+  approved_at: string | null;
+  settled_at: string | null;
+  approved_by: number | null;
   status: "open" | "closed_pending_approval" | "approved";
   opened_at: string;
   closed_at: string | null;
@@ -334,9 +345,7 @@ export const paymentNoticesApi = {
   ) =>
     api
       .post(`${PN}/${id}/approve`, body, {
-        headers: idempotencyKey
-          ? { "Idempotency-Key": idempotencyKey }
-          : undefined,
+        headers: { "Idempotency-Key": idempotencyKey ?? newIdempotencyKey() },
       })
       .then((r) => one<PaymentNotice>(r)),
   reject: (id: Id, admin_notes: string) =>

@@ -50,7 +50,14 @@
                     "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php",
                     "bags-platform/backend/app/Services/Ai/Finance/Tools/DailyCloseBriefingTool.php",
                     "bags-platform/backend/app/Services/Ai/Finance/Tools/ExplainOrderMoneyTool.php",
-                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts"
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts",
+                    "bags-platform/backend/app/Console/Commands/Operations/ReconcileInventory.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Customer/CustomerWalletController.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/FinancePresenter.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/CreateTreasuryTransferTool.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/RejectTreasuryTransferTool.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/SetTreasuryStatusTool.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/UpdateTreasuryTool.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

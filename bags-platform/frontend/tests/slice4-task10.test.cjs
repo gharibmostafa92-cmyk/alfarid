@@ -31,8 +31,8 @@ function readSource(relative) {
 }
 
 // ---------- F06: POS math, validation, discount clamp, mock detachment ----------
-test('F06: POS money helpers reject invalid/non-positive prices and dynamically clamp discounts in both apps', () => {
-  for (const rel of ['apps/pos/src/lib/money.ts', 'apps/backoffice/src/pages/pos/lib/money.ts']) {
+test('F06: POS money helpers reject invalid/non-positive prices and dynamically clamp discounts', () => {
+  for (const rel of ['packages/pos-core/src/lib/money.ts']) {
     const money = loadTs(rel);
     assert.equal(typeof money.parsePositivePrice, 'function', `${rel} must export parsePositivePrice`);
     assert.equal(typeof money.parseNonNegativeAmount, 'function', `${rel} must export parseNonNegativeAmount`);
@@ -72,7 +72,7 @@ test('F06: POS money helpers reject invalid/non-positive prices and dynamically 
 });
 
 test('F06: POS terminal components avoid direct posMockService coupling and cap stock increments', () => {
-  for (const appPrefix of ['apps/pos/src', 'apps/backoffice/src/pages/pos']) {
+  for (const appPrefix of ['packages/pos-core/src']) {
     const cartLineSrc = readSource(`${appPrefix}/components/terminal/CartLine.tsx`);
     assert.equal(cartLineSrc.includes('posMockService'), false, `${appPrefix} CartLine must not import posMockService directly`);
     assert.match(cartLineSrc, /parsePositivePrice/);
@@ -85,10 +85,10 @@ test('F06: POS terminal components avoid direct posMockService coupling and cap 
     assert.equal(catalogSrc.includes('posMockService'), false, `${appPrefix} Catalog must not use posMockService identifier`);
   }
   for (const file of [
-    'apps/pos/src/components/checkout/CheckoutModal.tsx',
-    'apps/pos/src/components/checkout/HoldModal.tsx',
-    'apps/pos/src/components/checkout/HeldDrawer.tsx',
-    'apps/pos/src/components/checkout/ReceiptDone.tsx',
+    'packages/pos-core/src/components/checkout/CheckoutModal.tsx',
+    'packages/pos-core/src/components/checkout/HoldModal.tsx',
+    'packages/pos-core/src/components/checkout/HeldDrawer.tsx',
+    'packages/pos-core/src/components/checkout/ReceiptDone.tsx',
   ]) {
     const src = readSource(file);
     assert.equal(src.includes('posMockService'), false, `${file} must not reference posMockService`);

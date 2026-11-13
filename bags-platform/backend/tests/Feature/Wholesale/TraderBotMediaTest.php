@@ -33,7 +33,8 @@ class TraderBotMediaTest extends TestCase
         $this->seed(RolePermissionSeeder::class);
         $this->seed(WholesalePortalPermissionSeeder::class);
         $this->seed(SettingSeeder::class);
-        config(['services.gemini.api_key' => 'test-key']);
+        config(['services.gemini.api_key' => 'test-key', 'services.gemini.model' => 'test-model']);
+        Http::preventStrayRequests();
     }
 
     private function verifiedTrader(): Customer

@@ -43,6 +43,9 @@ return new class extends Migration
                 DROP CONSTRAINT IF EXISTS treasury_transactions_type_check,
                 ADD CONSTRAINT treasury_transactions_type_check CHECK (type IN ({$types})) NOT VALID");
         });
-        DB::statement('ALTER TABLE treasury_transactions VALIDATE CONSTRAINT treasury_transactions_type_check');
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement('ALTER TABLE treasury_transactions VALIDATE CONSTRAINT treasury_transactions_type_check');
+        });
     }
 };

@@ -35,7 +35,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:treasury_transfers.view', only: ['index', 'show']),
-            new Middleware('can:treasury_transfers.create', only: ['store']),
+            new Middleware('can:treasury_transfers.create', only: ['store', 'cancel']),
             new Middleware('can:treasury_transfers.approve', only: ['approve', 'reject']),
         ];
     }
@@ -70,16 +70,21 @@ class TreasuryTransferController extends Controller implements HasMiddleware
                     if ($probedTreasury === null) {
                         throw new AuthorizationException('الخزينة غير متاحة لفرعك.');
                     }
-                    $this->branchAccess->assertTreasury($staff->id, $probedTreasury);
+                    try {
+                        $this->branchAccess->assertTreasury($staff->id, $probedTreasury);
+                    } catch (AuthorizationException) {
+                        // Uniform denial for missing and foreign treasuries to avoid ID enumeration.
+                        throw new AuthorizationException('الخزينة غير متاحة لفرعك.');
+                    }
                 }
             }
         }
         $transfers = TreasuryTransfer::query()->when($branch !== null, function ($q) use ($branch) {
             $branchTreasuryIds = Treasury::query()->where('branch_id', $branch)->pluck('id');
 
-            return $q->where(fn ($w) => $w
-                ->whereIn('from_treasury_id', $branchTreasuryIds)
-                ->orWhereIn('to_treasury_id', $branchTreasuryIds));
+            // Least privilege: branch users only see transfers fully inside their branch.
+            return $q->whereIn('from_treasury_id', $branchTreasuryIds)
+                ->whereIn('to_treasury_id', $branchTreasuryIds);
         })
             ->with(self::RELATIONS_INDEX)
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
@@ -199,22 +204,36 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         ]);
     }
 
+    /**
+     * Cancels a pending transfer owned by the requesting creator.
+     */
+    public function cancel(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
+    {
+        $staff = $request->user('staff');
+        $treasuryTransfer->loadMissing(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type']);
+        $this->assertTransferAccess((int) $staff->id, $treasuryTransfer);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $transfer = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'treasury_transfer_cancel',
+                $staff,
+                $idempotencyKey,
+                ['transfer_id' => $treasuryTransfer->id],
+                fn () => $this->treasury->cancelTransfer($treasuryTransfer, (int) $staff->id),
+            )
+            : $this->treasury->cancelTransfer($treasuryTransfer, (int) $staff->id);
+
+        return response()->json([
+            'message' => 'تم إلغاء طلب تحويل الخزينة.',
+            'data' => $transfer->load(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type', 'rejecter:id,name']),
+        ]);
+    }
+
     private function assertTransferReadAccess(int $userId, TreasuryTransfer $transfer): void
     {
-        $lastError = null;
-        foreach ([$transfer->fromTreasury, $transfer->toTreasury] as $treasury) {
-            try {
-                $this->branchAccess->assertTreasury($userId, $treasury);
-
-                return;
-            } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
-                $lastError = $e;
-            }
-        }
-
-        if ($lastError !== null) {
-            throw $lastError;
-        }
+        // Reads enforce the same two-sided rule as approvals so a branch user
+        // can never inspect the other side's treasury details or notes.
+        $this->assertTransferAccess($userId, $transfer);
     }
 
     private function assertTransferAccess(int $userId, TreasuryTransfer $transfer): void

@@ -127,7 +127,7 @@ class Task5Slice3ShiftAndTransferTest extends TestCase
         $this->assertSame('0.00', $drawer->fresh()->current_balance);
     }
 
-    public function test_f13_restricted_branch_manager_sees_incoming_and_cross_branch_transfers_in_index_and_show_only(): void
+    public function test_f13_restricted_branch_manager_only_sees_transfers_fully_inside_the_branch(): void
     {
         $branchA = Branch::factory()->create(['is_active' => true]);
         $branchB = Branch::factory()->create(['is_active' => true]);
@@ -159,24 +159,33 @@ class Task5Slice3ShiftAndTransferTest extends TestCase
             'is_active' => true,
         ]), fn (Treasury $t) => $t->forceFill(['current_balance' => '1000.00'])->save());
 
+        $safeB2 = tap(Treasury::create([
+            'name' => 'Safe B2',
+            'code' => 'SB2-'.Str::uuid(),
+            'branch_id' => $branchB->id,
+            'type' => TreasuryType::MainSafe,
+            'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => '0.00'])->save());
+
         $treasury = app(TreasuryService::class);
         $centralToB = $treasury->createTransfer(['from_treasury_id' => $centralSafe->id, 'to_treasury_id' => $safeB->id, 'amount' => '300.00'], $centralAdmin->id);
         $aToB = $treasury->createTransfer(['from_treasury_id' => $safeA->id, 'to_treasury_id' => $safeB->id, 'amount' => '200.00'], $centralAdmin->id);
         $centralToA = $treasury->createTransfer(['from_treasury_id' => $centralSafe->id, 'to_treasury_id' => $safeA->id, 'amount' => '150.00'], $centralAdmin->id);
+        $bToB = $treasury->createTransfer(['from_treasury_id' => $safeB->id, 'to_treasury_id' => $safeB2->id, 'amount' => '100.00'], $centralAdmin->id);
 
         $token = $branchBManager->createToken('branch-b')->plainTextToken;
 
         $indexIds = collect(
             $this->withToken($token)->getJson('/api/v1/admin/treasury-transfers')->assertOk()->json('data')
         )->pluck('id')->all();
-        $this->assertEqualsCanonicalizing([$centralToB->id, $aToB->id], $indexIds);
+        $this->assertEqualsCanonicalizing([$bToB->id], $indexIds);
 
         Auth::forgetGuards();
-        $this->withToken($token)->getJson("/api/v1/admin/treasury-transfers/{$centralToB->id}")->assertOk();
-        Auth::forgetGuards();
-        $this->withToken($token)->getJson("/api/v1/admin/treasury-transfers/{$aToB->id}")->assertOk();
-        Auth::forgetGuards();
-        $this->withToken($token)->getJson("/api/v1/admin/treasury-transfers/{$centralToA->id}")->assertForbidden();
+        $this->withToken($token)->getJson("/api/v1/admin/treasury-transfers/{$bToB->id}")->assertOk();
+        foreach ([$centralToB, $aToB, $centralToA] as $hidden) {
+            Auth::forgetGuards();
+            $this->withToken($token)->getJson("/api/v1/admin/treasury-transfers/{$hidden->id}")->assertForbidden();
+        }
 
         // Mutations across foreign/central treasury boundary remain forbidden.
         Auth::forgetGuards();
@@ -327,5 +336,74 @@ class Task5Slice3ShiftAndTransferTest extends TestCase
         $this->assertSame($sh1->json('data.id'), $sh2->json('data.id'));
         $this->assertSame('1500.00', $safe->fresh()->current_balance);
         $this->assertSame('0.00', $drawer->fresh()->current_balance);
+    }
+
+    public function test_create_transfer_reserves_pending_incoming_against_the_balance_ceiling(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $creator = $this->userWithPermissions($branch->id, ['treasury_transfers.create']);
+        $from = Treasury::create([
+            'name' => 'Source Bank', 'code' => 'SRC-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::BankAccount, 'is_active' => true,
+        ]);
+        $to = Treasury::create([
+            'name' => 'Dest Bank', 'code' => 'DST-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::BankAccount, 'is_active' => true,
+        ]);
+        $to->forceFill(['current_balance' => '999999999990.00'])->save();
+
+        $service = app(TreasuryService::class);
+        $service->createTransfer([
+            'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '5.00',
+        ], $creator->id);
+
+        $this->expectException(BusinessException::class);
+        $this->expectExceptionMessage('يتجاوز الحد المسموح');
+        $service->createTransfer([
+            'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '10.00',
+        ], $creator->id);
+    }
+
+    public function test_only_the_creator_can_cancel_a_pending_transfer(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $creator = $this->userWithPermissions($branch->id, ['treasury_transfers.create', 'treasury_transfers.approve']);
+        $other = $this->userWithPermissions($branch->id, ['treasury_transfers.create']);
+        $from = Treasury::create([
+            'name' => 'Source Bank', 'code' => 'SRC-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::BankAccount, 'is_active' => true,
+        ]);
+        $to = Treasury::create([
+            'name' => 'Dest Bank', 'code' => 'DST-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::BankAccount, 'is_active' => true,
+        ]);
+
+        $service = app(TreasuryService::class);
+        $own = $service->createTransfer([
+            'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '25.00',
+        ], $creator->id);
+
+        $creatorToken = $creator->createToken('creator')->plainTextToken;
+        $this->withToken($creatorToken)
+            ->postJson("/api/v1/admin/treasury-transfers/{$own->id}/reject", ['reason' => 'اختبار الرفض'])
+            ->assertForbidden();
+        $this->assertSame(TreasuryTransferStatus::Pending, $own->fresh()->status);
+
+        $this->withToken($creatorToken)
+            ->postJson("/api/v1/admin/treasury-transfers/{$own->id}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.status', TreasuryTransferStatus::Rejected->value);
+        $this->assertSame($creator->id, (int) $own->fresh()->rejected_by);
+
+        $foreign = $service->createTransfer([
+            'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '30.00',
+        ], $creator->id);
+
+        Auth::forgetGuards();
+        $otherToken = $other->createToken('other')->plainTextToken;
+        $this->withToken($otherToken)
+            ->postJson("/api/v1/admin/treasury-transfers/{$foreign->id}/cancel")
+            ->assertForbidden();
+        $this->assertSame(TreasuryTransferStatus::Pending->value, $foreign->fresh()->status->value);
     }
 }

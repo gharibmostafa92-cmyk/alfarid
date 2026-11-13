@@ -301,6 +301,12 @@ class StoreCatalogService
     /**
      * Restrict products to variants whose compare-at or price-list price is genuinely
      * below the effective retail selling price, matching displayPrice().
+     *
+     * Intentional contract: this filter only reflects public retail price lists
+     * (no branch/customer-group/customer scope). Structural facet caches are
+     * therefore shared across pricing contexts, while price_ranges stays keyed by
+     * the pricing context. Customer-specific or wholesale discounts are not
+     * represented here and must not be assumed to appear in the on_sale facet.
      */
     private function applyDiscountedFilter(Builder $query): void
     {
@@ -529,6 +535,8 @@ class StoreCatalogService
      */
     private function facetsCacheKey(array $filters): string
     {
+        // Structure facets (including on_sale) are pricing-context independent by
+        // design; only price_ranges is keyed by the pricing context.
         $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
         $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock', 'on_sale']);
         if (! empty($base['category'])) {
@@ -687,33 +695,15 @@ class StoreCatalogService
      */
     public function similar(Product $product): Collection
     {
-        // Retrieve candidate pool by sales index, rank in-stock items in memory, and hydrate top 8 models.
-        $candidates = $this->publishedQuery()->withoutEagerLoads()
+        // Rank in-stock products in SQL and hydrate only the eight rows we return.
+        return $this->publishedQuery()
             ->where('products.id', '!=', $product->id)
             ->where('products.category_id', $product->category_id)
             ->reorder()
+            ->orderByDesc('store_available')
             ->orderByDesc('products.sales_count')
             ->orderByDesc('products.id')
-            ->limit(40)
+            ->limit(8)
             ->get();
-
-        $orderedIds = $candidates
-            ->sort(fn ($a, $b) => [((float) $b->store_available > 0 ? 1 : 0), (int) $b->sales_count, (int) $b->id]
-                <=> [((float) $a->store_available > 0 ? 1 : 0), (int) $a->sales_count, (int) $a->id])
-            ->take(8)
-            ->pluck('id')
-            ->all();
-
-        $full = $orderedIds === []
-            ? new Collection
-            : $this->publishedQuery()
-                ->whereIn('products.id', $orderedIds)
-                ->get()
-                ->keyBy('id');
-
-        return new Collection(collect($orderedIds)
-            ->map(fn ($id) => $full->get($id))
-            ->filter()
-            ->all());
     }
 }

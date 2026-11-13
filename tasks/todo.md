@@ -1,29 +1,31 @@
-# task3.txt execution — todo list
+# task7.txt execution — todo list
 
-## Phase A — stocktake correctness
-- [ ] T0: probe test env (`php artisan --version`, one quick inventory test file)
-- [ ] T1 (L-2): failing test for mismatched scan_id replay → 409; implement compare; run `StocktakeScanIdempotencyTest`
-- [ ] T2 (C-1/M-1): failing tests for recount-zero + correction-demands-recount; implement in `upsertItems`; update sanctioned tests; run stocktake suites
+## Phase A — backend correctness
+- [ ] T1 (F01): failing coupon test for untrusted cart token + independent IP/customer cap; implement; run coupon suites
+- [ ] T2 (F02): observer test for Product/PriceList mutations; implement; run catalog snapshot tests
+- [ ] T3 (F06): trim tests; implement; run product/variant suites
+- [ ] T4 (F07): afterCommit placement + always-dispatch tests; implement; run auth/customer suites
+- [ ] T5 (F08): normalisation tests; implement; run store auth/checkout suites
+- [ ] T6 (F17): route constraint tests; implement; run store route suites
+- [ ] T7 (F18): query-count/track tests; implement; run catalog/order suites
 
-## Phase B — transfers
-- [ ] T3 (L-3): failing tests for approve-retry + cancel-retry idempotency; implement; run transfer suites
-- [ ] T4 (M-2): failing tests for shortage permission; seeder + service gate; run transfer + seeder-related suites
-- [ ] T5 (L-6): failing tests for destination/creator draft access; implement; run transfer suites
-- [ ] T6 (L-8): whereIn refactor; run transfer suites
+## Phase B — frontend correctness
+- [ ] T8 (F03): token equality guard; verify logout route
+- [ ] T9 (F04): matcher exclusions
+- [ ] T10 (F05/F21): media rewrite path + import placement
+- [ ] T11 (F12): streaming byte limit
+- [ ] T12 (F13): persist expected ids
+- [ ] T13 (F14): checkout effect deps
+- [ ] T14 (F09): Web Locks fallback
+- [ ] T15 (F15): POS undo dedupe
+- [ ] T16 (F16): categories/design/popup cleanup
+- [ ] T17 (F19): safeStoreHref helper + call sites
 
-## Phase C — receipt hot path
-- [ ] T7 (L-4): prelocked batch in receipt; run receipt + concurrency suites
-- [ ] T8 (M-5): for-no-key-update; run concurrency suites
-- [ ] T9 (M-7): drop duplicate check; run inventory suites
+## Phase C — media/docs
+- [ ] T18 (F11): owner-wide stale staging cleanup + test
+- [ ] T19 (F10/F20/F21): residual documentation
 
-## Phase D — cross-cutting
-- [ ] T10 (L-7): canonicalize imports; run affected suites
-- [ ] T11 (L-1 + key-length tests): add tests; run them
-
-## Checkpoint
-- [ ] Inventory + AI-inventory suites green
-
-## Phase E/F/G
-- [ ] T12 docs + deployment tracking
-- [ ] T13 repomix sync (once)
-- [ ] T14 final verification + report
+## Phase D — tracking
+- [ ] T20: task7.txt markers + deployment doc
+- [ ] T21: repomix sync once
+- [ ] T22: full tests + typecheck + build + final report

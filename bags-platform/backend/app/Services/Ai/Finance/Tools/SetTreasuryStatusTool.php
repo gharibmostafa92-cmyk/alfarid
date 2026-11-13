@@ -58,7 +58,7 @@ final class SetTreasuryStatusTool implements AgentTool, LocksTargets, UndoableTo
     {
         return [
             'name' => $this->name(),
-            'description' => 'إيقاف أو تفعيل خزينة. الإيقاف مرفوض مع رصيد أو ورديات أو سجل حركات أو تحويلات صادرة معلقة.',
+            'description' => 'إيقاف أو تفعيل خزينة. الإيقاف مرفوض مع رصيد أو ورديات غير مسوّاة أو تحويلات معلقة.',
             'parameters' => [
                 'type' => 'OBJECT',
                 'required' => ['is_active'],

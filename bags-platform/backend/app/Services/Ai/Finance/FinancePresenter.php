@@ -144,6 +144,7 @@ final class FinancePresenter
             'order_reversal' => 'عكس دفع طلب',
             'return_refund' => 'استرداد مرتجع',
             'refund' => 'استرداد',
+            'refund_reversal' => 'عكس استرداد',
             'adjustment' => 'تعديل من الإدارة',
             'topup' => 'شحن المحفظة',
             'opening' => 'رصيد افتتاحي',

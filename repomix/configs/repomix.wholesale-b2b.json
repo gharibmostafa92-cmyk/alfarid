@@ -42,7 +42,8 @@
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/wholesale.ts",
                     "bags-platform/frontend/apps/pos/src/lib/wholesale.ts",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/application-status/page.tsx",
-                    "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php"
+                    "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
+                    "bags-platform/frontend/packages/pos-core/src/lib/wholesale.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

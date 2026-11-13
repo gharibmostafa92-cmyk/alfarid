@@ -8,6 +8,8 @@ use App\Enums\Catalog\ProductStatus;
 use App\Enums\Orders\SalesChannel;
 use App\Jobs\RefreshCatalogRetailPrices;
 use App\Models\Category;
+use App\Models\PriceList;
+use App\Models\PriceListItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Observers\CatalogRetailPriceObserver;
@@ -237,6 +239,40 @@ class TaskTxtRetailPriceTest extends TestCase
         $this->assertNotNull($prune, 'ai:prune-conversations missing from schedule');
         $this->assertSame('05:10', $prune->expression === '* * * * *' ? null : $this->cronTime($prune->expression));
         $this->assertSame('Africa/Cairo', $prune->timezone);
+    }
+
+    public function test_product_mutation_refreshes_its_snapshot(): void
+    {
+        $variant = $this->variant();
+        $product = $variant->product;
+        $finish = $this->realCommitSandbox();
+
+        DB::transaction(function () use ($product): void {
+            $product->forceFill(['status' => ProductStatus::Published])->save();
+        });
+
+        Queue::assertPushed(RefreshCatalogRetailPrices::class, fn ($job) => ((array) $job->productId) === [$product->id]);
+        $finish([$variant, $product, $product->category]);
+    }
+
+    public function test_price_list_header_mutation_refreshes_its_products(): void
+    {
+        $variant = $this->variant();
+        $list = PriceList::query()->create(['name' => 'Retail window', 'type' => 'retail', 'is_active' => true]);
+        PriceListItem::query()->create([
+            'price_list_id' => $list->id,
+            'product_variant_id' => $variant->id,
+            'min_qty' => 1,
+            'price' => 390,
+        ]);
+        $finish = $this->realCommitSandbox();
+
+        DB::transaction(function () use ($list): void {
+            $list->forceFill(['is_active' => false])->save();
+        });
+
+        Queue::assertPushed(RefreshCatalogRetailPrices::class, fn ($job) => ((array) $job->productId) === [$variant->product_id]);
+        $finish([$variant, $variant->product, $variant->product->category, $list]);
     }
 
     private function cronTime(string $expression): ?string

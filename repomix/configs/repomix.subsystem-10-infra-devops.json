@@ -88,7 +88,11 @@
                     "docs/TASK4_DEPLOYMENT_STATUS.md",
                     "bags-platform/backend/app/Exceptions/BusinessException.php",
                     "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php",
-                    "scripts/populate_floorplan_descriptions.mjs"
+                    "scripts/populate_floorplan_descriptions.mjs",
+                    "bags-platform/backend/database/migrations/2026_11_12_000069_restrict_treasury_branch_deletes.php",
+                    "bags-platform/frontend/apps/backoffice/package.json",
+                    "docs/TASK5_DEPLOYMENT_STATUS.md",
+                    "bags-platform/frontend/packages/pos-core/package.json"
                 ],
     "ignore":  {
                    "useGitignore":  true,

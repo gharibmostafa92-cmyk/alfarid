@@ -32,6 +32,7 @@ use Brick\Math\RoundingMode;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, LocksTargets, UndoableTool, WriteTool
@@ -226,35 +227,62 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
         }
 
         $disk = Storage::disk('ai_private');
-        $receiptPath = "expense-receipts/{$action->id}/".basename($source);
-        try {
-            if (! $disk->copy($source, $receiptPath)) {
-                throw new \League\Flysystem\UnableToCopyFile('Receipt copy failed.');
-            }
-        } catch (\League\Flysystem\FilesystemException $exception) {
-            report($exception);
-            throw new BusinessException('تعذّر حفظ إيصال المصروف. أعد رفعه وحاول مرة أخرى.', [], 422);
-        }
+        $receiptPath = $this->receiptPath($action, $source);
+        $copied = false;
 
         try {
-            return DB::transaction(function () use ($actor, $action, $receiptPath): ToolOutcome {
+            return DB::transaction(function () use ($actor, $action, $disk, $source, $receiptPath, &$copied): ToolOutcome {
                 $claimed = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
                 if ($claimed->status !== 'confirmed') {
                     throw new BusinessException('الإجراء لم يعد متاحًا. اطلب اقتراحًا جديدًا.', [], 409);
                 }
 
+                // Unique per attempt: a concurrent failed attempt can never
+                // delete a receipt written by the winning attempt.
+                if (! $disk->copy($source, $receiptPath)) {
+                    throw new \League\Flysystem\UnableToCopyFile('Receipt copy failed.');
+                }
+                $copied = true;
+
                 return $this->recordExpense($actor, $claimed, $receiptPath);
             });
         } catch (\Throwable $exception) {
-            try {
-                if ($receiptPath !== null && ! Expense::query()->where('attachment_path', $receiptPath)->exists()) {
+            if ($copied) {
+                try {
                     $disk->delete($receiptPath);
+                } catch (\Throwable $cleanupError) {
+                    report($cleanupError);
                 }
-            } catch (\Throwable $cleanupError) {
-                report($cleanupError);
+            }
+            if ($exception instanceof \League\Flysystem\FilesystemException) {
+                report($exception);
+                throw new BusinessException('تعذّر حفظ إيصال المصروف. أعد رفعه وحاول مرة أخرى.', [], 422);
             }
             throw $exception;
         }
+    }
+
+    /**
+     * Builds a traversal-safe, per-attempt receipt path.
+     */
+    private function receiptPath(AiPendingAction $action, string $source): string
+    {
+        $normalized = str_replace('\\', '/', $source);
+        if ($normalized === '' || str_starts_with($normalized, '/') || preg_match('/[\x00-\x1F\x7F]/', $normalized)) {
+            throw new BusinessException('مسار إيصال المصروف غير صالح.', [], 422);
+        }
+        foreach (explode('/', $normalized) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                throw new BusinessException('مسار إيصال المصروف غير صالح.', [], 422);
+            }
+        }
+
+        $extension = strtolower(pathinfo($normalized, PATHINFO_EXTENSION));
+        if (! preg_match('/\A[a-z0-9]{1,10}\z/', $extension)) {
+            throw new BusinessException('صيغة إيصال المصروف غير مدعومة.', [], 422);
+        }
+
+        return "expense-receipts/{$action->id}/".Str::uuid()->toString().'.'.$extension;
     }
 
     private function recordExpense(User $actor, AiPendingAction $action, ?string $receiptPath): ToolOutcome
@@ -277,10 +305,13 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
             }
             throw $e;
         }
-        // The expense only exists after execution — persist its reference in
-        // expected_versions (the same slot other tools use for created refs)
-        // so canUndo/targetState/undo can find it after finalize.
-        $action->forceFill(['expected_versions' => ['expense:'.$expense->id => 'created'] + ($action->expected_versions ?? [])])->save();
+        // Persist the created reference in result (not expected_versions) so
+        // retries keep the original version map intact. finalizeAction refreshes
+        // this row before canUndo(), making the reference available for undo.
+        $action->forceFill(['result' => array_merge($action->result ?? [], [
+            'expense_id' => $expense->id,
+            'expense_number' => $expense->expense_number,
+        ])])->save();
 
         return ToolOutcome::result(true, "اتسجل المصروف {$expense->expense_number}.", [
             'expense_id' => $expense->id,

@@ -22,24 +22,24 @@ final class StatementBudget
             // their parent already executed statements.
             // Callers performing only reads should pass $readOnly = true; writers keep
             // REPEATABLE READ alone so snapshot stability stays intact.
-            if (DB::transactionLevel() === 1) {
+            $nested = DB::transactionLevel() > 1;
+            if (! $nested) {
                 DB::statement($readOnly
                     ? 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'
                     : 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
             }
-            $previous = DB::selectOne("SELECT current_setting('statement_timeout') AS budget")->budget;
+
+            $previous = $nested ? DB::scalar("SELECT current_setting('statement_timeout')") : null;
             DB::select("SELECT set_config('statement_timeout', ?, true)", [max(1, $milliseconds).'ms']);
 
-            try {
-                return $callback();
-            } finally {
-                try {
-                    DB::select("SELECT set_config('statement_timeout', ?, true)", [$previous]);
-                } catch (\Throwable) {
-                    // PostgreSQL aborts the active transaction on SQL error (25P02);
-                    // avoid masking the original exception, as ROLLBACK reverts local set_config.
-                }
+            // A failed callback rolls back the savepoint and its settings. On
+            // success releasing a savepoint keeps settings in the outer transaction.
+            $result = $callback();
+            if ($previous !== null) {
+                DB::select("SELECT set_config('statement_timeout', ?, true)", [$previous]);
             }
+
+            return $result;
         });
     }
 }

@@ -47,42 +47,39 @@ class ReconcileFinance extends Command
 WITH t_ledger AS (
     SELECT tt.*, LAG(tt.balance_after, 1, 0::numeric) OVER (
         PARTITION BY tt.treasury_id ORDER BY tt.id
-    ) AS prev_balance
+    ) AS prev_balance,
+    SUM(tt.amount) OVER (PARTITION BY tt.treasury_id) AS ledger_total
     FROM treasury_transactions tt
     WHERE (?::bigint IS NULL OR tt.treasury_id IN (SELECT t.id FROM treasuries t WHERE t.branch_id = ?::bigint))
-), t_sums AS (
-    SELECT treasury_id, SUM(amount) AS total FROM treasury_transactions
-    WHERE (?::bigint IS NULL OR treasury_id IN (SELECT id FROM treasuries WHERE branch_id = ?::bigint))
-    GROUP BY treasury_id
+), t_totals AS (
+    SELECT DISTINCT treasury_id, ledger_total FROM t_ledger
 ), t_problems AS (
     SELECT 'treasury_chain' AS issue, l.id AS ref_id, l.treasury_id, NULL::bigint AS customer_id,
         l.prev_balance AS expected, (l.balance_after - l.amount) AS actual
     FROM t_ledger l WHERE (l.balance_after - l.amount) <> l.prev_balance
     UNION ALL
-    SELECT 'treasury_balance', t.id, t.id, NULL, COALESCE(s.total, 0::numeric), COALESCE(t.current_balance, 0::numeric)
-    FROM treasuries t LEFT JOIN t_sums s ON s.treasury_id = t.id
+    SELECT 'treasury_balance', t.id, t.id, NULL, COALESCE(s.ledger_total, 0::numeric), COALESCE(t.current_balance, 0::numeric)
+    FROM treasuries t LEFT JOIN t_totals s ON s.treasury_id = t.id
     WHERE (?::bigint IS NULL OR t.branch_id = ?::bigint)
-        AND COALESCE(t.current_balance, 0::numeric) <> COALESCE(s.total, 0::numeric)
+        AND COALESCE(t.current_balance, 0::numeric) <> COALESCE(s.ledger_total, 0::numeric)
 ), w_ledger AS (
     SELECT wt.*, LAG(wt.balance_after, 1, 0::numeric) OVER (
         PARTITION BY wt.customer_id ORDER BY wt.id
-    ) AS prev_balance
+    ) AS prev_balance,
+    SUM(wt.amount) OVER (PARTITION BY wt.customer_id) AS ledger_total
     FROM customer_wallet_transactions wt
     WHERE ?::bigint IS NULL
-), w_sums AS (
-    SELECT customer_id, SUM(amount) AS total
-    FROM customer_wallet_transactions
-    WHERE ?::bigint IS NULL
-    GROUP BY customer_id
+), w_totals AS (
+    SELECT DISTINCT customer_id, ledger_total FROM w_ledger
 ), w_problems AS (
     SELECT 'wallet_chain' AS issue, l.id AS ref_id, NULL::bigint AS treasury_id, l.customer_id,
         l.prev_balance AS expected, (l.balance_after - l.amount) AS actual
     FROM w_ledger l WHERE (l.balance_after - l.amount) <> l.prev_balance
     UNION ALL
-    SELECT 'wallet_balance', c.id, NULL, c.id, COALESCE(s.total, 0::numeric), COALESCE(c.wallet_balance, 0::numeric)
-    FROM customers c LEFT JOIN w_sums s ON s.customer_id = c.id
+    SELECT 'wallet_balance', c.id, NULL, c.id, COALESCE(s.ledger_total, 0::numeric), COALESCE(c.wallet_balance, 0::numeric)
+    FROM customers c LEFT JOIN w_totals s ON s.customer_id = c.id
     WHERE ?::bigint IS NULL
-        AND COALESCE(c.wallet_balance, 0::numeric) <> COALESCE(s.total, 0::numeric)
+        AND COALESCE(c.wallet_balance, 0::numeric) <> COALESCE(s.ledger_total, 0::numeric)
 ), problems AS (
     SELECT * FROM t_problems UNION ALL SELECT * FROM w_problems
 )
@@ -93,22 +90,21 @@ SELECT (SELECT COUNT(*) FROM treasuries WHERE (?::bigint IS NULL OR branch_id = 
 SQL;
         // Run only the heavy read snapshot under REPEATABLE READ READ ONLY; run logging and pruning
         // execute afterward under READ COMMITTED so concurrent cleanups cannot abort via 40001.
-        $result = StatementBudget::run(300000, fn () => DB::selectOne($sql, [
-            $branch, $branch, $branch, $branch, $branch, $branch,
-            $branch, $branch, $branch,
-            $branch, $branch, $branch,
+        $result = StatementBudget::run(120000, fn () => DB::selectOne($sql, [
+            $branch, $branch, $branch, $branch, $branch,
+            $branch, $branch, $branch, $branch,
         ]), readOnly: true);
 
+        $samples = json_decode((string) $result->samples, true, flags: JSON_THROW_ON_ERROR);
         FinanceReconcileRun::query()->create([
             'branch_id' => $branch,
             'checked' => (int) $result->checked,
             'problem_count' => (int) $result->problem_count,
-            'samples' => json_decode((string) $result->samples, true) ?? [],
+            'samples' => $samples,
         ]);
-        FinanceReconcileRun::query()->where('created_at', '<', now()->subDays(14))->delete();
+        FinanceReconcileRun::query()->where('created_at', '<', now()->subDays(90))->delete();
 
         if ((int) $result->problem_count > 0) {
-            $samples = json_decode((string) $result->samples, true, flags: JSON_THROW_ON_ERROR);
             foreach ($samples as $problem) {
                 $this->error(json_encode($problem, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             }

@@ -67,7 +67,7 @@ class CustomerWalletController extends Controller implements HasMiddleware
             $total = (float) $row->total;
             match ((string) $row->type) {
                 'topup', 'opening' => $bucket['topups'] += $total,
-                'return_refund', 'refund', 'checkout_refund', 'order_reversal' => $bucket['refunds'] += $total,
+                'return_refund', 'refund', 'refund_reversal', 'checkout_refund', 'order_reversal' => $bucket['refunds'] += $total,
                 'checkout_payment' => $bucket['payments'] += $total,
                 default => $bucket['adjustments'] += $total,
             };

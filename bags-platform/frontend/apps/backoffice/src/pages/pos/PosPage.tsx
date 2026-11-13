@@ -2,11 +2,9 @@ import { useEffect } from 'react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useCan } from '../../hooks/useCan';
 import StocktakeVoiceCount from './StocktakeVoiceCount';
-import { PosApp } from './components/PosApp';
-import { ToastHost } from './components/ui/SharedUI';
-import { pos as posMockService } from './services/pos-data-source';
-import tokensCss from './styles/tokens.css?inline';
-import posCss from './styles/pos.css?inline';
+import { PosApp, ToastHost, pos } from '@alfarid/pos-core';
+import tokensCss from '@alfarid/pos-core/styles/tokens.css?inline';
+import posCss from '@alfarid/pos-core/styles/pos.css?inline';
 
 /** Point of Sale page for authorized cashiers and stock counters. */
 export function PosPage() {
@@ -17,7 +15,7 @@ export function PosPage() {
   const canCreateSales = useCan('pos.sales.create');
 
   useEffect(() => {
-    posMockService.syncActor(user);
+    pos.syncActor(user);
   }, [user]);
 
   useEffect(() => {

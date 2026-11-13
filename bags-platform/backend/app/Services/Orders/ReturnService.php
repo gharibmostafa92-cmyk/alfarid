@@ -384,8 +384,10 @@ class ReturnService
                 if ($return->customer_id === null) {
                     throw new BusinessException('الاسترداد إلى المحفظة يتطلب حساب عميل مسجل؛ اختر طريقة أخرى لطلبات الزوار.');
                 }
-                app(WalletService::class)->record($return->customer_id, (float) $return->total_refund_amount,
-                    'return_refund', 'return_request', $return->id, $admin->id);
+                if ((float) $return->total_refund_amount > 0) {
+                    app(WalletService::class)->record($return->customer_id, (string) $return->total_refund_amount,
+                        'return_refund', 'return_request', $return->id, $admin->id);
+                }
             }
 
             try {

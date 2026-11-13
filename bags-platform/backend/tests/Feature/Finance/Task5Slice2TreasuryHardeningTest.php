@@ -53,6 +53,77 @@ class Task5Slice2TreasuryHardeningTest extends TestCase
         return $t->fresh();
     }
 
+    public function test_f08b_deactivation_allows_zero_balance_account_with_history(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $actor = User::factory()->create(['branch_id' => $branch->id]);
+        $treasury = $this->makeTreasury($branch);
+
+        app(TreasuryService::class)->record([
+            'treasury_id' => $treasury->id,
+            'type' => TreasuryTransactionType::OpeningBalance,
+            'amount' => '100.00',
+            'created_by' => $actor->id,
+        ]);
+        app(TreasuryService::class)->record([
+            'treasury_id' => $treasury->id,
+            'type' => TreasuryTransactionType::Expense,
+            'amount' => '-100.00',
+            'created_by' => $actor->id,
+        ]);
+
+        $treasury->refresh();
+        $this->assertSame('0.00', (string) $treasury->current_balance);
+        $this->assertSame([], app(FinanceWriteGuards::class)->deactivationBlockers($treasury));
+
+        $stopped = app(TreasuryService::class)->updateAccount($treasury, ['is_active' => false], $actor);
+        $this->assertFalse((bool) $stopped->is_active);
+
+        $stopped->forceFill(['is_active' => true, 'current_balance' => '10.00'])->save();
+        $blocked = app(FinanceWriteGuards::class)->deactivationBlockers($stopped->fresh());
+        $this->assertContains('الرصيد مش صفر', $blocked);
+
+        try {
+            app(TreasuryService::class)->updateAccount($stopped->fresh(), ['is_active' => false], $actor);
+            $this->fail('Expected a non-zero balance to block deactivation.');
+        } catch (BusinessException) {
+        }
+    }
+
+    public function test_f09b_duplicate_treasury_code_maps_to_409_instead_of_500(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $actor = User::factory()->create(['branch_id' => $branch->id]);
+        $service = app(TreasuryService::class);
+
+        $service->createAccount([
+            'name' => 'خزينة أولى',
+            'code' => 'DUP-CODE-1',
+            'branch_id' => $branch->id,
+            'type' => 'main_safe',
+        ], $actor);
+
+        try {
+            $service->createAccount([
+                'name' => 'خزينة ثانية',
+                'code' => 'DUP-CODE-1',
+                'branch_id' => $branch->id,
+                'type' => 'main_safe',
+            ], $actor);
+            $this->fail('Expected duplicate code creation to be rejected.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+
+        $second = $this->makeTreasury($branch);
+        try {
+            $service->updateAccount($second, ['code' => 'DUP-CODE-1'], $actor);
+            $this->fail('Expected duplicate code update to be rejected.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+    }
+
     public function test_f09_treasury_current_balance_is_not_mass_assignable(): void
     {
         $branch = Branch::factory()->create(['is_active' => true]);
@@ -228,6 +299,7 @@ class Task5Slice2TreasuryHardeningTest extends TestCase
         $actor = User::factory()->create(['branch_id' => $branch->id]);
         $treasuryService = app(TreasuryService::class);
 
+        $before = Treasury::query()->count();
         foreach (['1e5', 'not-a-number', '-50.00'] as $badOpening) {
             try {
                 $treasuryService->createAccount([
@@ -241,7 +313,7 @@ class Task5Slice2TreasuryHardeningTest extends TestCase
             } catch (BusinessException) {
             }
         }
-        $this->assertSame(0, Treasury::query()->count());
+        $this->assertSame($before, Treasury::query()->count());
 
         $bank = $this->makeTreasury($branch, 'bank_account');
         try {

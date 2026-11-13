@@ -23,6 +23,8 @@ export function DesignShowcaseContent() {
 
   // Carousel Animation & Scroll Lock Ref
   const isScrollLocked = useRef<boolean>(false);
+  const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollLockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isInfoFading, setIsInfoFading] = useState<boolean>(false);
 
   // Data
@@ -55,30 +57,40 @@ export function DesignShowcaseContent() {
   const activeRoot = roots[activeCategoryIndex] ?? null;
 
 
+  const scheduleFadeOut = useCallback(() => {
+    if (fadeTimer.current) clearTimeout(fadeTimer.current);
+    fadeTimer.current = setTimeout(() => {
+      setIsInfoFading(false);
+      fadeTimer.current = null;
+    }, 220);
+  }, []);
+
+  useEffect(() => () => {
+    if (fadeTimer.current) clearTimeout(fadeTimer.current);
+    if (scrollLockTimer.current) clearTimeout(scrollLockTimer.current);
+    isScrollLocked.current = false;
+  }, []);
+
   // Navigate Carousel
   const navigateCarousel = useCallback(
     (direction: number) => {
       if (totalProducts <= 1) return;
       setIsInfoFading(true);
       setActiveIndex((prev) => (prev + direction + totalProducts) % totalProducts);
-      setTimeout(() => {
-        setIsInfoFading(false);
-      }, 220);
+      scheduleFadeOut();
     },
-    [totalProducts]
+    [totalProducts, scheduleFadeOut]
   );
 
-  const selectSlide = (index: number) => {
+  const selectSlide = (index: number, openIfActive = true) => {
     if (totalProducts === 0) return;
     if (index === activeIndex) {
-      openDetails();
+      if (openIfActive) openDetails();
       return;
     }
     setIsInfoFading(true);
     setActiveIndex(index);
-    setTimeout(() => {
-      setIsInfoFading(false);
-    }, 220);
+    scheduleFadeOut();
   };
 
   const openDetails = () => {
@@ -123,8 +135,10 @@ export function DesignShowcaseContent() {
           navigateCarousel(-1);
         }
 
-        setTimeout(() => {
+        if (scrollLockTimer.current) clearTimeout(scrollLockTimer.current);
+        scrollLockTimer.current = setTimeout(() => {
           isScrollLocked.current = false;
+          scrollLockTimer.current = null;
         }, 550);
       }
     };
@@ -196,7 +210,7 @@ export function DesignShowcaseContent() {
                   router.push(STORE_ROUTES.shop({ category: cat.slug }));
                 } else {
                   setActiveCategoryIndex(idx);
-                  if (totalProducts > 0) selectSlide(idx % totalProducts);
+                  if (totalProducts > 0) selectSlide(idx % totalProducts, false);
                   if (currentMode === 'grid') switchMode('carousel');
                 }
               }}

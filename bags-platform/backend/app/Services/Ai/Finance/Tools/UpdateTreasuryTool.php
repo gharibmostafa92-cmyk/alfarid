@@ -110,7 +110,7 @@ final class UpdateTreasuryTool implements AgentTool, LocksTargets, UndoableTool,
             } catch (AuthorizationException) {
                 return ToolOutcome::denied('الفرع خارج نطاقك.', auditable: false);
             }
-            if ($patch['branch_id'] != $treasury->branch_id && $this->guards->deactivationBlockers($treasury) !== []) {
+            if ($patch['branch_id'] != $treasury->branch_id && $this->guards->branchMoveBlockers($treasury) !== []) {
                 return ToolOutcome::denied('لا يمكن نقل خزينة لها رصيد أو حركات أو عمليات معلقة إلى فرع آخر.', auditable: false);
             }
         }

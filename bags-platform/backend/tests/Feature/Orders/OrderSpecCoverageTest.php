@@ -506,6 +506,23 @@ class OrderSpecCoverageTest extends TestCase
         $this->assertSame(2, Order::query()->count());
     }
 
+    public function test_checkout_normalizes_international_egyptian_phone_before_persisting(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $city = City::factory()->create(['shipping_cost' => 0, 'is_active' => true]);
+        $cart = $this->cart($variant);
+
+        $this->withHeaders(['X-Cart-Session' => $cart])
+            ->postJson('/api/v1/store/checkout', [
+                'recipient_name' => 'Guest', 'recipient_phone' => '+20 101 234 5678',
+                'city_id' => $city->id, 'shipping_address_line' => 'Cairo',
+                'payment_method' => 'cod',
+            ])->assertCreated();
+
+        $this->assertDatabaseHas('orders', ['guest_phone_normalized' => '01012345678']);
+    }
+
     public function test_checkout_rejects_invalid_inputs_without_consuming_the_cart_or_stock(): void
     {
         $variant = $this->purchasableVariant(100);

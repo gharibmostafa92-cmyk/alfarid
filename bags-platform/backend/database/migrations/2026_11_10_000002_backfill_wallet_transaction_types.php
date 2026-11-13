@@ -7,29 +7,46 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
         if (DB::getDriverName() !== 'pgsql') {
             return;
         }
 
-        // The append-only trigger blocks even data repair, so it is dropped,
-        // the legacy rows are backfilled, then the trigger is recreated.
-        // Legacy rows carry empty types — map them from reference and sign so
-        // labels unify everywhere (R11, store wallet, admin wallet).
-        DB::statement('DROP TRIGGER IF EXISTS wallet_immutable ON customer_wallet_transactions');
-        DB::statement(<<<'SQL'
+        DB::table('customer_wallet_transactions')->select('id')
+            ->where(fn ($query) => $query->whereNull('type')->orWhere('type', ''))
+            ->chunkById(500, function ($rows): void {
+                DB::transaction(function () use ($rows): void {
+                    DB::statement("SET LOCAL lock_timeout = '5s'");
+                    // Keep each write lock bounded to one batch. The guard is
+                    // enabled again before any other transaction can write.
+                    DB::statement('ALTER TABLE customer_wallet_transactions DISABLE TRIGGER wallet_immutable');
+                    DB::update(<<<'SQL'
 UPDATE customer_wallet_transactions
 SET type = CASE
-    WHEN reference_type IN ('order', 'App\Models\Order') AND amount < 0 THEN 'checkout_payment'
-    WHEN reference_type IN ('order', 'App\Models\Order') THEN 'refund'
-    WHEN reference_type IN ('return_request', 'App\Models\ReturnRequest') THEN 'return_refund'
-    WHEN amount >= 0 THEN 'opening'
+    WHEN reference_type IN ('order', 'orders', 'App\Models\Order') AND amount < 0 THEN 'checkout_payment'
+    WHEN reference_type IN ('order', 'orders', 'App\Models\Order') THEN 'refund'
+    WHEN reference_type IN ('return_request', 'return_requests', 'App\Models\ReturnRequest') THEN 'return_refund'
+    WHEN reference_type IN ('customer', 'customers', 'App\Models\Customer') AND amount >= 0 THEN 'opening'
     ELSE 'adjustment'
 END
-WHERE type IS NULL OR type = ''
+WHERE id BETWEEN ? AND ? AND (type IS NULL OR type = '')
+SQL, [$rows->first()->id, $rows->last()->id]);
+                    DB::statement('ALTER TABLE customer_wallet_transactions ENABLE TRIGGER wallet_immutable');
+                });
+            });
+
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+            DB::unprepared(<<<'SQL'
+DROP TRIGGER IF EXISTS wallet_no_truncate ON customer_wallet_transactions;
+CREATE TRIGGER wallet_no_truncate
+    BEFORE TRUNCATE ON customer_wallet_transactions
+    FOR EACH STATEMENT EXECUTE FUNCTION prevent_wallet_mutation();
 SQL);
-        DB::unprepared("CREATE OR REPLACE FUNCTION prevent_wallet_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Wallet ledger is append-only'; END; $$; CREATE TRIGGER wallet_immutable BEFORE UPDATE OR DELETE ON customer_wallet_transactions FOR EACH ROW EXECUTE FUNCTION prevent_wallet_mutation()");
+        });
     }
 
     public function down(): void

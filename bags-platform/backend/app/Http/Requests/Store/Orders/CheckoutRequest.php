@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Store\Orders;
 
+use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use App\Models\Customer;
 use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Foundation\Http\FormRequest;
@@ -11,6 +12,8 @@ use Illuminate\Validation\Rule;
 
 class CheckoutRequest extends FormRequest
 {
+    use NormalizesCustomerInput;
+
     public function authorize(): bool
     {
         return true;
@@ -21,8 +24,8 @@ class CheckoutRequest extends FormRequest
     {
         return [
             'recipient_name' => ['nullable', 'string', 'max:255'],
-            // Enforce numeric phone digits to ensure distinct guest idempotency scoping and proper tracking.
-            'recipient_phone' => ['nullable', 'string', 'max:50', 'regex:/^[0-9+][0-9\s().\-]{6,}$/'],
+            // Normalized above to digits/leading + so idempotency scoping and tracking stay consistent.
+            'recipient_phone' => ['sometimes', 'string', 'max:50', 'regex:/^\+?[0-9]{7,15}$/'],
             'recipient_email' => ['nullable', 'email', 'max:255'],
             'city_id' => ['required', 'integer', 'exists:cities,id'],
             'shipping_address_line' => ['required', 'string', 'max:500'],

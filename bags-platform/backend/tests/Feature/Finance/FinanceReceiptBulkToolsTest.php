@@ -163,15 +163,49 @@ class FinanceReceiptBulkToolsTest extends TestCase
         $this->confirm($admin, $action)->assertOk()->assertJsonPath('data.ok', true);
         $expense = Expense::findOrFail($action->fresh()->result['expense_id']);
         $this->assertSame(750.5, (float) $expense->amount);
-        $this->assertSame("expense-receipts/{$action->id}/receipt.jpg", $expense->attachment_path);
+        $this->assertMatchesRegularExpression(
+            '#\Aexpense-receipts/'.$action->id.'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg\z#',
+            (string) $expense->attachment_path,
+        );
         Storage::disk('ai_private')->delete($att->path);
         $this->withToken($this->token($admin))
-            ->get("/api/v1/admin/expenses/{$expense->id}/attachment")->assertOk()->assertDownload('receipt.jpg');
+            ->get("/api/v1/admin/expenses/{$expense->id}/attachment")->assertOk()
+            ->assertDownload(basename((string) $expense->attachment_path));
         $unauthorized = $this->staff([]);
         $this->withToken($this->token($unauthorized))
             ->get("/api/v1/admin/expenses/{$expense->id}/attachment")->assertForbidden();
         $this->assertNotNull($att->fresh()->consumed_at);
         $this->assertSame(4249.5, (float) $treasury->fresh()->current_balance);
+    }
+
+    public function test_receipt_execution_does_not_mutate_expected_versions(): void
+    {
+        $admin = $this->admin();
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $treasury = $this->treasury($branch);
+        $conv = $this->conv($admin);
+        $att = $this->attach($conv, $admin);
+        $this->mockReceipt(['vendor' => 'سوبر ماركت', 'suggested_category' => 'نثريات',
+            'date' => now()->toDateString(), 'total' => '10.00', 'currency' => 'EGP', 'confidence' => 0.9]);
+
+        $draft = app(ToolRegistry::class)->dispatch($admin, $conv, [
+            'name' => 'parse_receipt', 'args' => ['attachment_id' => $att->id, 'treasury_id' => $treasury->id],
+        ]);
+        $outcome = app(ToolRegistry::class)->dispatch($admin, $conv, [
+            'name' => 'create_expense', 'args' => [
+                'attachment_id' => $draft->data['attachment_id'], 'treasury_id' => $treasury->id,
+                'category' => $draft->data['suggested_category']['untrusted_text'], 'amount' => $draft->data['total'],
+            ],
+        ]);
+        $action = AiPendingAction::findOrFail($outcome->data['pending_action_id']);
+        $versionsBefore = $action->expected_versions;
+
+        $this->confirm($admin, $action)->assertOk()->assertJsonPath('data.ok', true);
+
+        $fresh = $action->fresh();
+        $this->assertSame($versionsBefore, $fresh->expected_versions);
+        $this->assertArrayNotHasKey('expense:'.$fresh->result['expense_id'], $fresh->expected_versions);
+        $this->assertDatabaseHas('expenses', ['id' => $fresh->result['expense_id']]);
     }
 
     public function test_stale_expense_removes_the_copied_receipt(): void
@@ -195,7 +229,7 @@ class FinanceReceiptBulkToolsTest extends TestCase
         ]);
 
         $this->confirm($admin, $action)->assertStatus(409);
-        Storage::disk('ai_private')->assertMissing("expense-receipts/{$action->id}/receipt.jpg");
+        $this->assertSame([], Storage::disk('ai_private')->allFiles("expense-receipts/{$action->id}"));
         Storage::disk('ai_private')->assertExists($attachment->path);
         $this->assertDatabaseCount('expenses', 0);
     }

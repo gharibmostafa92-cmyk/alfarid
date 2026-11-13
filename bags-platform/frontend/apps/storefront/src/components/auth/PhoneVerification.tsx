@@ -12,6 +12,13 @@ function normalizeCode(value: string) {
     .replace(/[^0-9]/g, '');
 }
 
+function normalizePhone(value: string) {
+  const compact = value.trim().replace(/[\s().-]/g, '');
+  if (/^\+?20(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
+  if (/^0020(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
+  return compact;
+}
+
 export function PhoneVerification({ phone, lang, disabled, onChange, onBusyChange }: {
   phone: string; lang: 'ar' | 'en'; disabled: boolean;
   onChange: (proof: PhoneProof) => void; onBusyChange: (busy: boolean) => void;
@@ -29,7 +36,8 @@ export function PhoneVerification({ phone, lang, disabled, onChange, onBusyChang
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const text = (ar: string, en: string) => lang === 'ar' ? ar : en;
-  const validProof = proof?.phone === phone ? proof.token : '';
+  const targetPhone = normalizePhone(phone);
+  const validProof = proof?.phone === targetPhone ? proof.token : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -67,11 +75,11 @@ export function PhoneVerification({ phone, lang, disabled, onChange, onBusyChang
     onBusyChange(true); setError(''); setNotice('');
     try {
       if (send) {
-        const result = await sendPhoneVerification(phone.trim(), challenge);
+        const result = await sendPhoneVerification(targetPhone, challenge);
         setNotice(result.message); setSent(true); setResendAt(Date.now() + 60000);
       } else {
-        const token = await verifyPhone(phone.trim(), code);
-        setProof({ phone, token }); setCode('');
+        const token = await verifyPhone(targetPhone, code);
+        setProof({ phone: targetPhone, token }); setCode('');
       }
     } catch (err) {
       const response = (err as { response?: { data?: { message?: string; errors?: Record<string, string[]> }; status?: number; headers?: Record<string, string> } }).response;

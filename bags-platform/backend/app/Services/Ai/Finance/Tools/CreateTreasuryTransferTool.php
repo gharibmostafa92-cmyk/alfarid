@@ -228,7 +228,7 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $transfer = TreasuryTransfer::findOrFail($this->createdTransferId($action));
-        $this->treasury->rejectTransfer($transfer, $actor->id, 'تراجع من المساعد');
+        $this->treasury->cancelTransfer($transfer, $actor->id);
 
         return ToolOutcome::result(true, "اتلغى طلب التحويل {$transfer->transfer_number}.", [
             'transfer_id' => $transfer->id,

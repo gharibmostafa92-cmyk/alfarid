@@ -67,7 +67,12 @@
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/StocktakePage.tsx",
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/ReceiveTab.tsx",
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/StockPage.tsx",
-                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/TransfersPage.tsx"
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/TransfersPage.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/inventory/ReceiveTab.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/inventory/RequestTab.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/inventory/StockPage.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/inventory/StocktakePage.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/inventory/TransfersPage.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

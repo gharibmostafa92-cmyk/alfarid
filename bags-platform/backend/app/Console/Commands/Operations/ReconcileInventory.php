@@ -49,7 +49,7 @@ class ReconcileInventory extends Command
             $failures = 0;
             foreach (Branch::query()->where('is_active', true)->orderBy('id')->pluck('id') as $branchId) {
                 $this->info("فحص الفرع {$branchId}...");
-                if (StatementBudget::run(300000, fn (): int => $this->reconcile((int) $branchId)) !== self::SUCCESS) {
+                if (StatementBudget::run(300000, fn (): int => $this->reconcile((int) $branchId), readOnly: false) !== self::SUCCESS) {
                     $failures++;
                 }
             }
@@ -62,7 +62,7 @@ class ReconcileInventory extends Command
             return self::SUCCESS;
         }
 
-        return StatementBudget::run(300000, fn (): int => $this->reconcile($branch === null ? null : (int) $branch));
+        return StatementBudget::run(300000, fn (): int => $this->reconcile($branch === null ? null : (int) $branch), readOnly: false);
     }
 
     /**

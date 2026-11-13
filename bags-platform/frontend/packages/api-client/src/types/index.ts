@@ -190,9 +190,12 @@ export interface StoreOrderItem {
   qty: number; unit_price: number | string; discount_amount: number | string; line_total: number | string;
 }
 
+export interface InstapayDetails { address: string; amount: string; expires_at: string }
+
 export interface StoreOrder {
   id: number; order_number: string; channel: string; status: string;
   payment_method: string; payment_status: string;
+  instapay?: InstapayDetails | null;
   recipient_name: string | null; recipient_phone: string | null;
   city_id: number | null; shipping_address_line: string | null;
   subtotal: number | string; discount_amount: number | string; coupon_code: string | null;
@@ -220,7 +223,7 @@ export interface ShippingOptionsResponse {
 export interface CartCouponResponse { cart: StoreCart; coupon_discount: number }
 
 export interface TrackOrderResponse {
-  instapay?: { address: string; amount: string; expires_at: string };
+  instapay?: InstapayDetails;
   order_number: string; status: string;
   items: Array<{ product_name: string; qty: number }>;
   status_history: Array<{ status: string; at: string }>;

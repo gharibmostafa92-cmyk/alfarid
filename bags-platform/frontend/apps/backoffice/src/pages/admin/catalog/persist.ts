@@ -272,12 +272,27 @@ export async function persistProduct(
       old.serverId &&
       !all(next.media).some((f: any) => f.serverId === old.serverId),
   );
+  const removedGeneralIds = new Set<number>();
+  const removedVariantIds = new Map<string, Set<number>>();
   const runPendingRemovals = async () => {
     for (const old of pendingRemovals) {
       try {
         await removeIfPresent(() =>
           productMediaApi.remove(next.id, old.serverId),
         );
+        if ((original.media?.general || []).includes(old)) {
+          removedGeneralIds.add(old.serverId);
+        } else {
+          for (const [color, items] of Object.entries(
+            original.media?.byVariant || {},
+          ) as [string, any[]][]) {
+            if (items.includes(old)) {
+              const ids = removedVariantIds.get(color) ?? new Set<number>();
+              ids.add(old.serverId);
+              removedVariantIds.set(color, ids);
+            }
+          }
+        }
       } catch (e) {
         // Roll back only the rejected removal; retain successful uploads for retry.
         if (old === original.media.video) next.media.video = old;
@@ -374,20 +389,41 @@ export async function persistProduct(
   }
   // Execute uploads first, deletions second, and media reordering last to prevent temporary empty-gallery states.
   await runPendingRemovals();
-  if (next.media.general.length) {
-    const originalIds = (original.media.general || [])
+  const serverIds = (files: any[]) =>
+    files
       .map((f: any) => f.serverId)
       .filter((id: any): id is number => typeof id === 'number');
-    const newIds = next.media.general
-      .map((f: any) => f.serverId)
-      .filter((id: any): id is number => typeof id === 'number');
-    if (newIds.length) {
-      await productMediaApi.reorder(
-        next.id,
-        newIds,
-        originalIds.length ? originalIds : undefined,
-      );
+  const sameOrder = (a: number[], b: number[]) =>
+    a.length === b.length && a.every((id, index) => id === b[index]);
+  const reorderGroup = async (
+    originalIds: number[],
+    newIds: number[],
+    removedIds: Set<number>,
+  ) => {
+    if (!newIds.length) return;
+    const expectedIds = [
+      ...originalIds.filter((id) => !removedIds.has(id)),
+      ...newIds.filter((id) => !originalIds.includes(id)),
+    ];
+    if (!sameOrder(newIds, expectedIds)) {
+      await productMediaApi.reorder(next.id, newIds, expectedIds);
     }
+  };
+  const originalGeneralIds = serverIds(original.media.general || []);
+  await reorderGroup(
+    originalGeneralIds,
+    serverIds(next.media.general),
+    removedGeneralIds,
+  );
+  for (const [color, files] of Object.entries(next.media.byVariant) as [
+    string,
+    any[],
+  ][]) {
+    await reorderGroup(
+      serverIds(original.media?.byVariant?.[color] || []),
+      serverIds(files),
+      removedVariantIds.get(color) ?? new Set<number>(),
+    );
   }
   return next;
 }

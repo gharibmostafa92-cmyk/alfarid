@@ -266,7 +266,7 @@ class ReportService
 
             // Keep lock lease longer than statement timeout so slow scans never expire mid-query.
             $lockTtlSeconds = max(30, (int) ceil($statementBudgetMs / 1000) + 10);
-            $lockWaitSeconds = min(15, max(1, (int) floor($statementBudgetMs / 1000)));
+            $lockWaitSeconds = min(2, max(1, (int) floor($statementBudgetMs / 1000)));
 
             try {
                 // Serialize heavy inventory scans per branch to prevent cache stampedes or dead_days cache-busting floods.
@@ -328,7 +328,7 @@ class ReportService
         $zone = (string) config('app.business_timezone', 'Africa/Cairo');
         $deadCutoff = CarbonImmutable::now($zone)->subDays($deadDays)->utc()->toDateTimeString();
 
-        $valuation = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
+        $valuationRows = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('branches as b', 'b.id', '=', 'sl.branch_id')
             ->selectRaw('sl.branch_id, b.name AS branch_name, COUNT(DISTINCT sl.product_variant_id) AS variants_count, COALESCE(SUM(sl.on_hand), 0) AS total_qty, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS total_value')
@@ -336,7 +336,21 @@ class ReportService
             ->orderByDesc('total_value')
             // Cap rows by highest valuation to prevent large catalog payloads from exhausting response memory.
             ->limit(self::INVENTORY_VALUATION_ROW_LIMIT + 1)
-            ->get()
+            ->get();
+        $valuationTruncated = $valuationRows->count() > self::INVENTORY_VALUATION_ROW_LIMIT;
+
+        $totalValueDecimal = $valuationTruncated
+            ? BigDecimal::of((string) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
+                ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
+                ->selectRaw('COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS v')
+                ->first()?->v ?? '0'))
+            : $valuationRows->reduce(
+                fn (BigDecimal $carry, object $row): BigDecimal => $carry->plus((string) $row->total_value),
+                BigDecimal::zero(),
+            );
+
+        $valuation = $valuationRows
+            ->take(self::INVENTORY_VALUATION_ROW_LIMIT)
             ->map(fn ($row): array => [
                 'branch_id' => (int) $row->branch_id,
                 'branch_name' => $row->branch_name,
@@ -344,17 +358,7 @@ class ReportService
                 'total_qty' => (float) $row->total_qty,
                 'total_value' => $this->moneyFloat((string) $row->total_value),
             ])->all();
-        $valuationTruncated = count($valuation) > self::INVENTORY_VALUATION_ROW_LIMIT;
-        $valuation = array_slice($valuation, 0, self::INVENTORY_VALUATION_ROW_LIMIT);
-
-        if (! $valuationTruncated) {
-            $totalValue = $this->moneyFloat((string) array_sum(array_column($valuation, 'total_value')));
-        } else {
-            $totalValue = $this->moneyFloat((string) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
-                ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
-                ->selectRaw('COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS v')
-                ->first()?->v ?? '0'));
-        }
+        $totalValue = $this->moneyFloat($totalValueDecimal);
 
         $activeVariants = DB::table('stock_levels')
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
@@ -418,24 +422,42 @@ class ReportService
     {
         [$periodStart, $periodEnd, $localFrom, $localTo] = $bounds;
 
-        // Recognize an order's merchandise revenue once at its global first physical sale movement,
-        // starting from the time-bounded sale_event subquery instead of scanning the full orders table.
-        $saleDates = DB::table('stock_movements')
-            ->where('type', 'sale')
-            ->whereIn('reference_type', array_unique([Order::class, (new Order)->getMorphClass()]))
-            ->where('created_at', '>=', $periodStart)
-            ->where('created_at', '<', $periodEnd)
-            ->selectRaw('reference_id, MIN(created_at) AS recognized_at')
-            ->groupBy('reference_id')
-            ->havingRaw('MIN(created_at) >= ? AND MIN(created_at) < ?', [$periodStart, $periodEnd]);
-
-        $recognizedSalesRevenue = (string) (DB::table('orders as o')
-            ->joinSub($saleDates, 'sales_event', 'sales_event.reference_id', '=', 'o.id')
+        // Recognize an order's merchandise revenue once, in the period that contains
+        // its global first physical sale. NOT EXISTS keeps the lookup on the
+        // (reference_type, reference_id, type, created_at) index while rejecting
+        // orders whose first sale happened before this period.
+        $orderReferences = array_values(array_unique([Order::class, (new Order)->getMorphClass(), 'order', 'orders']));
+        $recognized = DB::table('orders as o')
             ->whereNull('o.return_of_order_id')
             ->whereIn('o.status', [...self::SALES_STATUSES, 'returned'])
-            ->when($branchId !== null, fn ($q) => $q->where('o.allocated_branch_id', $branchId))
-            ->selectRaw('COALESCE(SUM(o.subtotal - o.discount_amount), 0) AS revenue')
-            ->value('revenue') ?? '0');
+            ->whereExists(function ($q) use ($periodStart, $periodEnd, $orderReferences): void {
+                $q->selectRaw('1')->from('stock_movements as sm_sale')
+                    ->whereIn('sm_sale.reference_type', $orderReferences)
+                    ->whereColumn('sm_sale.reference_id', 'o.id')
+                    ->where('sm_sale.type', 'sale')
+                    ->where('sm_sale.created_at', '>=', $periodStart)
+                    ->where('sm_sale.created_at', '<', $periodEnd);
+            })
+            ->whereNotExists(function ($q) use ($periodStart, $orderReferences): void {
+                $q->selectRaw('1')->from('stock_movements as sm_prev')
+                    ->whereIn('sm_prev.reference_type', $orderReferences)
+                    ->whereColumn('sm_prev.reference_id', 'o.id')
+                    ->where('sm_prev.type', 'sale')
+                    ->where('sm_prev.created_at', '<', $periodStart);
+            });
+
+        if ($branchId !== null) {
+            // Keep revenue on the order's allocated branch so it matches the
+            // COGS attribution below, including legacy orders without items.
+            $recognizedSalesRevenue = (string) ($recognized
+                ->where('o.allocated_branch_id', $branchId)
+                ->selectRaw('COALESCE(SUM(o.subtotal - o.discount_amount), 0) AS revenue')
+                ->value('revenue') ?? '0');
+        } else {
+            $recognizedSalesRevenue = (string) ($recognized
+                ->selectRaw('COALESCE(SUM(o.subtotal - o.discount_amount), 0) AS revenue')
+                ->value('revenue') ?? '0');
+        }
 
         $returnsRevenue = (string) ($this->returnEntries($branchId, 'returns', $periodStart, $periodEnd)
             ->selectRaw('COALESCE(SUM(returns.subtotal - returns.discount_amount), 0) AS revenue')
@@ -443,11 +465,35 @@ class ReportService
 
         $revenue = BigDecimal::of($recognizedSalesRevenue)->plus(BigDecimal::of($returnsRevenue));
 
-        $cogs = BigDecimal::of((string) (DB::table('stock_movements as sm')->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
-            ->whereIn('sm.type', ['sale', 'sale_return'])
+        // COGS follows the same branch dimension as revenue: order-linked sale
+        // movements are attributed to the order's allocated branch, so a branch
+        // never reports one side of a sale without the other. Non-order sales
+        // and returns fall back to the movement branch.
+        $saleCogs = DB::table('stock_movements as sm')
+            ->where('sm.type', 'sale')
             ->where('sm.created_at', '>=', $periodStart)->where('sm.created_at', '<', $periodEnd)
+            ->when($branchId !== null, function ($q) use ($branchId, $orderReferences): void {
+                $q->leftJoin('orders as o', function ($join) use ($orderReferences): void {
+                    $join->on('o.id', '=', 'sm.reference_id')->whereIn('sm.reference_type', $orderReferences);
+                })->where(function ($w) use ($branchId, $orderReferences): void {
+                    $w->where(function ($w2) use ($branchId, $orderReferences): void {
+                        $w2->whereIn('sm.reference_type', $orderReferences)->where('o.allocated_branch_id', $branchId);
+                    })->orWhere(function ($w2) use ($branchId, $orderReferences): void {
+                        $w2->whereNotIn('sm.reference_type', $orderReferences)->where('sm.branch_id', $branchId);
+                    });
+                });
+            })
             ->selectRaw('COALESCE(SUM(-sm.quantity * sm.unit_cost), 0) AS c')
-            ->first()?->c ?? '0'));
+            ->first()?->c ?? '0';
+
+        $returnCogs = DB::table('stock_movements as sm')
+            ->where('sm.type', 'sale_return')
+            ->where('sm.created_at', '>=', $periodStart)->where('sm.created_at', '<', $periodEnd)
+            ->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
+            ->selectRaw('COALESCE(SUM(-sm.quantity * sm.unit_cost), 0) AS c')
+            ->first()?->c ?? '0';
+
+        $cogs = BigDecimal::of((string) $saleCogs)->plus(BigDecimal::of((string) $returnCogs));
 
         $expenses = BigDecimal::of((string) DB::table('expenses')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->whereNull('voided_at')
@@ -477,7 +523,16 @@ class ReportService
      */
     public function suppliersReport(): array
     {
-        return StatementBudget::run(150000, fn (): array => $this->calculateSuppliersReport());
+        return $this->suppliersReportPage()['data'];
+    }
+
+    public function suppliersReportPage(): array
+    {
+        return StatementBudget::run(150000, function (): array {
+            $rows = $this->calculateSuppliersReport();
+
+            return ['data' => array_slice($rows, 0, 500), 'truncated' => count($rows) > 500];
+        });
     }
 
     private function calculateSuppliersReport(): array
@@ -506,8 +561,10 @@ class ReportService
         return DB::table('suppliers as s')
             ->leftJoinSub($aging, 'ag', 'ag.supplier_id', '=', 's.id')
             ->selectRaw('s.id, s.name, s.current_balance, COALESCE(ag.total_purchases, 0) AS total_purchases, COALESCE(ag.not_due, 0) AS not_due, COALESCE(ag.overdue_1_30, 0) AS overdue_1_30, COALESCE(ag.overdue_31_60, 0) AS overdue_31_60, COALESCE(ag.overdue_61_90, 0) AS overdue_61_90, COALESCE(ag.overdue_90_plus, 0) AS overdue_90_plus')
-            ->orderBy('s.name')
-            ->limit(500)
+            // Financial importance first: suppliers with any balance always surface
+            // ahead of inactive zero-balance rows, even beyond the 500-row cap.
+            ->orderByRaw('ABS(s.current_balance) DESC, s.name ASC, s.id ASC')
+            ->limit(501)
             ->get()
             ->map(fn ($row): array => [
                 'supplier_id' => (int) $row->id,

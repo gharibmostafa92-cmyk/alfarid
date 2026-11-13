@@ -45,7 +45,11 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
       if (!controls?.length) return;
       const first = controls[0];
       const last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!dialog.current?.contains(document.activeElement) || document.activeElement === dialog.current) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', onKey);

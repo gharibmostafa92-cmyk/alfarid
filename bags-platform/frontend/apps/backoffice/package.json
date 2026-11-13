@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@alfarid/api-client": "workspace:*",
+    "@alfarid/pos-core": "workspace:*",
     "@alfarid/ui": "workspace:*",
     "@alfarid/utils": "workspace:*",
     "@hookform/resolvers": "^3.10.0",

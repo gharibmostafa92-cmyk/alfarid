@@ -98,6 +98,58 @@ class Task5Slice4ReportsReconcileAndMigrationsTest extends TestCase
         $this->assertSame(100.0, (float) $feb['cogs']);
     }
 
+    public function test_f05b_branch_filter_attributes_revenue_and_cogs_to_the_same_branch(): void
+    {
+        $allocated = Branch::factory()->create(['is_active' => true]);
+        $fulfilling = Branch::factory()->create(['is_active' => true]);
+        $staff = User::factory()->create(['branch_id' => $fulfilling->id]);
+        $variant = ProductVariant::factory()->create(['cost_price' => '100.00']);
+
+        $order = Order::factory()->create([
+            'status' => 'delivered',
+            'allocated_branch_id' => $allocated->id,
+            'subtotal' => '1000.00',
+            'discount_amount' => '100.00',
+            'tax_amount' => '0.00',
+            'shipping_cost' => '0.00',
+            'cod_fee' => '0.00',
+            'grand_total' => '900.00',
+        ]);
+        OrderItem::factory()->forVariant($variant)->create([
+            'order_id' => $order->id, 'allocated_branch_id' => $allocated->id,
+            'qty' => 2, 'unit_price' => 500, 'discount_amount' => 100, 'line_total' => 900,
+        ]);
+
+        $movement = new StockMovement([
+            'reference_number' => 'CROSS-BRANCH-'.Str::uuid(),
+            'product_variant_id' => $variant->id,
+            'branch_id' => $fulfilling->id,
+            'type' => 'sale',
+            'affected_bucket' => 'on_hand',
+            'quantity' => -2,
+            'balance_before' => 10,
+            'balance_after' => 8,
+            'unit_cost' => '100.00',
+            'reference_type' => Order::class,
+            'reference_id' => $order->id,
+            'created_by' => $staff->id,
+        ]);
+        $movement->created_at = '2026-02-05 12:00:00';
+        $movement->save();
+
+        $reports = app(ReportService::class);
+        $allocatedReport = $reports->profitReport('2026-02-01', '2026-02-28', $allocated->id);
+        $fulfillingReport = $reports->profitReport('2026-02-01', '2026-02-28', $fulfilling->id);
+
+        $this->assertSame(900.0, (float) $allocatedReport['net_sales_revenue']);
+        $this->assertSame(200.0, (float) $allocatedReport['cogs']);
+        $this->assertSame(700.0, (float) $allocatedReport['gross_profit']);
+
+        $this->assertSame(0.0, (float) $fulfillingReport['net_sales_revenue']);
+        $this->assertSame(0.0, (float) $fulfillingReport['cogs']);
+        $this->assertSame(0.0, (float) $fulfillingReport['gross_profit']);
+    }
+
     public function test_f06_statement_budget_handles_aborted_sql_and_validates_dates_before_db(): void
     {
         // Invalid dates must be rejected before StatementBudget touches PostgreSQL.
@@ -124,6 +176,10 @@ class Task5Slice4ReportsReconcileAndMigrationsTest extends TestCase
             DB::disableQueryLog();
         }
 
+        DB::statement("SET LOCAL statement_timeout = '19s'");
+        $this->assertSame('5s', StatementBudget::run(5000, fn () => DB::scalar("SELECT current_setting('statement_timeout')")));
+        $this->assertSame('19s', DB::scalar("SELECT current_setting('statement_timeout')"));
+
         // An aborted SQL query inside StatementBudget must surface the original QueryException (not 25P02 from finally).
         try {
             StatementBudget::run(5000, function (): void {
@@ -133,6 +189,7 @@ class Task5Slice4ReportsReconcileAndMigrationsTest extends TestCase
         } catch (QueryException $e) {
             $this->assertNotSame('25P02', (string) $e->getCode());
         }
+        $this->assertSame('19s', DB::scalar("SELECT current_setting('statement_timeout')"));
     }
 
     public function test_f15_inventory_report_shares_single_cached_dataset_between_cost_and_nocost(): void
@@ -274,6 +331,22 @@ class Task5Slice4ReportsReconcileAndMigrationsTest extends TestCase
         }
     }
 
+    public function test_supplier_report_signals_truncation_and_prioritizes_outstanding_balances(): void
+    {
+        $emptySuppliers = array_map(
+            fn (int $id): array => ['code' => 'CAP-'.$id, 'name' => 'A-'.$id],
+            range(1, 500),
+        );
+        DB::table('suppliers')->insert($emptySuppliers);
+        $supplier = Supplier::factory()->create(['name' => 'Z', 'current_balance' => '100.00']);
+
+        $result = app(ReportService::class)->suppliersReportPage();
+
+        $this->assertTrue($result['truncated']);
+        $this->assertCount(500, $result['data']);
+        $this->assertSame($supplier->id, $result['data'][0]['supplier_id']);
+    }
+
     public function test_f11_reconcile_with_branch_id_skips_global_customer_wallets(): void
     {
         $branch = Branch::factory()->create(['is_active' => true]);
@@ -315,6 +388,16 @@ class Task5Slice4ReportsReconcileAndMigrationsTest extends TestCase
         $this->assertStringContainsString('NOT VALID', $mig53);
         $this->assertStringContainsString("lock_timeout = '3s'", $mig53);
         $this->assertStringContainsString('VALIDATE CONSTRAINT wallet_adjustments_amount_positive', $mig53);
+
+        $migBackfill = file_get_contents(database_path('migrations/2026_11_10_000002_backfill_wallet_transaction_types.php'));
+        $this->assertIsString($migBackfill);
+        $this->assertStringContainsString('wallet_no_truncate', $migBackfill);
+        $this->assertStringContainsString("lock_timeout = '5s'", $migBackfill);
+
+        $migBranchFk = file_get_contents(database_path('migrations/2026_11_12_000069_restrict_treasury_branch_deletes.php'));
+        $this->assertIsString($migBranchFk);
+        $this->assertStringContainsString('pg_constraint', $migBranchFk);
+        $this->assertStringNotContainsString('Missing treasuries.branch_id foreign key', $migBranchFk);
 
         $branch = Branch::factory()->create(['is_active' => true]);
         $staff = User::factory()->create(['branch_id' => $branch->id]);

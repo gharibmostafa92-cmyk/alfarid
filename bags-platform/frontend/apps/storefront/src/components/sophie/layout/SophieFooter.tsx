@@ -4,9 +4,12 @@ import React from 'react';
 import Link from 'next/link';
 import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { BrandLogo, useBranding } from '@alfarid/ui/branding';
+import { safeMailtoHref, safeTelHref } from '@/lib/core/safe-href';
 
 export function SophieFooter() {
   const { branding } = useBranding();
+  const mailtoHref = safeMailtoHref(branding.email);
+  const telHref = safeTelHref(branding.phone);
   return (
     <div className="site-footer-wrap relative mt-5 bg-white" id="footer-contact">
       {/* Top Silhouette Border: Fashion District & Iconic Handbags/Backpacks Skyline */}
@@ -67,15 +70,15 @@ export function SophieFooter() {
                 ADDRESS
               </h4>
               <ul className="space-y-4 text-[12.5px] leading-[1.65]">
-                {branding.email && <li className="flex items-start gap-3.5">
+                {mailtoHref && <li className="flex items-start gap-3.5">
                   <span className="text-[#8c93a4] w-4 text-center mt-1 shrink-0">✉</span>
-                  <a href={`mailto:${branding.email}`} className="hover:text-[#1bc6cf] transition-colors break-all">
+                  <a href={mailtoHref} className="hover:text-[#1bc6cf] transition-colors break-all">
                     {branding.email}
                   </a>
                 </li>}
-                {branding.phone && <li className="flex items-start gap-3.5">
+                {telHref && <li className="flex items-start gap-3.5">
                   <span className="text-[#8c93a4] w-4 text-center mt-1 shrink-0">☎</span>
-                  <a href={`tel:${branding.phone}`} dir="ltr">{branding.phone}</a>
+                  <a href={telHref} dir="ltr">{branding.phone}</a>
                 </li>}
                 {branding.address && <li className="flex items-start gap-3.5">
                   <span className="text-[#8c93a4] w-4 text-center mt-1 shrink-0">📍</span>

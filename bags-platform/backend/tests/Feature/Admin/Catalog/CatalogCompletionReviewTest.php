@@ -94,6 +94,28 @@ class CatalogCompletionReviewTest extends TestCase
         $this->assertDatabaseCount('products', 1);
     }
 
+    public function test_whitespace_identifiers_are_trimmed_or_auto_generated(): void
+    {
+        $user = User::factory()->create();
+        $product = app(ProductService::class)->create([
+            'category_id' => Category::factory()->create()->id,
+            'name_ar' => 'حقيبة',
+            'name_en' => 'Trimmed identifiers',
+            'sales_channel' => 'retail',
+            'code' => '   ',
+            'variants' => [[
+                'sku' => '   ',
+                'barcode' => '   ',
+                'retail_price' => 10,
+            ]],
+        ], $user);
+
+        $this->assertSame('P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT), $product->code);
+        $variant = $product->variants()->firstOrFail();
+        $this->assertSame($product->code.'-01', $variant->sku);
+        $this->assertNotSame('', trim((string) $variant->barcode));
+    }
+
     public function test_http_create_retry_can_replay_explicit_slug_sku_and_barcode(): void
     {
         Permission::findOrCreate('products.create', 'staff');
@@ -146,9 +168,17 @@ class CatalogCompletionReviewTest extends TestCase
             }
         }
         $pricing = app(PricingService::class);
+        $branch = \App\Models\Branch::factory()->create();
+        $branchList = PriceList::create([
+            'name' => 'Branch wholesale', 'type' => 'wholesale', 'is_active' => true, 'branch_id' => $branch->id,
+        ]);
+        foreach ($variants as $variant) {
+            $branchList->items()->create(['product_variant_id' => $variant->id, 'price' => 55, 'min_qty' => 5]);
+        }
         $expected = $variants->mapWithKeys(fn ($variant) => [$variant->id => [
             'tiers' => $pricing->tiersFor($variant, $customer),
             'prices' => array_map(fn ($qty) => $pricing->resolve($variant, $customer, $qty), [1, 5, 10, 20]),
+            'branch_price' => $pricing->resolve($variant, $customer, 5, $branch->id),
         ]]);
         DB::enableQueryLog();
         try {
@@ -160,6 +190,13 @@ class CatalogCompletionReviewTest extends TestCase
                 }
             }
             $this->assertCount(1, DB::getQueryLog(), 'The loaded group is reused; only the batched price query is needed.');
+            DB::flushQueryLog();
+            $branchContext = $pricing->contextFor($customer, $variants->pluck('id')->all(), $branch->id);
+            foreach ($variants as $variant) {
+                $this->assertSame(49.5, $expected[$variant->id]['branch_price']['unit_price']);
+                $this->assertSame($expected[$variant->id]['branch_price'], $pricing->resolve($variant, $customer, 5, $branch->id, $branchContext));
+            }
+            $this->assertCount(1, DB::getQueryLog());
         } finally {
             DB::disableQueryLog();
             DB::flushQueryLog();

@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 // After `php artisan uploads:migrate-to-r2`, public catalog media lives on
 // R2_PUBLIC_URL (r2_public disk). Prefer it; fall back to the backend /storage
 // origin for local dev where R2_PUBLIC_URL is unset.
@@ -7,7 +9,8 @@ let r2Hostname = null;
 try {
   if (r2Public) {
     const u = new URL(r2Public);
-    mediaDestination = `${u.origin}/:path*`;
+    const basePath = u.pathname.replace(/\/+$/, '');
+    mediaDestination = `${u.origin}${basePath}/:path*`;
     r2Hostname = u.hostname;
   }
 } catch {
@@ -42,4 +45,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-import { resolve } from 'node:path';

@@ -39,9 +39,13 @@ function CheckoutSuccessContent() {
     let receipt: StoreOrder | null = null;
     try {
       const raw = sessionStorage.getItem('last_order');
-      const parsed = raw ? (JSON.parse(raw) as StoreOrder) : null;
+      const parsed = raw ? (JSON.parse(raw) as StoreOrder & { expiresAt?: number }) : null;
+      if (parsed && !(typeof parsed.expiresAt === 'number' && parsed.expiresAt > Date.now())) {
+        sessionStorage.removeItem('last_order');
+      }
       if (
         parsed &&
+        typeof parsed.expiresAt === 'number' && parsed.expiresAt > Date.now() &&
         parsed.order_number === orderNumber &&
         Array.isArray(parsed.items) &&
         Number.isFinite(Number(parsed.grand_total))
@@ -52,14 +56,14 @@ function CheckoutSuccessContent() {
       /* Without storage, signed-in shoppers can recover their own receipt. */
     }
     setOrder(receipt);
-    if (receipt || !token || !orderNumber) {
+    if ((receipt && receipt.payment_method !== 'bank_transfer') || !token || !orderNumber) {
       setLoading(false);
       return;
     }
     accountEndpoints
       .order(orderNumber)
       .then((found) => {
-        if (active) setOrder(found ?? null);
+        if (active && found) setOrder(found);
       })
       .catch(() => {})
       .finally(() => {
@@ -84,7 +88,7 @@ function CheckoutSuccessContent() {
   useEffect(() => {
     const userPhone = typeof user?.phone === 'string' ? user.phone : undefined;
     const contactPhone = order?.recipient_phone || userPhone;
-    if (!order || order.order_number !== orderNumber || order.payment_method !== 'bank_transfer' || !contactPhone) return;
+    if (!order || order.order_number !== orderNumber || order.payment_method !== 'bank_transfer' || !contactPhone || order.instapay !== undefined) return;
     let active = true;
     checkoutEndpoints.track(orderNumber, contactPhone).then(({ instapay }) => {
       if (active) setTransfer(instapay ? { orderNumber, details: instapay } : null);
@@ -93,7 +97,9 @@ function CheckoutSuccessContent() {
       active = false;
     };
   }, [order, orderNumber, user?.phone]);
-  const instapay = transfer?.orderNumber === orderNumber ? transfer.details : null;
+  const instapay = order?.order_number === orderNumber && order.instapay !== undefined
+    ? order.instapay
+    : transfer?.orderNumber === orderNumber ? transfer.details : null;
 
   const visibleOrder = order?.order_number === orderNumber ? order : null;
   const [failedImage, setFailedImage] = useState<string | null>(null);

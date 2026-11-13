@@ -104,6 +104,33 @@ async function signClientAddress(secret: string, timestamp: string, address: str
   return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+class PayloadTooLargeError extends Error {}
+
+function limitRequestBody(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let total = 0;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      total += value.byteLength;
+      if (total > maxBytes) {
+        controller.error(new PayloadTooLargeError('Payload too large'));
+        void reader.cancel().catch(() => undefined);
+        return;
+      }
+      controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
 function pathIsSafe(path: string[]): boolean {
   return path.length >= 2
     && (namespaces.has(path[0]) || path[0] === webhooksNamespace)
@@ -185,7 +212,7 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(60000)]),
     };
     if (request.body) {
-      init.body = request.body;
+      init.body = limitRequestBody(request.body, MAX_PAYLOAD_BYTES);
       init.duplex = 'half';
     }
     const response = await (config.send ?? fetch)(upstream, init);
@@ -203,6 +230,11 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     if (!isWebhook) headers.set('access-control-expose-headers', responseHeaders.join(', '));
     return new Response(response.body, { status: response.status, headers });
   } catch (error) {
+    // Fetch wraps request-body stream errors in a TypeError with a cause.
+    if (error instanceof PayloadTooLargeError ||
+        (error instanceof Error && error.cause instanceof PayloadTooLargeError)) {
+      return fail(413, 'Payload too large');
+    }
     if (!request.signal.aborted) {
       console.error('[CloudRunProxy] Upstream error:', error instanceof Error ? error.message : String(error));
     }

@@ -96,14 +96,40 @@ final class FinanceWriteGuards
         if ($unsettled) {
             $blockers[] = 'في ورديات غير مسوّاة';
         }
-        if (TreasuryTransaction::query()->where('treasury_id', $treasury->id)->exists()) {
-            $blockers[] = 'ليها سجل حركات';
-        }
         if ($includePendingOut && TreasuryTransfer::query()
             ->where(fn ($q) => $q->where('from_treasury_id', $treasury->id)->orWhere('to_treasury_id', $treasury->id))
             ->where('status', \App\Enums\Finance\TreasuryTransferStatus::Pending)
             ->exists()) {
             $blockers[] = 'في تحويلات معلقة';
+        }
+
+        return $blockers;
+    }
+
+    /**
+     * Deactivation intentionally ignores ledger history: a retired treasury may
+     * keep its audit trail as long as no money or unsettled work remains.
+     * Branch moves still need a pristine account.
+     *
+     * @return list<string> Reasons moving a treasury to another branch is blocked
+     */
+    public function branchMoveBlockers(Treasury $treasury): array
+    {
+        $blockers = [];
+        if (! self::decimalBalance($treasury->current_balance)->isZero()) {
+            $blockers[] = 'الرصيد مش صفر';
+        }
+        if (PosShift::query()->where('treasury_id', $treasury->id)
+            ->whereIn('status', ['open', 'closed_pending_approval'])->exists()) {
+            $blockers[] = 'في ورديات غير مسوّاة';
+        }
+        if (TreasuryTransaction::query()->where('treasury_id', $treasury->id)->exists()) {
+            $blockers[] = 'ليها سجل حركات';
+        }
+        if (TreasuryTransfer::query()
+            ->where(fn ($q) => $q->where('from_treasury_id', $treasury->id)->orWhere('to_treasury_id', $treasury->id))
+            ->exists()) {
+            $blockers[] = 'ليها تحويلات';
         }
 
         return $blockers;
@@ -179,12 +205,15 @@ final class FinanceWriteGuards
 
         $donor = null;
         $effectiveBalance = null;
+        $pendingOutByTreasury = TreasuryTransfer::query()
+            ->whereIn('from_treasury_id', $candidates->modelKeys())
+            ->where('status', \App\Enums\Finance\TreasuryTransferStatus::Pending)
+            ->selectRaw('from_treasury_id, SUM(amount) AS reserved')
+            ->groupBy('from_treasury_id')
+            ->pluck('reserved', 'from_treasury_id');
 
         foreach ($candidates as $cand) {
-            $pendingOut = (string) (TreasuryTransfer::query()
-                ->where('from_treasury_id', $cand->id)
-                ->where('status', \App\Enums\Finance\TreasuryTransferStatus::Pending)
-                ->sum('amount') ?? '0');
+            $pendingOut = (string) ($pendingOutByTreasury[$cand->id] ?? '0');
 
             $candBal = self::decimalBalance($cand->current_balance)->minus(BigDecimal::of($pendingOut)->toScale(2, RoundingMode::HalfUp));
             if ($candBal->compareTo($shortfallDec) >= 0) {

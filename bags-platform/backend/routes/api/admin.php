@@ -353,6 +353,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::post('treasury-transfers/{treasuryTransfer}/reject', [TreasuryTransferController::class, 'reject'])
             ->middleware('permission:treasury_transfers.approve')
             ->name('treasury-transfers.reject');
+        Route::post('treasury-transfers/{treasuryTransfer}/cancel', [TreasuryTransferController::class, 'cancel'])
+            ->middleware('permission:treasury_transfers.create')
+            ->name('treasury-transfers.cancel');
 
         Route::get('shifts', [PosShiftAdminController::class, 'index'])->name('shifts.index');
         Route::get('shifts/{shift}', [PosShiftAdminController::class, 'show'])->name('shifts.show');

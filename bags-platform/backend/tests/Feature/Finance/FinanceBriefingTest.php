@@ -144,4 +144,74 @@ class FinanceBriefingTest extends TestCase
             'from_treasury_id' => $drawer->id, 'to_treasury_id' => $safe->id, 'amount' => '1000.00', 'status' => 'pending',
         ]);
     }
+
+    public function test_briefing_nets_mixed_tenders_and_pos_cash_refunds(): void
+    {
+        $admin = $this->admin();
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $date = '2026-03-10';
+        $noon = \Carbon\CarbonImmutable::parse("{$date} 12:00:00", 'Africa/Cairo')->utc()->toDateTimeString();
+
+        $original = Order::factory()->create([
+            'channel' => 'pos',
+            'allocated_branch_id' => $branch->id,
+            'payment_method' => 'mixed',
+            'payment_status' => 'paid',
+            'subtotal' => '500.00',
+            'grand_total' => '500.00',
+            'cash_amount' => '300.00',
+            'card_amount' => '200.00',
+            'created_at' => $noon,
+        ]);
+        Order::factory()->create([
+            'channel' => 'pos',
+            'allocated_branch_id' => $branch->id,
+            'return_of_order_id' => $original->id,
+            'payment_method' => 'mixed',
+            'payment_status' => 'refunded',
+            'subtotal' => '50.00',
+            'grand_total' => '50.00',
+            'cash_amount' => '50.00',
+            'card_amount' => '0.00',
+            'created_at' => $noon,
+        ]);
+
+        $out = app(ToolRegistry::class)->dispatch($admin, AiConversation::create(['user_id' => $admin->id, 'model' => 'gemini-test']), [
+            'name' => 'daily_close_briefing', 'args' => ['branch_id' => $branch->id, 'date' => $date],
+        ]);
+
+        $this->assertSame('data', $out->type);
+        $this->assertSame(250.0, $out->data['cash_sales']);
+    }
+
+    public function test_briefing_defaults_to_business_timezone_date_near_midnight(): void
+    {
+        $admin = $this->admin();
+        $branch = Branch::factory()->create(['is_active' => true]);
+        // 22:30 UTC on 2026-11-12 is already 00:30 on 2026-11-13 in Africa/Cairo.
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-12 22:30:00', 'UTC'));
+        try {
+            Order::factory()->create([
+                'channel' => 'pos',
+                'allocated_branch_id' => $branch->id,
+                'payment_method' => 'cash',
+                'payment_status' => 'paid',
+                'subtotal' => '40.00',
+                'grand_total' => '40.00',
+                'cash_amount' => '40.00',
+                'card_amount' => '0.00',
+                'created_at' => now(),
+            ]);
+
+            $out = app(ToolRegistry::class)->dispatch($admin, AiConversation::create(['user_id' => $admin->id, 'model' => 'gemini-test']), [
+                'name' => 'daily_close_briefing', 'args' => ['branch_id' => $branch->id],
+            ]);
+
+            $this->assertSame('data', $out->type);
+            $this->assertSame('2026-11-13', $out->data['date']);
+            $this->assertSame(40.0, $out->data['cash_sales']);
+        } finally {
+            $this->travelBack();
+        }
+    }
 }

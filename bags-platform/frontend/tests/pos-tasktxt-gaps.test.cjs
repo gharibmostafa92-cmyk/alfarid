@@ -10,7 +10,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const POS = path.join(__dirname, '../apps/backoffice/src/pages/pos');
+const POS = path.join(__dirname, '../packages/pos-core/src');
 const money = require(path.join(POS, 'lib/money.ts'));
 const { normAr } = require(path.join(POS, 'lib/arabic.ts'));
 const { normalizeError, PosApiError, isCancel } = require(path.join(POS, 'lib/pos-error.ts'));
@@ -19,7 +19,7 @@ const { createScanDetector } = require(path.join(POS, 'lib/barcode-scanner.ts'))
 const { createTabCoordinator } = require(path.join(POS, 'lib/tab-coordinator.ts'));
 const { pushReceipt, getReceiptArchive, clearReceiptArchive } = require(path.join(POS, 'lib/receipt-archive.ts'));
 const { PosApiService } = require(path.join(POS, 'services/pos-api.core.ts'));
-const { createApiClient } = require(path.join(POS, '../../../../../packages/api-client/src/axios-instance.ts'));
+const { createApiClient } = require('../packages/api-client/src/axios-instance.ts');
 
 function mulberry32(seed) {
   let s = seed >>> 0;

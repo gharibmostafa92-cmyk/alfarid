@@ -11,9 +11,6 @@ let loading: Promise<void> | undefined;
 
 function loadScript() {
   if (api()) return Promise.resolve();
-  if (loading && !api()) {
-    loading = undefined;
-  }
   if (!loading) {
     loading = new Promise<void>((resolve, reject) => {
       const script = document.createElement('script');
@@ -23,14 +20,17 @@ function loadScript() {
       const fail = () => {
         clearTimeout(timer);
         script.remove();
-        loading = undefined;
         reject(new Error('Human verification could not load.'));
       };
       const timer = setTimeout(fail, 15000);
       script.onerror = fail;
-      script.onload = () => { clearTimeout(timer); api() ? resolve() : fail(); };
+      script.onload = () => {
+        clearTimeout(timer);
+        if (api()) resolve();
+        else fail();
+      };
       document.head.appendChild(script);
-    });
+    }).finally(() => { loading = undefined; });
   }
   return loading;
 }

@@ -1,5 +1,5 @@
-@import './styles/tokens.css';
-@import './styles/pos.css';
+@import '@alfarid/pos-core/styles/tokens.css';
+@import '@alfarid/pos-core/styles/pos.css';
 
 @tailwind base;
 @tailwind components;

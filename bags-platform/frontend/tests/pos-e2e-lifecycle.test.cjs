@@ -5,7 +5,7 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const POS = path.join(__dirname, '../apps/backoffice/src/pages/pos');
+const POS = path.join(__dirname, '../packages/pos-core/src');
 const { toCents, fromCents, spreadDiscount, toApi } = require(path.join(POS, 'lib/money.ts'));
 const { createPendingSaleManager } = require(path.join(POS, 'lib/pending-sale.ts'));
 const { createTabCoordinator } = require(path.join(POS, 'lib/tab-coordinator.ts'));

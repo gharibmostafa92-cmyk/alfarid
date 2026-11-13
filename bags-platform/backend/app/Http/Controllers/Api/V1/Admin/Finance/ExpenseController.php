@@ -89,6 +89,7 @@ class ExpenseController extends Controller implements HasMiddleware
      */
     public function store(Request $request): JsonResponse
     {
+        $businessToday = now((string) config('app.business_timezone', 'Africa/Cairo'));
         $data = $request->validate([
             'branch_id' => ['required', 'integer', 'min:1', 'exists:branches,id'],
             'treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id'],
@@ -97,8 +98,8 @@ class ExpenseController extends Controller implements HasMiddleware
             'expense_date' => [
                 'required',
                 'date_format:Y-m-d',
-                'before_or_equal:today',
-                'after_or_equal:'.now()->subDays(90)->toDateString(),
+                'before_or_equal:'.$businessToday->toDateString(),
+                'after_or_equal:'.$businessToday->copy()->subDays(90)->toDateString(),
             ],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);

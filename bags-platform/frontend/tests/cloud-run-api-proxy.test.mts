@@ -197,3 +197,28 @@ test('rejects requests with content-length exceeding 30 MiB with 413', async () 
   }), ['pos', 'sales'], config);
   assert.equal(response.status, 413);
 });
+
+test('rejects a chunked body that crosses the byte limit even when fetch wraps the stream error', async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  const body = new ReadableStream({ pull(controller) { controller.enqueue(chunk); } });
+  const request = new Request(storefront + '/api/v1/pos/sales', {
+    method: 'POST', body, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+
+  const response = await proxyCloudRunApi(request, ['pos', 'sales'], {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      const reader = (init?.body as ReadableStream<Uint8Array>).getReader();
+      try {
+        while (!(await reader.read()).done) {
+          // Drain the request as a streaming fetch would.
+        }
+      } catch (cause) {
+        throw new TypeError('fetch failed', { cause });
+      }
+      return new Response('unexpected upstream success');
+    },
+  });
+  assert.equal(response.status, 413);
+});

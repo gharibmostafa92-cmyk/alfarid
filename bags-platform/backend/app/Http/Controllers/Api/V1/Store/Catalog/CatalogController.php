@@ -16,7 +16,6 @@ use App\Models\City;
 use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -58,7 +57,8 @@ class CatalogController extends Controller
                 ->orderBy('sort_order')->orderBy('id')
                 ->get();
 
-            return StoreCategoryResource::collection($roots)->resolve(Request::create('/'));
+            // Resolve against the real request; the resource must not depend on request state for cached payloads.
+            return StoreCategoryResource::collection($roots)->resolve();
         });
 
         return response()->json(['data' => $data]);
@@ -77,7 +77,7 @@ class CatalogController extends Controller
                 ->orderBy('name_ar')
                 ->get();
 
-            return StoreBrandResource::collection($brands)->resolve(Request::create('/'));
+            return StoreBrandResource::collection($brands)->resolve();
         });
 
         return response()->json(['data' => $data]);
@@ -94,7 +94,7 @@ class CatalogController extends Controller
                 ->orderBy('name_ar')
                 ->get();
 
-            return StoreCityResource::collection($cities)->resolve(Request::create('/'));
+            return StoreCityResource::collection($cities)->resolve();
         });
 
         return response()->json(['data' => $data]);

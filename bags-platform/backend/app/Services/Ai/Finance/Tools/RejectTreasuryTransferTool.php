@@ -77,6 +77,9 @@ final class RejectTreasuryTransferTool implements AgentTool, LocksTargets, Write
             return $resolved;
         }
         $transfer = $resolved['transfer'];
+        if ((int) $transfer->created_by === $actor->id) {
+            return ToolOutcome::denied('يمكن لمنشئ التحويل إلغاء طلبه من مسار الإلغاء.', auditable: false);
+        }
         $status = $transfer->status instanceof \BackedEnum ? $transfer->status->value : (string) $transfer->status;
         if ($status !== TreasuryTransferStatus::Pending->value) {
             return ToolOutcome::denied('الرفض من التحويلات المعلقة فقط.', auditable: false);

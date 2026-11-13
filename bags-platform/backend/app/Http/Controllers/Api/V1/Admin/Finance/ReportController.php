@@ -108,7 +108,7 @@ class ReportController extends Controller
     {
         app(BranchAccess::class)->assertCentralAccess($request->user('staff'));
 
-        return response()->json(['data' => $this->reports->suppliersReport()]);
+        return response()->json($this->reports->suppliersReportPage());
     }
 
     /**

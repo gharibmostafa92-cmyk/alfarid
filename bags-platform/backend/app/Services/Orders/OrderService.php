@@ -326,7 +326,9 @@ class OrderService
                 if ($customer === null || $customer->fresh()->status !== CustomerStatus::Approved) {
                     throw new BusinessException('الدفع بالمحفظة يتطلب حساب عميل نشطًا.');
                 }
-                app(WalletService::class)->record($customer->id, -$grandTotal, 'checkout_payment', 'order', $order->id);
+                if ($grandTotal > 0) {
+                    app(WalletService::class)->record($customer->id, -$grandTotal, 'checkout_payment', 'order', $order->id);
+                }
                 $order->update(['payment_status' => 'paid']);
             }
 
@@ -579,7 +581,7 @@ class OrderService
                         ->sum('amount'));
                     $remaining = BigDecimal::of((string) $payment->amount)->negated()
                         ->minus($alreadyRefunded);
-                    if ($alreadyRefunded->isZero() || $remaining->isPositive()) {
+                    if ($remaining->isPositive()) {
                         app(WalletService::class)->record(
                             $payment->customer_id,
                             (string) $remaining,

@@ -175,7 +175,7 @@ class Task8Slice4ReportsAndReconcileTest extends TestCase
 
     public function test_f05_reconcile_splits_read_only_snapshot_from_run_logging_and_pruning(): void
     {
-        // Insert one stale run (>14 days) to ensure pruning still works outside REPEATABLE READ.
+        // Insert one stale run (>90 days) and one recent run to verify audit retention.
         $stale = FinanceReconcileRun::create([
             'branch_id' => $this->branch->id,
             'checked' => 1,
@@ -183,6 +183,15 @@ class Task8Slice4ReportsAndReconcileTest extends TestCase
             'samples' => [],
         ]);
         DB::table('finance_reconcile_runs')->where('id', $stale->id)->update([
+            'created_at' => now()->subDays(120),
+        ]);
+        $recent = FinanceReconcileRun::create([
+            'branch_id' => $this->branch->id,
+            'checked' => 1,
+            'problem_count' => 0,
+            'samples' => [],
+        ]);
+        DB::table('finance_reconcile_runs')->where('id', $recent->id)->update([
             'created_at' => now()->subDays(20),
         ]);
 
@@ -193,7 +202,8 @@ class Task8Slice4ReportsAndReconcileTest extends TestCase
         $exit = Artisan::call('finance:reconcile', ['--branch_id' => $this->branch->id]);
         $this->assertSame(0, $exit);
         $this->assertDatabaseMissing('finance_reconcile_runs', ['id' => $stale->id]);
-        $this->assertSame(1, FinanceReconcileRun::query()->count());
+        $this->assertDatabaseHas('finance_reconcile_runs', ['id' => $recent->id]);
+        $this->assertSame(2, FinanceReconcileRun::query()->count());
     }
 
     public function test_f10_inventory_report_fails_closed_with_503_on_lock_timeout_and_normalizes_dead_days(): void

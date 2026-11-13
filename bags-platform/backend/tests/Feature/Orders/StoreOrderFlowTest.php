@@ -322,6 +322,31 @@ class StoreOrderFlowTest extends TestCase
         $this->getJson($track.'?phone=01012345678')->assertOk()->assertJsonMissingPath('data.instapay');
     }
 
+    public function test_account_order_exposes_instapay_without_a_recipient_phone(): void
+    {
+        config(['store.instapay_address' => 'test-store@instapay']);
+        $customer = Customer::factory()->create();
+        $order = Order::factory()->create([
+            'customer_id' => $customer->id,
+            'channel' => 'store',
+            'status' => 'pending',
+            'payment_method' => 'bank_transfer',
+            'payment_status' => 'unpaid',
+            'guest_phone' => null,
+        ]);
+        $url = '/api/v1/store/account/orders/'.$order->order_number;
+
+        $this->withToken($customer->createToken('receipt')->plainTextToken)->getJson($url)
+            ->assertOk()
+            ->assertJsonPath('data.recipient_phone', null)
+            ->assertJsonPath('data.instapay.address', 'test-store@instapay');
+
+        Auth::forgetGuards();
+        $otherCustomer = Customer::factory()->create();
+        $this->withToken($otherCustomer->createToken('receipt')->plainTextToken)
+            ->getJson($url)->assertNotFound();
+    }
+
     public function test_guest_cart_merges_into_account_on_login(): void
     {
         $variant = $this->purchasableVariant(150);

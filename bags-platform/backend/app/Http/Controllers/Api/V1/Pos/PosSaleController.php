@@ -9,6 +9,7 @@ use App\Enums\Customer\CustomerType;
 use App\Enums\Orders\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -103,7 +104,13 @@ class PosSaleController extends Controller
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            // F-03: explicit manual flag round-trips through items_payload.
+            'items.*.manual_price' => ['nullable', 'boolean'],
+            // F-04: hold-time customer gate mirrors store() — suspended,
+            // rejected, and soft-deleted customers cannot park a held sale.
+            'customer_id' => ['nullable', 'integer', 'min:1', Rule::exists('customers', 'id')
+                ->whereNull('deleted_at')
+                ->whereNotIn('status', [CustomerStatus::Suspended->value, CustomerStatus::Rejected->value])],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -230,7 +237,9 @@ class PosSaleController extends Controller
     public function lookupForReturn(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'number' => ['required', 'string'],
+            // F-08: bound the input so oversized payloads are rejected before
+            // any query building, padding, or LIKE compilation happens.
+            'number' => ['required', 'string', 'max:64'],
         ]);
 
         /** @var User $user */
@@ -239,6 +248,12 @@ class PosSaleController extends Controller
         $normalized = strtoupper(trim(ArabicDigits::normalize($data['number'])));
         if ($normalized === '') {
             abort(404, 'الفاتورة غير موجودة.');
+        }
+
+        try {
+            $scopedBranch = app(BranchAccess::class)->restrictedBranch($user);
+        } catch (AuthorizationException) {
+            $scopedBranch = false;
         }
 
         $candidates = [$normalized];
@@ -250,6 +265,7 @@ class PosSaleController extends Controller
         }
 
         $stripped = preg_replace('/^(?:POS|ORD)-/', '', $normalized) ?? $normalized;
+        $digitForms = [];
         if (ctype_digit($stripped)) {
             $intVal = (string) ((int) $stripped);
             $pad6 = str_pad($intVal, 6, '0', STR_PAD_LEFT);
@@ -266,6 +282,20 @@ class PosSaleController extends Controller
                 $candidates[] = strtoupper($orderPrefix).str_pad($intVal, max(0, $orderPadding), '0', STR_PAD_LEFT);
                 $candidates[] = strtoupper($orderPrefix).$stripped;
             }
+            $digitForms = [$stripped, $intVal, $pad6, $pad4];
+        }
+        // F-08: custom branch prefixes (e.g. BR9-000123) become exact index
+        // candidates scoped to the cashier's own branch instead of relying
+        // solely on the open LIKE '%-...' fallback below.
+        if (is_int($scopedBranch)) {
+            $branchCode = strtoupper((string) (Branch::whereKey($scopedBranch)->value('code') ?? ''));
+            if ($branchCode !== '') {
+                foreach (array_unique(array_merge([$stripped], $digitForms)) as $form) {
+                    if ($form !== '') {
+                        $candidates[] = $branchCode.'-'.$form;
+                    }
+                }
+            }
         }
         $candidates = array_values(array_unique($candidates));
         $literalSuffix = strtr($stripped, ['!' => '!!', '%' => '!%', '_' => '!_']);
@@ -281,7 +311,11 @@ class PosSaleController extends Controller
 
         $order = $baseQuery()->whereIn('order_number', $candidates)->latest('id')->first();
 
-        if ($order === null && $stripped !== '') {
+        // F-08: digit suffixes keep their zero-flex full-segment matching
+        // (existing F16 contract: '123' still finds BR9-000123); free-text
+        // suffixes shorter than 4 chars never reach the open LIKE fallback.
+        $allowSuffixFallback = $stripped !== '' && (ctype_digit($stripped) || strlen($stripped) >= 4);
+        if ($order === null && $allowSuffixFallback) {
             // Fallback for custom branch prefixes not covered by $candidates,
             // scoped to the cashier's branch and the return window so it stays
             // narrow instead of scanning the whole orders history.
@@ -297,11 +331,6 @@ class PosSaleController extends Controller
                 });
             if ($returnWindowDays > 0) {
                 $fallback->where('created_at', '>=', now()->subDays($returnWindowDays + 1));
-            }
-            try {
-                $scopedBranch = app(BranchAccess::class)->restrictedBranch($user);
-            } catch (AuthorizationException) {
-                $scopedBranch = false;
             }
             if (is_int($scopedBranch)) {
                 $fallback->where(function ($q) use ($scopedBranch): void {
@@ -320,11 +349,7 @@ class PosSaleController extends Controller
         // Prefer an invoice from the cashier's own branch before falling back to
         // the globally latest match, so a branch-restricted cashier finds their
         // own invoice instead of failing on another branch's newer invoice.
-        try {
-            $scopedBranch = app(BranchAccess::class)->restrictedBranch($user);
-        } catch (AuthorizationException) {
-            $scopedBranch = false;
-        }
+        // ($scopedBranch resolved once above; reused here.)
         if (is_int($scopedBranch)) {
             $orderBranchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
             if ($orderBranchId !== $scopedBranch) {
@@ -343,7 +368,20 @@ class PosSaleController extends Controller
         }
 
         $branchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
+        // F-08: fail closed with 404 when the invoice is detached from every
+        // branch instead of leaking a misleading 403 from assertBranch(id, 0).
+        if ($branchId <= 0) {
+            abort(404, 'الفاتورة غير موجودة.');
+        }
         app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        // F-07: per-variant refund history so the client can reuse the
+        // server's proportional-cent math instead of unit-price multiplication.
+        $refundedByVariant = DB::table('order_items as ri')
+            ->join('orders as ro', 'ro.id', '=', 'ri.order_id')
+            ->where('ro.return_of_order_id', $order->id)
+            ->selectRaw('ri.product_variant_id, SUM(ri.qty) AS qty, SUM(ri.line_total) AS amount')
+            ->groupBy('ri.product_variant_id')->get()->keyBy('product_variant_id');
 
         return response()->json([
             'data' => [
@@ -363,17 +401,22 @@ class PosSaleController extends Controller
                     'id' => $order->posShift->cashier->id,
                     'name' => $order->posShift->cashier->name,
                 ] : null,
-                'items' => $order->items->map(function (OrderItem $item): array {
+                'items' => $order->items->map(function (OrderItem $item) use ($refundedByVariant): array {
                     $qty = (float) $item->qty;
                     $returnedQty = (float) ($item->returned_qty ?? 0);
                     $returnableQty = max(0.0, $qty - $returnedQty);
                     $unitPrice = (float) $item->unit_price;
                     $discountAmount = (float) $item->discount_amount;
                     $netUnitPrice = $qty > 0 ? ($qty * $unitPrice - $discountAmount) / $qty : 0.0;
+                    $previousRefund = $refundedByVariant->get($item->product_variant_id);
 
                     return [
                         'id' => $item->id,
                         'product_variant_id' => $item->product_variant_id,
+                        // F-07: full line value + already-refunded value so the
+                        // client computes proportional cents like the server.
+                        'line_total' => number_format((float) $item->line_total, 2, '.', ''),
+                        'previous_refunded_amount' => number_format((float) ($previousRefund?->amount ?? 0), 2, '.', ''),
                         'product_name' => $item->product_name_snapshot
                             ?? $item->variant?->product?->name_ar
                             ?? $item->variant?->product?->name_en,

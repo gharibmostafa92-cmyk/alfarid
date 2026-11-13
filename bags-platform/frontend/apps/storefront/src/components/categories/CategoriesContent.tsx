@@ -43,6 +43,8 @@ export function CategoriesContent() {
   }, []);
   const [toast, setToast] = useState<{ show: boolean; msg: string }>({ show: false, msg: '' });
   const [wishlist, setWishlist] = useState<Set<number>>(new Set());
+  const wishlistRef = useRef(wishlist);
+  wishlistRef.current = wishlist;
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -87,18 +89,17 @@ export function CategoriesContent() {
 
   const handleToggleWishlist = (productId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    setWishlist((prev) => {
-      const next = new Set(prev);
-      if (next.has(productId)) {
-        next.delete(productId);
-        showToast('Removed from your wishlist.');
-      } else {
-        next.add(productId);
-        showToast('Saved to your wishlist!');
-      }
-      try { localStorage.setItem('sophie_wishlist', JSON.stringify([...next])); } catch { /* storage unavailable */ }
-      return next;
-    });
+    const next = new Set(wishlistRef.current);
+    if (next.has(productId)) {
+      next.delete(productId);
+      showToast('Removed from your wishlist.');
+    } else {
+      next.add(productId);
+      showToast('Saved to your wishlist!');
+    }
+    wishlistRef.current = next;
+    setWishlist(next);
+    try { localStorage.setItem('sophie_wishlist', JSON.stringify([...next])); } catch { /* storage unavailable */ }
   };
 
   const toggleOccasion = (id: StoreOccasion) => {

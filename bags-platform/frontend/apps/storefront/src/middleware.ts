@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  if (pathname === '/store-media' || pathname.startsWith('/store-media/')) {
+    const segments = pathname.slice('/store-media/'.length).split('/');
+    for (const segment of segments) {
+      try {
+        const decoded = decodeURIComponent(segment);
+        if (!decoded || decoded === '.' || decoded === '..' || /[%/\\\u0000-\u001f\u007f]/u.test(decoded)) {
+          return new NextResponse(null, { status: 404 });
+        }
+      } catch {
+        return new NextResponse(null, { status: 404 });
+      }
+    }
+    return NextResponse.next();
+  }
+
   const nonce = btoa(crypto.randomUUID());
   const development = process.env.NODE_ENV !== 'production';
   const api = new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
@@ -38,5 +54,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|images/).*)'],
+  matcher: ['/store-media/:path*', '/((?!api|_next/static|_next/image|favicon.ico|images/|store-media|vendor|healthz).*)'],
 };

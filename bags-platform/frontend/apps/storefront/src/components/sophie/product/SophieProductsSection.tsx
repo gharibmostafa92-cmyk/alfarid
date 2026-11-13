@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { SophieProduct, SophieProductCard } from './SophieProductCard';
+import { safeStoreHref } from '@/lib/core/safe-href';
 
 interface SophieProductsSectionProps {
   id?: string;
@@ -25,6 +26,7 @@ export function SophieProductsSection({
   className = 'py-12 sm:py-16 pb-10',
   isLoading = false,
 }: SophieProductsSectionProps) {
+  const safeViewMoreHref = safeStoreHref(viewMoreHref);
   if (!isLoading && products.length === 0) return null;
   return (
     <section id={id} className={`products-section ${className}`} aria-busy={isLoading} aria-label={title}>
@@ -77,18 +79,18 @@ export function SophieProductsSection({
         </div>
 
         {/* View More Button */}
-        {!isLoading && showViewMore && products.length >= 4 && (
+        {!isLoading && showViewMore && safeViewMoreHref && products.length >= 4 && (
           <div className="text-center mt-8 sm:mt-9">
-            {viewMoreHref.startsWith('/') ? (
+            {safeViewMoreHref.startsWith('/') ? (
               <Link
-                href={viewMoreHref}
+                href={safeViewMoreHref}
                 className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
               >
                 VIEW MORE
               </Link>
             ) : (
               <a
-                href={viewMoreHref}
+                href={safeViewMoreHref}
                 className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
               >
                 VIEW MORE

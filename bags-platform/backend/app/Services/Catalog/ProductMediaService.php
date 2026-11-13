@@ -68,6 +68,7 @@ class ProductMediaService
             }
 
             return $this->withMediaLock($product->id, function () use ($product, $file): Collection {
+                $this->pruneStaleStaging($product);
                 // Upload video to staging first before atomic replacement to prevent race conditions from dropping active files.
                 $media = $product->addMedia($file)->toMediaCollection('video_staging', CatalogMedia::disk());
                 try {
@@ -98,6 +99,7 @@ class ProductMediaService
         $files = array_values($files);
 
         return $this->withMediaLock($product->id, function () use ($owner, $files, $clientIds): Collection {
+            $this->pruneStaleStaging($owner);
             $requestedKeys = array_filter(array_slice($clientIds, 0, count($files)), fn ($id) => is_string($id) && $id !== '');
             $uniqueKeys = array_values(array_unique($requestedKeys));
             $replays = $uniqueKeys === [] ? 0 : $owner->media()->where('collection_name', 'images')
@@ -199,6 +201,17 @@ class ProductMediaService
                 ->get()->each(fn (Media $row) => $this->deleteMediaQuietly($row));
             throw $exception;
         }
+    }
+
+    private function pruneStaleStaging(Product|ProductVariant $owner): void
+    {
+        Media::query()
+            ->where('model_type', $owner->getMorphClass())
+            ->where('model_id', $owner->getKey())
+            ->whereIn('collection_name', ['images_staging', 'video_staging'])
+            ->where('created_at', '<', now()->subMinutes(15))
+            ->get()
+            ->each(fn (Media $row) => $this->deleteMediaQuietly($row));
     }
 
     private function deleteMediaQuietly(Media $media): void

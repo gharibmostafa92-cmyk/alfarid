@@ -24,8 +24,11 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
     Route::get('bootstrap', [PosBootstrapController::class, 'show'])->name('bootstrap');
     Route::get('treasuries/available', [PosShiftController::class, 'availableDrawers'])->name('treasuries.available');
 
-    // Shift management: opening and inspecting shifts do not require an active shift.
+    // Shift management: opening, closing, and inspecting shifts do not require
+    // an active shift (F-10: close resolves its own shift so idempotent
+    // retries replay the close summary instead of hitting pos.shift 403).
     Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
+    Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
     Route::get('shifts/current', [PosShiftController::class, 'current'])->name('shifts.current');
 
     // Product catalog, lookup, and held carts accessible prior to shift opening.
@@ -36,7 +39,6 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
     // Protected endpoints requiring an active shift (pos.shift middleware injects current shift).
     Route::middleware('pos.shift')->group(function (): void {
         Route::get('shifts/current/summary', [PosShiftController::class, 'summary'])->name('shifts.current.summary');
-        Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
 
         // POS sales, held carts, refunds, and exchanges.
         Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');

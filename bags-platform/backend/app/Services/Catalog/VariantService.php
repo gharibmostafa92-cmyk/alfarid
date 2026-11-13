@@ -32,7 +32,7 @@ class VariantService
      */
     public function create(Product $product, array $data, ?int $expectedProductVersion = null): ProductVariant
     {
-        $data = array_filter($data, fn ($value) => $value !== null);
+        $data = $this->normalizeIdentifiers($data);
 
         // Retry once on generated SKU races before surfacing unique constraint collisions as 409 conflicts.
         $autoSku = empty($data['sku']);
@@ -95,6 +95,7 @@ class VariantService
     {
         $expectedVersion = $data['expected_version'] ?? null;
         unset($data['expected_version']);
+        $data = $this->normalizeIdentifiers($data);
         foreach (['cost_price', 'reorder_level', 'sort_order', 'is_active'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === null) {
                 unset($data[$field]);
@@ -171,6 +172,28 @@ class VariantService
                 StoreCatalogService::forgetStorefrontCaches();
             });
         });
+    }
+
+    /**
+     * Trims user-supplied identifiers so whitespace cannot bypass auto-generation.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeIdentifiers(array $data): array
+    {
+        foreach (['sku', 'barcode'] as $field) {
+            if (array_key_exists($field, $data) && is_string($data[$field])) {
+                $trimmed = trim($data[$field]);
+                if ($trimmed === '') {
+                    unset($data[$field]);
+                } else {
+                    $data[$field] = $trimmed;
+                }
+            }
+        }
+
+        return array_filter($data, fn ($value) => $value !== null);
     }
 
     private function assertUniqueCombination(Product $product, array $d, ?int $ignoreId = null): void

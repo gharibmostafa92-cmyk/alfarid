@@ -248,19 +248,19 @@ class CustomerAuthService
                 ['email' => $key], ['token' => hash('sha256', $plainToken), 'created_at' => now()],
             );
 
+            DB::afterCommit(function () use ($customer, $plainToken, $email): void {
+                try {
+                    $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            });
+
             return true;
         });
         if (! $stored) {
             return;
         }
-
-        DB::afterCommit(function () use ($customer, $plainToken, $email): void {
-            try {
-                $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
-            } catch (\Throwable $exception) {
-                report($exception);
-            }
-        });
     }
 
     /**

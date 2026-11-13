@@ -28,6 +28,7 @@ class OrderResource extends JsonResource
             'status' => $this->status,
             'payment_method' => $this->payment_method,
             'payment_status' => $this->payment_status,
+            'instapay' => $this->whenHas('instapay'),
             'recipient_name' => $this->guest_name,
             'recipient_phone' => $this->guest_phone,
             'city_id' => $this->city_id,

@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const POS = path.join(__dirname, '../apps/backoffice/src/pages/pos');
+const POS = path.join(__dirname, '../packages/pos-core/src');
 const { createScanDetector } = require(path.join(POS, 'lib/barcode-scanner.ts'));
 const sound = require(path.join(POS, 'lib/sound.ts'));
 const { maxDiscountAmount } = require(path.join(POS, 'lib/money.ts'));
@@ -69,6 +69,44 @@ test('a pause between two scans resets the buffer', () => {
 // ---------- sound ----------
 test('sound helpers are safe without AudioContext', () => {
   assert.doesNotThrow(() => { sound.beepSuccess(); sound.beepError(); });
+});
+
+test('sound releases its nodes and recreates the audio context after pagehide', (t) => {
+  const lifecycle = new EventTarget();
+  let contexts = 0;
+  let closed = 0;
+  let disconnected = 0;
+  lifecycle.AudioContext = class {
+    currentTime = 0;
+    state = 'running';
+    constructor() { contexts++; }
+    createOscillator() {
+      return {
+        frequency: {},
+        connect: (node) => node,
+        disconnect: () => disconnected++,
+        start() {},
+        stop() { this.onended(); },
+      };
+    }
+    createGain() {
+      return {
+        gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+        connect() {},
+        disconnect: () => disconnected++,
+      };
+    }
+    async close() { closed++; }
+  };
+  global.window = lifecycle;
+  t.after(() => { delete global.window; });
+  sound.beepSuccess();
+  assert.equal(disconnected, 2);
+  lifecycle.dispatchEvent(new Event('pagehide'));
+  assert.equal(closed, 1);
+  sound.beepSuccess();
+  assert.equal(contexts, 2);
+  lifecycle.dispatchEvent(new Event('pagehide'));
 });
 
 // ---------- max discount ----------
@@ -178,7 +216,7 @@ test('invoice discount is spread by largest remainder into per-line discounts', 
   assert.deepEqual([...cents].sort((a, b) => a - b), [33, 33, 34]);
 });
 
-test('manual price override sends override_price and unit_price for every line', async () => {
+test('manual price override leaves other lines to server pricing', async () => {
   const { store, calls } = makeStore();
   store.getState().bindContext(1, 1);
   store.getState().addItem(prod(1, 100));
@@ -187,7 +225,7 @@ test('manual price override sends override_price and unit_price for every line',
   await store.getState().flushQuote();
   const last = calls[calls.length - 1];
   assert.equal(last.override_price, true);
-  assert.deepEqual(last.items.map((i) => i.unit_price), [70, 50]);
+  assert.deepEqual(last.items.map((i) => i.unit_price), [70, undefined]);
   assert.equal(store.getState().cart[0].manualPrice, true);
 });
 

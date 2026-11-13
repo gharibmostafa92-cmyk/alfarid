@@ -13,6 +13,7 @@ use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\Stocktake;
+use App\Models\StocktakeScan;
 use App\Models\StockTransfer;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
@@ -139,6 +140,7 @@ class PosStockController extends Controller
         }
 
         $data = $request->validate([
+            'expected_version' => ['required', 'integer', 'min:1'],
             'items' => ['required', 'array', 'min:1', 'max:500'],
             'items.*.id' => ['required', 'integer', 'min:1', 'distinct',
                 Rule::exists('stock_transfer_items', 'id')->where('stock_transfer_id', $transfer->id),
@@ -152,15 +154,16 @@ class PosStockController extends Controller
         }
 
         $idempotencyKey = $this->idempotencyKey($request);
+        $version = (int) $data['expected_version'];
         $transfer = $idempotencyKey !== null
             ? app(OperationIdempotencyService::class)->run(
                 'pos_receive_transfer',
                 $user,
                 $idempotencyKey,
-                ['transfer_id' => $transfer->id, 'items' => $quantities],
-                fn (): StockTransfer => $this->transfers->receive($transfer, $quantities, $user->id),
+                ['transfer_id' => $transfer->id, 'items' => $quantities, 'expected_version' => $version],
+                fn (): StockTransfer => $this->transfers->receive($transfer, $quantities, $user->id, expectedVersion: $version),
             )
-            : $this->transfers->receive($transfer, $quantities, $user->id);
+            : $this->transfers->receive($transfer, $quantities, $user->id, expectedVersion: $version);
 
         PosService::invalidateCatalogVersionCache((int) $transfer->to_branch_id);
         if ($transfer->from_branch_id) {
@@ -231,10 +234,14 @@ class PosStockController extends Controller
 
         $item = $stocktake->items->firstWhere('product_variant_id', $variant->id);
 
+        // F-14: the client log panel needs display material straight from the
+        // scan response (it works on the real API, not just the mock).
         $response = [
             'message' => 'تم تسجيل المسح بنجاح.',
             'product_variant_id' => $variant->id,
             'sku' => $variant->sku,
+            'barcode' => $variant->barcode,
+            'product_name' => $variant->product?->name_ar ?? $variant->product?->name_en,
             'counted_qty' => $item?->counted_qty,
         ];
         if (($data['scan_id'] ?? null) !== null && (float) ($item?->counted_qty ?? 0) === (float) ($before ?? 0)) {
@@ -321,11 +328,15 @@ class PosStockController extends Controller
         $canApprove = $user->can('stocktakes.approve');
 
         $items = $stocktake->items->map(function ($item) use ($canApprove): array {
+            $variant = $item->relationLoaded('variant') ? $item->variant : null;
             $row = [
                 'id' => $item->id,
                 'product_variant_id' => $item->product_variant_id,
-                'sku' => $item->relationLoaded('variant') ? $item->variant?->sku : null,
-                'barcode' => $item->relationLoaded('variant') ? $item->variant?->barcode : null,
+                'sku' => $variant?->sku,
+                'barcode' => $variant?->barcode,
+                // F-14: display material for rows whose variant is missing
+                // from the terminal's local catalog (no silent filter(Boolean) drop).
+                'product_name' => $variant?->product?->name_ar ?? $variant?->product?->name_en,
                 'counted_qty' => $item->counted_qty !== null ? (float) $item->counted_qty : null,
             ];
 
@@ -338,6 +349,25 @@ class PosStockController extends Controller
             return $row;
         })->values()->all();
 
+        // F-14: server-side scan history so the log panel and last-scan card
+        // work on the real API, including after a page reload.
+        $recentScans = StocktakeScan::query()
+            ->where('stocktake_id', $stocktake->id)
+            ->with(['variant.product'])
+            ->latest('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (StocktakeScan $scan): array => [
+                'product_variant_id' => $scan->product_variant_id,
+                'sku' => $scan->variant?->sku,
+                'barcode' => $scan->variant?->barcode,
+                'product_name' => $scan->variant?->product?->name_ar ?? $scan->variant?->product?->name_en,
+                'qty' => (float) $scan->qty,
+                'created_at' => $scan->created_at,
+            ])
+            ->values()
+            ->all();
+
         return response()->json([
             'data' => [
                 'id' => $stocktake->id,
@@ -347,6 +377,7 @@ class PosStockController extends Controller
                 'status' => $stocktake->status->value,
                 'notes' => $stocktake->notes,
                 'items' => $items,
+                'recent_scans' => $recentScans,
                 'created_at' => $stocktake->created_at,
                 'updated_at' => $stocktake->updated_at,
             ],

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Auth;
 
 use App\Jobs\SendCustomerPhoneVerification;
+use App\Models\Customer;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -64,6 +65,20 @@ class PhoneRegistrationTest extends TestCase
         Http::assertSent(fn ($request) => $request['response'] === 'fresh-token'
             && $request['secret'] === 'private-secret-key');
         Queue::assertPushed(SendCustomerPhoneVerification::class, fn ($job) => $job->phone === '01012345678' && $job->networkKey !== null);
+        Queue::assertPushed(SendCustomerPhoneVerification::class, 1);
+    }
+
+    public function test_existing_phone_still_queues_the_same_job_to_hide_account_existence(): void
+    {
+        config(['services.turnstile.secret_key' => 'private-secret-key']);
+        Queue::fake();
+        Http::fake(['challenges.cloudflare.com/*' => Http::response(['success' => true])]);
+        Customer::factory()->create(['phone' => '01012345678']);
+
+        $this->postJson('/api/v1/store/auth/phone-verification/send', [
+            'phone' => '01012345678', 'turnstile_token' => 'fresh-token',
+        ])->assertOk();
+
         Queue::assertPushed(SendCustomerPhoneVerification::class, 1);
     }
 

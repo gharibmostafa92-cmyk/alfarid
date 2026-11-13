@@ -1,7 +1,6 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PosApp } from './components/PosApp';
-import { ToastHost } from './components/ui/SharedUI';
+import { PosApp, ToastHost } from '@alfarid/pos-core';
 
 const queryClient = new QueryClient({
   defaultOptions: {

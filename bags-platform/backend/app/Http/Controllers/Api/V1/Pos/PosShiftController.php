@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Enums\Finance\PosShiftStatus;
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Models\PosShift;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pos\PosService;
+use App\Services\Shared\IdempotencyFingerprint;
+use App\Services\Shared\OperationIdempotencyService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Cashier POS terminal shifts: opening with drawer cash float, active shift monitoring, and reconciliation closing.
@@ -94,12 +98,25 @@ class PosShiftController extends Controller
         $branchId = (int) $user->branch_id;
         app(BranchAccess::class)->assertBranch($user->id, $branchId);
 
-        $shift = $this->pos->openShift(
+        // F-10: an Idempotency-Key makes retried opens return the already
+        // opened shift; requests without a key keep the legacy behavior.
+        $open = fn (): PosShift => $this->pos->openShift(
             user: $user,
             branchId: $branchId,
             treasuryId: (int) $data['treasury_id'],
             openingCash: (float) $data['opening_cash'],
         );
+        $idempotencyKey = $this->idempotencyKey($request);
+        /** @var PosShift $shift */
+        $shift = $idempotencyKey !== null
+            ? app(OperationIdempotencyService::class)->run(
+                'pos_shift_open',
+                $user,
+                $idempotencyKey,
+                ['branch_id' => $branchId, 'treasury_id' => (int) $data['treasury_id'], 'opening_cash' => $data['opening_cash']],
+                $open,
+            )
+            : $open();
 
         return response()->json([
             'message' => 'تم فتح الوردية بنجاح.',
@@ -135,6 +152,10 @@ class PosShiftController extends Controller
 
     /**
      * Close the cashier shift with counted cash for administrative reconciliation.
+     *
+     * F-10: this endpoint intentionally lives outside the pos.shift middleware
+     * so a retried close after an unacked commit can replay the original close
+     * summary via Idempotency-Key instead of dying with 403 no_open_shift.
      */
     public function close(Request $request): JsonResponse
     {
@@ -143,19 +164,129 @@ class PosShiftController extends Controller
             'notes'               => ['nullable', 'string', 'max:500'],
         ]);
 
-        /** @var PosShift $shift */
-        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
 
-        $shift = $this->pos->closeShift(
+        /** @var PosShift|null $shift */
+        $shift = $request->attributes->get('pos_shift') ?? $this->resolveOpenShift($user);
+
+        if ($shift === null) {
+            return $this->replayClose($request, $user, $data);
+        }
+
+        $close = fn (): PosShift => $this->pos->closeShift(
             shift: $shift,
             actualCash: (float) $data['actual_closing_cash'],
             notes: $data['notes'] ?? null,
         );
+        $idempotencyKey = $this->idempotencyKey($request);
+        if ($idempotencyKey !== null) {
+            /** @var PosShift $shift */
+            $shift = app(OperationIdempotencyService::class)->run(
+                'pos_shift_close',
+                $user,
+                $idempotencyKey,
+                $this->closePayload($shift->id, $data),
+                $close,
+            );
+        } else {
+            $shift = $close();
+        }
 
         return response()->json([
             'message' => 'تم إغلاق الوردية وهي بانتظار اعتماد المدير.',
-            'data'    => $this->formatShiftFor($request->user('staff'), $shift),
+            'data'    => $this->formatShiftFor($user, $shift),
         ]);
+    }
+
+    /**
+     * F-10: open-shift resolution mirroring EnsureOpenPosShift (same messages
+     * and codes) for the close endpoint, which runs before that middleware.
+     */
+    private function resolveOpenShift(User $user): ?PosShift
+    {
+        if ($user->branch_id === null) {
+            throw new AuthorizationException('لا يمكن استخدام نقطة البيع بدون ارتباط بفرع.');
+        }
+
+        $shifts = PosShift::query()
+            ->where('user_id', $user->id)
+            ->where('branch_id', $user->branch_id)
+            ->where('status', PosShiftStatus::Open)
+            ->orderBy('id')
+            ->get();
+
+        if ($shifts->count() > 1) {
+            throw new BusinessException('يوجد أكثر من وردية مفتوحة. أغلق الورديات الزائدة قبل إتمام العملية.', [], 409);
+        }
+
+        return $shifts->first();
+    }
+
+    /**
+     * F-10: replay a committed close when the shift is already closed and the
+     * client retries with the same Idempotency-Key and payload.
+     */
+    private function replayClose(Request $request, User $user, array $data): JsonResponse
+    {
+        $noOpenShift = fn (): JsonResponse => response()->json([
+            'message' => 'لا توجد وردية مفتوحة. افتح وردية أولًا لإتمام العملية.',
+            'code'    => 'no_open_shift',
+        ], 403);
+
+        $key = $this->idempotencyKey($request);
+        if ($key === null) {
+            return $noOpenShift();
+        }
+
+        $record = DB::table('operation_idempotency_keys')
+            ->where('operation', 'pos_shift_close')
+            ->where('actor_type', $user->getMorphClass())
+            ->where('actor_id', $user->getKey())
+            ->where('key', $key)
+            ->first();
+        if ($record === null) {
+            return $noOpenShift();
+        }
+
+        $candidates = PosShift::query()
+            ->where('user_id', $user->id)
+            ->where('branch_id', $user->branch_id)
+            ->where('status', PosShiftStatus::ClosedPendingApproval)
+            ->latest('id')
+            ->limit(5)
+            ->get();
+        foreach ($candidates as $candidate) {
+            if (! hash_equals((string) $record->request_hash, IdempotencyFingerprint::hash($this->closePayload($candidate->id, $data)))) {
+                continue;
+            }
+            $shift = PosShift::query()->find($record->result_id);
+            if ($shift instanceof PosShift && (int) $shift->user_id === (int) $user->id) {
+                return response()->json([
+                    'message' => 'تم إغلاق الوردية وهي بانتظار اعتماد المدير.',
+                    'data'    => $this->formatShiftFor($user, $shift),
+                ]);
+            }
+            break;
+        }
+
+        throw new BusinessException('مفتاح عدم التكرار مستخدم مع بيانات مختلفة.', [], 409);
+    }
+
+    /**
+     * F-10: canonical close payload — built identically on first attempt and
+     * on replay so the fingerprint matches.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function closePayload(int $shiftId, array $data): array
+    {
+        return [
+            'shift_id' => $shiftId,
+            'actual_closing_cash' => $data['actual_closing_cash'],
+            'notes' => $data['notes'] ?? null,
+        ];
     }
 
     // ===================================================================

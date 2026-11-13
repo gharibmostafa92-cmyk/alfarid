@@ -9,7 +9,7 @@ test('create uses server identifiers before uploading files and never invents a 
  const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
  const state={basic:mappers.blankUiBasic(),rows:[mappers.emptyUiRow()],media:{...media(),general:[{id:'pending',file:{},status:'queued'}]}};
  const saved=await persistProduct(state,{rows:[],media:media()},false,value=>uploaded=value);
- assert.equal(saved.rows[0].serverId,12);assert.equal(saved.rows[0].sku,'P00004-01');assert.equal(uploaded.media.general[0].serverId,42);assert.equal(calls.join(','),'create,upload,reorder');
+ assert.equal(saved.rows[0].serverId,12);assert.equal(saved.rows[0].sku,'P00004-01');assert.equal(uploaded.media.general[0].serverId,42);assert.equal(calls.join(','),'create,upload');
 });
 test('existing product saves basic fields separately and creates replacements before removing old variants',async()=>{
  const calls=[];const row={...mappers.emptyUiRow(),serverId:1,size:'Old',sku:'S1'};
@@ -81,7 +81,7 @@ test('uploads run before deletions so replacing the last image succeeds',async()
   remove:async()=>{calls.push('remove');},reorder:async()=>{calls.push('reorder');}}};
  const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
  await persistProduct({id:5,basic:mappers.blankUiBasic(),rows:[],media:{...media(),general:[{id:'n',file:{}}]}},{rows:[],media:{...media(),general:[old]}},false,()=>{});
- assert.deepEqual(calls,['upload','remove','reorder']);
+ assert.deepEqual(calls,['upload','remove']);
 });
 
 test('timestamp-only copies require a reload and versioned copies send expected_version',async()=>{

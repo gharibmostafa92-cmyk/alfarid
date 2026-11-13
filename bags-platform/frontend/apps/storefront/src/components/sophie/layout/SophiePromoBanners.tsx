@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
 import { StoreImage } from '../../StoreImage';
+import { safeStoreHref } from '@/lib/core/safe-href';
 
 const PALETTE = ['#dfe6ec', '#ede3de', '#e7e9e1', '#efe6dc'];
 
 function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index: number; wide: boolean; single: boolean }) {
   const [failed, setFailed] = useState(false);
   const hasText = Boolean(banner.kicker || banner.headline || banner.headline_bold || banner.description);
-  const external = banner.is_external ? { target: '_blank', rel: 'noopener noreferrer' } : {};
+  const href = safeStoreHref(banner.href);
+  const external = banner.is_external && href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
   return (
     <div
       className={`min-h-[220px] sm:min-h-[235px] ${single ? 'md:aspect-[16/5]' : ''} ${wide ? 'md:col-span-2' : ''} flex flex-col min-[480px]:flex-row items-stretch overflow-hidden relative group`}
@@ -49,9 +51,9 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
                   {banner.description}
                 </p>
               )}
-              {banner.href && (
+              {href && (
                 <a
-                  href={banner.href}
+                  href={href}
                   {...external}
                   className="text-[12.5px] font-medium text-[#111] min-h-[40px] py-1.5 inline-flex items-center gap-1.5 hover:text-[#4f7d88] transition-colors"
                 >
@@ -65,8 +67,8 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
           )}
         </>
       )}
-      {(!hasText || failed) && banner.href && (
-        <a href={banner.href} {...external} aria-label={banner.title} className="absolute inset-0" />
+      {(!hasText || failed) && href && (
+        <a href={href} {...external} aria-label={banner.title} className="absolute inset-0" />
       )}
     </div>
   );

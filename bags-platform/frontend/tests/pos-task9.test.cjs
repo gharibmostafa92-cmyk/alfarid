@@ -6,13 +6,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const BACKOFFICE_POS = path.join(__dirname, '../apps/backoffice/src/pages/pos');
+const POS = path.join(__dirname, '../packages/pos-core/src');
 const APPS_POS = path.join(__dirname, '../apps/pos/src');
 
-const mappers = require(path.join(BACKOFFICE_POS, 'services/pos-mappers.ts'));
-const { PosApiService } = require(path.join(BACKOFFICE_POS, 'services/pos-api.core.ts'));
-const { buildCheckoutPayload } = require(path.join(BACKOFFICE_POS, 'lib/checkout.ts'));
-const { createPosCartStore } = require(path.join(BACKOFFICE_POS, 'stores/pos-cart.core.ts'));
+const mappers = require(path.join(POS, 'services/pos-mappers.ts'));
+const { PosApiService } = require(path.join(POS, 'services/pos-api.core.ts'));
+const { buildCheckoutPayload } = require(path.join(POS, 'lib/checkout.ts'));
+const { createPosCartStore } = require(path.join(POS, 'stores/pos-cart.core.ts'));
 
 function fakeHttp(routes) {
   const calls = [];
@@ -151,7 +151,7 @@ describe('Task 9 POS Frontend Fixes', () => {
   });
 
   test('MEDIUM-01: isWholesaleEligible & cart store deny wholesale price to Pending customers', () => {
-    const { isWholesaleEligible } = require(path.join(BACKOFFICE_POS, 'lib/wholesale.ts'));
+    const { isWholesaleEligible } = require(path.join(POS, 'lib/wholesale.ts'));
     assert.equal(isWholesaleEligible({ id: 1, name: 'A', phone: '', tier: 'wholesale', points: 0, status: 'Approved' }), true);
     assert.equal(isWholesaleEligible({ id: 2, name: 'B', phone: '', tier: 'wholesale', points: 0, status: 'approved' }), true);
     assert.equal(isWholesaleEligible({ id: 3, name: 'C', phone: '', tier: 'wholesale', points: 0, status: 'Pending' }), false);
@@ -166,7 +166,7 @@ describe('Task 9 POS Frontend Fixes', () => {
   });
 
   test('MEDIUM-02: apps/pos normAr preserves hyphens in SKU and folds Arabic chars cleanly', () => {
-    const { normAr } = require(path.join(APPS_POS, 'lib/arabic.ts'));
+    const { normAr } = require(path.join(POS, 'lib/arabic.ts'));
     assert.equal(normAr('BAG-101'), 'bag-101');
     assert.equal(normAr('شنطة'), normAr('شنطه'));
     assert.equal(normAr('٦٢٢١٠'), '62210');
@@ -189,28 +189,23 @@ describe('Task 9 POS Frontend Fixes', () => {
   });
 
   test('CRITICAL-03 & CRITICAL-05: apps/pos wires real PosApiService, blocks PROD mock, and drops demo stubs', () => {
-    const dataSource = fs.readFileSync(path.join(APPS_POS, 'services/pos-data-source.ts'), 'utf8');
+    const dataSource = fs.readFileSync(path.join(POS, 'services/pos-data-source.ts'), 'utf8');
     assert.match(dataSource, /if\s*\(import\.meta\.env\.PROD\s*&&\s*mockRequested\)/);
     assert.match(dataSource, /export const pos = mockRequested \? posMockService : posApiService;/);
     assert.equal(fs.existsSync(path.join(APPS_POS, 'pages/CashierScreen.tsx')), false);
     assert.equal(fs.existsSync(path.join(APPS_POS, 'stores/pos-shift.store.ts')), false);
 
-    for (const root of [BACKOFFICE_POS, APPS_POS]) {
-      const stocktake = fs.readFileSync(path.join(root, 'components/inventory/StocktakePage.tsx'), 'utf8');
-      assert.equal(stocktake.includes('getProductById(101)'), false);
-      assert.equal(stocktake.includes('خمسة وتمانين'), false);
-      assert.equal(stocktake.includes("words = 'اتناشر'"), false);
-      assert.equal(stocktake.includes('setInterval'), false);
+    const stocktake = fs.readFileSync(path.join(POS, 'components/inventory/StocktakePage.tsx'), 'utf8');
+    assert.equal(stocktake.includes('getProductById(101)'), false);
+    assert.equal(stocktake.includes('خمسة وتمانين'), false);
+    assert.equal(stocktake.includes("words = 'اتناشر'"), false);
+    assert.equal(stocktake.includes('setInterval'), false);
 
-      const reqTab = fs.readFileSync(path.join(root, 'components/inventory/RequestTab.tsx'), 'utf8');
-      assert.equal(reqTab.includes('id: 106'), false);
+    const reqTab = fs.readFileSync(path.join(POS, 'components/inventory/RequestTab.tsx'), 'utf8');
+    assert.equal(reqTab.includes('id: 106'), false);
 
-      const retModal = fs.readFileSync(path.join(root, 'components/returns/ReturnModal.tsx'), 'utf8');
-      assert.match(retModal, /import\.meta\.env\.DEV[\s\S]*loadExample/);
-    }
+    const retModal = fs.readFileSync(path.join(POS, 'components/returns/ReturnModal.tsx'), 'utf8');
+    assert.match(retModal, /import\.meta\.env\.DEV[\s\S]*loadExample/);
 
-    // Exercise apps/pos PosApiService directly too
-    const { PosApiService: AppPosApiService } = require(path.join(APPS_POS, 'services/pos-api.core.ts'));
-    assert.equal(typeof AppPosApiService, 'function');
   });
 });

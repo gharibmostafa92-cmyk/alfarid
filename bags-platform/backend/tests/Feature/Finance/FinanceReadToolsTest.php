@@ -470,6 +470,85 @@ class FinanceReadToolsTest extends TestCase
         $this->assertSame([], $outcome->data['consistency_warnings']);
     }
 
+    public function test_explain_order_money_reads_legacy_plural_wallet_reference_aliases(): void
+    {
+        ['admin' => $admin] = $this->scaffold();
+        $customer = Customer::factory()->create();
+        $order = Order::factory()->create(['customer_id' => $customer->id, 'payment_method' => 'wallet', 'payment_status' => 'paid', 'grand_total' => 100]);
+        DB::table('customer_wallet_transactions')->insert([
+            'customer_id' => $customer->id,
+            'type' => 'checkout_payment',
+            'amount' => '-100.00',
+            'balance_after' => '0.00',
+            'reference_type' => 'orders',
+            'reference_id' => $order->id,
+            'created_by' => $admin->id,
+            'created_at' => now(),
+        ]);
+
+        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), [
+            'name' => 'explain_order_money', 'args' => ['order_id' => $order->id],
+        ]);
+
+        $this->assertSame('data', $outcome->type);
+        $this->assertCount(1, $outcome->data['wallet']);
+        $this->assertSame('checkout_payment', $outcome->data['wallet'][0]['type']);
+        $this->assertSame([], $outcome->data['consistency_warnings']);
+    }
+
+    public function test_explain_order_money_refund_warning_mentions_independent_wallet_adjustments(): void
+    {
+        ['admin' => $admin] = $this->scaffold();
+        $customer = Customer::factory()->create();
+        $order = Order::factory()->create(['customer_id' => $customer->id, 'payment_method' => 'wallet', 'payment_status' => 'refunded', 'grand_total' => 50]);
+        app(\App\Services\Finance\WalletAdjustmentService::class)->adjust([
+            'customer_id' => $customer->id,
+            'kind' => 'refund',
+            'amount' => '50.00',
+            'reason' => 'Refund for order '.$order->order_number,
+        ], $admin, null);
+
+        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), [
+            'name' => 'explain_order_money', 'args' => ['order_id' => $order->id],
+        ]);
+
+        $this->assertSame('data', $outcome->type);
+        $this->assertSame([], $outcome->data['wallet']);
+        $this->assertNotEmpty($outcome->data['consistency_warnings']);
+        $this->assertStringContainsString('wallet_adjustment', $outcome->data['consistency_warnings'][0]);
+        $this->assertStringNotContainsString('لا يوجد قيد استرداد مرتبط به.', $outcome->data['consistency_warnings'][0]);
+    }
+
+    public function test_explain_order_money_sums_decimal_movements_without_float_drift(): void
+    {
+        ['admin' => $admin, 'branchA' => $branchA] = $this->scaffold();
+        $order = Order::factory()->create(['payment_method' => 'cash', 'payment_status' => 'paid', 'grand_total' => '300.30']);
+        $safe = $this->treasury($branchA);
+        $service = app(TreasuryService::class);
+        $types = [
+            \App\Enums\Finance\TreasuryTransactionType::PosSale,
+            \App\Enums\Finance\TreasuryTransactionType::CustomerReceipt,
+        ];
+        foreach (['100.10', '200.20'] as $index => $amount) {
+            $service->record([
+                'treasury_id' => $safe->id,
+                'type' => $types[$index],
+                'amount' => $amount,
+                'reference_type' => 'order',
+                'reference_id' => $order->id,
+                'created_by' => $admin->id,
+            ]);
+        }
+
+        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), [
+            'name' => 'explain_order_money', 'args' => ['order_id' => $order->id],
+        ]);
+
+        $this->assertSame('data', $outcome->type);
+        $this->assertSame([], $outcome->data['consistency_warnings']);
+        $this->assertStringNotContainsString('0000000000', $outcome->data['explanation']['untrusted_text']);
+    }
+
     public function test_large_results_truncate_with_narrowing_hint(): void
     {
         ['admin' => $admin, 'branchA' => $branchA] = $this->scaffold();

@@ -41,7 +41,7 @@ class CouponService
     {
         // IP-level limiting runs before any lookup so guessing nonexistent codes
         // cannot bypass throttling; the per-coupon limiter follows the lookup.
-        $this->enforceIpRateLimit('apply');
+        $this->enforceIpRateLimit('apply', $customer);
         $coupon = $this->findRedeemable($code, $subtotal, $customer);
 
         $cart->update(['coupon_id' => $coupon->id]);
@@ -52,9 +52,13 @@ class CouponService
     /**
      * Enforces an IP-scoped ceiling that also covers unknown coupon codes.
      *
+     * Cart tokens are attacker-controlled and must never reset the limiter;
+     * authenticated customers additionally get a stable identity bucket so
+     * shared NAT egress does not throttle unrelated shoppers.
+     *
      * @throws BusinessException If rate limit is exceeded
      */
-    private function enforceIpRateLimit(string $action): void
+    private function enforceIpRateLimit(string $action, ?Customer $customer = null): void
     {
         $max = (int) config('auth.customer_limits.coupon_guest_ip_minute', 30);
         if ($max <= 0) {
@@ -62,34 +66,42 @@ class CouponService
         }
 
         $ip = request()->ip() ?? 'unknown';
-        $cartToken = request()->header('X-Cart-Session') ?? request()->input('cart_token');
-        $identity = $cartToken ? $ip.':'.$cartToken : $ip;
-        $key = 'coupon:'.$action.':id:'.hash('sha256', (string) $identity);
-        if (RateLimiter::tooManyAttempts($key, $max)) {
-            throw new BusinessException(self::RATE_LIMIT_EXCEEDED, [], 429, 'coupon_rate_limited');
+        $this->hitOrFail('coupon:'.$action.':ip:'.hash('sha256', $ip), $max);
+
+        if ($customer !== null) {
+            $customerMax = (int) config('auth.customer_limits.coupon_customer_minute', $max);
+            if ($customerMax > 0) {
+                $this->hitOrFail('coupon:'.$action.':customer:'.hash('sha256', (string) $customer->id), $customerMax);
+            }
         }
-        RateLimiter::hit($key, 60);
     }
 
     /**
-     * Enforces per-IP and per-coupon rate limits to mitigate brute-force and abuse.
+     * Enforces per-identity and per-coupon rate limits to mitigate brute-force and abuse.
      *
      * @param  Coupon  $coupon  Target coupon
      * @param  string  $action  Action key (e.g., 'apply')
      *
      * @throws BusinessException If rate limit is exceeded
      */
-    public function enforceRateLimit(Coupon $coupon, string $action = 'apply'): void
+    public function enforceRateLimit(Coupon $coupon, string $action = 'apply', ?Customer $customer = null): void
     {
         $max = (int) config('store.coupon_apply_per_minute', 20);
         if ($max <= 0) {
             return;
         }
 
-        $ip = request()->ip() ?? 'unknown';
-        $cartToken = request()->header('X-Cart-Session') ?? request()->input('cart_token');
-        $identity = $cartToken ? $ip.':'.$cartToken : $ip;
-        $key = 'coupon:'.$action.':'.$coupon->id.':'.hash('sha256', (string) $identity);
+        $identity = $customer !== null
+            ? 'customer:'.$customer->id
+            : 'ip:'.(request()->ip() ?? 'unknown');
+        $this->hitOrFail('coupon:'.$action.':'.$coupon->id.':'.hash('sha256', $identity), $max);
+    }
+
+    /**
+     * @throws BusinessException If the key has exhausted its budget
+     */
+    private function hitOrFail(string $key, int $max): void
+    {
         if (RateLimiter::tooManyAttempts($key, $max)) {
             throw new BusinessException(self::RATE_LIMIT_EXCEEDED, [], 429, 'coupon_rate_limited');
         }
@@ -231,7 +243,7 @@ class CouponService
         if ($coupon === null) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
-        $this->enforceRateLimit($coupon, 'apply');
+        $this->enforceRateLimit($coupon, 'apply', $customer);
         $this->assertRedeemable($coupon, $subtotal, $customer);
 
         return $coupon;

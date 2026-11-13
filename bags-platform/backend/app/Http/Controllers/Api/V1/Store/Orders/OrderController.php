@@ -9,6 +9,7 @@ use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Store\Orders\OrderResource;
 use App\Http\Resources\Store\Orders\TrackOrderResource;
+use App\Services\Pos\StorePaymentPolicy;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Services\Orders\OrderService;
@@ -35,13 +36,16 @@ class OrderController extends Controller
 
         $order = Order::query()
             ->where('order_number', $number)
-            ->with(['items', 'statusHistories', 'customer'])
+            ->with('customer')
             ->first();
 
         // Return generic 404 on phone mismatch to prevent phone/order enumeration.
         if ($order === null || ! $order->matchesPhone((string) $request->input('phone'))) {
             abort(404);
         }
+
+        // Only hydrate line items and history after the caller proves phone ownership.
+        $order->loadMissing(['items', 'statusHistories']);
 
         return TrackOrderResource::make($order);
     }
@@ -79,6 +83,8 @@ class OrderController extends Controller
             ->where('order_number', $number)
             ->with(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media'])
             ->firstOrFail();
+
+        $order->setAttribute('instapay', app(StorePaymentPolicy::class)->instapayInstructions($order));
 
         return OrderResource::make($order);
     }

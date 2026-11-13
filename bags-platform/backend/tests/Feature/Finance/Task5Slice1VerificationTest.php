@@ -208,4 +208,57 @@ class Task5Slice1VerificationTest extends TestCase
         $this->assertSame(0, WalletAdjustment::query()->where('customer_id', $customer->id)->count());
         $this->assertSame('10.00', (string) $customer->fresh()->wallet_balance);
     }
+
+    public function test_high_01_reverse_without_key_never_invents_an_idempotency_key(): void
+    {
+        $customer = Customer::factory()->create(['wallet_balance' => '10.00']);
+        $actor = User::factory()->create();
+
+        $idempotency = new class extends OperationIdempotencyService
+        {
+            /** @var list<string|null> */
+            public array $keys = [];
+
+            public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute): Model
+            {
+                $this->keys[] = $key;
+
+                return $execute();
+            }
+        };
+        $service = new WalletAdjustmentService(app(WalletService::class), $idempotency);
+
+        $adjustment = $service->adjust([
+            'customer_id' => $customer->id,
+            'kind' => 'adjustment',
+            'direction' => 'credit',
+            'amount' => '100.00',
+            'reason' => 'إضافة أولية',
+            'source' => 'admin',
+        ], $actor, 'initial-adjustment-key');
+
+        Customer::query()->whereKey($customer->id)->update(['wallet_balance' => '10.00']);
+        $this->assertSame('10.00', (string) $customer->fresh()->wallet_balance);
+        try {
+            $service->reverse($adjustment, $actor, null, 'محاولة أولى');
+            $this->fail('Expected reverse to fail while the wallet balance is insufficient.');
+        } catch (BusinessException) {
+        }
+
+        Customer::query()->whereKey($customer->id)->update(['wallet_balance' => '200.00']);
+        $reversal = $service->reverse($adjustment, $actor, null, 'محاولة ثانية بسب مختلف');
+
+        $this->assertSame($adjustment->id, $reversal->reverses_id);
+        $this->assertSame(['initial-adjustment-key'], $idempotency->keys);
+    }
+
+    public function test_high_01_wallet_service_rejects_zero_adjustment_movement(): void
+    {
+        $customer = Customer::factory()->create(['wallet_balance' => '0.00']);
+
+        $this->expectException(BusinessException::class);
+        $this->expectExceptionCode(422);
+
+        app(WalletService::class)->record($customer->id, '0.00', 'adjustment', 'test', 1);
+    }
 }

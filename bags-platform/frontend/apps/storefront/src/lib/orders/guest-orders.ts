@@ -1,5 +1,14 @@
 export const guestOrdersKey = 'alfarid_guest_order_numbers';
 const GUEST_ORDER_LIMIT = 10;
+const GUEST_ORDER_MAX_AGE = 7 * 24 * 60 * 60_000;
+
+function recentGuestOrders(): Array<{ number: string; expiresAt: number }> {
+  const orders: unknown = JSON.parse(localStorage.getItem(guestOrdersKey) ?? '[]');
+  if (!Array.isArray(orders)) return [];
+  return orders.filter(entry => entry && typeof entry.number === 'string' &&
+    /^[a-z0-9-]{1,100}$/i.test(entry.number) && Number.isFinite(entry.expiresAt) &&
+    entry.expiresAt > Date.now()).slice(0, GUEST_ORDER_LIMIT);
+}
 
 /**
  * Retrieve recent guest order numbers saved in the local browser session.
@@ -8,11 +17,7 @@ const GUEST_ORDER_LIMIT = 10;
  */
 export function readGuestOrders(): string[] {
   try {
-    const orders: unknown = JSON.parse(localStorage.getItem(guestOrdersKey) ?? '[]');
-    // Sanitize cached storage entries against malformed values or storage tampering.
-    return Array.isArray(orders)
-      ? orders.filter((number): number is string => typeof number === 'string' && /^[a-z0-9-]{1,100}$/i.test(number))
-      : [];
+    return recentGuestOrders().map(entry => entry.number);
   } catch {
     return [];
   }
@@ -27,7 +32,10 @@ export function rememberGuestOrder(number: string): void {
   try {
     localStorage.setItem(
       guestOrdersKey,
-      JSON.stringify([number, ...readGuestOrders().filter((saved) => saved !== number)].slice(0, GUEST_ORDER_LIMIT)),
+      JSON.stringify([
+        { number, expiresAt: Date.now() + GUEST_ORDER_MAX_AGE },
+        ...recentGuestOrders().filter(saved => saved.number !== number),
+      ].slice(0, GUEST_ORDER_LIMIT)),
     );
   } catch {
     // Storage quota limits or private-browsing restrictions must not interrupt post-checkout flows.
