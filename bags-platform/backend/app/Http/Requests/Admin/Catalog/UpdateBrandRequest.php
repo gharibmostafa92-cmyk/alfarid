@@ -25,6 +25,7 @@ class UpdateBrandRequest extends StoreBrandRequest
             'is_active' => ['sometimes', 'nullable', 'boolean'],
             'logo' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:4096', new MaxImagePixels],
             'remove_logo' => ['sometimes', 'nullable', 'boolean'],
+            'expected_version' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ];
     }
 

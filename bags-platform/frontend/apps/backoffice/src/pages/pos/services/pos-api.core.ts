@@ -47,8 +47,13 @@ export interface PosApiOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+export interface ExchangePaymentOptions {
+  method?: 'cash' | 'card' | 'mixed';
+  cashAmount?: number;
+}
+
 export interface QuoteRequest {
-  items: { product_variant_id: number; qty: number; discount_amount?: number; unit_price?: number }[];
+  items: { product_variant_id: number; qty: number; discount_amount?: number; unit_price?: number; override_reason?: string }[];
   customer_id?: number | null;
   override_price?: boolean;
 }
@@ -366,8 +371,8 @@ export class PosApiService {
   }
 
   // ---- customers ----
-  public async getCustomers(query = ''): Promise<Customer[]> {
-    const r = await this.call(() => this.http.get(EP.CUSTOMERS, { params: { q: query.trim() } }));
+  public async getCustomers(query = '', signal?: AbortSignal): Promise<Customer[]> {
+    const r = await this.call(() => this.http.get(EP.CUSTOMERS, { params: { q: query.trim() }, signal }));
     return r.data.data.map(mapCustomer);
   }
 
@@ -399,12 +404,16 @@ export class PosApiService {
     idempotencyKey?: string,
   ): Promise<{ order: PastSale; invoiceNumber: string }> {
     const body = {
-      items: payload.items.map((i) => ({
-        product_variant_id: i.product_variant_id,
-        qty: i.qty,
-        discount_amount: toApi(toCents(i.discount_amount ?? 0)),
-        ...(payload.override_price ? { unit_price: toApi(toCents(i.unit_price)) } : {}),
-      })),
+      items: payload.items.map((i) => {
+        const reason = i.override_reason ?? payload.override_reason;
+        return {
+          product_variant_id: i.product_variant_id,
+          qty: i.qty,
+          discount_amount: toApi(toCents(i.discount_amount ?? 0)),
+          ...(payload.override_price ? { unit_price: toApi(toCents(i.unit_price)) } : {}),
+          ...(payload.override_price && reason ? { override_reason: reason } : {}),
+        };
+      }),
       customer_id: payload.customer_id,
       payment_method: payload.payment_method,
       cash_amount: toApi(toCents(payload.cash_amount)),
@@ -461,18 +470,21 @@ export class PosApiService {
       cart.map((c) => ({ id: c.id, totalC: toCents(c.price) * c.qty })),
       toCents(discountTotal),
     );
+    const body = {
+      items: cart.map((c) => ({
+        product_variant_id: c.id,
+        qty: c.qty,
+        unit_price: toApi(toCents(c.price)),
+        discount_amount: toApi(shares.find((s) => s.id === c.id)?.d ?? 0),
+      })),
+      customer_id: customer?.id ?? null,
+      notes: note,
+    };
+    const key = this.idemKey('hold', body);
     const r = await this.call(() =>
-      this.http.post(EP.SALES_HOLD, {
-        items: cart.map((c) => ({
-          product_variant_id: c.id,
-          qty: c.qty,
-          unit_price: toApi(toCents(c.price)),
-          discount_amount: toApi(shares.find((s) => s.id === c.id)?.d ?? 0),
-        })),
-        customer_id: customer?.id ?? null,
-        notes: note,
-      }),
+      this.http.post(EP.SALES_HOLD, body, { headers: { 'Idempotency-Key': key } }),
     );
+    this.idemDrafts.delete('hold');
     const h = mapHeld(r.data.data);
     this.held.unshift(h);
     this.heldCount = this.held.length;
@@ -480,10 +492,14 @@ export class PosApiService {
     return { ...h };
   }
 
-  /** Atomic server-side read+delete; never GET then DELETE. */
+  /** Soft lease on resume: the held row stays in DB until createSale completes or explicit delete. */
   public async resumeHeldSale(ref: string): Promise<PosHeldSale> {
     const id = this.heldId(ref);
-    const r = await this.call(() => this.http.post(EP.SALE_HELD_RESUME(id)));
+    const key = this.idemKey(`resume:${id}`, { id });
+    const r = await this.call(() =>
+      this.http.post(EP.SALE_HELD_RESUME(id), undefined, { headers: { 'Idempotency-Key': key } }),
+    );
+    this.idemDrafts.delete(`resume:${id}`);
     this.held = this.held.filter((h) => h.ref !== ref);
     this.heldCount = this.held.length;
     this.notify();
@@ -540,23 +556,38 @@ export class PosApiService {
     this.notify();
   }
 
-  /** cash+card = total of the NEW items (from a server quote), not the net difference. */
+  /** cash+card = net difference due from customer (0 when return credit covers replacements). */
   public async processExchange(
     saleId: number,
     returnItems: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
     exchangeItems: { id: number; qty: number }[],
-    _netDiff: number,
+    netDiff: number,
     customerId: number | null = null,
+    payment: ExchangePaymentOptions = {},
   ): Promise<void> {
-    const quote = await this.quoteSale({
+    await this.quoteSale({
       items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
       customer_id: customerId,
     });
+    const dueCents = Math.max(0, toCents(netDiff));
+    const method = payment.method ?? 'cash';
+    let cashCents = 0;
+    let cardCents = 0;
+    if (dueCents > 0) {
+      if (method === 'card') {
+        cardCents = dueCents;
+      } else if (method === 'mixed') {
+        cashCents = Math.min(dueCents, Math.max(0, toCents(payment.cashAmount ?? 0)));
+        cardCents = dueCents - cashCents;
+      } else {
+        cashCents = dueCents;
+      }
+    }
     const body = {
       returned_items: this.groupReturnLines(returnItems),
       exchange_items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
-      cash_amount: toApi(toCents(quote.grand_total)),
-      card_amount: '0.00',
+      cash_amount: toApi(cashCents),
+      card_amount: toApi(cardCents),
     };
     const key = this.idemKey(`exchange:${saleId}`, body);
     await this.call(() =>
@@ -584,7 +615,12 @@ export class PosApiService {
     const t = this.transfersIn.find((x) => x.id === transferId);
     if (!t) throw new PosApiError(404, 'التحويل غير موجود', 'not_found');
     const items = t.items.map((i) => ({ id: i.transferItemId, received_qty: quantities[i.id] ?? i.qty }));
-    await this.call(() => this.http.post(EP.TRANSFER_RECEIVE(transferId), { items }));
+    const body = { items };
+    const key = this.idemKey(`receive:${transferId}`, body);
+    await this.call(() =>
+      this.http.post(EP.TRANSFER_RECEIVE(transferId), body, { headers: { 'Idempotency-Key': key } }),
+    );
+    this.idemDrafts.delete(`receive:${transferId}`);
     this.transfersIn = this.transfersIn.filter((x) => x.id !== transferId);
     void this.loadCatalog(true).catch(() => undefined);
     this.notify();

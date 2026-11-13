@@ -10,7 +10,11 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
+use App\Models\WholesalePaymentNotice;
 use App\Services\Inventory\BranchAccess;
+use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
+use Brick\Math\RoundingMode;
 use Illuminate\Auth\Access\AuthorizationException;
 
 /**
@@ -46,39 +50,45 @@ final class FinanceWriteGuards
     }
 
     /**
-     * Guards treasury creation against inactive or mismatched branches.
+     * Guards treasury creation against inactive, missing, or mismatched branches.
      *
      * @return string|null Denial message, or null when creation is allowed
      */
     public function creationBlocker(User $actor, ?int $branchId, string $type): ?string
     {
-        if ($branchId === null) {
-            return null;
-        }
         try {
             $this->resolveBranch($actor, $branchId);
         } catch (AuthorizationException $e) {
             return $e->getMessage();
         }
+        if ($branchId === null) {
+            if ($type === 'pos_drawer') {
+                return 'درج نقطة البيع لازم يكون تابع لفرع.';
+            }
+
+            return null;
+        }
         $branch = \App\Models\Branch::find($branchId);
         if ($branch === null) {
             return 'الفرع مش موجود.';
         }
-        if ($type === 'main_safe' && ! $branch->is_active) {
-            return 'الخزينة الرئيسية لازم تتبع فرع مفعّل.';
-        }
-        if ($type === 'bank_account' && ! $branch->is_active) {
-            return 'الحساب البنكي لازم يتبع فرع مفعّل.';
+        if (! $branch->is_active) {
+            return match ($type) {
+                'main_safe' => 'الخزينة الرئيسية لازم تتبع فرع مفعّل.',
+                'bank_account' => 'الحساب البنكي لازم يتبع فرع مفعّل.',
+                'pos_drawer' => 'درج نقطة البيع لازم يتبع فرع مفعّل.',
+                default => 'الخزينة لازم تتبع فرع مفعّل.',
+            };
         }
 
         return null;
     }
 
-    /** @return list<string> Reasons stopping/deleting is blocked (empty = allowed) */
+    /** @return list<string> Reasons stopping/deactivating is blocked (empty = allowed) */
     public function deactivationBlockers(Treasury $treasury, bool $includePendingOut = true): array
     {
         $blockers = [];
-        if ((float) $treasury->current_balance !== 0.0) {
+        if (! self::decimalBalance($treasury->current_balance)->isZero()) {
             $blockers[] = 'الرصيد مش صفر';
         }
         $unsettled = PosShift::query()->where('treasury_id', $treasury->id)
@@ -94,6 +104,39 @@ final class FinanceWriteGuards
             ->where('status', \App\Enums\Finance\TreasuryTransferStatus::Pending)
             ->exists()) {
             $blockers[] = 'في تحويلات معلقة';
+        }
+
+        return $blockers;
+    }
+
+    /** @return list<string> Reasons deleting a treasury is blocked (empty = allowed) */
+    public function deletionBlockers(Treasury $treasury): array
+    {
+        $blockers = [];
+        $unsettled = PosShift::query()->where('treasury_id', $treasury->id)
+            ->whereIn('status', ['open', 'closed_pending_approval'])->exists();
+        if ($unsettled) {
+            $blockers[] = 'في ورديات غير مسوّاة';
+        }
+        if (! self::decimalBalance($treasury->current_balance)->isZero()) {
+            $blockers[] = 'الرصيد مش صفر';
+        }
+        if (TreasuryTransaction::query()->where('treasury_id', $treasury->id)->exists()) {
+            $blockers[] = 'ليها سجل حركات';
+        }
+        if (PosShift::query()->where('treasury_id', $treasury->id)->exists()) {
+            $blockers[] = 'مرتبطة بورديات';
+        }
+        if (Expense::query()->where('treasury_id', $treasury->id)->exists()) {
+            $blockers[] = 'مرتبطة بمصروفات';
+        }
+        if (WholesalePaymentNotice::query()->where('treasury_id', $treasury->id)->exists()) {
+            $blockers[] = 'مرتبطة بإشعارات دفع';
+        }
+        if (TreasuryTransfer::query()
+            ->where(fn ($q) => $q->where('from_treasury_id', $treasury->id)->orWhere('to_treasury_id', $treasury->id))
+            ->exists()) {
+            $blockers[] = 'مرتبطة بتحويلات خزينة';
         }
 
         return $blockers;
@@ -115,33 +158,44 @@ final class FinanceWriteGuards
      *
      * @return array{treasury_id:int,name:string,balance:float,shortfall:float,prompt:string}|null
      */
-    public function suggestTopUp(?int $branchId, int $excludeTreasuryId, float $shortfall, string $targetName): ?array
+    public function suggestTopUp(?int $branchId, int $excludeTreasuryId, float|string $shortfall, string $targetName): ?array
     {
-        if ($shortfall <= 0) {
+        try {
+            $shortfallDec = BigDecimal::of((string) $shortfall)->toScale(2, RoundingMode::HalfUp);
+        } catch (MathException) {
+            return null;
+        }
+        if (! $shortfallDec->isPositive()) {
             return null;
         }
         $donor = Treasury::query()->where('is_active', true)
             ->whereKeyNot($excludeTreasuryId)
             ->where('branch_id', $branchId)
-            ->where('current_balance', '>=', $shortfall)
+            ->where('current_balance', '>=', (string) $shortfallDec)
             ->orderByDesc('current_balance')->first(['id', 'name', 'current_balance']);
         if ($donor === null) {
             return null;
         }
-        $amount = round($shortfall, 2);
+        $shortfallStr = (string) $shortfallDec;
+        $balanceStr = (string) self::decimalBalance($donor->current_balance);
 
         return [
             'treasury_id' => $donor->id,
             'name' => (string) $donor->name,
-            'balance' => (float) $donor->current_balance,
-            'shortfall' => $amount,
-            'prompt' => "حوّل {$amount} من {$donor->name} إلى {$targetName}",
+            'balance' => (float) $balanceStr,
+            'shortfall' => (float) $shortfallStr,
+            'prompt' => "حوّل {$shortfallStr} من {$donor->name} إلى {$targetName}",
         ];
     }
 
     public static function ledgerVersion(Treasury $treasury): string
     {
-        return ($treasury->transactions()->max('id') ?? 0).':'.$treasury->current_balance;
+        return ($treasury->transactions()->max('id') ?? 0).':'.(string) self::decimalBalance($treasury->current_balance);
+    }
+
+    private static function decimalBalance(mixed $value): BigDecimal
+    {
+        return BigDecimal::of((string) ($value ?? '0'))->toScale(2, RoundingMode::HalfUp);
     }
 
     public static function expenseVersion(Expense $expense): string

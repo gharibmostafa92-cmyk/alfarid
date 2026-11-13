@@ -157,8 +157,9 @@ class Task2PaymentWebhookTest extends TestCase
         $this->assertSame('paid', $order->fresh()->payment_status);
         $this->postPaymob($callback)->assertOk();
         $this->assertSame('refunded', $order->fresh()->payment_status);
-        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/123456')
-            && $request->hasHeader('Authorization', 'Bearer test-token'));
+        $this->postPaymob($callback)->assertOk()->assertJsonPath('duplicate', true);
+        $this->assertCount(2, Http::recorded(fn ($request) => str_ends_with($request->url(), '/123456')
+            && $request->hasHeader('Authorization', 'Bearer test-token')));
     }
 
     public function test_refund_on_an_unpaid_order_only_flags_attention(): void
@@ -195,6 +196,21 @@ class Task2PaymentWebhookTest extends TestCase
         $this->assertTrue($order->requires_refund);
         $this->assertTrue($order->needs_attention);
         $this->assertSame(OrderStatus::Cancelled, $order->status);
+    }
+
+    public function test_paid_event_without_currency_keeps_order_unpaid(): void
+    {
+        $order = $this->freshCardOrder(1);
+
+        $this->postWebhook([
+            'event_id' => 'evt_missing_currency',
+            'order_number' => $order->order_number,
+            'status' => 'paid',
+            'amount' => (float) $order->grand_total,
+            'currency' => null,
+        ])->assertOk()->assertJsonPath('message', 'amount mismatch');
+
+        $this->assertSame('unpaid', $order->fresh()->payment_status);
     }
 
     public function test_refund_with_mismatched_currency_is_not_applied(): void
@@ -395,6 +411,9 @@ class Task2PaymentWebhookTest extends TestCase
     /** @param array<string, mixed> $payload */
     private function postWebhook(array $payload, ?string $uri = null): TestResponse
     {
+        if ($uri === null) {
+            $payload += ['currency' => 'EGP'];
+        }
         $body = json_encode($payload);
 
         return $this->call('POST', $uri ?? '/api/v1/webhooks/payment/testpay', [], [], [], [

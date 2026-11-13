@@ -89,9 +89,13 @@ class FinanceBriefingTest extends TestCase
         app(TreasuryService::class)->createTransfer([
             'from_treasury_id' => $drawer->id, 'to_treasury_id' => $safe->id, 'amount' => '500.00',
         ], $admin->id);
+        $pendingDrawer = tap(Treasury::create([
+            'name' => 'درج قيد الاعتماد', 'code' => 'POS-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::PosDrawer, 'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => '2500.00'])->save());
         PosShift::create([
             'shift_number' => 'SHIFT-1', 'user_id' => $admin->id, 'branch_id' => $branch->id,
-            'treasury_id' => $drawer->id, 'status' => PosShiftStatus::ClosedPendingApproval,
+            'treasury_id' => $pendingDrawer->id, 'status' => PosShiftStatus::ClosedPendingApproval,
             'opened_at' => now()->subHours(8), 'expected_closing_cash' => '1000.00',
             'actual_closing_cash' => '990.00', 'cash_difference' => '-10.00',
         ]);

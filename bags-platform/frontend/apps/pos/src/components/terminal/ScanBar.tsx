@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, cx } from '../ui/SharedUI';
+import { pos } from '../../services/pos-data-source';
 import { normAr } from '../../lib/arabic';
 import { beepError } from '../../lib/sound';
+import { isWholesaleEligible } from '../../lib/wholesale';
 import type { PosProduct, Customer } from '../../types/pos.types';
 
 interface ScanBarProps {
@@ -52,14 +54,31 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       } else if (isBarcode) {
         // A scanner emitted a full barcode: never fall back to a fuzzy match,
         // or a dropped digit can silently add the wrong product.
-        setUnknownBarcode(code);
-        setQ('');
-        setOpen(false);
-        beepError();
+        pos
+          .lookupByBarcode(code)
+          .then((p) => {
+            if (p) {
+              pick(p);
+            } else {
+              setUnknownBarcode(code);
+              setQ('');
+              setOpen(false);
+              beepError();
+            }
+          })
+          .catch(() => {
+            setUnknownBarcode(code);
+            setQ('');
+            setOpen(false);
+            beepError();
+          });
       } else if (results[hl]) {
         pick(results[hl]);
       } else if (code) {
-        beepError();
+        pos
+          .lookupByBarcode(code)
+          .then((p) => (p ? pick(p) : beepError()))
+          .catch(() => beepError());
       }
     }
     if (e.key === 'Escape') {
@@ -90,7 +109,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       />
       {unknownBarcode && (
         <span className="badge b-bad fs-12" role="alert">
-          {'باركود غير معروف: '}
+          {'\u0628\u0627\u0631\u0643\u0648\u062f \u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641: '}
           <b className="mono ltr">{unknownBarcode}</b>
         </span>
       )}
@@ -134,7 +153,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
                   )}
                 </span>
                 <span className="price fs-14">
-                  {egp(customer?.tier === 'wholesale' ? p.wholesale : p.price)}
+                  {egp(isWholesaleEligible(customer) ? p.wholesale : p.price)}
                 </span>
               </button>
             ))

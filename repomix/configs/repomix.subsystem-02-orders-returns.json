@@ -52,6 +52,7 @@
                     "bags-platform/backend/app/Console/Commands/Orders/**",
                     "bags-platform/backend/app/Console/Commands/Maintenance/*Attachment*.php",
                     "bags-platform/backend/database/migrations/*order*.php",
+                    "bags-platform/backend/database/migrations/*checkout*.php",
                     "bags-platform/backend/database/migrations/*return*.php",
                     "bags-platform/backend/database/migrations/*refund*.php",
                     "bags-platform/backend/database/migrations/*attachment*.php",

@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CustomerBar } from './CustomerBar';
 import { CartLine } from './CartLine';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, Kbd, toAsciiNum } from '../ui/SharedUI';
-import { maxDiscountAmount, toCents, fromCents } from '../../lib/money';
-import type { PosCartLine, Customer, CashierUser } from '../../types/pos.types';
+import type { PosCartLine, Customer, CashierUser, QuoteResult } from '../../types/pos.types';
+import { computeCartTotals, parseNonNegativeAmount } from '../../lib/money';
 
 interface CartProps {
   cart: PosCartLine[];
@@ -21,6 +21,9 @@ interface CartProps {
   lastAdded: { id: number; k: number } | null;
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
   cashier?: CashierUser | null;
+  /** Latest server quote: the source of truth for totals once available. */
+  quote?: QuoteResult | null;
+  isQuoting?: boolean;
   maxDiscountPercent?: number;
 }
 
@@ -39,25 +42,35 @@ export function Cart({
   lastAdded,
   toast,
   cashier,
+  quote,
+  isQuoting,
   maxDiscountPercent = 100,
 }: CartProps) {
   const canOverride = cashier?.perms?.includes('pos.override_price') ?? false;
   const canDiscount = cashier?.perms?.includes('pos.discount') ?? false;
-  const subtotal = cart.reduce((s, l) => s + l.listPrice * l.qty, 0);
-  const lineAdj = cart.reduce((s, l) => s + (l.listPrice - l.price) * l.qty, 0);
-  const total = Math.max(0, subtotal - lineAdj - discount);
+  const totals = computeCartTotals(cart, discount, maxDiscountPercent);
+  const { subtotal, pricedTotal, lineAdj, discount: effectiveDiscount, total: localTotal } = totals;
+  // The screen total is the server's; the local figure only shows until the first quote lands.
+  const total = quote ? quote.grand_total : localTotal;
   const items = cart.reduce((s, l) => s + l.qty, 0);
   const [discOpen, setDiscOpen] = useState(false);
   const [discVal, setDiscVal] = useState('');
 
-  const applyDiscount = () => {
-    const pricedCents = cart.reduce((s, l) => s + toCents(l.price) * l.qty, 0);
-    const cap = fromCents(maxDiscountAmount(pricedCents, maxDiscountPercent));
-    const wanted = Math.min(Number(discVal || 0), subtotal);
-    if (wanted > cap) {
-      toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(cap)} ج)`, 'bad');
+  useEffect(() => {
+    if (discount !== effectiveDiscount) {
+      setDiscount(effectiveDiscount);
     }
-    setDiscount(Math.min(wanted, cap));
+  }, [discount, effectiveDiscount, setDiscount]);
+
+  const applyDiscount = () => {
+    const wanted = parseNonNegativeAmount(discVal, 0);
+    const clamped = Math.min(wanted, pricedTotal, totals.cap);
+    if (wanted > totals.cap) {
+      toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(totals.cap)} ج)`, 'bad');
+    } else if (wanted > pricedTotal) {
+      toast(`لا يمكن أن يتجاوز الخصم إجمالي الفاتورة (${egp(pricedTotal)} ج)`, 'bad');
+    }
+    setDiscount(clamped);
     setDiscOpen(false);
   };
 
@@ -85,7 +98,8 @@ export function Cart({
             <h4>الفاتورة فارغة</h4>
             <p>امسح باركود صنف أو اضغط على أي صنف من الكتالوج لإضافته.</p>
             <div className="row gap-2 fs-12 t-3" style={{ marginTop: 8 }}>
-              <Kbd>F2</Kbd> بحث <Kbd>F6</Kbd> المعلقة <Kbd>F8</Kbd> مرتجع
+              <Kbd>F2</Kbd> بحث <Kbd>F6</Kbd> المعلقة
+              {cashier?.perms?.includes('pos.sales.refund') && <><Kbd>F8</Kbd> مرتجع</>}
             </div>
           </div>
         ) : (
@@ -142,22 +156,22 @@ export function Cart({
               <button
                 className="t-acc fs-12 fw-6"
                 onClick={() => {
-                  setDiscVal(discount ? String(discount) : '');
+                  setDiscVal(effectiveDiscount ? String(effectiveDiscount) : '');
                   setDiscOpen(true);
                 }}
                 disabled={!cart.length || !canDiscount}
                 title={canDiscount ? undefined : 'تحتاج صلاحية الخصم (pos.discount)'}
               >
-                {discount ? 'تعديل' : '+ إضافة'}
+                {effectiveDiscount ? 'تعديل' : '+ إضافة'}
               </button>
             )}
             {!canDiscount && <span className="fs-12 t-3">تحتاج صلاحية</span>}
           </span>
-          <b className={discount ? 't-ok' : ''}>{discount ? '−' + egp(discount) : '٠'}</b>
+          <b className={effectiveDiscount ? 't-ok' : ''}>{effectiveDiscount ? '−' + egp(effectiveDiscount) : '٠'}</b>
         </div>
         <div className="grand">
           <span className="fs-13 t-2">الإجمالي</span>
-          <span className="v">
+          <span className={isQuoting ? 'v quoting' : 'v'}>
             {egp(total)}
             <small>ج.م</small>
           </span>

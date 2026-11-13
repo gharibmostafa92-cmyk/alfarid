@@ -15,10 +15,13 @@ interface WebSession {
   clear: () => void;
 }
 
+const AUTH_STORAGE_KEY = 'alfarid_web_auth';
+const emptySession = { token: null, actorType: null, destination: null, home: null, user: null };
+
 export const useAuthStore = create<WebSession>()(
   persist(
     (set, get) => ({
-      token: null, actorType: null, destination: null, home: null, user: null,
+      ...emptySession,
       // Re-verifying the same session must not wipe the guest cart, last order or
       // pending checkout; only an actual identity switch invalidates cart state.
       setSession: (s) => {
@@ -27,10 +30,10 @@ export const useAuthStore = create<WebSession>()(
         if (switched) resetCartIdentity();
         set({ ...s });
       },
-      clear: () => { setAuthToken(null); resetCartIdentity(); set({ token: null, actorType: null, destination: null, home: null, user: null }); },
+      clear: () => { setAuthToken(null); resetCartIdentity(); set(emptySession); },
     }),
     {
-      name: 'alfarid_web_auth',
+      name: AUTH_STORAGE_KEY,
       onRehydrateStorage: () => (state) => { if (state?.token) setAuthToken(state.token); },
     },
   ),
@@ -38,12 +41,23 @@ export const useAuthStore = create<WebSession>()(
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
-    if (event.storageArea !== localStorage || (event.key !== 'alfarid_web_auth' && event.key !== null)) return;
-    let nextToken: string | null = null;
+    if (event.storageArea !== localStorage || (event.key !== AUTH_STORAGE_KEY && event.key !== null)) return;
+    let session: Partial<WebSession> | undefined;
     try {
-      nextToken = JSON.parse(localStorage.getItem('alfarid_web_auth') ?? 'null')?.state?.token ?? null;
-    } catch { /* Invalid persisted sessions are discarded on reload. */ }
-    if (nextToken !== useAuthStore.getState().token) window.location.reload();
+      session = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) ?? 'null')?.state;
+    } catch { /* Discard invalid persisted sessions. */ }
+    const token = typeof session?.token === 'string' && session.token ? session.token : null;
+    if (token === useAuthStore.getState().token) return;
+
+    setAuthToken(token);
+    resetCartIdentity({ preserveSharedStorage: true });
+    useAuthStore.setState(token ? {
+      token,
+      actorType: session?.actorType ?? null,
+      destination: session?.destination ?? null,
+      home: session?.home ?? null,
+      user: session?.user ?? null,
+    } : emptySession);
   });
   setUnauthorizedHandler(() => {
     useAuthStore.getState().clear();

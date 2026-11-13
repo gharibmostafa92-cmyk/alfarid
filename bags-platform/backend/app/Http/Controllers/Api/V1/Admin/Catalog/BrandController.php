@@ -113,9 +113,10 @@ class BrandController extends Controller implements HasMiddleware
      * @param Brand $brand Target brand
      * @return JsonResponse Deletion confirmation
      */
-    public function destroy(Brand $brand): JsonResponse
+    public function destroy(Request $request, Brand $brand): JsonResponse
     {
-        $this->service->delete($brand);
+        $validated = $request->validate(['expected_version' => ['nullable', 'integer', 'min:0']]);
+        $this->service->delete($brand, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
 
         return response()->json(['message' => 'تم الحذف']);
     }

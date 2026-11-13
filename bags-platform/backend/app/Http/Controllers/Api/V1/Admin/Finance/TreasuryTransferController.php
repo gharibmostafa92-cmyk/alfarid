@@ -6,10 +6,12 @@ namespace App\Http\Controllers\Api\V1\Admin\Finance;
 
 use App\Enums\Finance\TreasuryTransferStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Treasury;
 use App\Models\TreasuryTransfer;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Pos\TreasuryService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -21,6 +23,14 @@ use Illuminate\Validation\Rule;
  */
 class TreasuryTransferController extends Controller implements HasMiddleware
 {
+    private const RELATIONS_INDEX = [
+        'fromTreasury:id,name,code,branch_id,type',
+        'toTreasury:id,name,code,branch_id,type',
+        'creator:id,name',
+        'approver:id,name',
+        'rejecter:id,name',
+    ];
+
     public static function middleware(): array
     {
         return [
@@ -51,11 +61,23 @@ class TreasuryTransferController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $branch = $this->branchAccess->restrictedBranch($request->user());
+        $staff = $request->user('staff');
+        $branch = $this->branchAccess->restrictedBranch($staff);
+        if ($branch !== null) {
+            foreach (['from_treasury_id', 'to_treasury_id'] as $filterKey) {
+                if (isset($filters[$filterKey])) {
+                    $probedTreasury = Treasury::query()->find((int) $filters[$filterKey]);
+                    if ($probedTreasury === null) {
+                        throw new AuthorizationException('الخزينة غير متاحة لفرعك.');
+                    }
+                    $this->branchAccess->assertTreasury($staff->id, $probedTreasury);
+                }
+            }
+        }
         $transfers = TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w
             ->whereHas('fromTreasury', fn ($q) => $q->where('branch_id', $branch))
             ->orWhereHas('toTreasury', fn ($q) => $q->where('branch_id', $branch))))
-            ->with(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter'])
+            ->with(self::RELATIONS_INDEX)
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
             ->when($filters['to_treasury_id'] ?? null, fn ($q, $v) => $q->where('to_treasury_id', $v))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
@@ -76,21 +98,22 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         $data = $request->validate([
             'from_treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id'],
             'to_treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id', 'different:from_treasury_id'],
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999', 'decimal:0,2'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999.99', 'decimal:0,2'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $staff = $request->user('staff');
         $transfer = $this->idempotency->run(
             'treasury_transfer',
-            $request->user(),
+            $staff,
             $request->header('Idempotency-Key'),
             $data,
-            fn () => $this->treasury->createTransfer($data, (int) $request->user()->id)
+            fn () => $this->treasury->createTransfer($data, (int) $staff->id)
         );
 
         return response()->json([
             'message' => 'تم إنشاء طلب التحويل بنجاح وهو في انتظار الاعتماد.',
-            'data' => $transfer->load(['fromTreasury', 'toTreasury', 'creator']),
+            'data' => $transfer->load(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type', 'creator:id,name']),
         ], 201);
     }
 
@@ -103,8 +126,8 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function show(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
-        $treasuryTransfer->loadMissing(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter']);
-        $this->assertTransferReadAccess((int) $request->user()->id, $treasuryTransfer);
+        $treasuryTransfer->loadMissing(self::RELATIONS_INDEX);
+        $this->assertTransferReadAccess((int) $request->user('staff')->id, $treasuryTransfer);
 
         return response()->json([
             'data' => $treasuryTransfer,
@@ -120,22 +143,23 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function approve(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
-        $treasuryTransfer->loadMissing(['fromTreasury', 'toTreasury']);
-        $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
+        $staff = $request->user('staff');
+        $treasuryTransfer->loadMissing(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type']);
+        $this->assertTransferAccess((int) $staff->id, $treasuryTransfer);
         $idempotencyKey = $request->header('Idempotency-Key');
         $transfer = $idempotencyKey !== null
             ? $this->idempotency->run(
                 'treasury_transfer_approve',
-                $request->user(),
+                $staff,
                 $idempotencyKey,
                 ['transfer_id' => $treasuryTransfer->id],
-                fn () => $this->treasury->approveTransfer($treasuryTransfer, (int) $request->user()->id),
+                fn () => $this->treasury->approveTransfer($treasuryTransfer, (int) $staff->id),
             )
-            : $this->treasury->approveTransfer($treasuryTransfer, (int) $request->user()->id);
+            : $this->treasury->approveTransfer($treasuryTransfer, (int) $staff->id);
 
         return response()->json([
             'message' => 'تم اعتماد تحويل الخزينة وتم تحديث أرصدة الخزائن.',
-            'data' => $transfer->load(['fromTreasury', 'toTreasury', 'approver']),
+            'data' => $transfer->load(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type', 'approver:id,name']),
         ]);
     }
 
@@ -151,13 +175,23 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         $data = $request->validate([
             'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
-        $treasuryTransfer->loadMissing(['fromTreasury', 'toTreasury']);
-        $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
-        $transfer = $this->treasury->rejectTransfer($treasuryTransfer, (int) $request->user()->id, $data['reason']);
+        $staff = $request->user('staff');
+        $treasuryTransfer->loadMissing(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type']);
+        $this->assertTransferAccess((int) $staff->id, $treasuryTransfer);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $transfer = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'treasury_transfer_reject',
+                $staff,
+                $idempotencyKey,
+                ['transfer_id' => $treasuryTransfer->id, 'reason' => $data['reason']],
+                fn () => $this->treasury->rejectTransfer($treasuryTransfer, (int) $staff->id, $data['reason']),
+            )
+            : $this->treasury->rejectTransfer($treasuryTransfer, (int) $staff->id, $data['reason']);
 
         return response()->json([
             'message' => 'تم رفض تحويل الخزينة.',
-            'data' => $transfer->load(['fromTreasury', 'toTreasury', 'rejecter']),
+            'data' => $transfer->load(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type', 'rejecter:id,name']),
         ]);
     }
 

@@ -145,15 +145,17 @@ function quote(total, payment_methods = ['cod']) {
 function checkoutFixture(t, overrides = {}) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const storage = new Map();
-  const globals = Object.fromEntries(['sessionStorage', 'crypto'].map((key) => [
+  const globals = Object.fromEntries(['localStorage', 'sessionStorage', 'crypto'].map((key) => [
     key, Object.getOwnPropertyDescriptor(globalThis, key),
   ]));
+  const mapStore = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: (key) => storage.delete(key),
+  };
   Object.defineProperties(globalThis, {
-    sessionStorage: { configurable: true, value: {
-      getItem: (key) => storage.get(key) ?? null,
-      setItem: (key, value) => storage.set(key, value),
-      removeItem: (key) => storage.delete(key),
-    } },
+    localStorage: { configurable: true, value: mapStore },
+    sessionStorage: { configurable: true, value: mapStore },
     crypto: { configurable: true, value: {} },
   });
   t.after(() => {

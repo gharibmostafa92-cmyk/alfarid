@@ -105,18 +105,29 @@ test('a failed staff identity request cannot log out a newly selected account', 
   assert.equal(useAuthStore.getState().user.id, 2);
 });
 
-test('web tabs reload only when the persisted session changes', () => {
+test('web tabs synchronize account replacement and logout without reloading', () => {
   const env = browser();
-  const { useAuthStore } = load('apps/storefront/src/store/auth.store.ts', env, {}, {
+  const apiTokens = [];
+  const cartResets = [];
+  const { useAuthStore } = load('apps/storefront/src/store/auth.store.ts', env, {
+    setAuthToken: token => apiTokens.push(token),
+  }, {
     'zustand/middleware': { persist: initialize => initialize },
+    '@/stores/cart-store': { resetCartIdentity: options => cartResets.push(options?.preserveSharedStorage) },
   });
   useAuthStore.getState().setSession({ token: 'first' });
   env.localStorage.setItem('alfarid_web_auth', JSON.stringify({ state: { token: 'first', user: { name: 'updated' } } }));
   env.change('alfarid_web_auth'); assert.equal(env.state.reloads, 0);
-  env.localStorage.setItem('alfarid_web_auth', JSON.stringify({ state: { token: 'second' } }));
-  env.change('alfarid_web_auth'); assert.equal(env.state.reloads, 1);
+  env.localStorage.setItem('alfarid_web_auth', JSON.stringify({ state: { token: 'second', user: { id: 2 } } }));
+  env.change('alfarid_web_auth');
+  assert.equal(useAuthStore.getState().token, 'second');
+  assert.equal(useAuthStore.getState().user.id, 2);
   env.localStorage.removeItem('alfarid_web_auth'); env.change(null);
-  assert.equal(env.state.reloads, 2);
+  assert.equal(useAuthStore.getState().token, null);
+  assert.equal(useAuthStore.getState().user, null);
+  assert.deepEqual(apiTokens, ['first', 'second', null]);
+  assert.deepEqual(cartResets, [undefined, true, true]);
+  assert.equal(env.state.reloads, 0);
 });
 
 test('staff logout invalidates the staff session endpoint and clears local identity', async () => {

@@ -6,10 +6,11 @@ export type { BrandIdentity } from '../lib/brand-identity';
 
 const BrandingContext = createContext({ branding: DEFAULT_BRANDING, refreshBranding: async () => {} });
 
-export function BrandingProvider({ children, loadBranding, initialBranding = DEFAULT_BRANDING, titleSuffix = '', manageHead = true, pollIntervalMs = 60_000 }: {
+export function BrandingProvider({ children, loadBranding, initialBranding = DEFAULT_BRANDING, hasInitialBranding = false, titleSuffix = '', manageHead = true, pollIntervalMs = 60_000 }: {
   children: ReactNode;
   loadBranding: (signal?: AbortSignal) => Promise<BrandIdentity>;
   initialBranding?: BrandIdentity;
+  hasInitialBranding?: boolean;
   titleSuffix?: string;
   manageHead?: boolean;
   pollIntervalMs?: number;
@@ -17,7 +18,7 @@ export function BrandingProvider({ children, loadBranding, initialBranding = DEF
   const [branding, setBranding] = useState(initialBranding);
   const controller = useRef<AbortController | null>(null);
   const pending = useRef<Promise<void> | null>(null);
-  const lastAttempt = useRef(-Infinity);
+  const lastAttempt = useRef(hasInitialBranding ? Date.now() : -Infinity);
   const refresh = useCallback(async (force = false): Promise<void> => {
     if (pending.current && !controller.current?.signal.aborted) {
       await pending.current;
@@ -43,7 +44,9 @@ export function BrandingProvider({ children, loadBranding, initialBranding = DEF
   const refreshBranding = useCallback(() => refresh(true), [refresh]);
 
   useEffect(() => {
-    void refresh();
+    if (!(hasInitialBranding && pollIntervalMs <= 0)) {
+      void refresh();
+    }
     const refreshVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
     const timer = pollIntervalMs > 0 ? setInterval(refreshVisible, pollIntervalMs) : null;
     window.addEventListener('focus', refreshVisible);
@@ -54,7 +57,7 @@ export function BrandingProvider({ children, loadBranding, initialBranding = DEF
       window.removeEventListener('focus', refreshVisible);
       document.removeEventListener('visibilitychange', refreshVisible);
     };
-  }, [refresh, pollIntervalMs]);
+  }, [refresh, pollIntervalMs, hasInitialBranding]);
 
   useEffect(() => {
     if (manageHead) document.title = titleSuffix ? `${branding.name} | ${titleSuffix}` : branding.name;

@@ -16,11 +16,19 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         $this->replaceTypes(self::TYPES);
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         if (DB::table('treasury_transactions')->where('type', 'expense_reversal')->exists()) {
             throw new RuntimeException('Resolve expense_reversal transactions before rollback.');
         }

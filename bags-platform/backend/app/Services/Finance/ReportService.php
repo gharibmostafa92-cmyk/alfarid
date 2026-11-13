@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Finance;
 
 use App\Enums\Customer\CustomerType;
+use App\Exceptions\BusinessException;
 use App\Models\Order;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
@@ -22,6 +23,10 @@ class ReportService
 {
     /** @var list<string> */
     private const SALES_STATUSES = ['confirmed', 'processing', 'shipped', 'delivered'];
+
+    /** Canonical discrete buckets to prevent Redis cache pollution via arbitrary dead_days queries. */
+    /** @var list<int> */
+    private const DEAD_DAY_BUCKETS = [7, 14, 30, 60, 90, 120, 180, 365, 730, 1095, 1825, 3650];
 
     /** Maximum cap on inventory valuation rows returned per report. */
     public const INVENTORY_VALUATION_ROW_LIMIT = 500;
@@ -89,7 +94,7 @@ class ReportService
                 'sku' => $row->sku,
                 'product_name' => $row->product_name,
                 'qty_sold' => (float) $row->qty_sold,
-                'revenue' => (float) $row->revenue,
+                'revenue' => $this->moneyFloat((string) ($row->revenue ?? '0')),
             ])->all();
 
         $topBranches = $this->salesEntries($branchId, 'o')
@@ -105,7 +110,7 @@ class ReportService
                 'branch_id' => (int) $row->allocated_branch_id,
                 'branch_name' => $row->branch_name,
                 'orders_count' => (int) $row->orders_count,
-                'revenue' => (float) $row->revenue,
+                'revenue' => $this->moneyFloat((string) ($row->revenue ?? '0')),
             ])->all();
 
         return [
@@ -239,7 +244,7 @@ class ReportService
      */
     public function inventoryReport(int $deadDays = 90, ?int $branchId = null, bool $withCosts = true, int $statementBudgetMs = 150000): array
     {
-        $deadDays = max(1, min(3650, $deadDays));
+        $deadDays = $this->normalizeDeadDays($deadDays);
         $cacheKey = 'report.inventory.raw.'.md5(($branchId ?? 'all').'|'.$deadDays);
 
         $data = Cache::get($cacheKey);
@@ -251,25 +256,48 @@ class ReportService
                 }
                 $fresh = StatementBudget::run(
                     $statementBudgetMs,
-                    fn (): array => $this->calculateInventoryReport($deadDays, $branchId)
+                    fn (): array => $this->calculateInventoryReport($deadDays, $branchId),
+                    readOnly: true
                 );
                 Cache::put($cacheKey, $fresh, 300);
 
                 return $fresh;
             };
 
+            // Keep lock lease longer than statement timeout so slow scans never expire mid-query.
+            $lockTtlSeconds = max(30, (int) ceil($statementBudgetMs / 1000) + 10);
+            $lockWaitSeconds = min(15, max(1, (int) floor($statementBudgetMs / 1000)));
+
             try {
                 // Serialize heavy inventory scans per branch to prevent cache stampedes or dead_days cache-busting floods.
-                $data = Cache::lock('report.inventory.branch.'.($branchId ?? 'all'), 30)->block(15, $compute);
+                $data = Cache::lock('report.inventory.branch.'.($branchId ?? 'all'), $lockTtlSeconds)->block($lockWaitSeconds, $compute);
             } catch (LockTimeoutException) {
                 $cachedAfterWait = Cache::get($cacheKey);
-                $data = is_array($cachedAfterWait)
-                    ? $cachedAfterWait
-                    : StatementBudget::run($statementBudgetMs, fn (): array => $this->calculateInventoryReport($deadDays, $branchId));
+                if (! is_array($cachedAfterWait)) {
+                    throw new BusinessException('تقرير الجرد قيد التحديث حاليًا؛ يرجى المحاولة بعد ثوانٍ.', [], 503);
+                }
+                $data = $cachedAfterWait;
             }
         }
 
         return $withCosts ? $data : $this->stripInventoryCosts($data);
+    }
+
+    private function normalizeDeadDays(int $deadDays): int
+    {
+        $clamped = max(1, min(3650, $deadDays));
+        $closest = self::DEAD_DAY_BUCKETS[0];
+        $bestDiff = abs($clamped - $closest);
+
+        foreach (self::DEAD_DAY_BUCKETS as $bucket) {
+            $diff = abs($clamped - $bucket);
+            if ($diff < $bestDiff) {
+                $closest = $bucket;
+                $bestDiff = $diff;
+            }
+        }
+
+        return $closest;
     }
 
     /**
@@ -381,19 +409,30 @@ class ReportService
     private function calculateProfitReport(array $bounds, ?int $branchId = null): array
     {
         [$periodStart, $periodEnd, $localFrom, $localTo] = $bounds;
-        // Recognize an order's revenue exactly once at its global first physical sale movement.
-        $saleDates = DB::table('stock_movements')->where('type', 'sale')
+
+        // Recognize an order's merchandise revenue once at its global first physical sale movement,
+        // starting from the time-bounded sale_event subquery instead of scanning the full orders table.
+        $saleDates = DB::table('stock_movements')
+            ->where('type', 'sale')
             ->whereIn('reference_type', array_unique([Order::class, (new Order)->getMorphClass()]))
+            ->where('created_at', '<', $periodEnd)
             ->selectRaw('reference_id, MIN(created_at) AS recognized_at')
             ->groupBy('reference_id')
             ->havingRaw('MIN(created_at) >= ? AND MIN(created_at) < ?', [$periodStart, $periodEnd]);
-        $revenue = BigDecimal::of((string) ($this->salesEntries($branchId, 'entries', $periodStart, $periodEnd, boundSalesToPeriod: false)
-            ->leftJoinSub($saleDates, 'sales_event', 'sales_event.reference_id', '=', 'entries.id')
-            ->where(fn ($q) => $q->where('entries.sale_count', 0)->orWhereNotNull('sales_event.recognized_at'))
-            ->whereRaw('CASE WHEN entries.sale_count = 1 THEN sales_event.recognized_at ELSE entries.created_at END >= ?', [$periodStart])
-            ->whereRaw('CASE WHEN entries.sale_count = 1 THEN sales_event.recognized_at ELSE entries.created_at END < ?', [$periodEnd])
-            ->selectRaw('COALESCE(SUM(entries.subtotal - entries.discount_amount), 0) AS revenue')
-            ->value('revenue') ?? '0'));
+
+        $recognizedSalesRevenue = (string) (DB::table('orders as o')
+            ->joinSub($saleDates, 'sales_event', 'sales_event.reference_id', '=', 'o.id')
+            ->whereNull('o.return_of_order_id')
+            ->whereIn('o.status', [...self::SALES_STATUSES, 'returned'])
+            ->when($branchId !== null, fn ($q) => $q->where('o.allocated_branch_id', $branchId))
+            ->selectRaw('COALESCE(SUM(o.subtotal - o.discount_amount), 0) AS revenue')
+            ->value('revenue') ?? '0');
+
+        $returnsRevenue = (string) ($this->returnEntries($branchId, 'returns', $periodStart, $periodEnd)
+            ->selectRaw('COALESCE(SUM(returns.subtotal - returns.discount_amount), 0) AS revenue')
+            ->value('revenue') ?? '0');
+
+        $revenue = BigDecimal::of($recognizedSalesRevenue)->plus(BigDecimal::of($returnsRevenue));
 
         $cogs = BigDecimal::of((string) (DB::table('stock_movements as sm')->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
             ->whereIn('sm.type', ['sale', 'sale_return'])
@@ -521,14 +560,14 @@ class ReportService
                 'status' => $row->status,
                 'opened_at' => $row->opened_at,
                 'closed_at' => $row->closed_at,
-                'cash_sales_total' => (float) $row->cash_sales_total,
-                'card_sales_total' => (float) $row->card_sales_total,
-                'cash_returns_total' => (float) $row->cash_returns_total,
-                'cash_expenses_total' => (float) $row->cash_expenses_total,
-                'expected_closing_cash' => (float) $row->expected_closing_cash,
-                'actual_closing_cash' => $row->actual_closing_cash !== null ? (float) $row->actual_closing_cash : null,
-                'cash_difference' => $row->cash_difference !== null ? (float) $row->cash_difference : null,
-                'has_difference' => $row->cash_difference !== null && (float) $row->cash_difference !== 0.0,
+                'cash_sales_total' => $this->moneyFloat((string) ($row->cash_sales_total ?? '0')),
+                'card_sales_total' => $this->moneyFloat((string) ($row->card_sales_total ?? '0')),
+                'cash_returns_total' => $this->moneyFloat((string) ($row->cash_returns_total ?? '0')),
+                'cash_expenses_total' => $this->moneyFloat((string) ($row->cash_expenses_total ?? '0')),
+                'expected_closing_cash' => $this->moneyFloat((string) ($row->expected_closing_cash ?? '0')),
+                'actual_closing_cash' => $row->actual_closing_cash !== null ? $this->moneyFloat((string) $row->actual_closing_cash) : null,
+                'cash_difference' => $row->cash_difference !== null ? $this->moneyFloat((string) $row->cash_difference) : null,
+                'has_difference' => $row->cash_difference !== null && ! BigDecimal::of((string) $row->cash_difference)->isZero(),
             ])->all();
 
         $totals = $base()
@@ -540,40 +579,72 @@ class ReportService
             'truncated' => $truncated,
             'totals' => [
                 'shifts_count' => (int) $totals->shifts_count,
-                'cash_sales' => (float) $totals->cash_sales,
-                'card_sales' => (float) $totals->card_sales,
+                'cash_sales' => $this->moneyFloat((string) ($totals->cash_sales ?? '0')),
+                'card_sales' => $this->moneyFloat((string) ($totals->card_sales ?? '0')),
                 'shifts_with_difference' => (int) $totals->shifts_with_difference,
             ],
         ];
     }
 
     // Combines original sales with POS, RMA, and manual return reversals into a unified signed ledger stream.
-    private function salesEntries(?int $branchId, string $alias = 'entries', ?string $periodStart = null, ?string $periodEnd = null, bool $boundSalesToPeriod = true): Builder
+    private function salesEntries(?int $branchId, string $alias = 'entries', ?string $periodStart = null, ?string $periodEnd = null): Builder
     {
-        $columns = 'o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total, 1 AS sale_count';
         $sales = DB::table('orders as o')->whereNull('o.return_of_order_id')
             ->whereIn('o.status', [...self::SALES_STATUSES, 'returned'])
-            ->when($boundSalesToPeriod && $periodStart !== null, fn ($q) => $q->where('o.created_at', '>=', $periodStart))
-            ->when($boundSalesToPeriod && $periodEnd !== null, fn ($q) => $q->where('o.created_at', '<', $periodEnd))
-            ->selectRaw($columns);
+            ->when($periodStart !== null, fn ($q) => $q->where('o.created_at', '>=', $periodStart))
+            ->when($periodEnd !== null, fn ($q) => $q->where('o.created_at', '<', $periodEnd))
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total, 1 AS sale_count');
+
+        [$posReturns, $rmaReturns, $manualReturns] = $this->returnQueries($periodStart, $periodEnd);
+
+        return DB::query()->fromSub($sales->unionAll($posReturns)->unionAll($rmaReturns)->unionAll($manualReturns), $alias)
+            ->when($branchId !== null, fn ($q) => $q->where($alias.'.allocated_branch_id', $branchId));
+    }
+
+    private function returnEntries(?int $branchId, string $alias, string $periodStart, string $periodEnd): Builder
+    {
+        [$posReturns, $rmaReturns, $manualReturns] = $this->returnQueries($periodStart, $periodEnd);
+
+        return DB::query()->fromSub($posReturns->unionAll($rmaReturns)->unionAll($manualReturns), $alias)
+            ->when($branchId !== null, fn ($q) => $q->where($alias.'.allocated_branch_id', $branchId));
+    }
+
+    /**
+     * @return array{0: Builder, 1: Builder, 2: Builder}
+     */
+    private function returnQueries(?string $periodStart, ?string $periodEnd): array
+    {
         $posReturns = DB::table('orders as o')->whereNotNull('o.return_of_order_id')
             ->when($periodStart !== null, fn ($q) => $q->where('o.created_at', '>=', $periodStart))
             ->when($periodEnd !== null, fn ($q) => $q->where('o.created_at', '<', $periodEnd))
-            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total, 0 AS sale_count');
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, -o.subtotal AS subtotal, -o.discount_amount AS discount_amount, -o.tax_amount AS tax_amount, -o.shipping_cost AS shipping_cost, -o.grand_total AS grand_total, 0 AS sale_count');
+
+        // Pro-rate RMA refunds across merchandise, tax, and shipping so refunded tax/shipping does not depress net merchandise revenue.
+        $merch = 'GREATEST(o.subtotal - o.discount_amount, 0)';
+        $tax = 'GREATEST(o.tax_amount, 0)';
+        $ship = 'GREATEST(o.shipping_cost, 0)';
+        $merchTax = "({$merch} + {$tax})";
+        $totalBase = "({$merch} + {$tax} + {$ship})";
+
+        $rmaSubtotalExpr = "CASE WHEN {$totalBase} <= 0 THEN -r.total_refund_amount WHEN r.total_refund_amount <= {$merchTax} AND {$merchTax} > 0 THEN -ROUND((r.total_refund_amount * ({$merch} / {$merchTax}))::numeric, 2) ELSE -ROUND((r.total_refund_amount * ({$merch} / {$totalBase}))::numeric, 2) END AS subtotal";
+        $rmaTaxExpr = "CASE WHEN {$totalBase} <= 0 THEN 0 WHEN r.total_refund_amount <= {$merchTax} AND {$merchTax} > 0 THEN -(r.total_refund_amount - ROUND((r.total_refund_amount * ({$merch} / {$merchTax}))::numeric, 2)) ELSE -ROUND((r.total_refund_amount * ({$tax} / {$totalBase}))::numeric, 2) END AS tax_amount";
+        $rmaShipExpr = "CASE WHEN {$totalBase} <= 0 THEN 0 WHEN r.total_refund_amount <= {$merchTax} AND {$merchTax} > 0 THEN 0 ELSE -(r.total_refund_amount - ROUND((r.total_refund_amount * ({$merch} / {$totalBase}))::numeric, 2) - ROUND((r.total_refund_amount * ({$tax} / {$totalBase}))::numeric, 2)) END AS shipping_cost";
+
         $rmaReturns = DB::table('return_requests as r')->join('orders as o', 'o.id', '=', 'r.order_id')
             ->whereIn('r.status', ['received', 'refunded'])->whereNotNull('r.received_at')
             ->when($periodStart !== null, fn ($q) => $q->where('r.received_at', '>=', $periodStart))
             ->when($periodEnd !== null, fn ($q) => $q->where('r.received_at', '<', $periodEnd))
-            ->selectRaw('o.id, o.channel, r.branch_id AS allocated_branch_id, o.pos_shift_id, o.payment_method, r.received_at AS created_at, -r.total_refund_amount AS subtotal, 0 AS discount_amount, 0 AS tax_amount, 0 AS shipping_cost, -r.total_refund_amount AS grand_total, 0 AS sale_count');
+            ->selectRaw("o.id, o.channel, r.branch_id AS allocated_branch_id, o.pos_shift_id, o.payment_method, r.received_at AS created_at, {$rmaSubtotalExpr}, 0 AS discount_amount, {$rmaTaxExpr}, {$rmaShipExpr}, -r.total_refund_amount AS grand_total, 0 AS sale_count");
+
         $manualReturns = DB::table('orders as o')->where('o.status', 'returned')->whereNull('o.return_of_order_id')
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('orders as pos_return')->whereColumn('pos_return.return_of_order_id', 'o.id'))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_requests as r')->whereColumn('r.order_id', 'o.id')->whereIn('r.status', ['received', 'refunded']))
-            ->when($periodStart !== null, fn ($q) => $q->whereRaw('COALESCE(o.returned_at, o.updated_at) >= ?', [$periodStart]))
-            ->when($periodEnd !== null, fn ($q) => $q->whereRaw('COALESCE(o.returned_at, o.updated_at) < ?', [$periodEnd]))
-            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, COALESCE(o.returned_at, o.updated_at) AS created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total, 0 AS sale_count');
+            ->whereNotNull('o.returned_at')
+            ->when($periodStart !== null, fn ($q) => $q->where('o.returned_at', '>=', $periodStart))
+            ->when($periodEnd !== null, fn ($q) => $q->where('o.returned_at', '<', $periodEnd))
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.returned_at AS created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total, 0 AS sale_count');
 
-        return DB::query()->fromSub($sales->unionAll($posReturns)->unionAll($rmaReturns)->unionAll($manualReturns), $alias)
-            ->when($branchId !== null, fn ($q) => $q->where($alias.'.allocated_branch_id', $branchId));
+        return [$posReturns, $rmaReturns, $manualReturns];
     }
 
     /**

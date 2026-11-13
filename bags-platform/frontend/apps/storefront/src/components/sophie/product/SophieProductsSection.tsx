@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { SophieProduct, SophieProductCard } from './SophieProductCard';
 
 interface SophieProductsSectionProps {
@@ -78,12 +79,21 @@ export function SophieProductsSection({
         {/* View More Button */}
         {!isLoading && showViewMore && products.length >= 4 && (
           <div className="text-center mt-8 sm:mt-9">
-            <a
-              href={viewMoreHref}
-              className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
-            >
-              VIEW MORE
-            </a>
+            {viewMoreHref.startsWith('/') ? (
+              <Link
+                href={viewMoreHref}
+                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
+              >
+                VIEW MORE
+              </Link>
+            ) : (
+              <a
+                href={viewMoreHref}
+                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
+              >
+                VIEW MORE
+              </a>
+            )}
           </div>
         )}
       </div>

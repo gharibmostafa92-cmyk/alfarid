@@ -18,6 +18,7 @@ class CategoryResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'lock_version' => (int) ($this->lock_version ?? 0),
             'parent_id' => $this->parent_id,
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,

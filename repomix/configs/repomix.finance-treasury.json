@@ -34,10 +34,17 @@
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/PosShiftAdminController.php",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/TreasuryTransferController.php",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/ExpenseController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/ReportController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/TreasuryController.php",
                     "bags-platform/backend/app/Services/Ai/Finance/FinanceWriteGuards.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/ApproveTreasuryTransferTool.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/CreateExpenseTool.php",
                     "bags-platform/backend/app/Services/Ai/Finance/Tools/DeleteTreasuryTool.php",
+                    "bags-platform/backend/app/Console/Commands/Maintenance/VerifyDatabaseSchema.php",
                     "bags-platform/backend/database/migrations/2026_11_12_000082_add_settled_at_to_pos_shifts.php",
-                    "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php"
+                    "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/DailyCloseBriefingTool.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/ExplainOrderMoneyTool.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

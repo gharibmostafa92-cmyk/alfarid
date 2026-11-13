@@ -141,7 +141,7 @@ export function AccountForm({
   const subtitle = recovery
     ? resetStep
       ? text('أدخل رمز الاستعادة وكلمة المرور الجديدة.', 'Enter your recovery code and a new password.')
-      : text('أدخل رقم الموبايل المسجل لاستعادة حسابك.', 'Enter your registered mobile number to recover your account.')
+      : text('أدخل رقم الموبايل المسجل أو البريد الإلكتروني المؤكد لاستعادة حسابك.', 'Enter your registered mobile number or verified email to recover your account.')
     : wholesale
       ? businessStep
         ? text('بيانات شركتك ومستنداتها لمراجعة طلب الجملة.', 'Your business details and documents for application review.')
@@ -164,8 +164,12 @@ export function AccountForm({
     } else if (response?.status === 429) {
       const seconds = response.headers?.['retry-after'] ?? '60';
       setFormError(text(`محاولات كثيرة، حاول بعد ${seconds} ثانية.`, `Too many attempts. Try again in ${seconds}s.`));
+    } else if (response?.data?.message) {
+      setFormError(response.data.message);
+    } else if (err instanceof Error && err.message && !('isAxiosError' in err)) {
+      setFormError(err.message);
     } else {
-      setFormError(response?.data?.message ?? text('تعذر الاتصال بالخادم. حاول مرة أخرى.', 'Could not reach the server. Please try again.'));
+      setFormError(text('تعذر الاتصال بالخادم. حاول مرة أخرى.', 'Could not reach the server. Please try again.'));
     }
   }
 
@@ -185,10 +189,6 @@ export function AccountForm({
     }
     if (wholesale && !businessStep) {
       setBusinessStep(true);
-      return;
-    }
-    if (recovery && identifier.includes('@')) {
-      setFormError(text('استخدم رقم الموبايل المسجل لاستعادة حسابك.', 'Use your registered mobile number to recover your account.'));
       return;
     }
     setBusy(true);
@@ -309,15 +309,15 @@ export function AccountForm({
                 <AuthInput
                   lang={lang}
                   name="identifier"
-                  label={text('رقم الموبايل المسجل', 'Registered mobile number')}
+                  label={text('رقم الموبايل أو البريد الإلكتروني', 'Mobile number or email')}
                   type="text"
-                  inputMode="tel"
-                  autoComplete="tel"
+                  inputMode="email"
+                  autoComplete="username"
                   enterKeyHint={resetStep ? 'next' : 'done'}
                   required
                   maxLength={255}
                   dir="ltr"
-                  placeholder={text('01xxxxxxxxx', '+201xxxxxxxxx')}
+                  placeholder={text('01xxxxxxxxx أو name@example.com', '+201xxxxxxxxx or name@example.com')}
                   value={identifier}
                   onChange={(e) => {
                     setIdentifier(e.target.value);

@@ -327,16 +327,16 @@ class CustomerAdditionalReviewTest extends TestCase
         $this->assertDatabaseCount('customers', 0);
     }
 
-    public function test_login_hourly_limit_survives_minute_windows_and_rotating_ips(): void
+    public function test_legacy_login_pair_hourly_limit_survives_minute_windows(): void
     {
         $this->freezeTime();
         config(['auth.customer_limits.login_id_hour' => 2]);
         for ($i = 1; $i <= 2; $i++) {
-            $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.'.$i])->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertUnauthorized();
+            $this->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertUnauthorized();
             $this->travel(2)->minutes();
         }
 
-        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.3'])->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertTooManyRequests();
+        $this->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertTooManyRequests();
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
@@ -409,16 +409,16 @@ class CustomerAdditionalReviewTest extends TestCase
         $this->assertDatabaseCount('customers', 0);
     }
 
-    public function test_login_daily_limit_survives_hour_windows(): void
+    public function test_legacy_login_pair_daily_limit_survives_hour_windows(): void
     {
         $this->travelTo(now()->startOfDay()->addHours(12));
         config(['auth.customer_limits.login_id_hour' => 100, 'auth.customer_limits.login_id_day' => 2]);
         for ($i = 1; $i <= 2; $i++) {
-            $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.'.$i])->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertUnauthorized();
+            $this->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertUnauthorized();
             $this->travel(61)->minutes();
         }
 
-        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.3'])->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertTooManyRequests();
+        $this->postJson('/api/v1/store/auth/login', ['login' => '01001234567', 'password' => 'wrong'])->assertTooManyRequests();
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 }

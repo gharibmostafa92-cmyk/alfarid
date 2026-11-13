@@ -39,12 +39,20 @@ class BrandService
                         $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
                     }
 
-                    return Brand::create($data);
+                    $created = Brand::create($data);
+                    DB::afterCommit(function (): void {
+                        StoreCatalogService::forgetTaxonomyCaches();
+                        StoreCatalogService::forgetStorefrontCaches();
+                    });
+
+                    return $created;
                 });
 
                 // Perform media uploads in a separate transaction to avoid holding database row locks during remote network I/O.
                 if ($logo) {
                     $this->attachLogo($brand, $logo);
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
                 }
 
                 return $brand;
@@ -71,10 +79,17 @@ class BrandService
      */
     public function update(Brand $brand, array $data, ?UploadedFile $logo): Brand
     {
+        $expectedVersion = $data['expected_version'] ?? null;
+        unset($data['expected_version']);
+        $removeLogo = (bool) ($data['remove_logo'] ?? false);
+
         // Catch concurrent unique slug collisions and convert to 409 conflict responses.
         try {
-            $updated = DB::transaction(function () use ($brand, $data) {
+            $updated = DB::transaction(function () use ($brand, $data, $expectedVersion) {
                 $brand = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
+                if ($expectedVersion !== null && (int) $expectedVersion !== (int) $brand->lock_version) {
+                    throw new BusinessException('العلامة تعدّلت في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                }
                 unset($data['logo'], $data['remove_logo']);
 
                 if (array_key_exists('slug', $data) && empty($data['slug'])) {
@@ -88,6 +103,10 @@ class BrandService
                 }
 
                 $brand->update($data);
+                DB::afterCommit(function (): void {
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
+                });
 
                 return $brand;
             });
@@ -96,11 +115,18 @@ class BrandService
         }
 
         // Execute logo updates outside main entity transaction to prevent long-running table locks.
-        $removeLogo = (bool) ($data['remove_logo'] ?? false);
         if ($logo) {
             $this->attachLogo($updated, $logo);
+            StoreCatalogService::forgetTaxonomyCaches();
+            StoreCatalogService::forgetStorefrontCaches();
         } elseif ($removeLogo) {
-            DB::transaction(fn () => $updated->clearMediaCollection('logo'));
+            DB::transaction(function () use ($updated): void {
+                $updated->clearMediaCollection('logo');
+                DB::afterCommit(function (): void {
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
+                });
+            });
         }
 
         return $updated;
@@ -127,17 +153,24 @@ class BrandService
      *
      * @throws BusinessException If brand has associated products.
      */
-    public function delete(Brand $brand): void
+    public function delete(Brand $brand, ?int $expectedVersion = null): void
     {
-        DB::transaction(function () use ($brand): void {
+        DB::transaction(function () use ($brand, $expectedVersion): void {
             // Lock row to prevent deleting a brand concurrently while a product is being assigned to it.
             $locked = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
+            if ($expectedVersion !== null && (int) $expectedVersion !== (int) $locked->lock_version) {
+                throw new BusinessException('العلامة تعدّلت في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
 
             if ($locked->products()->exists()) {
                 throw new BusinessException('لا يمكن حذف براند مرتبط بمنتجات');
             }
 
             $locked->delete();
+            DB::afterCommit(function (): void {
+                StoreCatalogService::forgetTaxonomyCaches();
+                StoreCatalogService::forgetStorefrontCaches();
+            });
         });
     }
 }

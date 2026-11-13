@@ -19,7 +19,7 @@ if (config('auth.legacy_login_enabled', false)) {
         ->name('auth.login');
 }
 
-Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throttle:pos-api'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
     Route::get('bootstrap', [PosBootstrapController::class, 'show'])->name('bootstrap');
     Route::get('treasuries/available', [PosShiftController::class, 'availableDrawers'])->name('treasuries.available');
@@ -42,7 +42,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
         Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');
         Route::post('sales/hold', [PosSaleController::class, 'hold'])->name('sales.hold');
         Route::post('sales/quote', [PosSaleController::class, 'quote'])->name('sales.quote');
-        Route::get('sales/lookup', [PosSaleController::class, 'lookupForReturn'])->middleware('permission:pos.sales.refund')->name('sales.lookup');
+        Route::get('sales/lookup', [PosSaleController::class, 'lookupForReturn'])
+            ->middleware(['permission:pos.sales.refund', 'throttle:pos-lookup'])
+            ->name('sales.lookup');
         Route::post('sales/held/{held_sale}/resume', [PosSaleController::class, 'resumeHeld'])->name('sales.held.resume');
         Route::delete('sales/held/{held_sale}', [PosSaleController::class, 'deleteHeld'])->name('sales.held.delete');
         Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->middleware('permission:pos.sales.refund')->name('sales.return');
@@ -51,7 +53,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
         // Restrict customer lookup and creation to an active shift.
         Route::get('customers', [PosCustomerController::class, 'index'])
             ->middleware('throttle:pos-customers')->name('customers.index');
-        Route::post('customers', [PosCustomerController::class, 'store'])->name('customers.store');
+        Route::post('customers', [PosCustomerController::class, 'store'])
+            ->middleware('throttle:pos-customers')->name('customers.store');
 
         // Branch inventory, transfers, and barcode scanning.
         Route::get('stock', [PosStockController::class, 'index'])->name('stock.index');

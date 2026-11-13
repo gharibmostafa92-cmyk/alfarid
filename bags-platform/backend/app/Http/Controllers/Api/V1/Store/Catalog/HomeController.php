@@ -62,7 +62,7 @@ class HomeController extends Controller
                 'banners' => $bannersPayload,
                 'latest_products' => $section($ids['latest_ids']),
                 'best_sellers' => $section($ids['best_seller_ids']),
-                'discounted_products' => $section($ids['discounted_ids'])->filter(fn ($card) => $card['price'] !== null && $card['discount_percentage'] !== null)->values(),
+                'discounted_products' => $section($ids['discounted_ids'])->filter(fn ($card) => $card['price'] !== null && $card['discount_percentage'] !== null)->take(12)->values(),
             ],
         ]);
     }

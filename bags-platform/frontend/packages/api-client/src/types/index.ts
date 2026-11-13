@@ -40,6 +40,7 @@ export interface UserPermissions {
 
 export interface AdminCategory {
   id: number;
+  lock_version?: number;
   parent_id: number | null;
   name_ar: string;
   name_en: string;
@@ -56,6 +57,7 @@ export interface AdminCategory {
 }
 
 export interface CategoryPayload {
+  expected_version?: number;
   parent_id?: number | null;
   name_ar?: string;
   name_en?: string;
@@ -85,7 +87,7 @@ export type ProductStatus = 'draft' | 'published' | 'archived';
 export type SalesChannel = 'retail' | 'wholesale' | 'both';
 
 export interface AdminBrand {
-  id: number; name_ar: string; name_en: string; slug: string;
+  id: number; lock_version?: number; name_ar: string; name_en: string; slug: string;
   description_ar: string | null; description_en: string | null;
   sort_order: number; is_active: boolean; logo_url: string | null;
   products_count?: number; created_at: string;
@@ -128,6 +130,7 @@ export interface AdminProduct {
 
 // Mirrors backend StoreBrandRequest and UpdateBrandRequest attributes
 export interface BrandPayload {
+  expected_version?: number;
   name_ar?: string; name_en?: string; slug?: string | null;
   description_ar?: string | null; description_en?: string | null;
   sort_order?: number; is_active?: boolean;

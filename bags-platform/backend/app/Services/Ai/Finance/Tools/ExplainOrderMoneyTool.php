@@ -120,7 +120,7 @@ final class ExplainOrderMoneyTool implements AgentTool
         $treasuryNet = array_sum(array_column($treasuryTxs, 'amount'));
         $hasRefundTx = count(array_filter(
             $walletTxs,
-            fn ($w) => in_array($w['type'], ['return_refund', 'refund', 'checkout_refund'], true) && $w['amount'] > 0
+            fn ($w) => in_array($w['type'], ['return_refund', 'refund', 'checkout_refund', 'order_reversal'], true) && $w['amount'] > 0
         )) > 0 || count(array_filter(
             $treasuryTxs,
             fn ($t) => in_array($t['type'], ['pos_return'], true)

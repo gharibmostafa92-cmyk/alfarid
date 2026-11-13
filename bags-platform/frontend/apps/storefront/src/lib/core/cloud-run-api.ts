@@ -23,6 +23,7 @@ type ProxyConfig = {
   origins: readonly string[];
   identityToken: (audience: string) => Promise<string>;
   clientIpSecret?: string;
+  trustedProxyHops?: number;
   send?: typeof fetch;
 };
 
@@ -73,12 +74,16 @@ function stripPort(value: string): string {
  * to attacker-controlled values. X-Real-IP is ignored unless a proxy is
  * explicitly declared as its source.
  */
-function clientAddress(request: Request): string | null {
+function clientAddress(request: Request, trustedProxyHops = 1): string | null {
+  const hops = Number.isInteger(trustedProxyHops) && trustedProxyHops >= 1 ? trustedProxyHops : 1;
   const forwarded = request.headers.get('x-forwarded-for') ?? '';
-  const parts = forwarded.split(',');
-  const last = parts[parts.length - 1]?.trim();
-  const address = last ? stripPort(last) : '';
-  if (address && isIP(address) !== 0) return address;
+  const parts = forwarded.split(',').map(part => part.trim()).filter(Boolean);
+  if (parts.length >= hops) {
+    const candidate = stripPort(parts[parts.length - hops]);
+    if (candidate && isIP(candidate) !== 0) return candidate;
+    // Refuse to slide backward into earlier attacker-controlled XFF entries if the expected proxy hop is invalid.
+    return null;
+  }
   if (process.env.API_PROXY_TRUST_X_REAL_IP === '1') {
     const real = stripPort(request.headers.get('x-real-ip')?.trim() ?? '');
     if (real && isIP(real) !== 0) return real;
@@ -87,12 +92,12 @@ function clientAddress(request: Request): string | null {
   return null;
 }
 
-async function signClientAddress(secret: string, address: string): Promise<string> {
+async function signClientAddress(secret: string, timestamp: string, address: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
   );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(address));
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestamp}.${address}`));
 
   return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -144,6 +149,8 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     const upstream = new URL(config.upstream);
     if (upstream.protocol !== 'https:' || !upstream.hostname.endsWith('.run.app')
       || config.upstream !== upstream.origin) return fail(503, 'API is not configured');
+    const clientIpSecret = config.clientIpSecret?.trim();
+    if (!clientIpSecret) return fail(503, 'API proxy signing secret is not configured');
     upstream.pathname = '/api/v1/' + path.map(encodeURIComponent).join('/');
     upstream.search = new URL(request.url).search;
     const forwarded = new Headers();
@@ -151,10 +158,12 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       const value = request.headers.get(name);
       if (value !== null) forwarded.set(name, value);
     }
-    const address = clientAddress(request);
-    if (address !== null && config.clientIpSecret) {
+    const address = clientAddress(request, config.trustedProxyHops);
+    if (address !== null) {
+      const timestamp = String(Math.floor(Date.now() / 1000));
       forwarded.set('x-alfarid-client-ip', address);
-      forwarded.set('x-alfarid-client-ip-signature', await signClientAddress(config.clientIpSecret, address));
+      forwarded.set('x-alfarid-client-ip-timestamp', timestamp);
+      forwarded.set('x-alfarid-client-ip-signature', await signClientAddress(clientIpSecret, timestamp, address));
     }
     forwarded.set('x-serverless-authorization', 'Bearer ' + await config.identityToken(upstream.origin));
     const init: RequestInit & { duplex?: 'half' } = {

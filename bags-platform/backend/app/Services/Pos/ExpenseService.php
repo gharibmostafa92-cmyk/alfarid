@@ -49,6 +49,9 @@ class ExpenseService
         // Never spread the raw request: branch_id/treasury_id/created_by are
         // financial fields and must not be overridable through the payload.
         $payload = Arr::only($data, ['branch_id', 'treasury_id', 'category', 'amount', 'expense_date', 'notes', 'attachment_path']);
+        if (array_key_exists('attachment_path', $payload) && $payload['attachment_path'] !== null) {
+            $payload['attachment_path'] = self::validateAttachmentPath($payload['attachment_path']);
+        }
         try {
             $amount = BigDecimal::of((string) ($payload['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
         } catch (MathException) {
@@ -189,5 +192,34 @@ class ExpenseService
     {
         $this->branchAccess->assertBranch($userId, $expense->branch_id);
         $this->branchAccess->assertTreasury($userId, $expense->treasury);
+    }
+
+    public static function validateAttachmentPath(mixed $path): string
+    {
+        if (! is_string($path)) {
+            throw new BusinessException('مسار مرفق المصروف غير صالح.');
+        }
+
+        $normalized = trim($path);
+        if (! self::isSafeAttachmentPath($normalized)) {
+            throw new BusinessException('مسار مرفق المصروف غير صالح.');
+        }
+
+        return $normalized;
+    }
+
+    public static function isSafeAttachmentPath(?string $path): bool
+    {
+        if ($path === null || $path === '') {
+            return false;
+        }
+        if (str_contains($path, "\0") || str_contains($path, '\\') || str_starts_with($path, '/')) {
+            return false;
+        }
+        if (preg_match('/(?:^|\/)\.\.?(?:\/|$)/', $path) === 1 || preg_match('/[\x00-\x1F\x7F]/', $path) === 1) {
+            return false;
+        }
+
+        return str_starts_with($path, 'expense-receipts/') || str_starts_with($path, 'expenses/');
     }
 }

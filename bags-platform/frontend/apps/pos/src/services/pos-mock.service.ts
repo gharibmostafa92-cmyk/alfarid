@@ -14,7 +14,11 @@ import type {
   TransferSource,
   StocktakeSession,
   CreateSalePayload,
+  PosSettings,
+  QuoteResult,
 } from '../types/pos.types';
+import type { QuoteRequest } from './pos-api.core';
+import { spreadDiscount, toCents } from '../lib/money';
 
 const INITIAL_BRANCH: Branch = { id: 3, name: 'فرع مدينة نصر', code: 'NSR', is_active: true };
 
@@ -23,13 +27,13 @@ const INITIAL_CASHIER: CashierUser = {
   name: 'أحمد سمير',
   initials: 'أس',
   role: 'كاشير أول',
-  perms: ['pos.override_price', 'pos.sales.refund', 'transfers.create', 'transfers.receive', 'stocktakes.update'],
+  perms: ['pos.override_price', 'pos.discount', 'pos.sales.refund', 'transfers.create', 'transfers.receive', 'stocktakes.update'],
 };
 
 const INITIAL_TREASURIES: Treasury[] = [
-  { id: 1, name: 'درج كاشير ١', code: 'DRW-01', state: 'free', last: 'آخر إغلاق أمس ١١:٤٠ م' },
-  { id: 2, name: 'درج كاشير ٢', code: 'DRW-02', state: 'free', last: 'آخر إغلاق أمس ١٠:١٥ م' },
-  { id: 4, name: 'درج الصالة', code: 'DRW-04', state: 'busy', last: 'مفتوح مع منى عادل' },
+  { id: 1, name: 'درج كاشير ١', code: 'DRW-01', state: 'free', last: 'آخر إغلاق أمس ١١:٤٠ م', balance: 500 },
+  { id: 2, name: 'درج كاشير ٢', code: 'DRW-02', state: 'free', last: 'آخر إغلاق أمس ١٠:١٥ م', balance: 0 },
+  { id: 4, name: 'درج الصالة', code: 'DRW-04', state: 'busy', last: 'مفتوح مع منى عادل', balance: 0 },
 ];
 
 const INITIAL_CATS: ProductCategory[] = [
@@ -176,6 +180,49 @@ export class PosMockService {
   }
 
   // Branch & Cashier
+  public syncActor(actor?: {
+    id?: number;
+    name?: string;
+    roles?: string[];
+    permissions?: string[];
+    branch_id?: number | null;
+    branch?: { id: number; name: string; code?: string } | null;
+  } | null): void {
+    if (!actor || !actor.name) return;
+    const words = actor.name.trim().split(/\s+/);
+    const initials = words.length >= 2
+      ? `${words[0][0] ?? ''}${words[1][0] ?? ''}`
+      : (actor.name.trim().slice(0, 2) || 'أس');
+    const firstRole = actor.roles?.[0] ?? '';
+    const roleLabel = firstRole === 'cashier' || firstRole === 'كاشير'
+      ? 'كاشير أول'
+      : (firstRole || 'كاشير أول');
+
+    this.cashier = {
+      id: actor.id || this.cashier.id,
+      name: actor.name,
+      initials,
+      role: roleLabel,
+      perms: actor.permissions?.length ? actor.permissions : this.cashier.perms,
+    };
+
+    if (actor.branch?.name) {
+      this.branch = {
+        id: actor.branch.id || actor.branch_id || this.branch.id,
+        name: actor.branch.name,
+        code: actor.branch.code || this.branch.code,
+        is_active: true,
+      };
+    }
+
+    if (this.currentShift) {
+      this.currentShift.cashier = { ...this.cashier };
+      this.currentShift.branch = { ...this.branch };
+      this.currentShift.branch_id = this.branch.id;
+    }
+    this.notify();
+  }
+
   public async getBranch(): Promise<Branch> {
     await delay(50);
     return { ...this.branch };
@@ -184,11 +231,6 @@ export class PosMockService {
   public async getCashier(): Promise<CashierUser> {
     await delay(50);
     return { ...this.cashier };
-  }
-
-  public async getSettings(): Promise<{ max_discount_percent: number; currency: string }> {
-    await delay(50);
-    return { max_discount_percent: 20, currency: 'EGP' };
   }
 
   // Shift API
@@ -237,9 +279,9 @@ export class PosMockService {
 
     const expected =
       this.currentShift.opening_cash +
-      this.currentShift.cash_sales_total -
-      this.currentShift.cash_returns_total -
-      this.currentShift.cash_expenses_total;
+      (this.currentShift.cash_sales_total ?? 0) -
+      (this.currentShift.cash_returns_total ?? 0) -
+      (this.currentShift.cash_expenses_total ?? 0);
 
     this.currentShift.status = 'pending_approval';
     this.currentShift.closed_at = new Date();
@@ -266,10 +308,10 @@ export class PosMockService {
       return { cashSales: 0, cardSales: 0, returns: 0, expenses: 0, invoices: 0 };
     }
     return {
-      cashSales: this.currentShift.cash_sales_total,
-      cardSales: this.currentShift.card_sales_total,
-      returns: this.currentShift.cash_returns_total,
-      expenses: this.currentShift.cash_expenses_total,
+      cashSales: this.currentShift.cash_sales_total ?? 0,
+      cardSales: this.currentShift.card_sales_total ?? 0,
+      returns: this.currentShift.cash_returns_total ?? 0,
+      expenses: this.currentShift.cash_expenses_total ?? 0,
       invoices: this.currentShift.invoices_count ?? 0,
     };
   }
@@ -296,7 +338,7 @@ export class PosMockService {
   }
 
   // Customers
-  public async getCustomers(query = ''): Promise<Customer[]> {
+  public async getCustomers(query = '', _signal?: AbortSignal): Promise<Customer[]> {
     await delay(80);
     const q = query.trim();
     if (!q) return [...this.customers];
@@ -337,14 +379,14 @@ export class PosMockService {
 
     // Update active shift stats
     if (this.currentShift) {
-      this.currentShift.cash_sales_total += payload.cash_amount || 0;
-      this.currentShift.card_sales_total += payload.card_amount || 0;
+      this.currentShift.cash_sales_total = (this.currentShift.cash_sales_total ?? 0) + (payload.cash_amount || 0);
+      this.currentShift.card_sales_total = (this.currentShift.card_sales_total ?? 0) + (payload.card_amount || 0);
       this.currentShift.invoices_count = (this.currentShift.invoices_count || 0) + 1;
       this.currentShift.expected_closing_cash =
         this.currentShift.opening_cash +
         this.currentShift.cash_sales_total -
-        this.currentShift.cash_returns_total -
-        this.currentShift.cash_expenses_total;
+        (this.currentShift.cash_returns_total ?? 0) -
+        (this.currentShift.cash_expenses_total ?? 0);
     }
 
     // Record past sale
@@ -378,15 +420,32 @@ export class PosMockService {
     return [...this.heldSales];
   }
 
-  public async holdSale(cart: PosCartLine[], customer: Customer | null, note: string): Promise<PosHeldSale> {
+  public async holdSale(
+    cart: PosCartLine[],
+    customer: Customer | null,
+    note: string,
+    discountTotal = 0,
+  ): Promise<PosHeldSale> {
     await delay(250);
+    // Persist the effective unit_price and the cart-discount share per line so a
+    // resume restores prices instead of silently dropping them.
+    const shares = spreadDiscount(
+      cart.map((c) => ({ id: c.id, totalC: toCents(c.price) * c.qty })),
+      toCents(discountTotal),
+    );
     const newHeld: PosHeldSale = {
       ref: `HLD-NSR-${String(Math.floor(Math.random() * 9000) + 1000).padStart(4, '0')}`,
       at: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
       mins: 1,
       customer: customer ? customer.name : null,
+      customerObj: customer ? { ...customer } : null,
       note,
-      items: cart.map((c) => ({ id: c.id, qty: c.qty })),
+      items: cart.map((c) => ({
+        id: c.id,
+        qty: c.qty,
+        unit_price: c.price,
+        discount_amount: (shares.find((s) => s.id === c.id)?.d ?? 0) / 100,
+      })),
     };
     this.heldSales.unshift(newHeld);
     this.notify();
@@ -423,12 +482,12 @@ export class PosMockService {
     }
 
     if (this.currentShift) {
-      this.currentShift.cash_returns_total += totalRefund;
+      this.currentShift.cash_returns_total = (this.currentShift.cash_returns_total ?? 0) + totalRefund;
       this.currentShift.expected_closing_cash =
         this.currentShift.opening_cash +
-        this.currentShift.cash_sales_total -
+        (this.currentShift.cash_sales_total ?? 0) -
         this.currentShift.cash_returns_total -
-        this.currentShift.cash_expenses_total;
+        (this.currentShift.cash_expenses_total ?? 0);
     }
     this.notify();
   }
@@ -437,7 +496,9 @@ export class PosMockService {
     saleId: number,
     returnItems: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
     exchangeItems: { id: number; qty: number }[],
-    netDiff: number
+    netDiff: number,
+    _customerId?: number | null,
+    _payment?: { method?: 'cash' | 'card' | 'mixed'; cashAmount?: number },
   ): Promise<void> {
     await delay(400);
     // Returns
@@ -457,15 +518,15 @@ export class PosMockService {
     // Financial diff
     if (this.currentShift) {
       if (netDiff > 0) {
-        this.currentShift.cash_sales_total += netDiff;
+        this.currentShift.cash_sales_total = (this.currentShift.cash_sales_total ?? 0) + netDiff;
       } else if (netDiff < 0) {
-        this.currentShift.cash_returns_total += Math.abs(netDiff);
+        this.currentShift.cash_returns_total = (this.currentShift.cash_returns_total ?? 0) + Math.abs(netDiff);
       }
       this.currentShift.expected_closing_cash =
         this.currentShift.opening_cash +
-        this.currentShift.cash_sales_total -
-        this.currentShift.cash_returns_total -
-        this.currentShift.cash_expenses_total;
+        (this.currentShift.cash_sales_total ?? 0) -
+        (this.currentShift.cash_returns_total ?? 0) -
+        (this.currentShift.cash_expenses_total ?? 0);
     }
     this.notify();
   }
@@ -525,12 +586,17 @@ export class PosMockService {
   }
 
   public async recordStocktakeScan(
-    variantId: number,
-    qty: number,
-    via: 'voice' | 'barcode',
-    words?: string
-  ): Promise<void> {
+    barcodeOrVariantId: string | number,
+    qty: number = 1,
+    via: 'voice' | 'barcode' = 'barcode',
+    words?: string,
+    _scanId?: string
+  ): Promise<{ duplicate: boolean }> {
     await delay(100);
+    const variantId =
+      typeof barcodeOrVariantId === 'number'
+        ? barcodeOrVariantId
+        : (this.products.find((p) => p.barcode === barcodeOrVariantId)?.id ?? 0);
     const prevCount = this.stocktakeSession.counts[variantId] || 0;
     const newCount = prevCount + qty;
     this.stocktakeSession.counts[variantId] = newCount;
@@ -553,6 +619,60 @@ export class PosMockService {
       this.stocktakeSession.log = this.stocktakeSession.log.slice(0, 10);
     }
     this.notify();
+    return { duplicate: false };
+  }
+
+  // ---- API-parity helpers (so VITE_POS_SOURCE=mock exposes the same surface as the API service) ----
+  public async bootstrap(): Promise<void> {
+    await delay(50);
+    this.notify();
+  }
+
+  public async loadCatalog(_force = false): Promise<void> {
+    await delay(10);
+  }
+
+  public getSettings(): PosSettings {
+    return { max_discount_percent: 20, currency: 'EGP' };
+  }
+
+  public getHeldCount(): number {
+    return this.heldSales.length;
+  }
+
+  public async lookupByBarcode(code: string): Promise<PosProduct | null> {
+    const c = code.trim().toLowerCase();
+    return this.products.find((p) => p.barcode === c || p.sku.toLowerCase() === c) ?? null;
+  }
+
+  public async quoteSale(req: QuoteRequest, _signal?: AbortSignal): Promise<QuoteResult> {
+    await delay(40);
+    const lines = req.items.map((i) => {
+      const p = this.products.find((x) => x.id === i.product_variant_id);
+      const unit = req.override_price && i.unit_price != null ? i.unit_price : (p?.price ?? 0);
+      const disc = i.discount_amount ?? 0;
+      return {
+        product_variant_id: i.product_variant_id,
+        qty: i.qty,
+        unit_price: unit,
+        discount_amount: disc,
+        line_total: unit * i.qty - disc,
+        available: p?.stock ?? 0,
+        error: p && i.qty > p.stock ? `الكمية المطلوبة غير متوفرة في المخزون (المتاح: ${p.stock})` : null,
+      };
+    });
+    const subtotal = lines.reduce((s, l) => s + l.unit_price * l.qty, 0);
+    const discount_total = lines.reduce((s, l) => s + l.discount_amount, 0);
+    return { lines, subtotal, discount_total, grand_total: subtotal - discount_total };
+  }
+
+  public async resumeHeldSale(ref: string): Promise<PosHeldSale> {
+    await delay(120);
+    const h = this.heldSales.find((x) => x.ref === ref);
+    if (!h) throw new Error('الفاتورة المعلقة غير موجودة');
+    this.heldSales = this.heldSales.filter((x) => x.ref !== ref);
+    this.notify();
+    return { ...h };
   }
 }
 

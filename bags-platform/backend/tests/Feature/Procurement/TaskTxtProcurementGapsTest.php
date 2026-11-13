@@ -356,7 +356,7 @@ class TaskTxtProcurementGapsTest extends TestCase
         $v1 = hash_hmac('sha256', $stamp.'.'.$stripeBody, 'stripe-secret');
         $this->call('POST', '/api/v1/webhooks/payment/stripe', [], [], [], $this->jsonHeaders([
             'HTTP_STRIPE_SIGNATURE' => 't='.$stamp.',v1=deadbeef,v1='.$v1,
-        ]), $stripeBody)->assertOk()->assertJsonPath('received', false);
+        ]), $stripeBody)->assertServiceUnavailable()->assertJsonPath('received', false);
 
         $this->call('POST', '/api/v1/webhooks/payment/stripe', [], [], [], $this->jsonHeaders([
             'HTTP_STRIPE_SIGNATURE' => 't='.($stamp - 301).',v1='.$v1,
@@ -377,13 +377,13 @@ class TaskTxtProcurementGapsTest extends TestCase
         ];
         $hmac = $this->paymobHmac($paymob['obj'], 'paymob-secret');
         $this->call('POST', '/api/v1/webhooks/payment/paymob?hmac='.$hmac, [], [], [], $this->jsonHeaders([]), json_encode($paymob))
-            ->assertOk();
+            ->assertServiceUnavailable()->assertJsonPath('message', 'order not found');
         $tampered = $paymob;
         $tampered['obj']['amount_cents'] = 10001;
         $this->call('POST', '/api/v1/webhooks/payment/paymob?hmac='.$hmac, [], [], [], $this->jsonHeaders([]), json_encode($tampered))
             ->assertForbidden();
 
-        $moyasar = json_encode(['id' => 'moy-1', 'status' => 'ignored', 'secret_token' => 'moyasar-secret']);
+        $moyasar = json_encode(['id' => 'moy-1', 'order_number' => $order->order_number, 'status' => 'ignored', 'secret_token' => 'moyasar-secret']);
         $this->call('POST', '/api/v1/webhooks/payment/moyasar', [], [], [], $this->jsonHeaders([]), $moyasar)->assertOk();
         $this->call('POST', '/api/v1/webhooks/payment/moyasar', [], [], [], $this->jsonHeaders([]), json_encode(['id' => 'moy-2', 'secret_token' => 'nope']))
             ->assertForbidden();
@@ -433,7 +433,7 @@ class TaskTxtProcurementGapsTest extends TestCase
         $this->assertSame('unpaid', $waiting->fresh()->payment_status);
 
         $this->postPayment(null, ['event_id' => 'ghost', 'order_number' => 'ORD-MISSING', 'status' => 'paid', 'amount' => 10])
-            ->assertOk()->assertJsonPath('received', false);
+            ->assertServiceUnavailable()->assertJsonPath('received', false);
 
         config(['webhooks.payment.optional' => [
             'driver' => 'hmac', 'secret' => 'lab-secret', 'signature_header' => 'X-Webhook-Signature',

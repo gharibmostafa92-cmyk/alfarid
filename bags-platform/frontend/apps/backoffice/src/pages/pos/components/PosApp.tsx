@@ -6,6 +6,7 @@ import { Cart } from './terminal/Cart';
 import { OpenShiftGate } from './shift/OpenShiftGate';
 import { CloseShiftModal } from './shift/CloseShiftModal';
 import { CheckoutModal } from './checkout/CheckoutModal';
+import { ThermalReceipt } from './checkout/ReceiptDone';
 import { HoldModal } from './checkout/HoldModal';
 import { HeldDrawer } from './checkout/HeldDrawer';
 import { ReturnModal } from './returns/ReturnModal';
@@ -14,13 +15,14 @@ import { TransfersPage } from './inventory/TransfersPage';
 import { StocktakePage } from './inventory/StocktakePage';
 import { Icon } from './ui/Icons';
 import { useToast } from './ui/SharedUI';
-import { pos as posMockService } from '../services/pos-data-source';
+import { pos } from '../services/pos-data-source';
 import { usePosCart, posCartStore } from '../stores/pos-cart.store';
 import { createScanDetector } from '../lib/barcode-scanner';
 import { beepError, beepSuccess } from '../lib/sound';
 import { createPendingSaleManager, type PendingSaleDraft } from '../lib/pending-sale';
 import { createTabCoordinator } from '../lib/tab-coordinator';
-import { getLastReceipt } from '../lib/receipt-archive';
+import { getLastReceipt, type ArchivedReceipt } from '../lib/receipt-archive';
+import { isCancel, normalizeError } from '../lib/pos-error';
 import type {
   AppScreen,
   PosShift,
@@ -80,6 +82,9 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const [isHoldOpen, setIsHoldOpen] = useState<boolean>(false);
   const [isHeldOpen, setIsHeldOpen] = useState<boolean>(false);
   const [isReturnOpen, setIsReturnOpen] = useState<boolean>(false);
+  const [printReceipt, setPrintReceipt] = useState<ArchivedReceipt | null>(null);
+  const holdingRef = useRef(false);
+  const deletingHeldRef = useRef(false);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -119,21 +124,21 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     let unsubscribe: (() => void) | undefined;
     const refresh = async () => {
       const [shift, loadedBranch, loadedCashier] = await Promise.all([
-        posMockService.getCurrentShift(), posMockService.getBranch(), posMockService.getCashier(),
+        pos.getCurrentShift(), pos.getBranch(), pos.getCashier(),
       ]);
       if (!active) return;
       setCurrentShift(shift);
       setBranch(loadedBranch);
       setCashier(loadedCashier);
-      setHeldCount(posMockService.getHeldCount());
-      setMaxDiscountPercent(posMockService.getSettings().max_discount_percent);
+      setHeldCount(pos.getHeldCount());
+      setMaxDiscountPercent(pos.getSettings().max_discount_percent);
     };
 
     setStarting(true);
     setStartupError(null);
-    void posMockService.bootstrap().then(async () => {
+    void pos.bootstrap().then(async () => {
       if (!active) return;
-      unsubscribe = posMockService.subscribe(() => void refresh().catch(() => undefined));
+      unsubscribe = pos.subscribe(() => void refresh().catch(() => undefined));
       await refresh();
       if (active) setStarting(false);
     }).catch((error: Error) => {
@@ -148,7 +153,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   }, [startupAttempt]);
 
   const loadHeldSales = useCallback(async () => {
-    const list = await posMockService.getHeldSales();
+    const list = await pos.getHeldSales();
     setHeldSales(list);
     setHeldCount(list.length);
   }, []);
@@ -187,7 +192,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     const detect = createScanDetector({
       onScan: async (code) => {
         try {
-          const p = await posMockService.lookupByBarcode(code);
+          const p = await pos.lookupByBarcode(code);
           if (p) handleAddToCart(p);
           else {
             beepError();
@@ -216,8 +221,15 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
       return;
     }
     if (result.lines.some((line) => line.error)) return;
+    setPrintReceipt(null);
     setIsCheckoutOpen(true);
   }, [isCheckoutOpen, toast]);
+
+  useEffect(() => {
+    const clearPrint = () => setPrintReceipt(null);
+    window.addEventListener('afterprint', clearPrint);
+    return () => window.removeEventListener('afterprint', clearPrint);
+  }, []);
 
   // Keyboard shortcuts (F2, F6, F8, Space, Ctrl+Z, +/-, Ctrl+P)
   useEffect(() => {
@@ -254,6 +266,13 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
           e.preventDefault();
           const currentItem = cart.find((l) => l.id === lastAdded.id);
           if (currentItem) {
+            const p = pos.getProductById(currentItem.id);
+            const stock = currentItem.stock ?? p?.stock;
+            if (stock === undefined || currentItem.qty + 1 > stock) {
+              beepError();
+              toast(stock === undefined ? 'تعذر التحقق من المخزون' : `الرصيد المتاح ${stock} فقط`, 'bad');
+              return;
+            }
             setCart((c) => c.map((x) => (x.id === lastAdded.id ? { ...x, qty: x.qty + 1 } : x)));
           }
         }
@@ -275,7 +294,10 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         e.preventDefault();
         const lastRc = getLastReceipt();
         if (lastRc) {
-          window.print();
+          setPrintReceipt(lastRc);
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => window.print());
+          });
           toast(`طباعة آخر فاتورة (${lastRc.invoiceNumber})`);
         } else {
           toast('لا توجد فواتير سابقة للطباعة', 'bad');
@@ -307,7 +329,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
       await mgr.executeWithRetry(
         pendingSale.payload,
         pendingSale.key,
-        (p, k) => posMockService.createSale(p, k)
+        (p, k) => pos.createSale(p, k)
       );
       posCartStore.getState().clearCart();
       setPendingSale(null);
@@ -323,24 +345,44 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   // Handle holding sale
   const handleHoldSale = async (note: string) => {
-    if (!cart.length) return;
-    await posMockService.holdSale(cart, customer, note, discount);
-    posCartStore.getState().clearCart();
-    setResumedHeldId(null);
-    setIsHoldOpen(false);
-    toast('تم تعليق الفاتورة بنجاح');
+    if (!cart.length || holdingRef.current) return;
+    holdingRef.current = true;
+    try {
+      await pos.holdSale(cart, customer, note, discount);
+      posCartStore.getState().clearCart();
+      setResumedHeldId(null);
+      setIsHoldOpen(false);
+      toast('تم تعليق الفاتورة بنجاح');
+    } catch (err) {
+      if (!isCancel(err)) {
+        toast(normalizeError(err).message, 'bad');
+      }
+    } finally {
+      holdingRef.current = false;
+    }
   };
 
   // Handle resuming held sale: merge with quantity-dedupe so the same variant
   // never appears twice (no duplicate React keys, no distinct violations).
   const handleResumeHeld = async (heldItem: PosHeldSale) => {
     try {
-      const resumed = await posMockService.resumeHeldSale(heldItem.ref);
+      const resumed = await pos.resumeHeldSale(heldItem.ref);
       const newLines = resumed.items.map((i) => {
-        const p = posMockService.getProductById(i.id);
-        const list = p ? p.price : 100;
+        const p = pos.getProductById(i.id);
+        const list = p ? p.price : (i.unit_price ?? 100);
         const unit = i.unit_price ?? list;
-        return { id: i.id, qty: i.qty, price: unit, listPrice: list, manualPrice: unit !== list };
+        return {
+          id: i.id,
+          qty: i.qty,
+          price: unit,
+          listPrice: list,
+          manualPrice: unit !== list,
+          name: p?.name,
+          stock: p?.stock,
+          wholesale: p?.wholesale,
+          cat: p?.cat,
+          h: p?.h,
+        };
       });
 
       setCart((prev) => {
@@ -353,24 +395,41 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         return next;
       });
       setResumedHeldId(resumed.serverId ?? null);
-      if (resumed.customer) {
-        posMockService.getCustomers(resumed.customer).then((matches) => {
-          if (matches.length > 0) setCustomer(matches[0]);
-        });
+      if (resumed.customerObj) {
+        setCustomer(resumed.customerObj);
+      } else if (resumed.customer) {
+        pos
+          .getCustomers(resumed.customer)
+          .then((matches) => {
+            if (matches.length > 0) setCustomer(matches[0]);
+          })
+          .catch(() => undefined);
       }
       setIsHeldOpen(false);
       setHeldSales((list) => list.filter((item) => item.ref !== heldItem.ref));
       setCurrentScreen('terminal');
       toast(`تم استرجاع الفاتورة ${resumed.ref}`);
-    } catch (err: any) {
-      toast(err?.message || 'تعذر استرجاع الفاتورة', 'bad');
+    } catch (err) {
+      if (!isCancel(err)) {
+        toast(normalizeError(err).message, 'bad');
+      }
     }
   };
 
   const handleDeleteHeld = async (heldItem: PosHeldSale) => {
-    await posMockService.deleteHeldSale(heldItem.ref);
-    setHeldSales((list) => list.filter((item) => item.ref !== heldItem.ref));
-    toast(`تم حذف الفاتورة المعلقة ${heldItem.ref}`);
+    if (deletingHeldRef.current) return;
+    deletingHeldRef.current = true;
+    try {
+      await pos.deleteHeldSale(heldItem.ref);
+      setHeldSales((list) => list.filter((item) => item.ref !== heldItem.ref));
+      toast(`تم حذف الفاتورة المعلقة ${heldItem.ref}`);
+    } catch (err) {
+      if (!isCancel(err)) {
+        toast(normalizeError(err).message, 'bad');
+      }
+    } finally {
+      deletingHeldRef.current = false;
+    }
   };
 
   const handleSalePaid = () => {
@@ -562,6 +621,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             pendingOwner={pendingOwner}
             branch={branch}
             cashier={cashier}
+            isDark={isDark}
           />
 
           <HoldModal
@@ -600,7 +660,28 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             setCurrentShift(null);
             toast(`تم إغلاق الوردية #${closed.shift_number} بنجاح`);
           }}
+          isDark={isDark}
         />
+      )}
+      {printReceipt && (
+        <div className="print-receipt-host" aria-hidden="true">
+          <ThermalReceipt
+            invoiceNumber={printReceipt.invoiceNumber}
+            total={printReceipt.total}
+            method={printReceipt.method}
+            received={printReceipt.received}
+            change={printReceipt.change}
+            cashA={printReceipt.cashA}
+            cardA={printReceipt.cardA}
+            cart={printReceipt.cart}
+            customer={printReceipt.customer}
+            discount={printReceipt.discount}
+            notes={printReceipt.notes}
+            branch={printReceipt.branch ?? branch}
+            cashier={printReceipt.cashier ?? cashier}
+            timestamp={printReceipt.timestamp}
+          />
+        </div>
       )}
     </div>
   );

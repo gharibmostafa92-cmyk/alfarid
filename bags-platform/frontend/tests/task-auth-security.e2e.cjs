@@ -10,38 +10,18 @@ let browser;
 before(async () => { browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge' }); });
 after(async () => { await browser?.close(); });
 
-test('task 25: session endpoint rejects invalid requests and bounds its cookie', async () => {
+test('task 25 / F04: legacy /api/auth cookie endpoint is decommissioned and sets no cookies', async () => {
   const context = await browser.newContext({ permissions: ['local-network-access'] });
   try {
     const token = `1|${'a'.repeat(40)}`; // Synthetic session material only.
     const request = context.request;
-    const cases = [
-      ['plain text', { headers: { 'content-type': 'text/plain' }, data: '{}' }, 415],
-      ['foreign origin', { headers: { origin: foreign }, data: { token } }, 403],
-      ['cross-site', { headers: { 'sec-fetch-site': 'cross-site' }, data: { token } }, 403],
-      ['invalid token', { data: { token: 'abc' } }, 400],
-      ...[0, 7201, 1.5, -1, '120', null].map(expiresIn => [`expiry ${expiresIn}`, { data: { token, expiresIn } }, 400]),
-      ['malformed JSON', { headers: { 'content-type': 'application/json' }, data: '{' }, 400],
-    ];
-    for (const [label, options, status] of cases) {
-      const response = await request.post(`${web}/api/auth`, options);
-      assert.equal(response.status(), status, label);
-      assert.equal(response.headers()['set-cookie'], undefined, label);
+    for (const response of [
+      await request.post(`${web}/api/auth`, { headers: { origin: web }, data: { token } }),
+      await request.delete(`${web}/api/auth`, { headers: { origin: web } }),
+    ]) {
+      assert.ok([404, 405].includes(response.status()));
+      assert.equal(response.headers()['set-cookie'], undefined);
     }
-    for (const expiresIn of [1, 7200, undefined]) {
-      const response = await request.post(`${web}/api/auth`, { headers: { origin: web }, data: { token, expiresIn } });
-      assert.equal(response.status(), 200);
-      const cookie = response.headers()['set-cookie'];
-      assert.match(cookie, /auth_token=/);
-      assert.match(cookie, /HttpOnly/i);
-      assert.match(cookie, /SameSite=Lax/i);
-      assert.match(cookie, /Path=\//i);
-      assert.match(cookie, new RegExp(`Max-Age=${expiresIn ?? 7200}(?:;|$)`, 'i'));
-    }
-    const deleted = await request.delete(`${web}/api/auth`);
-    assert.equal(deleted.status(), 200);
-    assert.match(deleted.headers()['set-cookie'], /auth_token=;/);
-    assert.match(deleted.headers()['set-cookie'], /Expires=Thu, 01 Jan 1970/i);
   } finally { await context.close(); }
 });
 

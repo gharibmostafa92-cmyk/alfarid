@@ -11,6 +11,7 @@ use App\Models\Customer;
 use App\Models\Expense;
 use App\Models\Location;
 use App\Models\Order;
+use App\Models\PosHeldSale;
 use App\Models\PosShift;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
@@ -122,7 +123,7 @@ class AppServiceProvider extends ServiceProvider
 
     private function configureModelObservers(): void
     {
-        foreach ([ProductVariant::class, PriceListItem::class, PriceList::class,
+        foreach ([Product::class, Category::class, ProductVariant::class, PriceListItem::class, PriceList::class,
             StockLevel::class, Branch::class, Location::class] as $model) {
             $model::observe(CatalogRetailPriceObserver::class);
         }
@@ -372,6 +373,7 @@ class AppServiceProvider extends ServiceProvider
             'return_request' => ReturnRequest::class,
             'purchase_order' => PurchaseOrder::class,
             'pos_shift' => PosShift::class,
+            'pos_held_sale' => PosHeldSale::class,
             'expense' => Expense::class,
             'treasury_transfer' => TreasuryTransfer::class,
             'wholesale_payment_notice' => WholesalePaymentNotice::class,
@@ -498,7 +500,7 @@ class AppServiceProvider extends ServiceProvider
                 $limits[] = Limit::perMinute(30)->by('checkout-customer:'.$customer->id);
                 $limits[] = Limit::perDay(100)->by('checkout-customer-day:'.$customer->id);
             } else {
-                // Guest checkout limits enforce daily quotas per IP and per destination phone number.
+                // Guest checkout limits enforce daily quotas per network.
                 $limits[] = Limit::perMinute(config('auth.customer_limits.checkout_guest_ip_minute', 30))->by('checkout-ip:'.$networkIp($request));
                 $limits[] = Limit::perDay(config('auth.customer_limits.checkout_guest_ip_day', 200))->by('checkout-ip-day:'.$networkIp($request));
             }
@@ -506,7 +508,6 @@ class AppServiceProvider extends ServiceProvider
             if ($customer === null && $normalized !== null && preg_match('/\d/', $normalized) === 1) {
                 $phoneKey = hash('sha256', $normalized);
                 $limits[] = Limit::perMinute(5)->by('checkout-phone:'.$phoneKey);
-                $limits[] = Limit::perDay(config('auth.customer_limits.checkout_phone_day', 20))->by('checkout-phone-day:'.$phoneKey);
             }
 
             return $limits;
@@ -681,6 +682,8 @@ class AppServiceProvider extends ServiceProvider
         });
         RateLimiter::for('admin-heavy', fn (Request $request) => Limit::perMinute(10)->by('admin-heavy:'.$staffKey($request).':'.($request->route()?->getName() ?? 'unknown')));
         RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by($staffKey($request)));
+        RateLimiter::for('pos-api', fn (Request $request) => Limit::perMinute(180)->by($staffKey($request)));
+        RateLimiter::for('pos-lookup', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
         RateLimiter::for('pos-customers', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
     }
 

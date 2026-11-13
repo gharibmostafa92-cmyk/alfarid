@@ -128,10 +128,7 @@ class CartController extends Controller
     /** @return array{0: ?Customer, 1: Cart} */
     private function currentCart(Request $request, bool $create = false): array
     {
-        $user = auth('sanctum')->user();
-
-        // Suspended or unapproved customers with valid tokens fall back to guest pricing and privileges.
-        $customer = $user instanceof Customer && $user->canShop() ? $user : null;
+        $customer = Customer::resolveShopper(auth('sanctum')->user());
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
         if (! $cart->exists && ! $request->isMethod('GET') && $request->route()?->getActionMethod() !== 'store') {
             abort(404);

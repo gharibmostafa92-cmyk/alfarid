@@ -149,7 +149,9 @@ final class UnifiedAuthService
             $matched = null;
             $inactiveAuditedIds = [];
             foreach ($present as $candidate) {
-                if (! Hash::check($password, $candidate->password)) {
+                $hasPassword = is_string($candidate->password) && $candidate->password !== '';
+                $hash = $hasPassword ? $candidate->password : CustomerAuthService::dummyHash();
+                if (! Hash::check($password, $hash) || ! $hasPassword) {
                     continue;
                 }
                 if ($candidate instanceof User && (! $candidate->is_active || $candidate->is_system)) {
@@ -223,6 +225,9 @@ final class UnifiedAuthService
 
     private function rehashIfNeeded(User|SupplierUser|Customer $model, string $password): void
     {
+        if (! is_string($model->password) || $model->password === '') {
+            return;
+        }
         if (Hash::needsRehash($model->password)) {
             $original = $model->password;
             $replacement = Hash::make($password);

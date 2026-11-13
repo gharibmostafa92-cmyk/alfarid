@@ -261,6 +261,7 @@ class TransferService
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->approved_qty)) <= 0) {
                 throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
             }
+            $this->assignReceivingLocation($transfer);
             $levels = $this->lockTransferLevels($transfer, true, true);
             $qtyUpdates = [];
 
@@ -343,7 +344,7 @@ class TransferService
             }
 
             if ($qtyUpdates !== []) {
-                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['shipped_qty', 'updated_at']);
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['to_location_id', 'shipped_qty', 'updated_at']);
             }
 
             $transfer->update(['status' => TransferStatus::Shipped, 'shipped_at' => now()]);
@@ -383,7 +384,11 @@ class TransferService
             }
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
-            $levels = $this->lockTransferLevels($transfer, false, true);
+            // Older transfers can have transit stock on the branch-level row.
+            $needsReceivingLocation = $transfer->items->contains(fn ($item) =>
+                $item->to_location_id === null && (float) ($itemsPayload[$item->id] ?? $item->shipped_qty) > 0);
+            $receivingLocation = $needsReceivingLocation ? $this->inventory->receivingLocation($transfer->to_branch_id) : null;
+            $levels = $this->lockTransferLevels($transfer, false, true, $receivingLocation);
 
             $shortageNotes = [];
             $qtyUpdates = [];
@@ -421,6 +426,7 @@ class TransferService
                         'notes' => 'استلام تحويل '.$transfer->transfer_number,
                     ], $levels);
                     $this->move([...$base,
+                        'location_id' => $item->to_location_id ?? $receivingLocation,
                         'type' => StockMovementType::TransferIn,
                         'affected_bucket' => StockBucket::OnHand,
                         'quantity' => $receivedQty,
@@ -742,7 +748,23 @@ class TransferService
         ];
     }
 
-    private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination): Collection
+    private function assignReceivingLocation(StockTransfer $transfer): void
+    {
+        $unlocated = $transfer->items->filter(fn ($item) => $item->to_location_id === null);
+        if ($unlocated->isEmpty()) {
+            return;
+        }
+        $receivingLocation = $this->inventory->receivingLocation($transfer->to_branch_id);
+        if ($receivingLocation === null) {
+            return;
+        }
+        foreach ($unlocated as $item) {
+            $item->to_location_id = $receivingLocation;
+        }
+        $this->assertDistinctItems($transfer->items->toArray());
+    }
+
+    private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination, ?int $legacyReceivingLocation = null): Collection
     {
         $keys = [];
         foreach ($transfer->items as $item) {
@@ -750,7 +772,11 @@ class TransferService
                 $keys[] = ['branch_id' => $transfer->from_branch_id, 'location_id' => $item->from_location_id, 'product_variant_id' => $item->product_variant_id];
             }
             if ($destination) {
-                $keys[] = ['branch_id' => $transfer->to_branch_id, 'location_id' => $item->to_location_id, 'product_variant_id' => $item->product_variant_id];
+                $key = ['branch_id' => $transfer->to_branch_id, 'location_id' => $item->to_location_id, 'product_variant_id' => $item->product_variant_id];
+                $keys[] = $key;
+                if ($item->to_location_id === null && $legacyReceivingLocation !== null) {
+                    $keys[] = [...$key, 'location_id' => $legacyReceivingLocation];
+                }
             }
         }
 

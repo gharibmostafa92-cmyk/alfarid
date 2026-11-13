@@ -148,6 +148,7 @@ class InventoryService
 
             $stock->{$bucketKey} = $after;
             $stock->save();
+            \App\Services\Pos\PosService::invalidateCatalogVersionCache((int) $stock->branch_id);
 
             // Evaluate low stock threshold: location-specific reorder level triggers on row availability,
             // while variant reorder level triggers on branch-wide aggregate availability.
@@ -273,13 +274,16 @@ class InventoryService
     {
         return DB::transaction(function () use ($payload, $userId): array {
             app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
+            $locationId = $payload['location_id'] ?? null;
+            $increaseLocationId = $locationId;
 
             // Deactivation allows stock write-offs/decreases, but increases require active variants and locations.
             if (collect($payload['items'])->contains('adjustment_type', 'increase')) {
+                $increaseLocationId ??= $this->receivingLocation((int) $payload['branch_id']);
                 $variants = ProductVariant::query()->withTrashed()
                     ->whereIn('id', array_column($payload['items'], 'product_variant_id'))
                     ->get()->keyBy('id');
-                $location = ($payload['location_id'] ?? null) !== null ? Location::query()->find($payload['location_id']) : null;
+                $location = $increaseLocationId !== null ? Location::query()->find($increaseLocationId) : null;
 
                 foreach ($payload['items'] as $item) {
                     if ($item['adjustment_type'] !== 'increase') {
@@ -295,24 +299,21 @@ class InventoryService
                     }
                 }
             }
-            $levels = $this->lockLevels(array_map(fn ($item) => [
+            $keys = array_map(fn ($item) => [
                 'product_variant_id' => $item['product_variant_id'],
                 'branch_id' => $payload['branch_id'],
-                'location_id' => $payload['location_id'] ?? null,
-            ], $payload['items']));
+                'location_id' => $item['adjustment_type'] === 'increase' ? $increaseLocationId : $locationId,
+            ], $payload['items']);
+            $levels = $this->lockLevels($keys);
             $movements = [];
 
-            foreach ($payload['items'] as $item) {
+            foreach ($payload['items'] as $index => $item) {
                 // Apply adjustment directly to prelocked level instance.
-                $level = $levels->get($this->levelKey([
-                    'product_variant_id' => $item['product_variant_id'],
-                    'branch_id' => $payload['branch_id'],
-                    'location_id' => $payload['location_id'] ?? null,
-                ]));
+                $key = $keys[$index];
+                $level = $levels->get($this->levelKey($key));
                 if (in_array($item['adjustment_type'], ['write_off_damaged', 'restore_damaged'], true)) {
                     $base = [
-                        'product_variant_id' => $item['product_variant_id'],
-                        'branch_id' => $payload['branch_id'], 'location_id' => $payload['location_id'] ?? null,
+                        ...$key,
                         'created_by' => $userId, 'notes' => $item['reason'] ?? null,
                         'quantity' => -abs((float) $item['quantity']),
                     ];
@@ -331,9 +332,7 @@ class InventoryService
                 };
 
                 $movements[] = $this->recordMovement([
-                    'product_variant_id' => $item['product_variant_id'],
-                    'branch_id' => $payload['branch_id'],
-                    'location_id' => $payload['location_id'] ?? null,
+                    ...$key,
                     'type' => $type,
                     'affected_bucket' => $bucket,
                     'quantity' => $sign * abs((float) $item['quantity']),

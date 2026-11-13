@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Field, Modal } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
+import { fromCents, toCents } from '../../lib/money';
 import type { PosCartLine, Customer } from '../../types/pos.types';
 
 interface HoldModalProps {
@@ -19,7 +20,7 @@ export function HoldModal({ open, onClose, onHold, cart, customer }: HoldModalPr
     if (open) setNote('');
   }, [open]);
 
-  const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
+  const total = fromCents(cart.reduce((s, l) => s + toCents(l.price) * l.qty, 0));
 
   return (
     <Modal
@@ -46,7 +47,7 @@ export function HoldModal({ open, onClose, onHold, cart, customer }: HoldModalPr
         <div className="sunken row gap-3" style={{ padding: 12 }}>
           <div className="stack-thumbs">
             {cart.slice(0, 3).map((l) => (
-              <PImg key={l.id} p={posMockService.getProductById(l.id)} size="xs" />
+              <PImg key={l.id} p={pos.getProductById(l.id) ?? { cat: l.cat ?? 'hand', h: l.h ?? 240 }} size="xs" />
             ))}
           </div>
           <div className="grow">

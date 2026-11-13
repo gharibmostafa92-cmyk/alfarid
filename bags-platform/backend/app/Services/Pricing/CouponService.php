@@ -160,16 +160,17 @@ class CouponService
      */
     public function recordUsage(Coupon $coupon, Order $order, ?Customer $customer, float $discountAmount): CouponUsage
     {
-        $guestPhoneNormalized = $customer === null && $order->guest_phone !== null
+        $normalizedGuest = $customer === null && $order->guest_phone !== null && trim($order->guest_phone) !== ''
             ? Customer::normalizePhone($order->guest_phone)
             : null;
+        $guestPhoneNormalized = ($normalizedGuest !== null && $normalizedGuest !== '') ? $normalizedGuest : null;
 
         $phoneKey = $guestPhoneNormalized ?? $this->resolveCustomerPhone($customer);
         $identity = $phoneKey !== null
             ? 'phone:'.$phoneKey
             : ($customer !== null ? 'customer:'.$customer->id : 'anonymous');
-        // Advisory transaction lock serializes concurrent checkouts per identity without locking table rows.
-        DB::statement('SELECT pg_advisory_xact_lock(104, hashtext(?))', ['coupon-usage:'.$coupon->id.':'.$identity]);
+        // 64-bit advisory transaction lock avoids 32-bit hashtext collisions across identities/coupons.
+        DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['coupon-usage:'.$coupon->id.':'.$identity]);
 
         // Re-evaluate identity limit under the lock to prevent race conditions.
         // Redemption always requires a real identity.
@@ -250,9 +251,10 @@ class CouponService
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
 
-        $guestPhoneNormalized = ($guestPhone !== null && trim($guestPhone) !== '')
+        $normalizedGuest = ($guestPhone !== null && trim($guestPhone) !== '')
             ? Customer::normalizePhone($guestPhone)
             : null;
+        $guestPhoneNormalized = ($normalizedGuest !== null && $normalizedGuest !== '') ? $normalizedGuest : null;
 
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized, $requireIdentity);
     }
@@ -299,6 +301,10 @@ class CouponService
             ]));
         }
         if ($customerIds === [] && $phones === []) {
+            if ($requireIdentity) {
+                throw new BusinessException(self::NOT_REDEEMABLE);
+            }
+
             return;
         }
 
@@ -341,6 +347,8 @@ class CouponService
             return null;
         }
 
-        return Customer::normalizePhone((string) $customer->phone);
+        $normalized = Customer::normalizePhone((string) $customer->phone);
+
+        return $normalized !== '' ? $normalized : null;
     }
 }

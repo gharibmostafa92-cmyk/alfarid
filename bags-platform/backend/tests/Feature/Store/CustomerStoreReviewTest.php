@@ -8,12 +8,15 @@ use App\Enums\Orders\SalesChannel;
 use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Banner;
 use App\Models\Brand;
+use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
+use App\Models\Location;
 use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\StockLevel;
 use App\Models\User;
 use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\Auth\CustomerPasswordReset;
@@ -77,6 +80,42 @@ class CustomerStoreReviewTest extends TestCase
         $this->withToken($customer->createToken('test')->plainTextToken)
             ->getJson('/api/v1/store/products/'.$product->slug)->assertOk()
             ->assertJsonPath('data.price', 100)->assertJsonPath('data.variants.0.price', 100);
+    }
+
+    public function test_shopper_resolution_matches_between_catalog_and_cart_and_checkout(): void
+    {
+        $pending = Customer::factory()->wholesale()->create(['status' => 'pending']);
+        $rejected = Customer::factory()->wholesale()->create(['status' => 'rejected']);
+        $suspended = Customer::factory()->create(['status' => 'suspended']);
+        $approved = Customer::factory()->create(['status' => 'approved']);
+
+        $this->assertSame($pending->id, Customer::resolveShopper($pending)?->id);
+        $this->assertSame($approved->id, Customer::resolveShopper($approved)?->id);
+        $this->assertNull(Customer::resolveShopper($rejected));
+        $this->assertNull(Customer::resolveShopper($suspended));
+        $this->assertNull(Customer::resolveShopper(User::factory()->make()));
+
+        $product = $this->product([], ['retail_price' => 100]);
+        $variant = $product->variants->first();
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $location = Location::factory()->create(['branch_id' => $branch->id]);
+        StockLevel::forceCreate([
+            'product_variant_id' => $variant->id, 'branch_id' => $branch->id, 'location_id' => $location->id,
+            'on_hand' => 10, 'reserved' => 0, 'damaged' => 0,
+        ]);
+        $pendingToken = $pending->createToken('test')->plainTextToken;
+
+        $this->withToken($pendingToken)
+            ->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1])
+            ->assertOk()
+            ->assertJsonPath('data.customer_id', $pending->id)
+            ->assertJsonPath('data.totals.total', 100);
+
+        Auth::forgetGuards();
+        $this->withToken($rejected->createToken('test')->plainTextToken)
+            ->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1])
+            ->assertOk()
+            ->assertJsonPath('data.customer_id', null);
     }
 
     public function test_every_store_product_endpoint_hides_wholesale_and_inactive_catalogs(): void

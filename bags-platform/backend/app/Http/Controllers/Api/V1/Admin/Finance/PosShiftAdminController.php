@@ -11,6 +11,8 @@ use App\Models\User;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pos\PosService;
 use App\Services\Shared\OperationIdempotencyService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +25,13 @@ use Illuminate\Validation\Rule;
  */
 class PosShiftAdminController extends Controller implements HasMiddleware
 {
+    private const RELATIONS = [
+        'cashier:id,name',
+        'treasury:id,name,code,branch_id,type',
+        'branch:id,name',
+        'approver:id,name',
+    ];
+
     public static function middleware(): array
     {
         return [
@@ -62,7 +71,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
             $this->branchAccess->assertBranch($request->user('staff')->id, (int) $filters['branch_id']);
         }
         $shifts = PosShift::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
-            ->with(['cashier', 'treasury', 'branch', 'approver'])
+            ->with(self::RELATIONS)
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['user_id'] ?? null, fn ($q, $v) => $q->where('user_id', $v))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
@@ -89,7 +98,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
         $this->branchAccess->assertBranch($request->user('staff')->id, $shift->branch_id);
 
         return response()->json([
-            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver', 'expenses']),
+            'data' => $shift->load([...self::RELATIONS, 'expenses']),
         ]);
     }
 
@@ -102,6 +111,11 @@ class PosShiftAdminController extends Controller implements HasMiddleware
      */
     public function approve(Request $request, PosShift $shift): JsonResponse
     {
+        $data = $request->validate([
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+        $notes = $data['notes'] ?? null;
+
         /** @var User $approver */
         $approver = $request->user('staff');
         $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
@@ -112,14 +126,14 @@ class PosShiftAdminController extends Controller implements HasMiddleware
                 'pos_shift_approve',
                 $approver,
                 $idempotencyKey,
-                ['shift_id' => $shift->id],
-                fn () => $this->pos->approveShift($shift, $approver),
+                ['shift_id' => $shift->id, 'notes' => $notes],
+                fn () => $this->pos->approveShift($shift, $approver, $notes),
             )
-            : $this->pos->approveShift($shift, $approver);
+            : $this->pos->approveShift($shift, $approver, $notes);
 
         return response()->json([
             'message' => 'تم اعتماد الوردية وترحيل النقدية للخزنة الرئيسية.',
-            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+            'data' => $shift->load(self::RELATIONS),
         ]);
     }
 
@@ -128,14 +142,23 @@ class PosShiftAdminController extends Controller implements HasMiddleware
      */
     public function reject(Request $request, PosShift $shift): JsonResponse
     {
-        return $this->reopen($request, $shift, 'تم رفض الإغلاق وإعادة فتح الوردية لإعادة الجرد.');
+        return $this->reopen(
+            $request,
+            $shift,
+            'تم رفض الإغلاق وإعادة فتح الوردية لإعادة الجرد.',
+            'pos_shift_reject',
+        );
     }
 
     /**
      * Reopens a pending closure for recount.
      */
-    public function reopen(Request $request, PosShift $shift, ?string $message = null): JsonResponse
-    {
+    public function reopen(
+        Request $request,
+        PosShift $shift,
+        ?string $message = null,
+        string $idempotencyOperation = 'pos_shift_reopen',
+    ): JsonResponse {
         $data = $request->validate([
             'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
@@ -144,11 +167,20 @@ class PosShiftAdminController extends Controller implements HasMiddleware
         $approver = $request->user('staff');
         $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
 
-        $shift = $this->pos->reopenShiftForRecount($shift, $approver, $data['reason']);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $shift = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                $idempotencyOperation,
+                $approver,
+                $idempotencyKey,
+                ['shift_id' => $shift->id, 'reason' => $data['reason']],
+                fn () => $this->pos->reopenShiftForRecount($shift, $approver, $data['reason']),
+            )
+            : $this->pos->reopenShiftForRecount($shift, $approver, $data['reason']);
 
         return response()->json([
             'message' => $message ?? 'تمت إعادة فتح الوردية لإعادة الجرد.',
-            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+            'data' => $shift->load(self::RELATIONS),
         ]);
     }
 
@@ -158,7 +190,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     public function forceClose(Request $request, PosShift $shift): JsonResponse
     {
         $data = $request->validate([
-            'actual_closing_cash' => ['required', 'numeric', 'min:0', 'max:9999999'],
+            'actual_closing_cash' => ['required', 'numeric', 'min:0', 'max:999999999999.99', 'decimal:0,2'],
             'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
 
@@ -166,11 +198,25 @@ class PosShiftAdminController extends Controller implements HasMiddleware
         $approver = $request->user('staff');
         $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
 
-        $shift = $this->pos->forceCloseShift($shift, $approver, (float) $data['actual_closing_cash'], $data['reason']);
+        $normalizedCash = (string) BigDecimal::of((string) $data['actual_closing_cash'])->toScale(2, RoundingMode::Unnecessary);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $shift = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'pos_shift_force_close',
+                $approver,
+                $idempotencyKey,
+                [
+                    'shift_id' => $shift->id,
+                    'actual_closing_cash' => $normalizedCash,
+                    'reason' => $data['reason'],
+                ],
+                fn () => $this->pos->forceCloseShift($shift, $approver, $normalizedCash, $data['reason']),
+            )
+            : $this->pos->forceCloseShift($shift, $approver, $normalizedCash, $data['reason']);
 
         return response()->json([
             'message' => 'تم الإغلاق القسري للوردية وهي بانتظار الاعتماد.',
-            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+            'data' => $shift->load(self::RELATIONS),
         ]);
     }
 }

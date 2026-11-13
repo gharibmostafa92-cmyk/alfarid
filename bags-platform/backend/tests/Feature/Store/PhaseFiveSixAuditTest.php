@@ -242,6 +242,8 @@ class PhaseFiveSixAuditTest extends TestCase
 
     public function test_customer_migration_handles_legacy_blocked_accounts_and_nullable_email_rollback(): void
     {
+        // The historical migration runs before the deferred ledger guards in production.
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
         $branchCityMigration = require database_path('migrations/2026_11_03_000001_add_branches_city_id_fk.php');
         $branchCityMigration->down();
         $identityMigration = require database_path('migrations/2026_10_16_115322_normalize_customer_identity.php');

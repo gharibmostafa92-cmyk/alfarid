@@ -175,7 +175,9 @@ final class DailyCloseBriefingTool implements AgentTool
         $drawers = Treasury::query()->where('is_active', true)->where('type', TreasuryType::PosDrawer)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->whereIn('branch_id', $safes->keys())
-            ->whereDoesntHave('shifts', fn ($shifts) => $shifts->where('status', PosShiftStatus::Open))
+            ->whereDoesntHave('shifts', fn ($shifts) => $shifts->whereIn('status', [
+                PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval,
+            ]))
             ->orderBy('id')->get(['id', 'branch_id', 'current_balance']);
         $pending = TreasuryTransfer::query()->whereIn('from_treasury_id', $drawers->modelKeys())
             ->where('status', TreasuryTransferStatus::Pending)

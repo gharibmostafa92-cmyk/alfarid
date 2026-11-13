@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
 import { ReceiptDone } from './ReceiptDone';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import type { PosCartLine, Customer, Branch, CashierUser, QuoteResult } from '../../types/pos.types';
 import { toCents, fromCents } from '../../lib/money';
 import { buildCheckoutPayload } from '../../lib/checkout';
@@ -25,6 +25,7 @@ interface CheckoutModalProps {
   pendingOwner: string | undefined;
   branch?: Branch | null;
   cashier?: CashierUser | null;
+  isDark?: boolean;
 }
 
 export function CheckoutModal({
@@ -40,11 +41,13 @@ export function CheckoutModal({
   pendingOwner,
   branch,
   cashier,
+  isDark,
 }: CheckoutModalProps) {
   const [method, setMethod] = useState<'cash' | 'card' | 'mixed'>('cash');
   const [received, setReceived] = useState<string>('');
   const [cashPart, setCashPart] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [overrideReason, setOverrideReason] = useState<string>('');
   const [cardDigits, setCardDigits] = useState<string>('');
   const [stage, setStage] = useState<'pay' | 'sending' | 'done'>('pay');
   const [retryStatus, setRetryStatus] = useState<string>('');
@@ -53,6 +56,7 @@ export function CheckoutModal({
   const [receipt, setReceipt] = useState<ArchivedReceipt | null>(null);
 
   const isSubmittingRef = useRef(false);
+  const hasOverride = cart.some((line) => line.manualPrice);
 
   const subtotal = quote?.subtotal ?? 0;
   const discount = quote?.discount_total ?? 0;
@@ -65,6 +69,7 @@ export function CheckoutModal({
       setReceived('');
       setCashPart('');
       setNotes('');
+      setOverrideReason('');
       setCardDigits('');
       setStage('pay');
       setRetryStatus('');
@@ -105,11 +110,15 @@ export function CheckoutModal({
   const cashA = fromCents(cashCents);
   const cardA = fromCents(totalCents - cashCents);
 
-  const valid = quote && !isQuoting && quote.lines.length > 0 && !quote.lines.some((line) => line.error) && (
-    method === 'card' ||
-    (method === 'cash' && receivedCents >= totalCents) ||
-    (method === 'mixed' && cashCents > 0 && cashCents < totalCents)
-  );
+  const valid =
+    quote &&
+    !isQuoting &&
+    quote.lines.length > 0 &&
+    !quote.lines.some((line) => line.error) &&
+    (!hasOverride || overrideReason.trim().length > 0) &&
+    (method === 'card' ||
+      (method === 'cash' && receivedCents >= totalCents) ||
+      (method === 'mixed' && cashCents > 0 && cashCents < totalCents));
 
   const roundUps = [
     ...new Set([
@@ -147,7 +156,8 @@ export function CheckoutModal({
       customerId: customer?.id ?? null,
       method,
       cashCents,
-      overridePrice: cart.some((line) => line.manualPrice),
+      overridePrice: hasOverride,
+      overrideReason: hasOverride ? overrideReason.trim() : undefined,
       notes: finalNotes,
       heldSaleId: heldSaleId ?? null,
     });
@@ -159,7 +169,7 @@ export function CheckoutModal({
       const res = await pendingManager.executeWithRetry(
         draft.payload,
         draft.key,
-        (p, k) => posMockService.createSale(p, k),
+        (p, k) => pos.createSale(p, k),
         (attempt) => {
           setRetryStatus(`جاري التأكد… (محاولة ${attempt})`);
         }
@@ -202,10 +212,14 @@ export function CheckoutModal({
     }
   };
 
+  const darkClass = isDark != null
+    ? (isDark ? 'theme-dark' : '')
+    : (document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : '');
+
   return ReactDOM.createPortal(
     <div
       dir="rtl"
-      className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
+      className={darkClass}
     >
       <div className="overlay" onClick={() => stage === 'pay' && onClose()} />
       <div
@@ -460,6 +474,35 @@ export function CheckoutModal({
                   </div>
                 )}
 
+                {hasOverride && (
+                  <Field
+                    label={
+                      <>
+                        سبب تعديل السعر <span className="t-bad fs-12">(مطلوب)</span>
+                      </>
+                    }
+                  >
+                    <input
+                      className={cx('input', !overrideReason.trim() && 'is-error')}
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      placeholder="اكتب سبب تجاوز السعر…"
+                    />
+                    <div className="row gap-2 wrap" style={{ marginTop: 6 }}>
+                      {['خصم مدير', 'عيب تغليف', 'مطابقة عرض'].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className="note-chip"
+                          onClick={() => setOverrideReason(preset)}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                )}
+
                 <Field
                   label={
                     <>
@@ -516,18 +559,19 @@ export function CheckoutModal({
                 </div>
                 <div className="col gap-2" style={{ flex: 1, overflow: 'auto', maxHeight: 300 }}>
                   {cart.map((l) => {
-                    const p = posMockService.getProductById(l.id);
-                    if (!p) return null;
+                    const p = pos.getProductById(l.id);
+                    const name = l.name ?? p?.name ?? `#${l.id}`;
+                    const visual = p ?? { cat: l.cat ?? 'hand', h: l.h ?? 240 };
                     return (
                       <div key={l.id} className="row gap-2">
-                        <PImg p={p} size="xs" />
+                        <PImg p={visual} size="xs" />
                         <div className="grow" style={{ minWidth: 0 }}>
-                          <div className="fs-12 fw-5 truncate">{p.name}</div>
+                          <div className="fs-12 fw-5 truncate">{name}</div>
                           <div className="fs-12 t-3 num">
                             {fmt(l.qty)} × {egp(l.price)}
                           </div>
                         </div>
-                        <span className="price fs-13">{egp(l.qty * l.price)}</span>
+                        <span className="price fs-13">{egp(fromCents(toCents(l.price) * l.qty))}</span>
                       </div>
                     );
                   })}

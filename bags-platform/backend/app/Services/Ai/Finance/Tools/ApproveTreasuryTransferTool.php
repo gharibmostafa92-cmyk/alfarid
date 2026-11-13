@@ -23,6 +23,8 @@ use App\Services\Ai\WriteTool;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 use App\Services\Pos\TreasuryService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 
 final class ApproveTreasuryTransferTool implements AgentTool, LocksTargets, WriteTool
 {
@@ -89,8 +91,10 @@ final class ApproveTreasuryTransferTool implements AgentTool, LocksTargets, Writ
         $transfer->loadMissing(['fromTreasury', 'toTreasury']);
         $warnings = [];
         $fromType = $transfer->fromTreasury?->type instanceof \BackedEnum ? $transfer->fromTreasury->type->value : (string) ($transfer->fromTreasury?->type ?? '');
-        if ($fromType !== 'bank_account' && (float) ($transfer->fromTreasury?->current_balance ?? 0) < (float) $transfer->amount) {
-            $shortfall = (float) $transfer->amount - (float) ($transfer->fromTreasury?->current_balance ?? 0);
+        $fromBalanceDec = BigDecimal::of((string) ($transfer->fromTreasury?->current_balance ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $transferAmountDec = BigDecimal::of((string) $transfer->amount)->toScale(2, RoundingMode::HalfUp);
+        if ($fromType !== 'bank_account' && $fromBalanceDec->isLessThan($transferAmountDec)) {
+            $shortfall = (string) $transferAmountDec->minus($fromBalanceDec)->toScale(2, RoundingMode::HalfUp);
             $from = $transfer->fromTreasury;
             $topUp = $from ? $this->guards->suggestTopUp($from->branch_id, $from->id, $shortfall, (string) $from->name) : null;
             $warnings[] = 'رصيد المصدر الحالي لا يكفي — الاعتماد سيفشل ما لم يتغذَّ الرصيد قبل التأكيد.'
@@ -139,7 +143,9 @@ final class ApproveTreasuryTransferTool implements AgentTool, LocksTargets, Writ
             }
             if (str_contains($e->getMessage(), 'رصيد الخزينة غير كافٍ')) {
                 $from = $transfer->fromTreasury;
-                $shortfall = (float) $transfer->amount - (float) ($from?->current_balance ?? 0);
+                $shortfall = (string) BigDecimal::of((string) $transfer->amount)
+                    ->minus((string) ($from?->current_balance ?? '0'))
+                    ->toScale(2, RoundingMode::HalfUp);
                 $topUp = $from ? $this->guards->suggestTopUp($from->branch_id, $from->id, $shortfall, (string) $from->name) : null;
                 $message = $e->getMessage().($topUp === null ? '' : " {$topUp['name']} فيها {$topUp['balance']} — قل «{$topUp['prompt']}» لتغطية العجز بضغطة.");
                 throw new BusinessException($message, [], $e->status);

@@ -569,14 +569,26 @@ class OrderService
                 $payment = CustomerWalletTransaction::query()->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id)
                     ->where('type', 'checkout_payment')->first();
                 if ($payment !== null) {
-                    app(WalletService::class)->record(
-                        $payment->customer_id,
-                        (string) BigDecimal::of((string) $payment->amount)->negated(),
-                        'order_reversal',
-                        'order',
-                        $order->id,
-                        $actorId,
-                    );
+                    // Historical order credits predate the order_reversal type.
+                    $alreadyRefunded = BigDecimal::of((string) CustomerWalletTransaction::query()
+                        ->where('customer_id', $payment->customer_id)
+                        ->whereIn('reference_type', WalletService::ORDER_REFERENCES)
+                        ->where('reference_id', $order->id)
+                        ->whereIn('type', ['refund', 'checkout_refund'])
+                        ->where('amount', '>', 0)
+                        ->sum('amount'));
+                    $remaining = BigDecimal::of((string) $payment->amount)->negated()
+                        ->minus($alreadyRefunded);
+                    if ($alreadyRefunded->isZero() || $remaining->isPositive()) {
+                        app(WalletService::class)->record(
+                            $payment->customer_id,
+                            (string) $remaining,
+                            'order_reversal',
+                            'order',
+                            $order->id,
+                            $actorId,
+                        );
+                    }
                     $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
                 }
             }

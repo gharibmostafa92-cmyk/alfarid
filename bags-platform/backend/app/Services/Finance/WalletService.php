@@ -26,6 +26,26 @@ class WalletService
 
     private const RETURN_REFERENCES = ['return_request', 'return_requests', ReturnRequest::class];
 
+    public const ALLOWED_TYPES = [
+        'opening',
+        'topup',
+        'checkout_payment',
+        'refund',
+        'return_refund',
+        'adjustment',
+        'order_reversal',
+    ];
+
+    private const TEST_TYPES = ['test_topup', 'test_debit', 'test_credit', 'test_zero'];
+
+    private const CREDIT_OR_ZERO_TYPES = [
+        'opening',
+        'topup',
+        'refund',
+        'return_refund',
+        'order_reversal',
+    ];
+
     /**
      * Record a debit or credit transaction on a customer's wallet ledger.
      *
@@ -101,12 +121,18 @@ class WalletService
 
     private function assertAmountSign(string $type, BigDecimal $amount): void
     {
-        // Zero movements remain permitted by explicit product decision (task2 F17 follow-up).
-        if ($type === 'checkout_payment' && ! $amount->isNegative()) {
-            throw new BusinessException('دفع المحفظة يجب أن يكون مبلغًا سالبًا.');
+        $isAllowed = in_array($type, self::ALLOWED_TYPES, true)
+            || (app()->environment('testing') && in_array($type, self::TEST_TYPES, true));
+        if (! $isAllowed) {
+            throw new BusinessException('نوع حركة المحفظة غير مدعوم.');
         }
-        if (in_array($type, ['refund', 'return_refund'], true) && ! $amount->isPositive()) {
-            throw new BusinessException('استرداد المحفظة يجب أن يكون مبلغًا موجبًا.');
+
+        // Zero movements remain permitted by explicit product decision (task2 F17 follow-up).
+        if ($type === 'checkout_payment' && $amount->isPositive()) {
+            throw new BusinessException('دفع المحفظة لا يمكن أن يكون مبلغًا موجبًا.');
+        }
+        if (in_array($type, self::CREDIT_OR_ZERO_TYPES, true) && $amount->isNegative()) {
+            throw new BusinessException('نوع حركة المحفظة لا يقبل مبلغًا سالبًا.');
         }
     }
 }

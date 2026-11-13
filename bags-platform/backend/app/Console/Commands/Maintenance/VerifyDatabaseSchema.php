@@ -50,6 +50,8 @@ class VerifyDatabaseSchema extends Command
         'wallet_adjustments_amount_positive',
         'orders_total_formula',
         'orders_pos_tender_total',
+        'treasury_transactions_type_sign_check',
+        'treasury_transfers_approver_required',
     ];
 
     public function handle(): int

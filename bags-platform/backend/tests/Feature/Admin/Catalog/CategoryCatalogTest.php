@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Catalog;
 
+use App\Http\Middleware\ManufacturingBusiness;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -207,6 +210,74 @@ class CategoryCatalogTest extends TestCase
         $this->assertNotNull($treeRoot);
         $this->assertSame($child->id, $treeRoot['children'][0]['id']);
         $this->assertSame($grandchild->id, $treeRoot['children'][0]['children'][0]['id']);
+    }
+
+    public function test_optimistic_concurrency_version_and_order_checks_across_brands_categories_variants_and_media(): void
+    {
+        $this->fakeUploads();
+        $perms = [
+            ...self::ALL_PERMISSIONS,
+            'brands.view', 'brands.create', 'brands.update', 'brands.delete',
+            'products.view', 'products.create', 'products.update', 'products.delete',
+        ];
+        $admin = $this->staffWithPermissions($perms);
+        $token = $admin->createToken('test')->plainTextToken;
+
+        // 1. Category DELETE endpoint respects expected_version
+        $createdCat = $this->requestWithToken($token, 'POST', '/api/v1/admin/categories', [
+            'name_ar' => 'قسم قفل', 'name_en' => 'LockCat',
+        ])->assertCreated()->assertJsonPath('data.lock_version', 0);
+        $catId = $createdCat->json('data.id');
+        $this->requestWithToken($token, 'PUT', "/api/v1/admin/categories/{$catId}", [
+            'name_en' => 'LockCatV1', 'expected_version' => 0,
+        ])->assertOk()->assertJsonPath('data.lock_version', 1);
+        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/categories/{$catId}?expected_version=0")
+            ->assertStatus(409);
+        $this->assertNotSoftDeleted(Category::findOrFail($catId));
+
+        // 2. Variant DELETE endpoint respects expected_version
+        $product = Product::factory()->create(['category_id' => $catId]);
+        $variant = ProductVariant::factory()->create(['product_id' => $product->id, 'retail_price' => 100]);
+        $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/variants/{$variant->id}", [
+            'retail_price' => 120, 'expected_version' => 0,
+        ])->assertOk();
+        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/products/{$product->id}/variants/{$variant->id}?expected_version=0")
+            ->assertStatus(409);
+        $this->assertNotSoftDeleted(ProductVariant::findOrFail($variant->id));
+
+        // 3. Media reorder endpoint enforces expected_ids
+        Auth::forgetGuards();
+        $m1 = $this->withToken($token)->post("/api/v1/admin/products/{$product->id}/media", [
+            'collection' => 'images', 'files' => [UploadedFile::fake()->image('a.jpg')],
+        ])->assertCreated()->json('data.0.id');
+        Auth::forgetGuards();
+        $m2 = $this->withToken($token)->post("/api/v1/admin/products/{$product->id}/media", [
+            'collection' => 'images', 'files' => [UploadedFile::fake()->image('b.jpg')],
+        ])->assertCreated()->json('data.0.id');
+
+        $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/media/reorder", [
+            'ids' => [$m2, $m1],
+            'expected_ids' => [$m2, $m1],
+        ])->assertStatus(409);
+
+        // 4. Brand exposes lock_version and rejects stale PUT and DELETE with 409 (exercising BrandController/Service directly)
+        $this->withoutMiddleware(ManufacturingBusiness::class);
+        $createdBrand = $this->requestWithToken($token, 'POST', '/api/v1/admin/brands', [
+            'name_ar' => 'براند', 'name_en' => 'BrandOne',
+        ])->assertCreated()->assertJsonPath('data.lock_version', 0);
+        $brandId = $createdBrand->json('data.id');
+
+        $this->requestWithToken($token, 'PUT', "/api/v1/admin/brands/{$brandId}", [
+            'name_en' => 'BrandTwo', 'expected_version' => 0,
+        ])->assertOk()->assertJsonPath('data.lock_version', 1);
+
+        $this->requestWithToken($token, 'PUT', "/api/v1/admin/brands/{$brandId}", [
+            'name_en' => 'StaleBrand', 'expected_version' => 0,
+        ])->assertStatus(409);
+
+        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/brands/{$brandId}?expected_version=0")
+            ->assertStatus(409);
+        $this->assertNotSoftDeleted(Brand::findOrFail($brandId));
     }
 
     /** @param list<string> $permissions */

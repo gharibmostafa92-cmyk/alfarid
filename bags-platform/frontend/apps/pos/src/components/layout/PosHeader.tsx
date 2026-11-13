@@ -10,9 +10,10 @@ interface PosHeaderProps {
   cashier: CashierUser | null;
   shift: PosShift | null;
   onOpenCloseShift: () => void;
-  onOpenReturns: () => void;
+  onOpenReturns?: () => void;
   isDark: boolean;
   onToggleDark: () => void;
+  onLogout?: () => void;
 }
 
 export function PosHeader({
@@ -25,6 +26,7 @@ export function PosHeader({
   onOpenReturns,
   isDark,
   onToggleDark,
+  onLogout,
 }: PosHeaderProps) {
   return (
     <header className="ph">
@@ -93,15 +95,17 @@ export function PosHeader({
           </button>
         )}
 
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={onOpenReturns}
-          title="مرتجع / استبدال (F8)"
-        >
-          <Icon n="ret" s={14} />
-          <span>مرتجع</span>
-          <Kbd>F8</Kbd>
-        </button>
+        {onOpenReturns && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={onOpenReturns}
+            title="مرتجع / استبدال (F8)"
+          >
+            <Icon n="ret" s={14} />
+            <span>مرتجع</span>
+            <Kbd>F8</Kbd>
+          </button>
+        )}
 
         <button
           className="icon-btn"
@@ -125,6 +129,17 @@ export function PosHeader({
             <span className="fw-6">{cashier?.name || 'أحمد سمير'}</span>
             <span className="fs-12 t-3">{cashier?.role || 'كاشير أول'}</span>
           </div>
+          {onLogout && (
+            <button
+              id="side-logout-btn"
+              className="icon-btn"
+              onClick={onLogout}
+              aria-label="تسجيل الخروج"
+              title="تسجيل الخروج"
+            >
+              <Icon n="logout" s={17} />
+            </button>
+          )}
         </div>
       </div>
     </header>

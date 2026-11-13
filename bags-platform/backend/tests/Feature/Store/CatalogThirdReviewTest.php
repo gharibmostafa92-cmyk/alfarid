@@ -258,4 +258,125 @@ class CatalogThirdReviewTest extends TestCase
         $this->withToken($second->createToken('second')->plainTextToken)->getJson('/api/v1/store/showcase')->assertOk()->assertJsonPath('data.0.price', 1600);
         $this->assertSame([$variant->product_id], Cache::get('store:showcase:ids:6'));
     }
+
+    public function test_facets_cache_normalized_search_and_execute_at_most_three_queries_on_cold_miss(): void
+    {
+        config(['cache.default' => 'third_review', 'cache.stores.third_review' => ['driver' => 'array']]);
+        $product = Product::factory()->published()->create(['name_en' => 'Midnight Tote Bag', 'occasions' => ['work']]);
+        $variant = $this->variant($product, 950);
+        $variant->update(['color_name_en' => 'Noir', 'color_name_ar' => 'أسود', 'color_hex' => '#111111']);
+        $other = Product::factory()->published()->create(['name_en' => 'Summer Clutch', 'occasions' => ['evening']]);
+        $this->variant($other, 700);
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        try {
+            $first = app(StoreCatalogService::class)->facets(['search' => '  Tote  ']);
+            $coldQueries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+        }
+
+        $facetQueries = array_filter($coldQueries, fn ($q) => str_contains($q['query'], 'product_variants')
+            || str_contains($q['query'], 'occasion_scope')
+            || str_contains($q['query'], 'price_scope')
+            || str_contains($q['query'], 'products'));
+        $this->assertLessThanOrEqual(3, count($facetQueries));
+        $this->assertSame(1, $first['total']);
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        try {
+            $second = app(StoreCatalogService::class)->facets(['search' => 'tote']);
+            $warmQueries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+        }
+        $this->assertSame($first, $second);
+        $this->assertCount(0, array_filter($warmQueries, fn ($q) => str_contains($q['query'], 'GROUP BY LOWER(color_name_en)') || str_contains($q['query'], 'occasion_scope') || str_contains($q['query'], 'price_scope')));
+    }
+
+    public function test_catalog_pagination_caps_page_at_100(): void
+    {
+        $this->getJson('/api/v1/store/products?page=101')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('page');
+
+        $this->getJson('/api/v1/store/products?page=100')->assertOk();
+    }
+
+    public function test_category_brand_and_variant_mutations_invalidate_storefront_caches(): void
+    {
+        config(['cache.default' => 'third_review', 'cache.stores.third_review' => ['driver' => 'array']]);
+        $category = \App\Models\Category::factory()->create(['is_active' => true, 'name_en' => 'Initial Cat']);
+        $brand = \App\Models\Brand::factory()->create(['is_active' => true, 'name_en' => 'Initial Brand']);
+        $product = Product::factory()->published()->create(['category_id' => $category->id, 'brand_id' => $brand->id]);
+        $product->addMedia(UploadedFile::fake()->image('bag.jpg'))->toMediaCollection('images');
+        $variant = $this->variant($product, 1200);
+
+        $catKey = 'store:categories:v1:'.app()->getLocale();
+        $this->getJson('/api/v1/store/categories')->assertOk()->assertJsonFragment(['name_en' => 'Initial Cat']);
+        $this->getJson('/api/v1/store/catalog/filters')->assertOk()->assertJsonPath('data.total', 1);
+        $this->getJson('/api/v1/store/home')->assertOk();
+        $this->assertNotNull(Cache::get($catKey));
+        $this->assertNotNull(Cache::get(StoreCatalogService::HOME_CACHE_KEY));
+        $initialFacetsVersion = StoreCatalogService::facetsVersion();
+
+        app(\App\Services\Catalog\CategoryService::class)->update($category, ['name_en' => 'Renamed Cat'], null);
+        $this->assertNull(Cache::get($catKey));
+        $this->assertNull(Cache::get(StoreCatalogService::HOME_CACHE_KEY));
+        $this->assertGreaterThan($initialFacetsVersion, StoreCatalogService::facetsVersion());
+
+        $v2 = StoreCatalogService::facetsVersion();
+        $this->getJson('/api/v1/store/home')->assertOk();
+        $this->assertNotNull(Cache::get(StoreCatalogService::HOME_CACHE_KEY));
+        app(\App\Services\Catalog\BrandService::class)->update($brand, ['name_en' => 'Renamed Brand'], null);
+        $this->assertNull(Cache::get(StoreCatalogService::HOME_CACHE_KEY));
+        $this->assertGreaterThan($v2, StoreCatalogService::facetsVersion());
+
+        $v3 = StoreCatalogService::facetsVersion();
+        $this->getJson('/api/v1/store/home')->assertOk();
+        $this->assertNotNull(Cache::get(StoreCatalogService::HOME_CACHE_KEY));
+        app(\App\Services\Catalog\VariantService::class)->update($variant, ['compare_at_price' => 1500]);
+        $this->assertNull(Cache::get(StoreCatalogService::HOME_CACHE_KEY));
+        $this->assertGreaterThan($v3, StoreCatalogService::facetsVersion());
+    }
+
+    public function test_discounted_filter_and_home_exclude_group_scoped_retail_lists_and_keep_populated_offers(): void
+    {
+        $group = CustomerGroup::create(['name' => 'VIP', 'code' => 'vip-retail', 'discount_percentage' => 0]);
+        $groupOnlyProduct = Product::factory()->published()->create(['name_en' => 'Group Scoped Only']);
+        $groupVariant = $this->variant($groupOnlyProduct, 1000);
+        $groupList = PriceList::create(['name' => 'Group Only List', 'type' => 'customer_group', 'customer_group_id' => $group->id]);
+        $groupList->items()->create(['product_variant_id' => $groupVariant->id, 'min_qty' => 1, 'price' => 800]);
+
+        $this->getJson('/api/v1/store/products?on_sale=1')
+            ->assertOk()
+            ->assertJsonMissing(['id' => $groupOnlyProduct->id]);
+
+        for ($i = 0; $i < 12; $i++) {
+            $p = Product::factory()->published()->create(['sales_count' => 100 + $i]);
+            $inStockFull = $this->variant($p, 1000);
+            $this->stock($inStockFull);
+            ProductVariant::factory()->create([
+                'product_id' => $p->id,
+                'retail_price' => 700,
+                'compare_at_price' => 1000,
+                'sort_order' => 2,
+            ]);
+        }
+
+        $genuineOffer = Product::factory()->published()->create(['sales_count' => 1]);
+        $offerVariant = ProductVariant::factory()->create([
+            'product_id' => $genuineOffer->id,
+            'retail_price' => 600,
+            'compare_at_price' => 900,
+        ]);
+        $this->stock($offerVariant);
+
+        Cache::forget(StoreCatalogService::HOME_CACHE_KEY);
+        $home = $this->getJson('/api/v1/store/home')->assertOk();
+        $discountedIds = collect($home->json('data.discounted_products'))->pluck('id')->all();
+        $this->assertContains($genuineOffer->id, $discountedIds);
+    }
 }

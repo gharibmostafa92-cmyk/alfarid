@@ -50,14 +50,17 @@ class UnifiedAuthController extends Controller
         }
 
         $token = $this->customerAuth->issueToken($actor, $actor->type === CustomerType::Retail ? 'store-token' : 'wholesale-token');
-        // Best-effort cart merge: failure should not abort login or orphan the issued token;
-        // frontend is notified via cart_merged flag so it can retain guest cart session.
-        $cartMerged = true;
-        try {
-            $this->carts->mergeGuestCart($actor, $request->header('X-Cart-Session'));
-        } catch (\Throwable $exception) {
-            report($exception);
-            $cartMerged = false;
+        // Best-effort cart merge for accounts allowed to shop: non-shopping actors
+        // must not consume guest carts, and failed merges report cart_merged=false.
+        $cartMerged = false;
+        if ($actor->canShop()) {
+            $cartMerged = true;
+            try {
+                $this->carts->mergeGuestCart($actor, $request->header('X-Cart-Session'));
+            } catch (\Throwable $exception) {
+                report($exception);
+                $cartMerged = false;
+            }
         }
 
         return $this->respond('customer', $redirect, $token, null,

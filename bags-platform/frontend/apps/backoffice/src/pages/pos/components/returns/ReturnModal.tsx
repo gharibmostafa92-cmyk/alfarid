@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Empty, Seg, Check, Search, useEsc } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
+import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { PastSale, PosProduct } from '../../types/pos.types';
 
 interface ReturnModalProps {
@@ -23,6 +24,10 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   const submitting = useRef(false);
   const [allProducts, setAllProducts] = useState<PosProduct[]>([]);
   const [replQuoteTotal, setReplQuoteTotal] = useState<number | null>(null);
+  const [replQuoteLines, setReplQuoteLines] = useState<
+    Array<{ id: number; qty: number; unit_price: number; line_total: number }>
+  >([]);
+  const [payMethod, setPayMethod] = useState<'cash' | 'card'>('cash');
 
   useEffect(() => {
     if (open) {
@@ -35,18 +40,38 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
       setRq('');
       setBusy(false);
       setReplQuoteTotal(null);
-      posMockService.getProducts().then(setAllProducts);
+      setReplQuoteLines([]);
+      setPayMethod('cash');
+      posMockService.getProducts().then(setAllProducts).catch((error) => {
+        if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
+      });
     }
-  }, [open]);
+  }, [open, toast]);
 
   useEffect(() => {
     setReplQuoteTotal(null);
+    setReplQuoteLines([]);
     if (!open || mode !== 'exchange' || !sale || !repl.length) return;
     const controller = new AbortController();
     const items = repl.map((r) => ({ product_variant_id: r.id, qty: r.qty }));
     void posMockService.quoteSale({ items, customer_id: sale.customer_id ?? null }, controller.signal)
-      .then((q) => { if (!controller.signal.aborted) setReplQuoteTotal(q.grand_total); })
-      .catch((error: Error) => { if (!controller.signal.aborted) toast(error.message, 'bad'); });
+      .then((q) => {
+        if (controller.signal.aborted) return;
+        setReplQuoteTotal(q.grand_total);
+        setReplQuoteLines(
+          q.lines.map((l) => ({
+            id: l.product_variant_id,
+            qty: l.qty,
+            unit_price: l.unit_price,
+            line_total: l.line_total,
+          })),
+        );
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && !isCancel(error)) {
+          toast(normalizeError(error).message, 'bad');
+        }
+      });
     return () => controller.abort();
   }, [open, mode, repl, sale, toast]);
 
@@ -55,13 +80,19 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
 
   const find = async () => {
     if (!num.trim()) return;
-    const s = await posMockService.getPastSale(num);
-    if (s) {
-      setSale(s);
-      setErr('');
-    } else {
-      setSale(null);
-      setErr('لم يتم العثور على فاتورة بهذا الرقم في الفرع');
+    try {
+      const s = await posMockService.getPastSale(num);
+      if (s) {
+        setSale(s);
+        setErr('');
+      } else {
+        setSale(null);
+        setErr('لم يتم العثور على فاتورة بهذا الرقم في الفرع');
+      }
+    } catch (error) {
+      if (!isCancel(error)) {
+        setErr(normalizeError(error).message);
+      }
     }
   };
 
@@ -121,7 +152,14 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
           toast('تم تسجيل المرتجع وتحديث المخزون', 'ok');
         }
       } else {
-        const res = await posMockService.processExchange(sale.id, returnPayload, repl, net, sale.customer_id);
+        const res = await posMockService.processExchange(
+          sale.id,
+          returnPayload,
+          repl,
+          net,
+          sale.customer_id,
+          { method: payMethod },
+        );
         const cardRefund = (res as any)?.card_refund_amount ?? 0;
         if (cardRefund > 0) {
           toast(`تم الاستبدال. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
@@ -131,7 +169,9 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
       }
       onClose();
     } catch (error) {
-      toast(error instanceof Error ? error.message : 'تعذر تسجيل العملية', 'bad');
+      if (!isCancel(error)) {
+        toast(normalizeError(error).message, 'bad');
+      }
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -202,7 +242,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
               <button className="btn btn-primary" style={{ height: 48 }} onClick={find}>
                 بحث
               </button>
-              {!sale && (
+              {!sale && import.meta.env.DEV && (
                 <button className="btn btn-ghost" style={{ height: 48 }} onClick={loadExample}>
                   مثال
                 </button>
@@ -416,6 +456,11 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                     {repl.map((r) => {
                       const p = posMockService.getProductById(r.id);
                       if (!p) return null;
+                      const quotedLine = replQuoteLines.find((ql) => ql.id === r.id);
+                      const lineTotal = quotedLine ? quotedLine.line_total : p.price * r.qty;
+                      const wholesaleApplied = Boolean(
+                        quotedLine && p.wholesale < p.price && Math.abs(quotedLine.unit_price - p.wholesale) < 0.01,
+                      );
                       return (
                         <div
                           key={r.id}
@@ -428,7 +473,14 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                           }}
                         >
                           <PImg p={p} size="xs" />
-                          <span className="grow fs-13 fw-5">{p.name}</span>
+                          <div className="grow">
+                            <span className="fs-13 fw-5">{p.name}</span>
+                            {wholesaleApplied && (
+                              <span className="badge b-acc" style={{ marginInlineStart: 6, height: 18, fontSize: 10 }}>
+                                جملة
+                              </span>
+                            )}
+                          </div>
                           <div className="stepper-q">
                             <button
                               onClick={() =>
@@ -455,11 +507,24 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                             </button>
                           </div>
                           <span className="price" style={{ width: 80, textAlign: 'end' }}>
-                            {egp(p.price * r.qty)}
+                            {egp(lineTotal)}
                           </span>
                         </div>
                       );
                     })}
+                    {mode === 'exchange' && net > 0 && (
+                      <div className="row between" style={{ paddingTop: 4 }}>
+                        <span className="fs-13 t-2">طريقة تحصيل الفرق:</span>
+                        <Seg
+                          value={payMethod}
+                          onChange={setPayMethod}
+                          options={[
+                            { value: 'cash', label: 'نقدي' },
+                            { value: 'card', label: 'بطاقة' },
+                          ]}
+                        />
+                      </div>
+                    )}
                     {repl.length === 0 && (
                       <div className="fs-13 t-3">لم يتم اختيار صنف بديل بعد.</div>
                     )}

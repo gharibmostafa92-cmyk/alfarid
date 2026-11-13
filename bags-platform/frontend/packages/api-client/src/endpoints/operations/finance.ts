@@ -2,6 +2,7 @@ import {
   ADMIN,
   asPage,
   crud,
+  newIdempotencyKey,
   one,
   api,
   cleanParams,
@@ -59,8 +60,12 @@ export interface ExpensePayload {
   treasury_id: number;
   expense_date: string;
 }
+const { remove: _omitExpenseRemove, ...expenseCrud } = crud<
+  Expense,
+  ExpensePayload
+>(`${ADMIN}/expenses`);
 export const expensesApi = {
-  ...crud<Expense, ExpensePayload>(`${ADMIN}/expenses`),
+  ...expenseCrud,
   openAttachment: (id: Id) =>
     openProtectedFile(`${ADMIN}/expenses/${id}/attachment`),
   create: (body: ExpensePayload, idempotencyKey: string) =>
@@ -75,9 +80,9 @@ export const expensesApi = {
         `${ADMIN}/expenses/${id}/void`,
         { void_reason },
         {
-          headers: idempotencyKey
-            ? { "Idempotency-Key": idempotencyKey }
-            : undefined,
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
         },
       )
       .then((r) => one<Expense>(r)),
@@ -125,15 +130,23 @@ export const treasuryTransfersApi = {
         `${TT}/${id}/approve`,
         {},
         {
-          headers: idempotencyKey
-            ? { "Idempotency-Key": idempotencyKey }
-            : undefined,
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
         },
       )
       .then((r) => one<TreasuryTransfer>(r)),
-  reject: (id: Id, reason: string) =>
+  reject: (id: Id, reason: string, idempotencyKey?: string) =>
     api
-      .post(`${TT}/${id}/reject`, { reason })
+      .post(
+        `${TT}/${id}/reject`,
+        { reason },
+        {
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
+        },
+      )
       .then((r) => one<TreasuryTransfer>(r)),
 };
 
@@ -175,19 +188,47 @@ export const shiftsApi = {
         `${SH}/${id}/approve`,
         {},
         {
-          headers: idempotencyKey
-            ? { "Idempotency-Key": idempotencyKey }
-            : undefined,
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
         },
       )
       .then((r) => one<PosShift>(r)),
-  reject: (id: Id, reason: string) =>
-    api.post(`${SH}/${id}/reject`, { reason }).then((r) => one<PosShift>(r)),
-  reopen: (id: Id, reason: string) =>
-    api.post(`${SH}/${id}/reopen`, { reason }).then((r) => one<PosShift>(r)),
-  forceClose: (id: Id, reason: string) =>
+  reject: (id: Id, reason: string, idempotencyKey?: string) =>
     api
-      .post(`${SH}/${id}/force-close`, { reason })
+      .post(
+        `${SH}/${id}/reject`,
+        { reason },
+        {
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
+        },
+      )
+      .then((r) => one<PosShift>(r)),
+  reopen: (id: Id, reason: string, idempotencyKey?: string) =>
+    api
+      .post(
+        `${SH}/${id}/reopen`,
+        { reason },
+        {
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
+        },
+      )
+      .then((r) => one<PosShift>(r)),
+  forceClose: (
+    id: Id,
+    payload: { actual_closing_cash: string; reason: string },
+    idempotencyKey?: string,
+  ) =>
+    api
+      .post(`${SH}/${id}/force-close`, payload, {
+        headers: {
+          "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+        },
+      })
       .then((r) => one<PosShift>(r)),
 };
 

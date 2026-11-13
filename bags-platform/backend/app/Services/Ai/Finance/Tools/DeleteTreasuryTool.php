@@ -6,10 +6,7 @@ namespace App\Services\Ai\Finance\Tools;
 
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
-use App\Models\PosShift;
 use App\Models\Treasury;
-use App\Models\TreasuryTransaction;
-use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Contracts\LocksTargets;
@@ -79,7 +76,7 @@ final class DeleteTreasuryTool implements AgentTool, LocksTargets, WriteTool
             return $resolved;
         }
         $treasury = $resolved['treasury'];
-        $blockers = $this->blockingReasons($treasury);
+        $blockers = $this->guards->deletionBlockers($treasury);
         if ($blockers !== []) {
             return ToolOutcome::denied('لا يمكن حذف الخزينة: '.implode('، ', $blockers).'.', auditable: false);
         }
@@ -110,7 +107,7 @@ final class DeleteTreasuryTool implements AgentTool, LocksTargets, WriteTool
         if (array_diff_assoc($this->guards->accountVersions($treasury), $action->expected_versions ?? []) !== []) {
             throw new BusinessException('الخزينة اتعدلت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
         }
-        $blockers = $this->blockingReasons($treasury);
+        $blockers = $this->guards->deletionBlockers($treasury);
         if ($blockers !== []) {
             throw new BusinessException('لا يمكن حذف الخزينة: '.implode('، ', $blockers).'.');
         }
@@ -118,33 +115,5 @@ final class DeleteTreasuryTool implements AgentTool, LocksTargets, WriteTool
         $this->treasuryService->deleteAccount($treasury, $actor);
 
         return ToolOutcome::result(true, "اتحذفت الخزينة {$name}.", ['treasury_id' => (int) $a['treasury_id']]);
-    }
-
-    /** @return list<string> */
-    private function blockingReasons(Treasury $treasury): array
-    {
-        $blockers = [];
-        $unsettled = PosShift::query()->where('treasury_id', $treasury->id)
-            ->whereIn('status', ['open', 'closed_pending_approval'])->exists();
-        if ($unsettled) {
-            $blockers[] = 'في ورديات غير مسوّاة';
-        }
-        if ((float) $treasury->current_balance !== 0.0) {
-            $blockers[] = 'الرصيد مش صفر';
-        }
-        if (TreasuryTransaction::query()->where('treasury_id', $treasury->id)->exists()) {
-            $blockers[] = 'ليها سجل حركات';
-        }
-        if (PosShift::query()->where('treasury_id', $treasury->id)->exists()) {
-            $blockers[] = 'مرتبطة بورديات';
-        }
-        if (TreasuryTransfer::query()
-            ->where('from_treasury_id', $treasury->id)
-            ->orWhere('to_treasury_id', $treasury->id)
-            ->exists()) {
-            $blockers[] = 'مرتبطة بتحويلات خزينة';
-        }
-
-        return $blockers;
     }
 }

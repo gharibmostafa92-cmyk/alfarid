@@ -59,7 +59,7 @@ class OrderController extends Controller
 
         $orders = Order::query()
             ->where('customer_id', $customer->id)
-            ->with(['items.variant.product.media', 'items.variant.media'])
+            ->with(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media'])
             ->latest('id')
             ->paginate(15);
 
@@ -77,7 +77,7 @@ class OrderController extends Controller
         $order = Order::query()
             ->where('customer_id', $customer->id)
             ->where('order_number', $number)
-            ->with(['items.variant.product.media', 'items.variant.media'])
+            ->with(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media'])
             ->firstOrFail();
 
         return OrderResource::make($order);
@@ -108,6 +108,6 @@ class OrderController extends Controller
         $order = $this->orders->changeStatus($order, OrderStatus::Cancelled, $customer, 'ألغاه العميل من حسابه',
             $cancellableOrAlreadyCancelled);
 
-        return OrderResource::make($order->loadMissing(['items.variant.product.media', 'items.variant.media']));
+        return OrderResource::make($order->loadMissing(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media']));
     }
 }

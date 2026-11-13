@@ -104,6 +104,56 @@ export function shownQuote<T>(quote: T | null, quotedFor: string, quoteKey: stri
   return quotedFor === quoteKey && !cartBusy && !cartLoading ? quote : null;
 }
 
+const PENDING_CHECKOUT_KEY = 'pending_checkout';
+const PENDING_CHECKOUT_TTL_MS = 15 * 60 * 1000;
+const UNSUPPORTED_PAYMENT_BANNER = 'وسائل الدفع المتاحة لهذه الوجهة غير مدعومة حالياً في هذه الواجهة.';
+
+function cartFingerprint(items: Array<{ variantId?: number; id?: number; quantity: number }>): string {
+  return items
+    .map((item) => `${item.variantId ?? item.id ?? 0}:${item.quantity}`)
+    .sort()
+    .join('|');
+}
+
+function readPendingRaw(): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const value = localStorage.getItem(PENDING_CHECKOUT_KEY);
+      if (value !== null) return value;
+    }
+  } catch { /* Storage is optional. */ }
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem(PENDING_CHECKOUT_KEY);
+    }
+  } catch { /* Storage is optional. */ }
+  return null;
+}
+
+function writePendingRaw(value: string): void {
+  let wroteLocal = false;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(PENDING_CHECKOUT_KEY, value);
+      wroteLocal = true;
+    }
+  } catch { /* Fall back to sessionStorage when localStorage is blocked. */ }
+  if (!wroteLocal) {
+    try {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(PENDING_CHECKOUT_KEY, value);
+    } catch { /* In-memory retry remains safe. */ }
+  }
+}
+
+function clearPendingStorage(): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(PENDING_CHECKOUT_KEY);
+  } catch { /* Optional storage. */ }
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(PENDING_CHECKOUT_KEY);
+  } catch { /* Optional storage. */ }
+}
+
 export function useCheckout() {
   const router = useRouter();
   const params = useSearchParams();
@@ -165,7 +215,16 @@ export function useCheckout() {
     pending.current = null;
     setUncertain(false);
     try {
-      const saved = JSON.parse(sessionStorage.getItem('pending_checkout') ?? 'null');
+      const saved = JSON.parse(readPendingRaw() ?? 'null');
+      const expired = typeof saved?.expiresAt !== 'number' || Date.now() > saved.expiresAt;
+      const mismatchedCart =
+        items.length > 0 &&
+        typeof saved?.fingerprint === 'string' &&
+        saved.fingerprint !== cartFingerprint(items);
+      if (saved && (expired || mismatchedCart)) {
+        clearPendingStorage();
+        return;
+      }
       if (
         saved?.owner === attemptOwner &&
         typeof saved.key === 'string' &&
@@ -180,13 +239,20 @@ export function useCheckout() {
           kind: 'info',
           text: 'في محاولة طلب سابقة لم يتم تأكيدها. اضغط إعادة المحاولة لتأكيد نفس الطلب.',
         });
+        const rawForm =
+          saved.rawForm && typeof saved.rawForm === 'object'
+            ? (saved.rawForm as Partial<Pick<CheckoutForm, 'street' | 'building' | 'floor' | 'apartment'>>)
+            : null;
         setForm((f) => ({
           ...f,
           fullName: saved.body.recipient_name,
           phone: saved.body.recipient_phone,
           email: saved.body.recipient_email ?? '',
           cityId: saved.body.city_id,
-          street: saved.body.shipping_address_line,
+          street: rawForm?.street ?? saved.body.shipping_address_line,
+          building: rawForm?.building ?? '',
+          floor: rawForm?.floor ?? '',
+          apartment: rawForm?.apartment ?? '',
           notes: saved.body.shipping_notes ?? '',
           paymentMethod: saved.body.payment_method,
           agreeTerms: true,
@@ -292,10 +358,19 @@ export function useCheckout() {
         .then((res) => {
           if (!current) return;
           const allowed = checkoutPaymentMethods(res.payment_methods);
-          if (!allowed.includes(form.paymentMethod) && allowed.length) {
+          if (allowed.length === 0) {
+            setQuote(res);
+            setQuotedFor(quoteKey);
+            setBanner({ kind: 'info', text: UNSUPPORTED_PAYMENT_BANNER });
+            return;
+          }
+          if (!allowed.includes(form.paymentMethod)) {
             setForm((f) => ({ ...f, paymentMethod: allowed[0] as CheckoutPaymentMethod }));
             return;
           }
+          setBanner((prev) =>
+            prev?.kind === 'info' && prev.text === UNSUPPORTED_PAYMENT_BANNER ? null : prev,
+          );
           setQuote(res);
           setQuotedFor(quoteKey);
         })
@@ -442,11 +517,7 @@ export function useCheckout() {
   const clearPending = useCallback(() => {
     pending.current = null;
     keyRef.current = newIdempotencyKey();
-    try {
-      sessionStorage.removeItem('pending_checkout');
-    } catch {
-      /* Optional storage. */
-    }
+    clearPendingStorage();
     setUncertain(false);
   }, []);
 
@@ -493,14 +564,21 @@ export function useCheckout() {
         },
         session: getCartSession(),
       };
-      try {
-        sessionStorage.setItem(
-          'pending_checkout',
-          JSON.stringify({ owner: attemptOwner, key: keyRef.current, ...pending.current }),
-        );
-      } catch {
-        /* In-memory retry still uses the same key. */
-      }
+      writePendingRaw(
+        JSON.stringify({
+          owner: attemptOwner,
+          key: keyRef.current,
+          expiresAt: Date.now() + PENDING_CHECKOUT_TTL_MS,
+          fingerprint: cartFingerprint(items),
+          rawForm: {
+            street: form.street,
+            building: form.building,
+            floor: form.floor,
+            apartment: form.apartment,
+          },
+          ...pending.current,
+        }),
+      );
       const res = await checkoutEndpoints.place(
         pending.current.body,
         pending.current.session,
@@ -513,11 +591,7 @@ export function useCheckout() {
         /* Receipt storage must never turn a successful order into a retry. */
       }
       pending.current = null;
-      try {
-        sessionStorage.removeItem('pending_checkout');
-      } catch {
-        /* Optional storage. */
-      }
+      clearPendingStorage();
       setUncertain(false);
       await loadCart();
       router.replace(`/checkout/success?order=${encodeURIComponent(res.data.order_number)}`);

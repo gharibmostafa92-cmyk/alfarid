@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, KPI, FilterSelect, Empty, cx } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import type { PosProduct, ProductCategory, Branch } from '../../types/pos.types';
 
 interface StockPageProps {
@@ -16,13 +16,13 @@ export function StockPage({ branch }: StockPageProps) {
   const [categories, setCategories] = useState<ProductCategory[]>([]);
 
   const loadData = () => {
-    posMockService.getProducts().then(setProducts);
-    posMockService.getCategories().then(setCategories);
+    pos.getProducts().then(setProducts);
+    pos.getCategories().then(setCategories);
   };
 
   useEffect(() => {
     loadData();
-    const unsub = posMockService.subscribe(loadData);
+    const unsub = pos.subscribe(loadData);
     return unsub;
   }, []);
 

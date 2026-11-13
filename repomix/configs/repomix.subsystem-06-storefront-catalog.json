@@ -33,7 +33,11 @@
                     "bags-platform/backend/app/Http/Middleware/ProtectStorefrontCaching.php",
                     "bags-platform/backend/app/Enums/Catalog/**",
                     "bags-platform/backend/app/Jobs/RefreshCatalogRetailPrices.php",
+                    "bags-platform/backend/app/Observers/CatalogRetailPriceObserver.php",
+                    "bags-platform/backend/app/Http/Resources/Admin/Catalog/BrandResource.php",
+                    "bags-platform/backend/app/Http/Resources/Admin/Catalog/CategoryResource.php",
                     "bags-platform/backend/app/Services/Catalog/**",
+                    "bags-platform/frontend/packages/ui/src/components/branding-provider.tsx",
                     "bags-platform/backend/app/Services/Orders/CartService.php",
                     "bags-platform/backend/app/Services/Orders/ShippingQuoteService.php",
                     "bags-platform/backend/app/Services/Orders/ShipmentService.php",
@@ -77,7 +81,14 @@
                     "bags-platform/frontend/apps/storefront/.env.example",
                     "bags-platform/frontend/apps/pos/src/components/terminal/Cart.tsx",
                     "bags-platform/frontend/apps/pos/src/components/terminal/CartLine.tsx",
-                    "bags-platform/frontend/apps/pos/src/components/terminal/Catalog.tsx"
+                    "bags-platform/frontend/apps/pos/src/components/terminal/Catalog.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog/persist.ts",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/terminal/Cart.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/terminal/CartLine.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/terminal/Catalog.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/stores/pos-cart.core.ts",
+                    "bags-platform/frontend/apps/pos/src/stores/pos-cart.store.ts",
+                    "bags-platform/frontend/apps/pos/src/stores/pos-cart.core.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -21,6 +21,7 @@ export interface Treasury {
   code: string;
   state: 'free' | 'busy';
   last: string;
+  balance?: number;
 }
 
 export interface ProductCategory {
@@ -56,8 +57,16 @@ export interface PosCartLine {
   qty: number;
   price: number;
   listPrice: number;
-  /** True when the cashier typed this price; customer changes must not overwrite it. */
+  /** True when the cashier typed this price; the quote then runs with override_price. */
   manualPrice?: boolean;
+  /** Per-line message from the last quote (e.g. insufficient stock). */
+  error?: string | null;
+  /** Cached product metadata so lines render reliably even before/without mock catalog lookup. */
+  name?: string;
+  stock?: number;
+  wholesale?: number;
+  cat?: string;
+  h?: number;
 }
 
 export interface ShiftStats {
@@ -78,10 +87,10 @@ export interface PosShift {
   branch?: Branch;
   cashier?: CashierUser;
   opening_cash: number;
-  cash_sales_total: number;
-  card_sales_total: number;
-  cash_returns_total: number;
-  cash_expenses_total: number;
+  cash_sales_total?: number;
+  card_sales_total?: number;
+  cash_returns_total?: number;
+  cash_expenses_total?: number;
   /** Absent for blind cashiers: the server strips it from the summary. */
   expected_closing_cash?: number;
   actual_closing_cash?: number | null;
@@ -97,14 +106,23 @@ export interface PosHeldSale {
   at: string;
   mins: number;
   customer: string | null;
+  customerObj?: Customer | null;
   note: string;
-  items: { id: number; qty: number }[];
+  items: { id: number; qty: number; unit_price?: number; discount_amount?: number }[];
+  /** Server id (pos_held_sales.id) used for resume/delete. */
+  serverId?: number;
+  _id?: number;
+  resumedBy?: number | null;
+  resumedAt?: string | null;
 }
 
 export interface PastSaleItem {
   id: number;
   qty: number;
   price: number;
+  /** Remaining quantity that may still be returned (qty - returned_qty). */
+  returnable_qty?: number;
+  net_unit_price?: number;
 }
 
 export interface PastSale {
@@ -113,13 +131,19 @@ export interface PastSale {
   date: string;
   cashier: string;
   customer: string;
+  customer_id?: number | null;
   method: string;
   items: PastSaleItem[];
+  cash_amount?: number;
+  card_amount?: number;
 }
 
 export interface StockTransferItem {
+  /** product_variant_id */
   id: number;
   qty: number;
+  /** stock_transfer_items.id — required by POST transfers/{id}/receive. */
+  transferItemId?: number;
 }
 
 export interface StockTransfer {
@@ -166,14 +190,39 @@ export interface CreateSalePayload {
     qty: number;
     unit_price: number;
     discount_amount?: number;
+    override_reason?: string;
   }[];
   customer_id: number | null;
   payment_method: 'cash' | 'card' | 'mixed';
   cash_amount: number;
   card_amount: number;
   notes?: string;
-  /** Present only when the cart resumes a held sale: lets the server consume it atomically. */
-  held_sale_id?: number | null;
   /** When true every line's unit_price is sent and the server accepts the manual price. */
   override_price?: boolean;
+  /** Mandatory reason when override_price is true. */
+  override_reason?: string;
+  /** When the cart resumes a held sale: lets the server consume it atomically. */
+  held_sale_id?: number | null;
+}
+
+export interface QuoteLineResult {
+  product_variant_id: number;
+  qty: number;
+  unit_price: number;
+  discount_amount: number;
+  line_total: number;
+  available: number;
+  error: string | null;
+}
+
+export interface QuoteResult {
+  lines: QuoteLineResult[];
+  subtotal: number;
+  discount_total: number;
+  grand_total: number;
+}
+
+export interface PosSettings {
+  max_discount_percent: number;
+  currency: string;
 }

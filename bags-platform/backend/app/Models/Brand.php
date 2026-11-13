@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\TracksEditVersion;
 use Database\Factories\BrandFactory;
 use App\Support\CatalogMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,11 +22,11 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 class Brand extends Model implements HasMedia
 {
     /** @use HasFactory<BrandFactory> */
-    use HasFactory, InteractsWithMedia, SoftDeletes;
+    use HasFactory, InteractsWithMedia, SoftDeletes, TracksEditVersion;
 
     protected $fillable = ['name_ar', 'name_en', 'slug', 'description_ar', 'description_en', 'sort_order', 'is_active'];
 
-    protected $casts = ['is_active' => 'boolean'];
+    protected $casts = ['is_active' => 'boolean', 'lock_version' => 'integer'];
 
     public function products(): HasMany
     {

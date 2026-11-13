@@ -42,7 +42,8 @@ class ProductMediaController extends Controller implements HasMiddleware
 
     public function reorder(ReorderProductMediaRequest $request, Product $product): JsonResponse
     {
-        $this->service->reorder($product, $request->validated('ids'));
+        $expectedIds = $request->validated('expected_ids');
+        $this->service->reorder($product, $request->validated('ids'), is_array($expectedIds) ? array_map('intval', $expectedIds) : null);
 
         return response()->json(['message' => 'تم الترتيب']);
     }

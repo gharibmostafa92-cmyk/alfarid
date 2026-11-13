@@ -38,7 +38,9 @@
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/WholesalePaymentNoticeController.php",
                     "bags-platform/backend/routes/api/wholesale.php",
                     "bags-platform/backend/app/Jobs/ScoreWholesaleReceipt.php",
-                    "bags-platform/frontend/packages/api-client/src/endpoints/wholesale.ts"
+                    "bags-platform/frontend/packages/api-client/src/endpoints/wholesale.ts",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/wholesale.ts",
+                    "bags-platform/frontend/apps/pos/src/lib/wholesale.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

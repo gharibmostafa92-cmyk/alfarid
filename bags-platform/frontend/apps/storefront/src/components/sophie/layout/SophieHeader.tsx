@@ -10,7 +10,7 @@ import { SophieMegaDropdown } from './SophieMegaDropdown';
 import { SophieProfileDropdown } from './SophieProfileDropdown';
 import { useAuthStore } from '@/store/auth.store';
 import type { Destination } from '@/types/auth';
-import { authEndpoints } from '@alfarid/api-client';
+import { useAuthMe } from '@/hooks/use-auth-me';
 import { logoutWeb } from '@/services/auth.service';
 import { prefetchMegaMenu, useMegaMenu } from '@/hooks/useMegaMenu';
 import { toProfileVM } from '@/lib/catalog/sophie-mappers';
@@ -157,30 +157,29 @@ export function SophieHeader() {
 
   // Warm the menu cache after load so it opens instantly on first hover.
   useEffect(() => {
-    const w = window as unknown as { requestIdleCallback?: (cb: () => void) => number };
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
     if (typeof w.requestIdleCallback === 'function') {
-      w.requestIdleCallback(() => void prefetchMegaMenu(queryClient));
+      const idleId = w.requestIdleCallback(() => void prefetchMegaMenu(queryClient));
+      return () => w.cancelIdleCallback?.(idleId);
     } else {
       const t = setTimeout(() => void prefetchMegaMenu(queryClient), 2000);
       return () => clearTimeout(t);
     }
   }, [queryClient]);
 
-  // Session is valid 24h: revalidate once on mount when a token exists.
-  // On 401 the global setUnauthorizedHandler clears the session by itself.
+  // Share the /auth/me query with RequireActor via React Query staleTime (60s).
+  const { data: meData } = useAuthMe(token, mounted);
   useEffect(() => {
-    if (!mounted || !token) return;
-    let cancelled = false;
-    authEndpoints.me().then((res: any) => {
-      if (cancelled) return;
-      useAuthStore.setState({
-        user: (res?.data as Record<string, unknown>) ?? null,
-        destination: (res?.redirect?.destination as Destination | null) ?? null,
-        home: (res?.redirect?.path as string | null) ?? null,
-      });
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [mounted, token]);
+    if (!mounted || !token || !meData) return;
+    useAuthStore.setState({
+      user: (meData.data as Record<string, unknown>) ?? null,
+      destination: (meData.redirect?.destination as Destination | null) ?? null,
+      home: (meData.redirect?.path as string | null) ?? null,
+    });
+  }, [mounted, token, meData]);
 
   return (
     <>
@@ -284,17 +283,17 @@ export function SophieHeader() {
             </Link>
           </div>
 
-          {/* Offers: direct link (no discount sort in the catalog API, so no columns) */}
+          {/* Offers: direct link to discounted items */}
           <Link
-            href={STORE_ROUTES.shop()}
+            href={STORE_ROUTES.shop({ on_sale: 1 })}
             className="py-2 text-[#c93b2e] hover:text-[#a82e23] transition-colors uppercase font-medium"
           >
             Offers
           </Link>
 
-          <a href={STORE_ROUTES.shop({ sort: 'newest' })} className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
+          <Link href={STORE_ROUTES.shop({ sort: 'newest' })} className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
             New Arrivals
-          </a>
+          </Link>
 
           {mounted && !isAuthed && (
             <Link href="/orders/track" className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
@@ -574,19 +573,19 @@ export function SophieHeader() {
 
               <div className="border-t border-gray-100 pt-1 space-y-1">
                 <Link
-                  href={STORE_ROUTES.shop()}
+                  href={STORE_ROUTES.shop({ on_sale: 1 })}
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center justify-between py-3 px-2 rounded-lg text-[#c93b2e] hover:bg-red-50/60"
                 >
                   <span>Offers</span>
                 </Link>
-                <a
+                <Link
                   href={STORE_ROUTES.shop({ sort: 'newest' })}
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center justify-between py-3 px-2 rounded-lg text-gray-800 hover:text-[#4f7d88] hover:bg-gray-50"
                 >
                   <span>New Arrivals</span>
-                </a>
+                </Link>
                 {mounted && !isAuthed && (
                   <Link href="/orders/track" onClick={() => setMobileMenuOpen(false)}
                     className="flex items-center justify-between rounded-lg px-2 py-3 text-gray-800 hover:bg-gray-50">

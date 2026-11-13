@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CustomerBar } from './CustomerBar';
 import { CartLine } from './CartLine';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, Kbd, toAsciiNum } from '../ui/SharedUI';
 import type { PosCartLine, Customer, CashierUser, QuoteResult } from '../../types/pos.types';
-import { maxDiscountAmount, toCents, fromCents } from '../../lib/money';
+import { computeCartTotals, parseNonNegativeAmount } from '../../lib/money';
 
 interface CartProps {
   cart: PosCartLine[];
@@ -48,24 +48,29 @@ export function Cart({
 }: CartProps) {
   const canOverride = cashier?.perms?.includes('pos.override_price') ?? false;
   const canDiscount = cashier?.perms?.includes('pos.discount') ?? false;
-  const subtotalCents = cart.reduce((sum, line) => sum + toCents(line.listPrice) * line.qty, 0);
-  const pricedCents = cart.reduce((sum, line) => sum + toCents(line.price) * line.qty, 0);
-  const subtotal = fromCents(subtotalCents);
-  const lineAdj = fromCents(subtotalCents - pricedCents);
-  const localTotal = fromCents(Math.max(0, pricedCents - toCents(discount)));
+  const totals = computeCartTotals(cart, discount, maxDiscountPercent);
+  const { subtotal, pricedTotal, lineAdj, discount: effectiveDiscount, total: localTotal } = totals;
   // The screen total is the server's; the local figure only shows until the first quote lands.
   const total = quote ? quote.grand_total : localTotal;
   const items = cart.reduce((s, l) => s + l.qty, 0);
   const [discOpen, setDiscOpen] = useState(false);
   const [discVal, setDiscVal] = useState('');
 
-  const applyDiscount = () => {
-    const cap = fromCents(maxDiscountAmount(pricedCents, maxDiscountPercent));
-    const wanted = Math.min(Number(discVal || 0), subtotal);
-    if (wanted > cap) {
-      toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(cap)} ج)`, 'bad');
+  useEffect(() => {
+    if (discount !== effectiveDiscount) {
+      setDiscount(effectiveDiscount);
     }
-    setDiscount(Math.min(wanted, cap));
+  }, [discount, effectiveDiscount, setDiscount]);
+
+  const applyDiscount = () => {
+    const wanted = parseNonNegativeAmount(discVal, 0);
+    const clamped = Math.min(wanted, pricedTotal, totals.cap);
+    if (wanted > totals.cap) {
+      toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(totals.cap)} ج)`, 'bad');
+    } else if (wanted > pricedTotal) {
+      toast(`لا يمكن أن يتجاوز الخصم إجمالي الفاتورة (${egp(pricedTotal)} ج)`, 'bad');
+    }
+    setDiscount(clamped);
     setDiscOpen(false);
   };
 
@@ -151,18 +156,18 @@ export function Cart({
               <button
                 className="t-acc fs-12 fw-6"
                 onClick={() => {
-                  setDiscVal(discount ? String(discount) : '');
+                  setDiscVal(effectiveDiscount ? String(effectiveDiscount) : '');
                   setDiscOpen(true);
                 }}
                 disabled={!cart.length || !canDiscount}
                 title={canDiscount ? undefined : 'تحتاج صلاحية الخصم (pos.discount)'}
               >
-                {discount ? 'تعديل' : '+ إضافة'}
+                {effectiveDiscount ? 'تعديل' : '+ إضافة'}
               </button>
             )}
             {!canDiscount && <span className="fs-12 t-3">تحتاج صلاحية</span>}
           </span>
-          <b className={discount ? 't-ok' : ''}>{discount ? '−' + egp(discount) : '٠'}</b>
+          <b className={effectiveDiscount ? 't-ok' : ''}>{effectiveDiscount ? '−' + egp(effectiveDiscount) : '٠'}</b>
         </div>
         <div className="grand">
           <span className="fs-13 t-2">الإجمالي</span>

@@ -4,6 +4,7 @@ import { egp, fmt, PImg, Api, Kbd, cx } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
 import { normAr } from '../../lib/arabic';
 import { beepError } from '../../lib/sound';
+import { isWholesaleEligible } from '../../lib/wholesale';
 import type { PosProduct, Customer } from '../../types/pos.types';
 
 interface ScanBarProps {
@@ -152,7 +153,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
                   )}
                 </span>
                 <span className="price fs-14">
-                  {egp(customer?.tier === 'wholesale' ? p.wholesale : p.price)}
+                  {egp(isWholesaleEligible(customer) ? p.wholesale : p.price)}
                 </span>
               </button>
             ))

@@ -51,7 +51,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $branch = $this->branchAccess->restrictedBranch($request->user());
+        $branch = $this->branchAccess->restrictedBranch($request->user('staff'));
         $treasuries = Treasury::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->with('branch')
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
@@ -80,7 +80,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $treasury = $this->treasuryService->createAccount($data, $request->user());
+        $treasury = $this->treasuryService->createAccount($data, $request->user('staff'));
 
         return response()->json([
             'message' => 'تم إنشاء الخزينة بنجاح.',
@@ -97,7 +97,7 @@ class TreasuryController extends Controller implements HasMiddleware
      */
     public function show(Request $request, Treasury $treasury): JsonResponse
     {
-        $this->branchAccess->assertTreasury($request->user()->id, $treasury);
+        $this->branchAccess->assertTreasury($request->user('staff')->id, $treasury);
 
         return response()->json(['data' => $this->treasuryData($treasury)]);
     }
@@ -120,7 +120,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $treasury = $this->treasuryService->updateAccount($treasury, $data, $request->user());
+        $treasury = $this->treasuryService->updateAccount($treasury, $data, $request->user('staff'));
 
         return response()->json([
             'message' => 'تم تحديث الخزينة بنجاح.',
@@ -138,7 +138,7 @@ class TreasuryController extends Controller implements HasMiddleware
      */
     public function destroy(Request $request, Treasury $treasury): JsonResponse
     {
-        $this->treasuryService->deleteAccount($treasury, $request->user());
+        $this->treasuryService->deleteAccount($treasury, $request->user('staff'));
 
         return response()->json(['message' => 'تم حذف الخزينة.']);
     }

@@ -279,9 +279,9 @@ export class PosMockService {
 
     const expected =
       this.currentShift.opening_cash +
-      this.currentShift.cash_sales_total -
-      this.currentShift.cash_returns_total -
-      this.currentShift.cash_expenses_total;
+      (this.currentShift.cash_sales_total ?? 0) -
+      (this.currentShift.cash_returns_total ?? 0) -
+      (this.currentShift.cash_expenses_total ?? 0);
 
     this.currentShift.status = 'pending_approval';
     this.currentShift.closed_at = new Date();
@@ -308,10 +308,10 @@ export class PosMockService {
       return { cashSales: 0, cardSales: 0, returns: 0, expenses: 0, invoices: 0 };
     }
     return {
-      cashSales: this.currentShift.cash_sales_total,
-      cardSales: this.currentShift.card_sales_total,
-      returns: this.currentShift.cash_returns_total,
-      expenses: this.currentShift.cash_expenses_total,
+      cashSales: this.currentShift.cash_sales_total ?? 0,
+      cardSales: this.currentShift.card_sales_total ?? 0,
+      returns: this.currentShift.cash_returns_total ?? 0,
+      expenses: this.currentShift.cash_expenses_total ?? 0,
       invoices: this.currentShift.invoices_count ?? 0,
     };
   }
@@ -338,7 +338,7 @@ export class PosMockService {
   }
 
   // Customers
-  public async getCustomers(query = ''): Promise<Customer[]> {
+  public async getCustomers(query = '', _signal?: AbortSignal): Promise<Customer[]> {
     await delay(80);
     const q = query.trim();
     if (!q) return [...this.customers];
@@ -379,14 +379,14 @@ export class PosMockService {
 
     // Update active shift stats
     if (this.currentShift) {
-      this.currentShift.cash_sales_total += payload.cash_amount || 0;
-      this.currentShift.card_sales_total += payload.card_amount || 0;
+      this.currentShift.cash_sales_total = (this.currentShift.cash_sales_total ?? 0) + (payload.cash_amount || 0);
+      this.currentShift.card_sales_total = (this.currentShift.card_sales_total ?? 0) + (payload.card_amount || 0);
       this.currentShift.invoices_count = (this.currentShift.invoices_count || 0) + 1;
       this.currentShift.expected_closing_cash =
         this.currentShift.opening_cash +
         this.currentShift.cash_sales_total -
-        this.currentShift.cash_returns_total -
-        this.currentShift.cash_expenses_total;
+        (this.currentShift.cash_returns_total ?? 0) -
+        (this.currentShift.cash_expenses_total ?? 0);
     }
 
     // Record past sale
@@ -438,6 +438,7 @@ export class PosMockService {
       at: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
       mins: 1,
       customer: customer ? customer.name : null,
+      customerObj: customer ? { ...customer } : null,
       note,
       items: cart.map((c) => ({
         id: c.id,
@@ -481,12 +482,12 @@ export class PosMockService {
     }
 
     if (this.currentShift) {
-      this.currentShift.cash_returns_total += totalRefund;
+      this.currentShift.cash_returns_total = (this.currentShift.cash_returns_total ?? 0) + totalRefund;
       this.currentShift.expected_closing_cash =
         this.currentShift.opening_cash +
-        this.currentShift.cash_sales_total -
+        (this.currentShift.cash_sales_total ?? 0) -
         this.currentShift.cash_returns_total -
-        this.currentShift.cash_expenses_total;
+        (this.currentShift.cash_expenses_total ?? 0);
     }
     this.notify();
   }
@@ -497,6 +498,7 @@ export class PosMockService {
     exchangeItems: { id: number; qty: number }[],
     netDiff: number,
     _customerId?: number | null,
+    _payment?: { method?: 'cash' | 'card' | 'mixed'; cashAmount?: number },
   ): Promise<void> {
     await delay(400);
     // Returns
@@ -516,15 +518,15 @@ export class PosMockService {
     // Financial diff
     if (this.currentShift) {
       if (netDiff > 0) {
-        this.currentShift.cash_sales_total += netDiff;
+        this.currentShift.cash_sales_total = (this.currentShift.cash_sales_total ?? 0) + netDiff;
       } else if (netDiff < 0) {
-        this.currentShift.cash_returns_total += Math.abs(netDiff);
+        this.currentShift.cash_returns_total = (this.currentShift.cash_returns_total ?? 0) + Math.abs(netDiff);
       }
       this.currentShift.expected_closing_cash =
         this.currentShift.opening_cash +
-        this.currentShift.cash_sales_total -
-        this.currentShift.cash_returns_total -
-        this.currentShift.cash_expenses_total;
+        (this.currentShift.cash_sales_total ?? 0) -
+        (this.currentShift.cash_returns_total ?? 0) -
+        (this.currentShift.cash_expenses_total ?? 0);
     }
     this.notify();
   }

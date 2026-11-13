@@ -283,7 +283,7 @@ class ReturnTaskTxtCoverageTest extends TestCase
         $this->giveStock($variant, 10);
         $customer = Customer::factory()->create();
         $order = $this->deliveredOrder($customer, $variant, 3);
-        $order->items()->update(['unit_price' => 35, 'discount_amount' => 5, 'tax_amount' => 0]);
+        $order->items()->update(['unit_price' => 35, 'discount_amount' => 5, 'coupon_discount_amount' => 5, 'tax_amount' => 0]);
 
         $amounts = [];
         for ($i = 0; $i < 3; $i++) {

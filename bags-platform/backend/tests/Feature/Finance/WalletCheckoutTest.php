@@ -22,6 +22,7 @@ use App\Services\Finance\WalletService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class WalletCheckoutTest extends TestCase
@@ -115,6 +116,41 @@ class WalletCheckoutTest extends TestCase
         $this->assertSame('150.00', $this->customer->fresh()->wallet_balance);
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('customer_wallet_transactions', 1);
+    }
+
+    #[DataProvider('legacyWalletRefunds')]
+    public function test_cancellation_only_returns_the_wallet_amount_not_already_refunded_by_the_legacy_ledger(
+        string $legacyRefund,
+        string $balanceAfterRefund,
+        ?string $remainingRefund,
+    ): void {
+        $this->fund(150);
+        $this->cart();
+        $id = $this->postJson('/api/v1/store/checkout', $this->payload())->assertCreated()->json('data.id');
+        CustomerWalletTransaction::create([
+            'customer_id' => $this->customer->id,
+            'type' => 'refund',
+            'amount' => $legacyRefund,
+            'balance_after' => $balanceAfterRefund,
+            'reference_type' => Order::class,
+            'reference_id' => $id,
+        ]);
+        $this->customer->forceFill(['wallet_balance' => $balanceAfterRefund])->save();
+
+        $this->postJson("/api/v1/store/account/orders/{$id}/cancel")->assertOk()
+            ->assertJsonPath('data.payment_status', 'refunded');
+        $this->assertSame('150.00', $this->customer->fresh()->wallet_balance);
+        $reversal = CustomerWalletTransaction::query()
+            ->where('reference_id', $id)->where('type', 'order_reversal')->value('amount');
+        $this->assertSame($remainingRefund, $reversal);
+    }
+
+    public static function legacyWalletRefunds(): array
+    {
+        return [
+            'partially refunded' => ['40.00', '90.00', '60.00'],
+            'fully refunded' => ['100.00', '150.00', null],
+        ];
     }
 
     public function test_guest_cannot_choose_wallet_even_if_it_is_misconfigured_as_public_payment_method(): void

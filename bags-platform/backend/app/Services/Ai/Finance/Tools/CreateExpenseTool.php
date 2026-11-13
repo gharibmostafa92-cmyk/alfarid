@@ -27,6 +27,8 @@ use App\Services\Ai\WriteTool;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pos\ExpenseService;
 use App\Services\Shared\SettingService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -176,8 +178,10 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
             $warnings[] = 'تاريخ المصروف في المستقبل أو أقدم من ٣٠ يوم.';
         }
         $threshold = (float) $this->settings->get('ai_finance_high_risk_amount', 20000);
-        if ((float) $amount > (float) $treasury->current_balance && $type !== 'bank_account') {
-            $shortfall = (float) $amount - (float) $treasury->current_balance;
+        $amountDec = BigDecimal::of((string) $amount)->toScale(2, RoundingMode::HalfUp);
+        $treasuryBalanceDec = BigDecimal::of((string) $treasury->current_balance)->toScale(2, RoundingMode::HalfUp);
+        if ($amountDec->isGreaterThan($treasuryBalanceDec) && $type !== 'bank_account') {
+            $shortfall = (string) $amountDec->minus($treasuryBalanceDec)->toScale(2, RoundingMode::HalfUp);
             $topUp = $this->guards->suggestTopUp($treasury->branch_id, $treasury->id, $shortfall, (string) $treasury->name);
             $warnings[] = 'المبلغ أكبر من رصيد الخزينة الحالي — التسجيل سيفشل ما لم يتغذَّ الرصيد.'
                 .($topUp === null ? '' : " {$topUp['name']} فيها {$topUp['balance']} — قل «{$topUp['prompt']}» لتغطية العجز بضغطة.");
@@ -315,7 +319,9 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
         if ($treasury === null) {
             return $base;
         }
-        $shortfall = (float) $amount - (float) $treasury->current_balance;
+        $shortfall = (string) BigDecimal::of((string) $amount)
+            ->minus((string) $treasury->current_balance)
+            ->toScale(2, RoundingMode::HalfUp);
         $topUp = $this->guards->suggestTopUp($treasury->branch_id, $treasury->id, $shortfall, (string) $treasury->name);
         if ($topUp === null) {
             return $base;

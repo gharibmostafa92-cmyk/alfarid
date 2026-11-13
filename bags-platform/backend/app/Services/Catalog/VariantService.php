@@ -66,7 +66,10 @@ class VariantService
                         $this->publishability->assertPublishable($product);
                     }
 
-                    DB::afterCommit(fn () => app(RetailPriceSnapshot::class)->refresh($product->id));
+                    DB::afterCommit(function () use ($product): void {
+                        app(RetailPriceSnapshot::class)->refresh($product->id);
+                        StoreCatalogService::forgetStorefrontCaches();
+                    });
 
                     return $variant;
                 });
@@ -121,7 +124,10 @@ class VariantService
                     $this->publishability->assertPublishable($product);
                 }
 
-                DB::afterCommit(fn () => app(RetailPriceSnapshot::class)->refresh($product->id));
+                DB::afterCommit(function () use ($product): void {
+                    app(RetailPriceSnapshot::class)->refresh($product->id);
+                    StoreCatalogService::forgetStorefrontCaches();
+                });
 
                 return $variant->fresh(['media', 'product']);
             });
@@ -160,7 +166,10 @@ class VariantService
                 $this->publishability->assertPublishable($product);
             }
 
-            DB::afterCommit(fn () => app(RetailPriceSnapshot::class)->refresh($product->id));
+            DB::afterCommit(function () use ($product): void {
+                app(RetailPriceSnapshot::class)->refresh($product->id);
+                StoreCatalogService::forgetStorefrontCaches();
+            });
         });
     }
 

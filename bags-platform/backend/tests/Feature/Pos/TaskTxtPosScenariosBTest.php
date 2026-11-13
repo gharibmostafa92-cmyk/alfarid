@@ -205,13 +205,12 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $this->assertSame(1, StockMovement::query()
             ->where('reference_id', $saleId)
             ->where('type', StockMovementType::Damage)->count());
-        // The damaged unit leaves the sellable bucket again: net OnHand movement is zero.
-        $this->assertSame(1, StockMovement::query()
+        $this->assertSame(0, StockMovement::query()
             ->where('reference_id', $saleId)
             ->where('type', StockMovementType::DamageWriteOff)->count());
-        $this->assertSame($onHandAfterSale, (float) $levels->sum('on_hand'));
+        $this->assertSame($onHandAfterSale + 1, (float) $levels->sum('on_hand'));
         $this->assertSame($damagedAfterSale + 1, (float) $levels->sum('damaged'));
-        $this->assertSame($availableAfterSale - 1, (float) $levels->sum('available'));
+        $this->assertSame($availableAfterSale, (float) $levels->sum('available'));
     }
 
     public function test_06_return_from_another_shift_uses_current_drawer(): void
@@ -528,12 +527,12 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $hold->assertStatus(201);
         $heldId = $hold->json('data.id');
 
-        // Resume consumes the parked cart atomically: a second resume 404s.
+        // Resume leases the parked cart atomically: a second resume within lease 409s, row stays recoverable.
         $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertOk();
-        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertStatus(404);
-        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
+        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertStatus(409);
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
 
-        // The follow-up sale references the consumed hold and still succeeds.
+        // The follow-up sale consumes and deletes the leased hold atomically.
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'cash_amount' => 100.00,

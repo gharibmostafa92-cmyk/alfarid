@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Catalog;
 
 use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Category;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReturnRequestItem;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Shared\IdempotencyFingerprint;
@@ -72,7 +75,16 @@ class ProductService
                     $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
 
                     $product = Product::create($data);
-                    $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
+                    if (empty($data['code'])) {
+                        $baseCode = 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT);
+                        $code = $baseCode;
+                        $suffix = 1;
+                        while (Product::withTrashed()->where('code', $code)->whereKeyNot($product->id)->exists()) {
+                            $code = $baseCode.'-'.$suffix;
+                            $suffix++;
+                        }
+                        $product->update(['code' => $code]);
+                    }
 
                     foreach ($variants as $v) {
                         app(VariantService::class)->create($product, $v);
@@ -88,7 +100,7 @@ class ProductService
                         return $this->replayCreation($winner, $requestHash);
                     }
                 }
-                // Distinguish slug collisions from child variant SKU/barcode unique violations.
+                // Distinguish slug collisions from product code or variant SKU/barcode unique violations.
                 $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
                 $isSlugConflict = str_contains($driverMessage, 'products_slug_lower_unique')
                     || str_contains($driverMessage, '(slug)');
@@ -97,11 +109,7 @@ class ProductService
 
                     continue;
                 }
-                if ($isSlugConflict) {
-                    throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
-                }
-
-                throw $e;
+                $this->throwUniqueConflict($e, $driverMessage);
             }
         }
     }
@@ -163,13 +171,8 @@ class ProductService
                 return $product->fresh(['category.media', 'variants.media', 'media']);
             });
         } catch (UniqueConstraintViolationException $e) {
-            // Verify violation relates specifically to the slug before returning a 409 conflict.
             $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
-            if (str_contains($driverMessage, 'products_slug_lower_unique') || str_contains($driverMessage, '(slug)')) {
-                throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
-            }
-
-            throw $e;
+            $this->throwUniqueConflict($e, $driverMessage);
         }
     }
 
@@ -268,6 +271,18 @@ class ProductService
             }
             // Lock all variant rows in deterministic ID order before checking inventory balances to prevent concurrent stock receipts.
             $lockedIds = ProductVariant::where('product_id', $product->id)->orderBy('id')->lockForUpdate()->pluck('id');
+            // Prevent soft-deleting products referenced by active (uncompleted) orders; historical delivered/cancelled/returned orders are allowed.
+            if ($lockedIds->isNotEmpty() && OrderItem::query()
+                ->whereIn('product_variant_id', $lockedIds)
+                ->whereHas('order', fn ($q) => $q->whereIn('status', [
+                    OrderStatus::Pending->value,
+                    OrderStatus::Confirmed->value,
+                    OrderStatus::Processing->value,
+                    OrderStatus::Shipped->value,
+                ]))
+                ->exists()) {
+                throw new BusinessException('لا يمكن حذف منتج مرتبط بطلبات نشطة؛ استخدم الأرشفة بدلًا من الحذف.');
+            }
             // Prevent soft-deleting products with non-zero stock to avoid stranding physical inventory.
             if (StockLevel::query()->whereIn('product_variant_id', $lockedIds)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
@@ -282,7 +297,6 @@ class ProductService
 
             DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         });
-        // TODO: Prevent deletion if product has existing orders; require archiving instead.
     }
 
     /**
@@ -298,7 +312,12 @@ class ProductService
         DB::transaction(function () use ($product): void {
             $product = Product::withTrashed()->whereKey($product->id)->lockForUpdate()->firstOrFail();
             $variants = $product->variants()->withTrashed()->reorder('id')->lockForUpdate()->get();
-            if (StockLevel::query()->whereIn('product_variant_id', $variants->pluck('id'))->hasNonZeroBalance()->exists()) {
+            $variantIds = $variants->pluck('id');
+            if ($variantIds->isNotEmpty() && (OrderItem::query()->whereIn('product_variant_id', $variantIds)->exists()
+                || ReturnRequestItem::query()->whereIn('product_variant_id', $variantIds)->exists())) {
+                throw new BusinessException('لا يمكن الحذف النهائي لمنتج مرتبط بطلبات أو مرتجعات؛ احتفظ به مؤرشفًا أو محذوفًا مؤقتًا.');
+            }
+            if (StockLevel::query()->whereIn('product_variant_id', $variantIds)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن الحذف النهائي لمنتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
             }
             foreach ($variants as $variant) {
@@ -311,5 +330,23 @@ class ProductService
 
             DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         });
+    }
+
+    private function throwUniqueConflict(UniqueConstraintViolationException $e, string $driverMessage): never
+    {
+        if (str_contains($driverMessage, 'products_slug_lower_unique') || str_contains($driverMessage, '(slug)')) {
+            throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+        }
+        if (str_contains($driverMessage, 'products_code_unique') || str_contains($driverMessage, '(code)')) {
+            throw new BusinessException('كود المنتج مستخدم بالفعل؛ اختر قيمة أخرى.', ['code' => ['كود المنتج مستخدم بالفعل.']], 409);
+        }
+        if (str_contains($driverMessage, 'create_key')) {
+            throw new BusinessException('تم إرسال طلب الإنشاء مسبقًا؛ أعد تحميل الصفحة.', [], 409);
+        }
+        if (str_contains($driverMessage, 'product_variants') || str_contains($driverMessage, '(sku)') || str_contains($driverMessage, '(barcode)')) {
+            throw new BusinessException('الـ SKU أو الباركود مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+        }
+
+        throw $e;
     }
 }

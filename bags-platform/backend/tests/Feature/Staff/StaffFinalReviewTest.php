@@ -121,7 +121,7 @@ class StaffFinalReviewTest extends TestCase
         $staffToken = app(StaffTokenService::class)->issue($staff);
         $customerToken = app(CustomerAuthService::class)->issueToken($customer, 'store');
         $this->assertTrue($staff->tokens()->sole()->expires_at->equalTo($issuedAt->copy()->addHours(12)));
-        $this->assertTrue($customer->tokens()->sole()->expires_at->equalTo(now()->addDays(60)));
+        $this->assertTrue($customer->tokens()->sole()->expires_at->equalTo($issuedAt->copy()->addMinutes(1440)));
 
         $this->travelTo($issuedAt->copy()->addHours(11));
         Auth::forgetGuards();
@@ -131,7 +131,7 @@ class StaffFinalReviewTest extends TestCase
         $this->withToken($staffToken)->getJson('/api/v1/admin/me')->assertUnauthorized();
         Auth::forgetGuards();
         $this->withToken($customerToken)->getJson('/api/v1/auth/me')->assertOk();
-        $this->travelTo($issuedAt->copy()->addDays(61));
+        $this->travelTo($issuedAt->copy()->addMinutes(1441));
         Auth::forgetGuards();
         $this->withToken($customerToken)->getJson('/api/v1/auth/me')->assertUnauthorized();
     }

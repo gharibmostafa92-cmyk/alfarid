@@ -11,6 +11,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         $index = DB::selectOne("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('wallet_transactions_reference_alias_unique')");
         if ($index?->indisvalid) {
             return;
@@ -32,6 +36,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS wallet_transactions_reference_alias_unique');
     }
 };

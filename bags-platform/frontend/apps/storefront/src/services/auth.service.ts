@@ -29,10 +29,11 @@ export async function loginUnified(login: string, password: string, redirect?: s
     token: res.token!, actorType: res.actor.type as 'customer' | 'supplier',
     destination: res.actor.subtype, home: res.redirect.path, user: res.data,
   });
-  // Retain guest cart session if server cart merge failed so it can be retried.
-  if (res.actor.type === 'customer') {
-    if (res.cart_merged === false && guestSession) restoreGuestCartSession(guestSession);
-    else clearGuestCartSession();
+  // Preserve the guest cart session unless a retail customer confirmed guest-cart merge.
+  if (res.actor.type === 'customer' && res.actor.subtype === 'retail' && res.cart_merged === true) {
+    clearGuestCartSession();
+  } else if (guestSession) {
+    restoreGuestCartSession(guestSession);
   }
   return res.redirect.path;
 }
@@ -82,16 +83,17 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     token: response.data.token, actorType: 'customer',
     destination: wholesale ? 'wholesale_pending' : 'retail', home, user: response.data.data,
   });
-  if (!wholesale) {
-    if (response.data.cart_merged === false && session) restoreGuestCartSession(session);
-    else clearGuestCartSession();
+  if (!wholesale && response.data.cart_merged !== false) {
+    clearGuestCartSession();
+  } else if (session) {
+    restoreGuestCartSession(session);
   }
   return home;
 }
 
 function recoveryIdentifier(login: string) {
   const value = login.trim();
-  if (value.includes('@')) throw new Error('استخدم رقم الموبايل المسجل لاستعادة حسابك.');
+  if (value.includes('@')) return { email: value.toLowerCase() };
   return { phone: value };
 }
 

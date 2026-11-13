@@ -118,11 +118,20 @@ class PaymentWebhookService
         }
 
         if ($isPaymob && $outcome === 'refunded' && $extractedId !== null
-            && WebhookLog::query()->where('provider', $provider)->where('status', 'processed')
-                ->where('event_id', 'like', $extractedId.':refunded:%')->exists()) {
-            $this->sampledSlimLog($provider, $extractedId.':refunded', 'duplicate', null, $ip);
+            && ($gatewayOrderId = $this->paymobGatewayOrderId($payload)) !== null) {
+            // Identical signed callbacks can report a later cumulative refund.
+            // Skip the inquiry only after this transaction's full refund was applied.
+            $refundedTotal = Order::query()->where('gateway_order_id', $gatewayOrderId)
+                ->where('payment_status', 'refunded')->value('grand_total');
+            if ($refundedTotal !== null) {
+                $fullRefundEventId = $this->buildEventId($extractedId, $outcome, (float) $refundedTotal);
+                if (WebhookLog::query()->where('provider', $provider)->where('status', 'processed')
+                    ->where('event_id', $fullRefundEventId)->exists()) {
+                    $this->sampledSlimLog($provider, $fullRefundEventId, 'duplicate', null, $ip);
 
-            return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+                    return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+                }
+            }
         }
 
         $refundAmount = null;

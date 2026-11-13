@@ -348,10 +348,11 @@ export function CategoriesContent() {
                     <div className="filter-group">
                       <div className="group-heading">Price Range</div>
                       <div className="filter-list">
-                        <label className="checkbox-label" onClick={() => updateFilters({ priceMin: null, priceMax: null })}>
+                        <label className="checkbox-label">
                           <input
                             type="radio" name="priceRange" value="all"
-                            checked={filters.priceMin === null && filters.priceMax === null} readOnly
+                            checked={filters.priceMin === null && filters.priceMax === null}
+                            onChange={() => updateFilters({ priceMin: null, priceMax: null })}
                           />
                           <span className="custom-box">
                             {filters.priceMin === null && filters.priceMax === null ? '✓' : ''}
@@ -361,8 +362,14 @@ export function CategoriesContent() {
                         {(facetsQ.data?.price_ranges ?? []).map((r) => {
                           const isActive = filters.priceMin === r.min && filters.priceMax === r.max;
                           return (
-                            <label key={r.id} className="checkbox-label" onClick={() => updateFilters({ priceMin: r.min, priceMax: r.max })}>
-                              <input type="radio" name="priceRange" value={r.id} checked={isActive} readOnly />
+                            <label key={r.id} className="checkbox-label">
+                              <input
+                                type="radio"
+                                name="priceRange"
+                                value={r.id}
+                                checked={isActive}
+                                onChange={() => updateFilters({ priceMin: r.min, priceMax: r.max })}
+                              />
                               <span className="custom-box">{isActive ? '✓' : ''}</span>
                               <span>{priceRangeLabel(r)} <span className="count">{r.count}</span></span>
                             </label>

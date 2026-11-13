@@ -18,10 +18,10 @@ export const mapShift = (s: any): PosShift => ({
   treasury: s.treasury ? { state: 'busy', last: '', ...s.treasury } : s.treasury,
   branch_id: s.branch_id ?? s.branch?.id,
   opening_cash: Number(s.opening_cash ?? 0),
-  cash_sales_total: Number(s.cash_sales_total ?? 0),
-  card_sales_total: Number(s.card_sales_total ?? 0),
-  cash_returns_total: Number(s.cash_returns_total ?? 0),
-  cash_expenses_total: Number(s.cash_expenses_total ?? 0),
+  cash_sales_total: s.cash_sales_total == null ? undefined : Number(s.cash_sales_total),
+  card_sales_total: s.card_sales_total == null ? undefined : Number(s.card_sales_total),
+  cash_returns_total: s.cash_returns_total == null ? undefined : Number(s.cash_returns_total),
+  cash_expenses_total: s.cash_expenses_total == null ? undefined : Number(s.cash_expenses_total),
   // Blind cashiers get no expected total: keep it undefined so the UI never renders a coerced 0.00.
   expected_closing_cash: s.expected_closing_cash == null ? undefined : Number(s.expected_closing_cash),
   actual_closing_cash: s.actual_closing_cash == null ? null : Number(s.actual_closing_cash),
@@ -46,21 +46,27 @@ export const mapProduct = (p: any): PosProduct => ({
 const timeAr = (iso?: string) =>
   new Date(iso ?? Date.now()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 
-export const mapHeld = (h: any): PosHeldSale => ({
-  ref: h.hold_reference,
-  at: timeAr(h.created_at),
-  mins: Math.max(0, Math.floor((Date.now() - +new Date(h.created_at ?? Date.now())) / 60000)),
-  customer: h.customer?.name ?? null,
-  note: h.notes ?? '',
-  items: (h.items_payload ?? []).map((i: any) => ({
-    id: Number(i.product_variant_id ?? i.id),
-    qty: Number(i.qty),
-    ...(i.unit_price != null ? { unit_price: Number(i.unit_price) } : {}),
-    ...(i.discount_amount != null ? { discount_amount: Number(i.discount_amount) } : {}),
-  })),
-  serverId: Number(h.id),
-  _id: Number(h.id),
-});
+export const mapHeld = (h: any): PosHeldSale => {
+  const customerObj = h.customer && typeof h.customer === 'object' ? mapCustomer(h.customer) : null;
+  return {
+    ref: h.hold_reference,
+    at: timeAr(h.created_at),
+    mins: Math.max(0, Math.floor((Date.now() - +new Date(h.created_at ?? Date.now())) / 60000)),
+    customer: customerObj?.name ?? (typeof h.customer === 'string' ? h.customer : null),
+    customerObj,
+    note: h.notes ?? '',
+    items: (h.items_payload ?? []).map((i: any) => ({
+      id: Number(i.product_variant_id ?? i.id),
+      qty: Number(i.qty),
+      ...(i.unit_price != null ? { unit_price: Number(i.unit_price) } : {}),
+      ...(i.discount_amount != null ? { discount_amount: Number(i.discount_amount) } : {}),
+    })),
+    serverId: Number(h.id),
+    _id: Number(h.id),
+    resumedBy: h.resumed_by ?? null,
+    resumedAt: h.resumed_at ?? null,
+  };
+};
 
 export const mapCustomer = (c: any): Customer => ({
   id: Number(c.id),

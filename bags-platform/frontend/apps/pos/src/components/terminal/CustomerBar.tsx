@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, cx, toAsciiNum, Field, Seg, Modal, useOutside } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
+import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { Customer } from '../../types/pos.types';
-
-const isPending = (c: Customer): boolean => c.status === 'Pending' || c.status === 'pending';
 
 interface CustomerBarProps {
   customer: Customer | null;
@@ -12,10 +11,13 @@ interface CustomerBarProps {
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
 }
 
+const isPending = (c: Customer): boolean => c.status === 'Pending' || c.status === 'pending';
+
 export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [quick, setQuick] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [nw, setNw] = useState<{ name: string; phone: string; tier: 'retail' | 'wholesale' }>({
     name: '',
     phone: '',
@@ -26,25 +28,45 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
   useOutside(ref, () => setOpen(false));
 
   useEffect(() => {
-    posMockService.getCustomers().then(setCustomers);
-  }, []);
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      pos
+        .getCustomers(q, controller.signal)
+        .then(setCustomers)
+        .catch((err) => {
+          if (isCancel(err)) return;
+          toast(normalizeError(err).message, 'bad');
+        });
+    }, q ? 250 : 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [q, toast]);
 
-  const res = customers.filter(
-    (c) => !q || c.phone.includes(q) || c.name.includes(q)
-  );
+  const res = customers;
 
   const handleCreateCustomer = async () => {
-    if (!nw.name || nw.phone.length < 10) return;
-    const created = await posMockService.createQuickCustomer({
-      name: nw.name,
-      phone: nw.phone,
-      tier: nw.tier,
-    });
-    setCustomer(created);
-    setQuick(false);
-    setNw({ name: '', phone: '', tier: 'retail' });
-    toast('تم تسجيل العميل وربطه بالفاتورة');
-    posMockService.getCustomers().then(setCustomers);
+    if (!nw.name.trim() || nw.phone.length < 10 || creating) return;
+    setCreating(true);
+    try {
+      const created = await pos.createQuickCustomer({
+        name: nw.name.trim(),
+        phone: nw.phone,
+        tier: nw.tier,
+      });
+      setCustomer(created);
+      setQuick(false);
+      setNw({ name: '', phone: '', tier: 'retail' });
+      toast('تم تسجيل العميل وربطه بالفاتورة');
+      pos.getCustomers().then(setCustomers).catch(() => undefined);
+    } catch (err) {
+      if (!isCancel(err)) {
+        toast(normalizeError(err).message, 'bad');
+      }
+    } finally {
+      setCreating(false);
+    }
   };
 
   if (customer) {
@@ -159,15 +181,15 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
         width={420}
         footer={
           <>
-            <button className="btn btn-secondary" onClick={() => setQuick(false)}>
+            <button className="btn btn-secondary" disabled={creating} onClick={() => setQuick(false)}>
               إلغاء
             </button>
             <button
               className="btn btn-primary"
-              disabled={!nw.name || nw.phone.length < 10}
+              disabled={!nw.name.trim() || nw.phone.length < 10 || creating}
               onClick={handleCreateCustomer}
             >
-              حفظ وربط بالفاتورة
+              {creating ? 'جارِ الحفظ…' : 'حفظ وربط بالفاتورة'}
             </button>
           </>
         }

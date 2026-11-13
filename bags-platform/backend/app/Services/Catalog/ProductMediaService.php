@@ -67,28 +67,30 @@ class ProductMediaService
                 throw new BusinessException('الفيديو للمنتج فقط');
             }
 
-            // Upload video to staging first before atomic replacement to prevent race conditions from dropping active files.
-            $media = $product->addMedia($file)->toMediaCollection('video_staging', CatalogMedia::disk());
-            try {
-                DB::transaction(function () use ($product, $media): void {
-                    $fresh = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
-                    $fresh->media()->where('collection_name', 'video')->get()->each->delete();
-                    $media->update(['collection_name' => 'video']);
-                    // Conversions may be registered per collection; generate them after the move out of staging.
-                    DB::afterCommit(function () use ($media): void {
-                        try {
-                            app(FileManipulator::class)->createDerivedFiles($media);
-                        } catch (\Throwable $exception) {
-                            report($exception);
-                        }
+            return $this->withMediaLock($product->id, function () use ($product, $file): Collection {
+                // Upload video to staging first before atomic replacement to prevent race conditions from dropping active files.
+                $media = $product->addMedia($file)->toMediaCollection('video_staging', CatalogMedia::disk());
+                try {
+                    DB::transaction(function () use ($product, $media): void {
+                        $fresh = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+                        $fresh->media()->where('collection_name', 'video')->get()->each->delete();
+                        $media->update(['collection_name' => 'video']);
+                        // Conversions may be registered per collection; generate them after the move out of staging.
+                        DB::afterCommit(function () use ($media): void {
+                            try {
+                                app(FileManipulator::class)->createDerivedFiles($media);
+                            } catch (\Throwable $exception) {
+                                report($exception);
+                            }
+                        });
                     });
-                });
-            } catch (\Throwable $exception) {
-                $this->deleteMediaQuietly($media);
-                throw $exception;
-            }
+                } catch (\Throwable $exception) {
+                    $this->deleteMediaQuietly($media);
+                    throw $exception;
+                }
 
-            return collect([$media]);
+                return collect([$media]);
+            });
         }
 
         $clientIds = array_values((array) ($data['client_upload_ids'] ?? []));
@@ -108,7 +110,8 @@ class ProductMediaService
     private function withMediaLock(int $productId, \Closure $operation): mixed
     {
         try {
-            return Cache::lock('catalog-media:'.$productId, 120)->block(15, $operation);
+            // Lock TTL must exceed client upload timeouts so parallel uploads/deletes cannot acquire a premature expiry.
+            return Cache::lock('catalog-media:'.$productId, 240)->block(15, $operation);
         } catch (LockTimeoutException) {
             throw new BusinessException('جاري رفع أو ترتيب وسائط المنتج؛ أعد المحاولة بعد لحظات.', [], 409);
         }
@@ -189,7 +192,7 @@ class ProductMediaService
             }
             throw $exception;
         } catch (\Throwable $exception) {
-            Media::query()->where('model_type', $owner->getMorphClass())->where('model_id', $owner->id)
+            Media::query()->where('model_type', $owner->getMorphClass())->where('model_id', $owner->getKey())
                 ->where('collection_name', 'images_staging')->where('custom_properties->staging_upload_id', $stagingId)
                 ->get()->each(fn (Media $row) => $this->deleteMediaQuietly($row));
             throw $exception;
@@ -251,8 +254,8 @@ class ProductMediaService
      */
     public function delete(Product $product, Media $media): void
     {
-        // Defer remote file deletions until afterCommit via TransactionalMediaObserver to preserve files if transaction rolls back.
-        DB::transaction(function () use ($product, $media): void {
+        // Serialize deletes alongside uploads/reorders and defer file cleanup until commit via TransactionalMediaObserver.
+        $this->withMediaLock($product->id, fn () => DB::transaction(function () use ($product, $media): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
             $media = Media::whereKey($media->id)->whereIn('collection_name', ['images', 'video'])->firstOrFail();
             $this->assertMediaBelongs($product, [$media->id]);
@@ -262,7 +265,7 @@ class ProductMediaService
                 throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
             }
             $media->delete();
-        });
+        }));
     }
 
     private function assertMediaBelongs(Product $product, array $ids): void

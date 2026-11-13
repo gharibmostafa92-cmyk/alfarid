@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Observers;
 
 use App\Jobs\RefreshCatalogRetailPrices;
+use App\Models\Category;
 use App\Models\PriceListItem;
+use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Services\Pos\PosService;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -105,6 +108,18 @@ class CatalogRetailPriceObserver
 
     private function refresh(Model $model): void
     {
+        if ($model instanceof StockLevel) {
+            PosService::invalidateCatalogVersionCache((int) $model->branch_id);
+        } else {
+            PosService::invalidateCatalogVersionCache(null);
+        }
+
+        if ($model instanceof Category || $model instanceof Product) {
+            // These models affect the POS catalog version. The price snapshot
+            // comes from variants, price lists and stock.
+            return;
+        }
+
         $productIds = [];
         if ($model instanceof ProductVariant) {
             $productIds = [$model->product_id, $model->getRawOriginal('product_id')];

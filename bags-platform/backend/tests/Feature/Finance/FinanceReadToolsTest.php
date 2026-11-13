@@ -454,6 +454,22 @@ class FinanceReadToolsTest extends TestCase
         $this->assertStringContainsString('لا توجد أي حركة مالية', $outcome->data['consistency_warnings'][0]);
     }
 
+    public function test_explain_order_money_recognizes_a_wallet_order_reversal_as_a_refund(): void
+    {
+        ['admin' => $admin] = $this->scaffold();
+        $customer = Customer::factory()->create();
+        $order = Order::factory()->create(['customer_id' => $customer->id, 'payment_method' => 'wallet', 'payment_status' => 'refunded', 'grand_total' => 50]);
+        app(WalletService::class)->record($customer->id, '50.00', 'order_reversal', 'order', $order->id);
+
+        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), [
+            'name' => 'explain_order_money', 'args' => ['order_id' => $order->id],
+        ]);
+
+        $this->assertSame('data', $outcome->type);
+        $this->assertSame('order_reversal', $outcome->data['wallet'][0]['type']);
+        $this->assertSame([], $outcome->data['consistency_warnings']);
+    }
+
     public function test_large_results_truncate_with_narrowing_hint(): void
     {
         ['admin' => $admin, 'branchA' => $branchA] = $this->scaffold();

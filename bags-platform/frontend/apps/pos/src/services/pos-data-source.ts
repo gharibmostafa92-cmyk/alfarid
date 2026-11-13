@@ -1,4 +1,5 @@
 import { posMockService } from './pos-mock.service';
+import { posApiService } from './pos-api.service';
 
 /**
  * Single switch between the mock and the real API. VITE_POS_SOURCE=mock (or the
@@ -9,12 +10,9 @@ import { posMockService } from './pos-mock.service';
 const mockRequested =
   import.meta.env.VITE_POS_SOURCE === 'mock' || import.meta.env.VITE_POS_MOCK === 'true';
 
-if (import.meta.env.PROD && !mockRequested) {
-  throw new Error(
-    'POS mock data source is not allowed in production builds. ' +
-      'Wire the real pos API service or set VITE_POS_SOURCE=mock only for local development.',
-  );
+if (import.meta.env.PROD && mockRequested) {
+  throw new Error('POS mock mode is not allowed in production builds.');
 }
 
-export const pos = posMockService;
-export { posMockService };
+export const pos = mockRequested ? posMockService : posApiService;
+export { posMockService, posApiService };

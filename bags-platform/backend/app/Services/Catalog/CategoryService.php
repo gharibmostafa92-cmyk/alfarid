@@ -49,12 +49,20 @@ class CategoryService
                         }
                     }
 
-                    return Category::create($data);
+                    $created = Category::create($data);
+                    DB::afterCommit(function (): void {
+                        StoreCatalogService::forgetTaxonomyCaches();
+                        StoreCatalogService::forgetStorefrontCaches();
+                    });
+
+                    return $created;
                 });
 
                 // Perform media uploads in a separate transaction to avoid holding catalog tree locks during remote network I/O.
                 if ($image) {
                     $this->attachImage($category, $image);
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
                 }
 
                 return $category;
@@ -117,6 +125,10 @@ class CategoryService
                 }
 
                 $category->update($data);
+                DB::afterCommit(function (): void {
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
+                });
 
                 return $category;
             });
@@ -132,8 +144,16 @@ class CategoryService
         // Execute media updates outside tree lock transaction to avoid prolonging catalog locks.
         if ($image) {
             $this->attachImage($updated, $image);
+            StoreCatalogService::forgetTaxonomyCaches();
+            StoreCatalogService::forgetStorefrontCaches();
         } elseif ($removeImage) {
-            DB::transaction(fn () => $updated->clearMediaCollection('image'));
+            DB::transaction(function () use ($updated): void {
+                $updated->clearMediaCollection('image');
+                DB::afterCommit(function (): void {
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
+                });
+            });
         }
 
         return $updated;
@@ -179,6 +199,10 @@ class CategoryService
             }
 
             $locked->delete();
+            DB::afterCommit(function (): void {
+                StoreCatalogService::forgetTaxonomyCaches();
+                StoreCatalogService::forgetStorefrontCaches();
+            });
         });
     }
 
@@ -197,14 +221,9 @@ class CategoryService
         $apply = function (bool $exclusive) use ($items): bool {
             return DB::transaction(function () use ($items, $exclusive): bool {
                 CatalogLock::tree(shared: ! $exclusive);
-                // Lock every affected row in deterministic id order up front so
-                // the hierarchy snapshot cannot drift before the updates run.
-                Category::query()
-                    ->whereIn('id', array_map(fn (array $item): int => (int) $item['id'], $items))
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->get(['id']);
-                $categories = Category::query()->get()->keyBy('id');
+                // Lock all category rows in deterministic ID order up front so a single
+                // SELECT protects both hierarchy checks and versioned updates without extra round-trips.
+                $categories = Category::query()->orderBy('id')->lockForUpdate()->get()->keyBy('id');
                 $nodes = $categories->toArray();
                 $moved = false;
                 foreach ($items as $item) {
@@ -229,20 +248,18 @@ class CategoryService
                     CategoryHierarchy::assertValid($nodes);
                     CategoryHierarchy::assertPublishedPathsActive($nodes);
                 }
-                // Sort category updates by ID to enforce deterministic row-lock ordering and prevent deadlocks.
+                // Sort category updates by ID to enforce deterministic update ordering.
                 $ordered = collect($items)->sortBy('id')->values()->all();
-                // Always take row locks, even when the client omits expected_version,
-                // otherwise concurrent sort-only reorders can interleave.
-                $lockedCategories = Category::whereIn('id', array_column($ordered, 'id'))
-                    ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
                 foreach ($ordered as $item) {
-                    $locked = $lockedCategories->get($item['id'])
+                    $locked = $categories->get($item['id'])
                         ?? throw new BusinessException('القسم لم يعد متاحًا؛ اطلب اقتراحًا جديدًا.', [], 409);
-                    if (isset($item['expected_version']) && (int) $item['expected_version'] !== (int) $locked->lock_version) {
-                        throw new BusinessException('القسم تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-                    }
                     $locked->update(['parent_id' => $nodes[$item['id']]['parent_id'], 'sort_order' => $item['sort_order']]);
                 }
+
+                DB::afterCommit(function (): void {
+                    StoreCatalogService::forgetTaxonomyCaches();
+                    StoreCatalogService::forgetStorefrontCaches();
+                });
 
                 return true;
             });

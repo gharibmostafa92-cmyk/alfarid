@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ScanBar } from './ScanBar';
 import { egp, fmt, PImg, cx } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
+import { isWholesaleEligible } from '../../lib/wholesale';
 import type { PosProduct, ProductCategory, Customer, PosCartLine } from '../../types/pos.types';
 
 interface CatalogProps {
@@ -17,13 +18,13 @@ export function Catalog({ cart, customer, onAdd, scanRef }: CatalogProps) {
   const [products, setProducts] = useState<PosProduct[]>([]);
 
   const loadData = () => {
-    posMockService.getCategories().then(setCategories);
-    posMockService.getProducts().then(setProducts);
+    pos.getCategories().then(setCategories);
+    pos.getProducts().then(setProducts);
   };
 
   useEffect(() => {
     loadData();
-    const unsub = posMockService.subscribe(loadData);
+    const unsub = pos.subscribe(loadData);
     return unsub;
   }, []);
 
@@ -56,7 +57,8 @@ export function Catalog({ cart, customer, onAdd, scanRef }: CatalogProps) {
         <div className="pgrid">
           {list.map((p) => {
             const q = qtyOf(p.id);
-            const price = customer?.tier === 'wholesale' ? p.wholesale : p.price;
+            const wholesaleActive = isWholesaleEligible(customer);
+            const price = wholesaleActive ? p.wholesale : p.price;
             return (
               <button
                 key={p.id}
@@ -86,7 +88,7 @@ export function Catalog({ cart, customer, onAdd, scanRef }: CatalogProps) {
                     {egp(price)}
                     <small>ج</small>
                   </span>
-                  {customer?.tier === 'wholesale' && (
+                  {wholesaleActive && (
                     <span className="badge b-info" style={{ height: 20, fontSize: 11 }}>
                       جملة
                     </span>

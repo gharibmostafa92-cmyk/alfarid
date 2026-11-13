@@ -79,6 +79,14 @@ class Customer extends Authenticatable
     }
 
     /**
+     * Resolve an authenticated actor eligible to shop under storefront rules.
+     */
+    public static function resolveShopper(mixed $user): ?self
+    {
+        return $user instanceof self && $user->canShop() ? $user : null;
+    }
+
+    /**
      * Check if the account belongs to wholesale or distributor commercial tiers.
      */
     public function isCommercialTier(): bool

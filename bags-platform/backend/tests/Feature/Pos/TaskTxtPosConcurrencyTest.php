@@ -96,14 +96,14 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
             $this->httpJob($this->token, 'POST', $url),
         ]);
 
-        // Exactly one resume wins the row lock; the loser 404s on the consumed hold.
-        $this->assertEqualsCanonicalizing([200, 404], array_column($results, 'status'));
+        // Exactly one resume wins the row lock and acquires the lease; the loser 409s.
+        $this->assertEqualsCanonicalizing([200, 409], array_column($results, 'status'));
         $winner = $results[0]['status'] === 200 ? $results[0] : $results[1];
         $this->assertSame($this->variant->id, $winner['body']['data']['items_payload'][0]['product_variant_id']);
-        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
 
-        // Both sales reference the consumed hold and share one Idempotency-Key,
-        // so exactly one order is created and both callers see it.
+        // Both sales reference the leased hold and share one Idempotency-Key,
+        // so exactly one order is created, the hold is deleted on checkout, and both callers see it.
         $salePayload = [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'cash_amount' => 100.00,

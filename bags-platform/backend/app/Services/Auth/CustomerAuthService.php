@@ -147,7 +147,8 @@ class CustomerAuthService
         $dummyHash = self::dummyHash();
         $customer = $this->findForLogin($identifier);
 
-        $validPassword = Hash::check($password, $customer?->password ?? $dummyHash);
+        $hasPassword = $customer !== null && is_string($customer->password) && $customer->password !== '';
+        $validPassword = Hash::check($password, $hasPassword ? $customer->password : $dummyHash) && $hasPassword;
         if ($customer === null || ! $validPassword) {
             // Avoid inserting unbounded audit log rows for nonexistent identifiers during stuffing attacks;
             // log sampled info metric instead, keyed by HMAC.
@@ -311,7 +312,7 @@ class CustomerAuthService
 
             // Scope the token to its channel instead of granting wildcard abilities,
             // and keep the lifetime short because these tokens live in localStorage.
-            $token = $customer->createToken($name, [$name], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 4320))));
+            $token = $customer->createToken($name, [$name], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 1440))));
             CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);
 
             return $token->plainTextToken;

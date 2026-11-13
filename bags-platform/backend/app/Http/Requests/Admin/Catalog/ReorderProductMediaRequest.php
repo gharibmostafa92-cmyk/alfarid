@@ -31,6 +31,8 @@ class ReorderProductMediaRequest extends FormRequest
         return [
             'ids' => ['required', 'array', 'min:1', 'max:'.ProductMediaService::MAX_IMAGES_PER_OWNER],
             'ids.*' => ['integer', 'distinct'],
+            'expected_ids' => ['sometimes', 'nullable', 'array', 'max:'.ProductMediaService::MAX_IMAGES_PER_OWNER],
+            'expected_ids.*' => ['integer'],
         ];
     }
 }

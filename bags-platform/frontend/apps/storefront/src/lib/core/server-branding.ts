@@ -13,7 +13,7 @@ export const getServerBranding = cache(async (): Promise<BrandIdentity> => {
     const headers = new Headers({ Accept: 'application/json' });
     if (privateOrigin) headers.set('X-Serverless-Authorization', 'Bearer ' + await cloudRunIdentityToken(apiUrl.origin));
     const response = await fetch(new URL('/api/v1/store/branding', apiUrl), {
-      next: { revalidate: 60, tags: ['branding'] }, signal: AbortSignal.timeout(privateOrigin ? 12000 : 1500),
+      next: { revalidate: 60, tags: ['branding'] }, signal: AbortSignal.timeout(1500),
       headers, redirect: 'error',
     });
     if (!response.ok) throw new Error(`Branding API returned ${response.status}`);

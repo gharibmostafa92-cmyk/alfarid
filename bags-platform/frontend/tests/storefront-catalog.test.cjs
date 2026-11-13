@@ -109,8 +109,21 @@ test('category lookup finds nested categories and their full breadcrumb path', (
   assert.equal(mapper.findCategory([root], 'missing'), null);
 });
 
-test('idempotent cart deletes reload the empty cart after a 204 response', async () => {
-  const empty = { id: null, cart_token: null, customer_id: null, items: [], totals: { total: 0 } };
+test('idempotent cart deletes return empty cart after a 204 response without follow-up GET', async () => {
+  const empty = {
+    id: null,
+    cart_token: null,
+    customer_id: null,
+    items: [],
+    totals: {
+      subtotal: 0,
+      pricing_discount: 0,
+      items_total: 0,
+      coupon_discount: 0,
+      total: 0,
+      coupon_code: null,
+    },
+  };
   let reads = 0;
   const client = {
     delete: async () => ({ status: 204, data: '' }),
@@ -121,7 +134,7 @@ test('idempotent cart deletes reload the empty cart after a 204 response', async
   });
   assert.deepEqual(await cartEndpoints.clear(null), empty);
   assert.deepEqual(await cartEndpoints.remove(123, null), empty);
-  assert.equal(reads, 2);
+  assert.equal(reads, 0);
 });
 
 test('production CSP excludes local HTTP images while development previews retain them', () => {

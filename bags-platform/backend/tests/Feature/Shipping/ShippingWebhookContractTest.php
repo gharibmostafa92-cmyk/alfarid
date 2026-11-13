@@ -440,13 +440,12 @@ class ShippingWebhookContractTest extends TestCase
             ->assertForbidden()
             ->assertExactJson(['received' => false, 'message' => 'invalid signature']);
 
+        $logCount = WebhookLog::query()->count();
         $over = str_repeat('b', 262145);
         $this->postRaw('/api/v1/webhooks/shipping/bosta', $over, hash_hmac('sha256', $over, self::SECRET))
             ->assertStatus(413)
             ->assertExactJson(['received' => false, 'message' => 'payload too large']);
-        $log = WebhookLog::query()->latest('id')->firstOrFail();
-        $this->assertSame('rejected', $log->status);
-        $this->assertNull($log->payload);
+        $this->assertSame($logCount, WebhookLog::query()->count());
     }
 
     public function test_random_company_codes_are_throttled(): void

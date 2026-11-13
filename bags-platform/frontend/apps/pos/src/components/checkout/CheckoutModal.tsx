@@ -1,25 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
 import { ReceiptDone } from './ReceiptDone';
-import { pos as posMockService } from '../../services/pos-data-source';
-import { spreadDiscount, toCents } from '../../lib/money';
-import { serverMessage } from '../../lib/pos-error';
-import { beepError } from '../../lib/sound';
-import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos.types';
+import { pos } from '../../services/pos-data-source';
+import type { PosCartLine, Customer, Branch, CashierUser, QuoteResult } from '../../types/pos.types';
+import { toCents, fromCents } from '../../lib/money';
+import { buildCheckoutPayload } from '../../lib/checkout';
+import { createPendingSaleManager } from '../../lib/pending-sale';
+import { pushReceipt, type ArchivedReceipt } from '../../lib/receipt-archive';
+import { normalizeError } from '../../lib/pos-error';
 
 interface CheckoutModalProps {
   open: boolean;
   onClose: () => void;
   cart: PosCartLine[];
   customer: Customer | null;
-  discount: number;
-  /** Cart-session idempotency key owned by PosApp: stable across re-opens, renewed on clear/success. */
-  sessionKey: string;
+  quote: QuoteResult | null;
+  isQuoting: boolean;
+  /** Server id of the resumed held sale: sent as held_sale_id so the server consumes it atomically. */
+  heldSaleId?: number | null;
   onPaid: () => void;
+  onAttemptSettled: () => void;
+  pendingOwner: string | undefined;
   branch?: Branch | null;
   cashier?: CashierUser | null;
+  isDark?: boolean;
 }
 
 export function CheckoutModal({
@@ -27,22 +33,35 @@ export function CheckoutModal({
   onClose,
   cart,
   customer,
-  discount,
-  sessionKey,
+  quote,
+  isQuoting,
+  heldSaleId,
   onPaid,
+  onAttemptSettled,
+  pendingOwner,
   branch,
   cashier,
+  isDark,
 }: CheckoutModalProps) {
   const [method, setMethod] = useState<'cash' | 'card' | 'mixed'>('cash');
   const [received, setReceived] = useState<string>('');
   const [cashPart, setCashPart] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [overrideReason, setOverrideReason] = useState<string>('');
+  const [cardDigits, setCardDigits] = useState<string>('');
   const [stage, setStage] = useState<'pay' | 'sending' | 'done'>('pay');
+  const [retryStatus, setRetryStatus] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
-  const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+  const [idem, setIdem] = useState<string>('');
+  const [receipt, setReceipt] = useState<ArchivedReceipt | null>(null);
 
-  const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
-  const total = Math.max(0, subtotal - discount);
+  const isSubmittingRef = useRef(false);
+  const hasOverride = cart.some((line) => line.manualPrice);
+
+  const subtotal = quote?.subtotal ?? 0;
+  const discount = quote?.discount_total ?? 0;
+  const totalCents = toCents(quote?.grand_total);
+  const total = fromCents(totalCents);
 
   useEffect(() => {
     if (open) {
@@ -50,9 +69,13 @@ export function CheckoutModal({
       setReceived('');
       setCashPart('');
       setNotes('');
+      setOverrideReason('');
+      setCardDigits('');
       setStage('pay');
+      setRetryStatus('');
       setErrorMsg('');
-      setInvoiceNumber('');
+      setIdem('');
+      setReceipt(null);
     }
   }, [open]);
 
@@ -80,16 +103,22 @@ export function CheckoutModal({
   useEsc(() => stage !== 'sending' && onClose(), open);
   if (!open) return null;
 
-  const rec = Number(received || 0);
-  const change = rec - total;
-  const cashA = Math.min(Number(cashPart || 0), total);
-  const cardA = Math.max(0, total - cashA);
+  const receivedCents = toCents(received);
+  const cashCents = Math.min(toCents(cashPart), totalCents);
+  const rec = fromCents(receivedCents);
+  const change = fromCents(receivedCents - totalCents);
+  const cashA = fromCents(cashCents);
+  const cardA = fromCents(totalCents - cashCents);
 
   const valid =
-    Number.isFinite(total) &&
+    quote &&
+    !isQuoting &&
+    quote.lines.length > 0 &&
+    !quote.lines.some((line) => line.error) &&
+    (!hasOverride || overrideReason.trim().length > 0) &&
     (method === 'card' ||
-      (method === 'cash' && rec >= total) ||
-      (method === 'mixed' && cashA > 0 && cardA > 0 && Math.abs(cashA + cardA - total) < 0.01));
+      (method === 'cash' && receivedCents >= totalCents) ||
+      (method === 'mixed' && cashCents > 0 && cashCents < totalCents));
 
   const roundUps = [
     ...new Set([
@@ -113,58 +142,84 @@ export function CheckoutModal({
   };
 
   const confirm = async () => {
-    if (!valid || stage === 'sending') return;
-    if (!cart.every((l) => Number.isFinite(l.price) && Number.isFinite(l.qty))) {
-      setErrorMsg('أرقام غير صالحة في الفاتورة — راجع الأسعار والكميات');
-      beepError();
-      return;
-    }
+    if (!pendingOwner || !quote || !valid || stage !== 'pay' || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setStage('sending');
+    setRetryStatus('');
     setErrorMsg('');
+
+    const finalNotes = (method === 'card' || method === 'mixed') && cardDigits.trim()
+      ? (notes.trim() ? `كارت ****${cardDigits.trim()} · ${notes.trim()}` : `كارت ****${cardDigits.trim()}`)
+      : notes.trim();
+
+    const payload = buildCheckoutPayload(quote, {
+      customerId: customer?.id ?? null,
+      method,
+      cashCents,
+      overridePrice: hasOverride,
+      overrideReason: hasOverride ? overrideReason.trim() : undefined,
+      notes: finalNotes,
+      heldSaleId: heldSaleId ?? null,
+    });
+
     try {
-      // Spread the cart-level discount pro-rata (largest remainder) so the
-      // per-line discounts sum to the exact total the server will charge.
-      const shares = spreadDiscount(
-        cart.map((l) => ({ id: l.id, totalC: toCents(l.price) * l.qty })),
-        toCents(discount),
-      );
-      const res = await posMockService.createSale(
-        {
-          items: cart.map((l) => ({
-            product_variant_id: l.id,
-            qty: l.qty,
-            unit_price: l.price,
-            discount_amount: (shares.find((s) => s.id === l.id)?.d ?? 0) / 100,
-          })),
-          customer_id: customer?.id ?? null,
-          payment_method: method,
-          cash_amount: method === 'cash' ? total : method === 'mixed' ? cashA : 0,
-          card_amount: method === 'card' ? total : method === 'mixed' ? cardA : 0,
-          notes,
-          ...(cart.some((l) => l.manualPrice) ? { override_price: true } : {}),
-        },
-        sessionKey,
+      const pendingManager = createPendingSaleManager({ owner: pendingOwner });
+      const draft = pendingManager.prepare(payload);
+      setIdem(draft.key);
+      const res = await pendingManager.executeWithRetry(
+        draft.payload,
+        draft.key,
+        (p, k) => pos.createSale(p, k),
+        (attempt) => {
+          setRetryStatus(`جاري التأكد… (محاولة ${attempt})`);
+        }
       );
 
-      setInvoiceNumber(res.invoiceNumber);
+      const completedReceipt = {
+        invoiceNumber: res.invoiceNumber,
+        total,
+        method,
+        received: rec,
+        change,
+        cashA,
+        cardA,
+        cart,
+        customer,
+        discount,
+        notes: finalNotes,
+        branch,
+        cashier,
+        timestamp: Date.now(),
+      };
+      pushReceipt(completedReceipt);
+      setReceipt(completedReceipt);
       setStage('done');
+      onPaid();
     } catch (err: any) {
-      const timedOut =
-        err?.code === 'ECONNABORTED' || err?.code === 'ERR_NETWORK' || (!err?.response && err?.code !== 'ERR_CANCELED');
+      const apiErr = normalizeError(err);
+      // A timeout (ECONNABORTED surfaces here as a status-0 network failure) must
+      // never be retried by editing the cart blindly: the first attempt may have
+      // committed, and a second sale would diverge from it.
       setErrorMsg(
-        timedOut
+        apiErr.status === 0
           ? 'انتهت مهلة الاتصال ولم يتأكد تسجيل الفاتورة. تحقق من آخر فاتورة في الوردية قبل تعديل السلة لتجنب فاتورة مكررة.'
-          : serverMessage(err),
+          : apiErr.message,
       );
-      beepError();
       setStage('pay');
+    } finally {
+      isSubmittingRef.current = false;
+      onAttemptSettled();
     }
   };
+
+  const darkClass = isDark != null
+    ? (isDark ? 'theme-dark' : '')
+    : (document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : '');
 
   return ReactDOM.createPortal(
     <div
       dir="rtl"
-      className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
+      className={darkClass}
     >
       <div className="overlay" onClick={() => stage === 'pay' && onClose()} />
       <div
@@ -180,16 +235,10 @@ export function CheckoutModal({
               <div className="co-main">
                 <div className="row between">
                   <h3 className="fs-16">الدفع وطرق التحصيل</h3>
-                  <button className="icon-btn sm" onClick={onClose} aria-label="إغلاق">
+                  <button className="icon-btn sm" disabled={stage === 'sending'} onClick={onClose} aria-label="إغلاق">
                     <Icon n="x" s={16} />
                   </button>
                 </div>
-                {errorMsg && (
-                  <div className="banner b-bad" role="alert">
-                    <Icon n="alert" s={16} />
-                    {errorMsg}
-                  </div>
-                )}
                 <div className="due">
                   <div className="col gap-1">
                     <span className="fs-13 t-2">المطلوب سداده</span>
@@ -320,6 +369,8 @@ export function CheckoutModal({
                         className="input ltr num"
                         style={{ textAlign: 'right', maxWidth: 240 }}
                         placeholder="•••• 4821"
+                        value={cardDigits}
+                        onChange={(e) => setCardDigits(e.target.value.replace(/\D/g, '').slice(-4))}
                       />
                     </Field>
                   </div>
@@ -423,6 +474,35 @@ export function CheckoutModal({
                   </div>
                 )}
 
+                {hasOverride && (
+                  <Field
+                    label={
+                      <>
+                        سبب تعديل السعر <span className="t-bad fs-12">(مطلوب)</span>
+                      </>
+                    }
+                  >
+                    <input
+                      className={cx('input', !overrideReason.trim() && 'is-error')}
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      placeholder="اكتب سبب تجاوز السعر…"
+                    />
+                    <div className="row gap-2 wrap" style={{ marginTop: 6 }}>
+                      {['خصم مدير', 'عيب تغليف', 'مطابقة عرض'].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className="note-chip"
+                          onClick={() => setOverrideReason(preset)}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                )}
+
                 <Field
                   label={
                     <>
@@ -437,8 +517,14 @@ export function CheckoutModal({
                     placeholder="تظهر في أسفل الإيصال"
                   />
                 </Field>
+                {errorMsg && (
+                  <div className="banner b-bad" style={{ margin: '8px 0' }}>
+                    <Icon n="alert" s={16} />
+                    {errorMsg}
+                  </div>
+                )}
                 <div className="row gap-2" style={{ marginTop: 'auto' }}>
-                  <button className="btn btn-secondary btn-lg" onClick={onClose}>
+                  <button className="btn btn-secondary btn-lg" disabled={stage === 'sending'} onClick={onClose}>
                     رجوع
                   </button>
                   <button
@@ -449,7 +535,7 @@ export function CheckoutModal({
                   >
                     <span className="row gap-2">
                       <Icon n="printer" s={18} />
-                      {stage === 'sending' ? 'جارِ تسجيل البيع…' : 'تأكيد الدفع وطباعة الإيصال'}
+                      {stage === 'sending' ? (retryStatus || 'جارِ تسجيل البيع…') : 'تأكيد الدفع وطباعة الإيصال'}
                     </span>
                     <span
                       className="kbd"
@@ -473,18 +559,19 @@ export function CheckoutModal({
                 </div>
                 <div className="col gap-2" style={{ flex: 1, overflow: 'auto', maxHeight: 300 }}>
                   {cart.map((l) => {
-                    const p = posMockService.getProductById(l.id);
-                    if (!p) return null;
+                    const p = pos.getProductById(l.id);
+                    const name = l.name ?? p?.name ?? `#${l.id}`;
+                    const visual = p ?? { cat: l.cat ?? 'hand', h: l.h ?? 240 };
                     return (
                       <div key={l.id} className="row gap-2">
-                        <PImg p={p} size="xs" />
+                        <PImg p={visual} size="xs" />
                         <div className="grow" style={{ minWidth: 0 }}>
-                          <div className="fs-12 fw-5 truncate">{p.name}</div>
+                          <div className="fs-12 fw-5 truncate">{name}</div>
                           <div className="fs-12 t-3 num">
                             {fmt(l.qty)} × {egp(l.price)}
                           </div>
                         </div>
-                        <span className="price fs-13">{egp(l.qty * l.price)}</span>
+                        <span className="price fs-13">{egp(fromCents(toCents(l.price) * l.qty))}</span>
                       </div>
                     );
                   })}
@@ -523,31 +610,16 @@ export function CheckoutModal({
                       color: 'var(--text-2)',
                     }}
                   >
-                    {sessionKey}
+                    {idem}
                   </code>
                   <div className="fs-12 t-3">يمنع تكرار الخصم عند الضغط المزدوج</div>
                 </div>
               </div>
             </div>
-          ) : (
+          ) : receipt && (
             <ReceiptDone
-              invoiceNumber={invoiceNumber}
-              total={total}
-              method={method}
-              received={rec}
-              change={change}
-              cashA={cashA}
-              cardA={cardA}
-              cart={cart}
-              customer={customer}
-              discount={discount}
-              notes={notes}
-              onNew={() => {
-                onPaid();
-                onClose();
-              }}
-              branch={branch}
-              cashier={cashier}
+              {...receipt}
+              onNew={onClose}
             />
           )}
         </div>

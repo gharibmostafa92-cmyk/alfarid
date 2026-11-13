@@ -18,6 +18,7 @@ class BrandResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'lock_version' => (int) ($this->lock_version ?? 0),
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,

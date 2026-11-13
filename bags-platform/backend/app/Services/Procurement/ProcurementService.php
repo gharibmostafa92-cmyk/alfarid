@@ -438,11 +438,12 @@ class ProcurementService
     public function closeDeliveryShort(SupplierDelivery $delivery): SupplierDelivery
     {
         return DB::transaction(function () use ($delivery): SupplierDelivery {
-            $delivery = SupplierDelivery::query()->lockForUpdate()->findOrFail($delivery->id);
+            // Receiving and closing the whole order already lock the order first.
+            $order = PurchaseOrder::query()->lockForUpdate()->findOrFail($delivery->purchase_order_id);
+            $delivery = $order->deliveries()->lockForUpdate()->findOrFail($delivery->id);
             if ($delivery->status !== SupplierDeliveryStatus::PendingReceipt) {
                 throw new BusinessException('لا يمكن إغلاق إشعار توريد إلا وهو بانتظار الاستلام.');
             }
-            $this->lockOrder($delivery->purchaseOrder);
             $delivery->update(['status' => $this->deliveryCloseStatus($delivery)]);
 
             return $delivery->fresh(['items']);

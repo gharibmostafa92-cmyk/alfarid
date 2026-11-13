@@ -22,6 +22,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ExpenseController extends Controller implements HasMiddleware
 {
+    private const RELATIONS_INDEX = [
+        'branch:id,name',
+        'treasury:id,name,code,branch_id,type',
+        'creator:id,name',
+    ];
+
     public static function middleware(): array
     {
         return [
@@ -55,13 +61,13 @@ class ExpenseController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $branch = $this->branchAccess->restrictedBranch($request->user());
+        $branch = $this->branchAccess->restrictedBranch($request->user('staff'));
         if ($branch !== null && isset($filters['branch_id']) && (int) $filters['branch_id'] !== $branch) {
             throw new BusinessException('لا تملك صلاحية الوصول إلى هذا الفرع.');
         }
 
         $expenses = Expense::query()
-            ->with(['branch', 'treasury', 'creator'])
+            ->with(self::RELATIONS_INDEX)
             ->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['treasury_id'] ?? null, fn ($q, $v) => $q->where('treasury_id', $v))
@@ -87,16 +93,16 @@ class ExpenseController extends Controller implements HasMiddleware
             'branch_id' => ['required', 'integer', 'min:1', 'exists:branches,id'],
             'treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id'],
             'category' => ['required', 'string', 'max:191'],
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999', 'decimal:0,2'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999.99', 'decimal:0,2'],
             'expense_date' => ['required', 'date_format:Y-m-d'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $expense = $this->expenses->create($data, $request->user(), $request->header('Idempotency-Key'));
+        $expense = $this->expenses->create($data, $request->user('staff'), $request->header('Idempotency-Key'));
 
         return response()->json([
             'message' => 'تم تسجيل المصروف بنجاح.',
-            'data' => $expense->load(['branch', 'treasury', 'creator']),
+            'data' => $expense->load(self::RELATIONS_INDEX),
         ], 201);
     }
 
@@ -109,18 +115,19 @@ class ExpenseController extends Controller implements HasMiddleware
      */
     public function show(Request $request, Expense $expense): JsonResponse
     {
-        $this->assertExpenseAccess($request->user()->id, $expense);
+        $this->assertExpenseAccess($request->user('staff')->id, $expense);
 
-        return response()->json(['data' => $expense->load(['branch', 'treasury', 'shift', 'creator'])]);
+        return response()->json(['data' => $expense->load([...self::RELATIONS_INDEX, 'shift:id,shift_number,branch_id,treasury_id,status'])]);
     }
 
     public function attachment(Request $request, Expense $expense): StreamedResponse
     {
-        $this->assertExpenseAccess($request->user()->id, $expense);
+        $this->assertExpenseAccess($request->user('staff')->id, $expense);
+        abort_unless(ExpenseService::isSafeAttachmentPath($expense->attachment_path), 404);
         $disk = Storage::disk('ai_private');
-        abort_unless($expense->attachment_path && $disk->exists($expense->attachment_path), 404);
+        abort_unless($disk->exists($expense->attachment_path), 404);
 
-        return $disk->download($expense->attachment_path, headers: ['X-Content-Type-Options' => 'nosniff']);
+        return $disk->download($expense->attachment_path, basename($expense->attachment_path), headers: ['X-Content-Type-Options' => 'nosniff']);
     }
 
     /**
@@ -137,7 +144,7 @@ class ExpenseController extends Controller implements HasMiddleware
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $expense = $this->expenses->update($expense, $data, $request->user());
+        $expense = $this->expenses->update($expense, $data, $request->user('staff'));
 
         return response()->json(['message' => 'تم تحديث المصروف.', 'data' => $expense]);
     }
@@ -156,7 +163,7 @@ class ExpenseController extends Controller implements HasMiddleware
             'void_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $expense = $this->expenses->void($expense, $data['void_reason'], $request->user(), $request->header('Idempotency-Key'));
+        $expense = $this->expenses->void($expense, $data['void_reason'], $request->user('staff'), $request->header('Idempotency-Key'));
 
         return response()->json(['message' => 'تم إلغاء المصروف وعكس أثره على الخزينة.', 'data' => $expense]);
     }

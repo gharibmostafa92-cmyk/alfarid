@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // The append-only trigger blocks even data repair, so it is dropped,
         // the legacy rows are backfilled, then the trigger is recreated.
         // Legacy rows carry empty types — map them from reference and sign so

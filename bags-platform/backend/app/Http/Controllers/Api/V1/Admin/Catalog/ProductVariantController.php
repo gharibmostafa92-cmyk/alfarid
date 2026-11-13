@@ -75,9 +75,10 @@ class ProductVariantController extends Controller implements HasMiddleware
     /**
      * Delete a product variant.
      */
-    public function destroy(Product $product, ProductVariant $variant): JsonResponse
+    public function destroy(Request $request, Product $product, ProductVariant $variant): JsonResponse
     {
-        $this->service->delete($variant);
+        $validated = $request->validate(['expected_version' => ['nullable', 'integer', 'min:0']]);
+        $this->service->delete($variant, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
 
         return response()->json(['message' => 'تم الحذف']);
     }

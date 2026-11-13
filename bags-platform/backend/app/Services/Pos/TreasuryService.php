@@ -13,14 +13,17 @@ use App\Enums\Finance\TreasuryTransferStatus;
 use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
+use App\Models\Expense;
 use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
+use App\Models\WholesalePaymentNotice;
 use Brick\Math\BigDecimal;
 use Brick\Math\Exception\MathException;
 use Brick\Math\RoundingMode;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -51,7 +54,10 @@ class TreasuryService
         TreasuryTransactionType::CashShortage,
     ];
 
-    public function __construct(private readonly SettingService $settings) {}
+    public function __construct(
+        private readonly SettingService $settings,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     /**
      * Creates a new treasury account and posts optional opening balance.
@@ -63,13 +69,24 @@ class TreasuryService
      */
     public function createAccount(array $data, User $actor, string $opening = '0.00'): Treasury
     {
-        $this->assertAccountBranch($actor, isset($data['branch_id']) ? (int) $data['branch_id'] : null);
+        $branchId = isset($data['branch_id']) ? (int) $data['branch_id'] : null;
+        $typeValue = ($data['type'] ?? null) instanceof TreasuryType
+            ? $data['type']->value
+            : (string) ($data['type'] ?? '');
+        if ($typeValue === TreasuryType::PosDrawer->value && $branchId === null) {
+            throw new BusinessException('درج نقطة البيع يجب أن يتبع فرعًا محددًا.');
+        }
+
+        $this->assertAccountBranch($actor, $branchId);
         $openingDec = $this->parseDecimal($opening, 'الرصيد الافتتاحي')->toScale(2, RoundingMode::HalfUp);
         if ($openingDec->isNegative()) {
             throw new BusinessException('الرصيد الافتتاحي لا يمكن أن يكون سالبًا.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $openingDec): Treasury {
+        return DB::transaction(function () use ($data, $actor, $openingDec, $branchId): Treasury {
+            if ($branchId !== null) {
+                $this->branchAccess->lockActiveBranch($branchId);
+            }
             $payload = Arr::only($data, ['name', 'code', 'branch_id', 'type', 'is_active']);
             $treasury = new Treasury($payload);
             $treasury->forceFill(['current_balance' => '0.00']);
@@ -106,9 +123,12 @@ class TreasuryService
 
         return DB::transaction(function () use ($treasury, $data, $actor): Treasury {
             $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
-            app(BranchAccess::class)->assertTreasury($actor->id, $locked);
+            $this->branchAccess->assertTreasury($actor->id, $locked);
             if (isset($data['type']) && $data['type'] !== $locked->type->value) {
                 throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
+            }
+            if ($locked->type === TreasuryType::PosDrawer && array_key_exists('branch_id', $data) && $data['branch_id'] === null) {
+                throw new BusinessException('درج نقطة البيع يجب أن يتبع فرعًا محددًا.');
             }
             $balance = $this->parseDecimal($locked->current_balance, 'رصيد الخزينة');
             $unsettled = $locked->shifts()->whereIn('status', ['open', 'closed_pending_approval'])->exists();
@@ -119,6 +139,9 @@ class TreasuryService
             if (array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id
                 && ($unsettled || ! $balance->isZero() || $locked->transactions()->exists() || $hasTransfers)) {
                 throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات أو تحويلات إلى فرع آخر.');
+            }
+            if (array_key_exists('branch_id', $data) && $data['branch_id'] !== null && (int) $data['branch_id'] !== (int) $locked->branch_id) {
+                $this->branchAccess->lockActiveBranch((int) $data['branch_id']);
             }
             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
                 if ($unsettled) {
@@ -145,32 +168,40 @@ class TreasuryService
      * @param  Treasury  $treasury  Target treasury
      * @param  User  $actor  Staff user initiating deletion
      *
-     * @throws BusinessException If treasury has non-zero balance, transactions, or shifts
+     * @throws BusinessException If treasury has non-zero balance, transactions, shifts, expenses, or notices
      */
     public function deleteAccount(Treasury $treasury, User $actor): void
     {
         DB::transaction(function () use ($treasury, $actor): void {
             $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
-            app(BranchAccess::class)->assertTreasury($actor->id, $locked);
+            $this->branchAccess->assertTreasury($actor->id, $locked);
             $balance = $this->parseDecimal($locked->current_balance, 'رصيد الخزينة');
             $hasTransfers = TreasuryTransfer::query()
                 ->where('from_treasury_id', $locked->id)
                 ->orWhere('to_treasury_id', $locked->id)
                 ->exists();
-            if (! $balance->isZero() || $locked->transactions()->exists() || $locked->shifts()->exists() || $hasTransfers) {
-                throw new BusinessException('لا يمكن حذف خزينة لها رصيد أو سجل حركات أو تحويلات أو ورديات.');
+            $hasExpenses = Expense::query()->where('treasury_id', $locked->id)->exists();
+            $hasNotices = WholesalePaymentNotice::query()->where('treasury_id', $locked->id)->exists();
+            if (! $balance->isZero() || $locked->transactions()->exists() || $locked->shifts()->exists() || $hasTransfers || $hasExpenses || $hasNotices) {
+                throw new BusinessException('لا يمكن حذف خزينة لها رصيد أو سجل حركات أو تحويلات أو ورديات أو مصروفات.');
             }
-            $locked->delete();
+            try {
+                $locked->delete();
+            } catch (QueryException $e) {
+                if ((string) ($e->errorInfo[0] ?? '') === '23503') {
+                    throw new BusinessException('لا يمكن حذف خزينة مرتبطة بسجلات مالية قائمة.', [], 409);
+                }
+                throw $e;
+            }
         });
     }
 
     private function assertAccountBranch(User $actor, ?int $branchId): void
     {
-        $branches = app(BranchAccess::class);
         if ($branchId === null) {
-            $branches->assertCentralAccess($actor);
+            $this->branchAccess->assertCentralAccess($actor);
         } else {
-            $branches->assertBranch($actor->id, $branchId);
+            $this->branchAccess->assertBranch($actor->id, $branchId);
         }
     }
 
@@ -197,7 +228,7 @@ class TreasuryService
             /** @var Treasury $treasury */
             $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
             if ($treasury->branch_id !== null) {
-                app(BranchAccess::class)->lockActiveBranch((int) $treasury->branch_id);
+                $this->branchAccess->lockActiveBranch((int) $treasury->branch_id);
             }
 
             $type = $data['type'] instanceof TreasuryTransactionType
@@ -269,14 +300,15 @@ class TreasuryService
                 throw new BusinessException('يجب أن يعتمد تحويل الخزينة موظف آخر غير منشئه.');
             }
             $treasuries = $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
-            app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
+            $this->branchAccess->lockActiveBranches($treasuries->pluck('branch_id')->filter());
             // A drawer bound to an open/pending shift must not receive or emit ad-hoc
             // transfers, otherwise drawer reconciliation would be silently corrupted.
             foreach ([$transfer->from_treasury_id, $transfer->to_treasury_id] as $treasuryId) {
                 $lockedTreasury = $treasuries->get($treasuryId);
-                if ($lockedTreasury !== null) {
-                    $this->assertDrawerAvailableForTransfer($lockedTreasury);
+                if ($lockedTreasury === null) {
+                    throw new BusinessException('إحدى الخزائن المحددة غير موجودة.');
                 }
+                $this->assertDrawerAvailableForTransfer($lockedTreasury);
             }
             $amount = $this->parseDecimal($transfer->amount, 'مبلغ التحويل')->toScale(2, RoundingMode::HalfUp);
             if (! $amount->isPositive()) {
@@ -365,7 +397,7 @@ class TreasuryService
             if ($lockedSafe === null || ! $lockedSafe->is_active) {
                 throw new BusinessException('يلزم وجود خزنة رئيسية نشطة لاعتماد الوردية وتسوية رصيد الدرج.');
             }
-            app(BranchAccess::class)->lockActiveBranches($locked->pluck('branch_id')->filter());
+            $this->branchAccess->lockActiveBranches($locked->pluck('branch_id')->filter());
             // Settlement must not mix with a newer shift reusing the same drawer.
             $otherActiveShift = PosShift::query()
                 ->where('treasury_id', $shift->treasury_id)
@@ -376,9 +408,18 @@ class TreasuryService
                 throw new BusinessException('الدرج مرتبط بوردية أخرى نشطة؛ لا يمكن ترحيل هذه الوردية.', [], 409);
             }
             $drawer = $locked->get($shift->treasury_id);
+            $expected = $this->parseDecimal($shift->expected_closing_cash ?? '0', 'النقد المتوقع')->toScale(2, RoundingMode::HalfUp);
+            $drawerBalance = $this->parseDecimal($drawer->current_balance, 'رصيد الدرج')->toScale(2, RoundingMode::HalfUp);
+            if (! $drawerBalance->isEqualTo($expected)) {
+                throw new BusinessException(
+                    'رصيد الدرج الدفتري لا يطابق الرصيد المتوقع للوردية؛ يلزم مراجعة حركات الخزينة قبل التسوية.',
+                    [],
+                    409,
+                );
+            }
             $amount = (string) $closingCash;
             $difference = $closingCash
-                ->minus($this->parseDecimal($drawer->current_balance, 'رصيد الدرج'))->toScale(2);
+                ->minus($drawerBalance)->toScale(2);
             if (! $difference->isZero()) {
                 $this->record([
                     'treasury_id' => $drawer->id, 'shift_id' => $shift->id,
@@ -429,18 +470,22 @@ class TreasuryService
                 throw new BusinessException('مبلغ التحويل يجب أن يكون أكبر من صفر.');
             }
 
-            $treasuries = Treasury::query()->whereIn('id', [$fromId, $toId])->get()->keyBy('id');
+            $treasuries = $this->lockTreasuries([$fromId, $toId], $userId);
             if ($treasuries->count() !== 2) {
                 throw new BusinessException('إحدى الخزائن المحددة غير موجودة.');
             }
             foreach ($treasuries as $treasury) {
-                app(BranchAccess::class)->assertTreasury($userId, $treasury);
                 if (! $treasury->is_active) {
                     throw new BusinessException('لا يمكن تنفيذ التحويل من أو إلى خزينة غير نشطة.');
                 }
                 $this->assertDrawerAvailableForTransfer($treasury);
             }
-            app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
+            $toTreasury = $treasuries->get($toId);
+            if ($toTreasury === null
+                || $this->parseDecimal($toTreasury->current_balance, 'رصيد الخزينة')->plus($amount)->abs()->isGreaterThan(self::MAX_TREASURY_BALANCE)) {
+                throw new BusinessException('رصيد الخزينة يتجاوز الحد المسموح.');
+            }
+            $this->branchAccess->lockActiveBranches($treasuries->pluck('branch_id')->filter());
 
             $number = $this->settings->generateNextNumber('treasury_transfer');
 
@@ -474,7 +519,7 @@ class TreasuryService
                 throw new BusinessException('يمكن رفض التحويلات المعلقة فقط.');
             }
             foreach (Treasury::query()->whereIn('id', [$transfer->from_treasury_id, $transfer->to_treasury_id])->get() as $treasury) {
-                app(BranchAccess::class)->assertTreasury($approverId, $treasury);
+                $this->branchAccess->assertTreasury($approverId, $treasury);
             }
             $normalizedReason = $reason !== null ? mb_substr(trim($reason), 0, 500) : null;
             if ($normalizedReason === '') {
@@ -501,6 +546,7 @@ class TreasuryService
         $active = PosShift::query()
             ->where('treasury_id', $treasury->id)
             ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
+            ->lockForUpdate()
             ->exists();
 
         if ($active) {
@@ -546,7 +592,7 @@ class TreasuryService
         $treasuries = Treasury::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
         if ($userId !== null) {
             foreach ($treasuries as $treasury) {
-                app(BranchAccess::class)->assertTreasury($userId, $treasury);
+                $this->branchAccess->assertTreasury($userId, $treasury);
             }
         }
 

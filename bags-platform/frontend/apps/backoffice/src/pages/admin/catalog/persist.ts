@@ -152,7 +152,15 @@ export async function persistProduct(
       throw new Error("انقل المنتج لمسودة أولاً قبل استبدال آخر متغير نشط.");
     for (const row of conflicting)
       await variantRequest(row, () =>
-        removeIfPresent(() => variantsApi.remove(next.id, row.serverId)),
+        removeIfPresent(() =>
+          variantsApi.remove(
+            next.id,
+            row.serverId,
+            row.lock_version ??
+              original.rows?.find((r: any) => r.serverId === row.serverId)
+                ?.lock_version,
+          ),
+        ),
       );
     for (const [i, row] of next.rows.entries()) {
       if (row.serverId) continue;
@@ -186,7 +194,15 @@ export async function persistProduct(
     }
     for (const row of removed.filter((r: any) => !conflicting.includes(r)))
       await variantRequest(row, () =>
-        removeIfPresent(() => variantsApi.remove(next.id, row.serverId)),
+        removeIfPresent(() =>
+          variantsApi.remove(
+            next.id,
+            row.serverId,
+            row.lock_version ??
+              original.rows?.find((r: any) => r.serverId === row.serverId)
+                ?.lock_version,
+          ),
+        ),
       );
   }
   onUpload();

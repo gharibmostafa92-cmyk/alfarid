@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Enums\Customer\CustomerStatus;
 use App\Enums\StaffRole;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
@@ -82,11 +83,17 @@ final class WalletAdjustmentService
             fn (): WalletAdjustment => DB::transaction(function () use ($data, $actor, $amount, $direction, $reason, $source, $signed, $walletType, $reversesId): WalletAdjustment {
                 if ($reversesId !== null) {
                     $original = WalletAdjustment::query()->lockForUpdate()->findOrFail($reversesId);
+                    if (! $this->canReverse($original, $actor)) {
+                        throw new BusinessException('فقط منشئ التعديل أو مدير عام يمكنه عكسه.', [], 403);
+                    }
                     if ($original->reversals()->exists()) {
                         throw new BusinessException('هذا التعديل معكوس بالفعل.');
                     }
                 }
                 $customer = Customer::query()->lockForUpdate()->findOrFail((int) $data['customer_id']);
+                if ($reversesId === null && in_array($customer->status, [CustomerStatus::Rejected, CustomerStatus::Suspended], true)) {
+                    throw new BusinessException('لا يمكن تعديل محفظة عميل مرفوض أو محظور.');
+                }
                 $adjustment = WalletAdjustment::create([
                     'customer_id' => $customer->id,
                     'amount' => (string) $amount,
@@ -112,20 +119,29 @@ final class WalletAdjustmentService
      */
     public function reverse(WalletAdjustment $adjustment, User $actor, ?string $idempotencyKey, ?string $reason = null): WalletAdjustment
     {
-        $isCreator = (int) $adjustment->created_by === (int) $actor->id;
-        $isSuperAdmin = method_exists($actor, 'hasRole') && $actor->hasRole(StaffRole::SuperAdmin->value, 'staff');
-        if (! $isCreator && ! $isSuperAdmin) {
-            throw new BusinessException('فقط منشئ التعديل أو مدير عام يمكنه عكسه.', [], 403);
-        }
-        $opposite = $adjustment->direction === 'credit' ? 'debit' : 'credit';
+        return DB::transaction(function () use ($adjustment, $actor, $idempotencyKey, $reason): WalletAdjustment {
+            $original = WalletAdjustment::query()->lockForUpdate()->findOrFail($adjustment->id);
+            if (! $this->canReverse($original, $actor)) {
+                throw new BusinessException('فقط منشئ التعديل أو مدير عام يمكنه عكسه.', [], 403);
+            }
+            $opposite = $original->direction === 'credit' ? 'debit' : 'credit';
 
-        return $this->recordAdjustment([
-            'customer_id' => $adjustment->customer_id,
-            'kind' => 'adjustment',
-            'amount' => (string) $adjustment->amount,
-            'direction' => $opposite,
-            'reason' => mb_substr('عكس تعديل #'.$adjustment->id.($reason !== null && trim($reason) !== '' ? ': '.trim($reason) : ': '.$adjustment->reason), 0, 500),
-            'source' => $adjustment->source,
-        ], $actor, $idempotencyKey, $adjustment->id);
+            return $this->recordAdjustment([
+                'customer_id' => $original->customer_id,
+                'kind' => 'adjustment',
+                'amount' => (string) $original->amount,
+                'direction' => $opposite,
+                'reason' => mb_substr('عكس تعديل #'.$original->id.($reason !== null && trim($reason) !== '' ? ': '.trim($reason) : ': '.$original->reason), 0, 500),
+                'source' => $original->source,
+            ], $actor, $idempotencyKey, $original->id);
+        });
+    }
+
+    private function canReverse(WalletAdjustment $original, User $actor): bool
+    {
+        $isCreator = (int) $original->created_by === (int) $actor->id;
+        $isSuperAdmin = method_exists($actor, 'hasRole') && $actor->hasRole(StaffRole::SuperAdmin->value, 'staff');
+
+        return $isCreator || $isSuperAdmin;
     }
 }

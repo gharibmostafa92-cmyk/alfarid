@@ -16,6 +16,7 @@ use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\SearchTerm;
 use App\Services\Inventory\StocktakeService;
 use App\Services\Inventory\TransferService;
@@ -149,7 +150,16 @@ class PosStockController extends Controller
             $quantities[(int) $item['id']] = (float) $item['received_qty'];
         }
 
-        $transfer = $this->transfers->receive($transfer, $quantities, $user->id);
+        $idempotencyKey = $this->idempotencyKey($request);
+        $transfer = $idempotencyKey !== null
+            ? app(OperationIdempotencyService::class)->run(
+                'pos_receive_transfer',
+                $user,
+                $idempotencyKey,
+                ['transfer_id' => $transfer->id, 'items' => $quantities],
+                fn (): StockTransfer => $this->transfers->receive($transfer, $quantities, $user->id),
+            )
+            : $this->transfers->receive($transfer, $quantities, $user->id);
 
         return response()->json([
             'message' => 'تم تأكيد استلام التحويلة بنجاح وتم رفع المخزون.',

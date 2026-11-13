@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Empty, Drawer } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import type { PosHeldSale, Branch } from '../../types/pos.types';
 
 interface HeldDrawerProps {
@@ -51,7 +51,7 @@ export function HeldDrawer({
           )}
           {held.map((h) => {
             const total = h.items.reduce((s, i) => {
-              const p = posMockService.getProductById(i.id);
+              const p = pos.getProductById(i.id);
               return s + (p?.price || 0) * i.qty;
             }, 0);
             const pcs = h.items.reduce((s, i) => s + i.qty, 0);
@@ -63,7 +63,7 @@ export function HeldDrawer({
                     {h.items.slice(0, 3).map((i) => (
                       <PImg
                         key={i.id}
-                        p={posMockService.getProductById(i.id)}
+                        p={pos.getProductById(i.id) ?? { cat: 'hand', h: 240 }}
                         size="sm"
                       />
                     ))}

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, cx, toAsciiNum } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-data-source';
+import { fromCents, parsePositivePrice, toCents } from '../../lib/money';
+import { pos } from '../../services/pos-data-source';
 import type { PosCartLine } from '../../types/pos.types';
 
 interface CartLineProps {
@@ -14,18 +15,19 @@ interface CartLineProps {
 }
 
 export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: CartLineProps) {
-  const p = posMockService.getProductById(l.id);
+  const p = pos.getProductById(l.id);
+  const name = l.name ?? p?.name ?? `#${l.id}`;
+  const stock = l.stock ?? p?.stock;
+  const visual = p ?? { cat: l.cat ?? 'hand', h: l.h ?? 240 };
   const [edit, setEdit] = useState(false);
   const [val, setVal] = useState(String(l.price));
   const overridden = l.price !== l.listPrice;
 
-  if (!p) return null;
-
   return (
-    <div className={cx('line', flash ? 'flash' : '')}>
-      <PImg p={p} size="sm" />
+    <div className={cx('line', flash ? 'flash' : '', l.error && 'line-bad')}>
+      <PImg p={visual} size="sm" />
       <div style={{ minWidth: 0 }}>
-        <div className="line-name truncate">{p.name}</div>
+        <div className="line-name truncate">{name}</div>
         <div className="line-sub">
           {edit ? (
             <input
@@ -34,7 +36,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
               value={val}
               onChange={(e) => setVal(toAsciiNum(e.target.value))}
               onBlur={() => {
-                onPrice(Number(val || l.listPrice));
+                onPrice(parsePositivePrice(val, l.price));
                 setEdit(false);
               }}
               onKeyDown={(e) => {
@@ -70,20 +72,25 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
               </span>
             </>
           )}
-          {l.qty > p.stock && (
+          {stock !== undefined && l.qty > stock && (
             <span
               className="badge b-bad"
               style={{ height: 18, fontSize: 10.5, padding: '0 6px' }}
             >
-              الرصيد {fmt(p.stock)}
+              الرصيد {fmt(stock)}
             </span>
           )}
         </div>
+        {l.error && <div className="line-err">{l.error}</div>}
       </div>
       <div className="col" style={{ alignItems: 'flex-end', gap: 6 }}>
         <div className="row gap-1">
           <div className="stepper-q">
-            <button onClick={() => onQty(l.qty + 1)} aria-label="زيادة">
+            <button
+              onClick={() => (stock === undefined || l.qty < stock) && onQty(l.qty + 1)}
+              disabled={stock !== undefined && l.qty >= stock}
+              aria-label="زيادة"
+            >
               <Icon n="plus" s={14} />
             </button>
             <span>{fmt(l.qty)}</span>
@@ -103,7 +110,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
             <Icon n="trash" s={15} />
           </button>
         </div>
-        <span className="price fs-14">{egp(l.price * l.qty)}</span>
+        <span className="price fs-14">{egp(fromCents(toCents(l.price) * l.qty))}</span>
       </div>
     </div>
   );

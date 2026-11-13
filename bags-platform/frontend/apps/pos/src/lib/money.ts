@@ -1,4 +1,3 @@
-/** Cent-based money helpers for the POS app: all math in integers, strings only at the API boundary. */
 export const toCents = (v: string | number | null | undefined): number => Math.round(Number(v ?? 0) * 100);
 export const fromCents = (c: number): number => c / 100;
 export const toApi = (c: number): string => (c / 100).toFixed(2);
@@ -17,5 +16,52 @@ export function spreadDiscount(lines: { id: number; totalC: number }[], discount
 }
 
 /** Highest invoice discount (in cents) allowed by max_discount_percent. */
-export const maxDiscountAmount = (subtotalC: number, percent: number): number =>
-  Math.floor((subtotalC * percent) / 100);
+export const maxDiscountAmount = (subtotalC: number, percent: number): number => Math.floor((subtotalC * percent) / 100);
+
+/** Parse a strictly positive unit price, falling back when empty, non-positive, or NaN. */
+export function parsePositivePrice(raw: string | number | null | undefined, fallback: number): number {
+  const trimmed = typeof raw === 'number' ? String(raw) : String(raw ?? '').trim();
+  if (!trimmed) return fallback;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  return fromCents(toCents(num));
+}
+
+/** Parse a non-negative monetary amount, falling back when negative or invalid. */
+export function parseNonNegativeAmount(raw: string | number | null | undefined, fallback = 0): number {
+  const trimmed = typeof raw === 'number' ? String(raw) : String(raw ?? '').trim();
+  if (!trimmed) return fallback;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num < 0) return fallback;
+  return fromCents(toCents(num));
+}
+
+export interface CartTotals {
+  subtotal: number;
+  pricedTotal: number;
+  lineAdj: number;
+  cap: number;
+  discount: number;
+  total: number;
+}
+
+/** Compute cent-exact cart totals and dynamically clamp invoice discount against current priced total and cap. */
+export function computeCartTotals(
+  lines: { price: number; listPrice: number; qty: number }[],
+  requestedDiscount: number,
+  maxDiscountPercent = 100,
+): CartTotals {
+  const subtotalCents = lines.reduce((sum, l) => sum + toCents(l.listPrice) * l.qty, 0);
+  const pricedCents = lines.reduce((sum, l) => sum + toCents(l.price) * l.qty, 0);
+  const capCents = maxDiscountAmount(pricedCents, maxDiscountPercent);
+  const safeDiscountCents = Math.min(Math.max(0, toCents(requestedDiscount)), pricedCents, capCents);
+  const totalCents = Math.max(0, pricedCents - safeDiscountCents);
+  return {
+    subtotal: fromCents(subtotalCents),
+    pricedTotal: fromCents(pricedCents),
+    lineAdj: fromCents(subtotalCents - pricedCents),
+    cap: fromCents(capCents),
+    discount: fromCents(safeDiscountCents),
+    total: fromCents(totalCents),
+  };
+}

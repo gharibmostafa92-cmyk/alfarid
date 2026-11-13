@@ -13,7 +13,6 @@ use App\Support\ArabicDigits;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -97,7 +96,7 @@ class PosCustomerController extends Controller
             $customer = Customer::create([
                 'name' => trim($data['name']),
                 'phone' => $normalizedPhone,
-                'password' => Str::random(24),
+                'password' => null,
                 'type' => $type,
                 'status' => $status,
             ]);
@@ -112,11 +111,12 @@ class PosCustomerController extends Controller
     }
 
     /**
-     * @return array{id: int, name: string, phone: string, type: string, loyalty_points: int, points: int}
+     * @return array{id: int, name: string, phone: string, type: string, status: string, loyalty_points: int, points: int}
      */
     private function formatCustomer(Customer $customer): array
     {
         $type = $customer->type === CustomerType::Retail ? 'retail' : 'wholesale';
+        $status = $customer->status instanceof CustomerStatus ? $customer->status->value : (string) $customer->status;
         $points = (int) ($customer->getAttribute('loyalty_points') ?? 0);
 
         return [
@@ -124,6 +124,7 @@ class PosCustomerController extends Controller
             'name' => $customer->name,
             'phone' => $customer->phone,
             'type' => $type,
+            'status' => $status,
             'loyalty_points' => $points,
             'points' => $points,
         ];

@@ -37,7 +37,7 @@ class ReconcileFinance extends Command
             return self::INVALID;
         }
 
-        return StatementBudget::run(300000, fn (): int => $this->reconcile($branch === null ? null : (int) $branch));
+        return $this->reconcile($branch === null ? null : (int) $branch);
     }
 
     private function reconcile(?int $branch): int
@@ -91,11 +91,13 @@ SELECT (SELECT COUNT(*) FROM treasuries WHERE (?::bigint IS NULL OR branch_id = 
     (SELECT COUNT(*) FROM problems) AS problem_count,
     COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY issue, ref_id LIMIT 100) p), '[]'::json) AS samples
 SQL;
-        $result = DB::selectOne($sql, [
+        // Run only the heavy read snapshot under REPEATABLE READ READ ONLY; run logging and pruning
+        // execute afterward under READ COMMITTED so concurrent cleanups cannot abort via 40001.
+        $result = StatementBudget::run(300000, fn () => DB::selectOne($sql, [
             $branch, $branch, $branch, $branch, $branch, $branch,
             $branch, $branch, $branch,
             $branch, $branch, $branch,
-        ]);
+        ]), readOnly: true);
 
         FinanceReconcileRun::query()->create([
             'branch_id' => $branch,

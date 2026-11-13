@@ -27,6 +27,7 @@ class UpdateCategoryRequest extends StoreCategoryRequest
             'is_active' => ['sometimes', 'nullable', 'boolean'],
             'image' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:4096', new MaxImagePixels],
             'remove_image' => ['sometimes', 'nullable', 'boolean'],
+            'expected_version' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ];
     }
 

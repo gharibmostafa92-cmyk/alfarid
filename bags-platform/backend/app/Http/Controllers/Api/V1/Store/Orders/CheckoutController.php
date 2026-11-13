@@ -136,10 +136,7 @@ class CheckoutController extends Controller
      */
     private function currentCart(Request $request, bool $create = true): array
     {
-        $user = auth('sanctum')->user();
-
-        // Suspended or unapproved customers fall back to guest privileges to prevent account abuse.
-        $customer = $user instanceof Customer && $user->canShop() ? $user : null;
+        $customer = Customer::resolveShopper(auth('sanctum')->user());
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 
         return [$customer, $cart];

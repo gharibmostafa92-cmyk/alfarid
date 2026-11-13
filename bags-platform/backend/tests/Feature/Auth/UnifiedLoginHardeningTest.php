@@ -124,7 +124,10 @@ class UnifiedLoginHardeningTest extends TestCase
         $response = $this->login(['login' => $customer->phone, 'password' => 'cust-pass']);
         $response->assertOk()
             ->assertJsonPath('redirect.path', '/wholesale/application-status')
-            ->assertJsonPath('actor.subtype', 'wholesale_pending');
+            ->assertJsonPath('actor.subtype', 'wholesale_pending')
+            ->assertJsonPath('cart_merged', false);
+
+        $this->assertSame(1440, config('auth.customer_token_minutes'));
 
         $this->authed('get', '/api/v1/wholesale/auth/application-status', (string) $response->json('token'))
             ->assertOk()

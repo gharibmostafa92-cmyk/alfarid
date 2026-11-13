@@ -13,9 +13,10 @@ interface CloseShiftModalProps {
   shift: PosShift | null;
   onClosed: (shift: PosShift) => void;
   onCommitted: (shift: PosShift) => void;
+  isDark?: boolean;
 }
 
-export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }: CloseShiftModalProps) {
+export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, isDark }: CloseShiftModalProps) {
   const [actual, setActual] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
@@ -112,11 +113,15 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
     }
   };
 
+  const darkClass = isDark != null
+    ? (isDark ? 'theme-dark' : '')
+    : (document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : '');
+
   if (closedResult) {
     return ReactDOM.createPortal(
       <div
         dir="rtl"
-        className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
+        className={darkClass}
       >
         <div className="overlay" onClick={() => onClosed(closedResult)} />
         <div
@@ -159,22 +164,30 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
                 <span>العهدة الافتتاحية:</span>
                 <span className="num">{egp(shift.opening_cash)} ج</span>
               </div>
-              <div className="rr">
-                <span>مبيعات نقدية:</span>
-                <span className="num">{egp(closedResult.cash_sales_total)} ج</span>
-              </div>
-              <div className="rr">
-                <span>مبيعات بطاقة:</span>
-                <span className="num">{egp(closedResult.card_sales_total)} ج</span>
-              </div>
-              <div className="rr">
-                <span>مرتجعات نقدية:</span>
-                <span className="num">{egp(closedResult.cash_returns_total)} ج</span>
-              </div>
-              <div className="rr">
-                <span>مصروفات:</span>
-                <span className="num">{egp(closedResult.cash_expenses_total)} ج</span>
-              </div>
+              {closedResult.cash_sales_total !== undefined && (
+                <div className="rr">
+                  <span>مبيعات نقدية:</span>
+                  <span className="num">{egp(closedResult.cash_sales_total)} ج</span>
+                </div>
+              )}
+              {closedResult.card_sales_total !== undefined && (
+                <div className="rr">
+                  <span>مبيعات بطاقة:</span>
+                  <span className="num">{egp(closedResult.card_sales_total)} ج</span>
+                </div>
+              )}
+              {closedResult.cash_returns_total !== undefined && (
+                <div className="rr">
+                  <span>مرتجعات نقدية:</span>
+                  <span className="num">{egp(closedResult.cash_returns_total)} ج</span>
+                </div>
+              )}
+              {closedResult.cash_expenses_total !== undefined && (
+                <div className="rr">
+                  <span>مصروفات:</span>
+                  <span className="num">{egp(closedResult.cash_expenses_total)} ج</span>
+                </div>
+              )}
               <div className="dash" />
               {closedResult.expected_closing_cash !== undefined && (
                 <div className="rr">
@@ -220,7 +233,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
   return ReactDOM.createPortal(
     <div
       dir="rtl"
-      className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
+      className={darkClass}
     >
       <div className="overlay" onClick={dismiss} />
       <div

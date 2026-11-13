@@ -244,7 +244,9 @@ class TaskTxtProcurementCloseoutTest extends TestCase
         $this->assertNull(PersonalAccessToken::findToken($plain));
     }
 
-    public function test_close_short_does_not_label_a_partially_received_notice_as_rejected(): void
+    #[\PHPUnit\Framework\Attributes\TestWith([false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true])]
+    public function test_close_short_does_not_label_a_partially_received_notice_as_rejected(bool $noticeOnly): void
     {
         $po = $this->sentOrder(qty: 10, cost: 20);
         $order = PurchaseOrder::query()->findOrFail($po['id']);
@@ -265,9 +267,13 @@ class TaskTxtProcurementCloseoutTest extends TestCase
             'items' => [['purchase_order_item_id' => $po['items'][0]['id'], 'qty' => 4]],
             'supplier_delivery_id' => $notice->id,
         ])->assertOk();
-        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/close-short")->assertOk();
+        $path = $noticeOnly
+            ? "/api/v1/admin/supplier-deliveries/{$notice->id}/close-short"
+            : "/api/v1/admin/purchase-orders/{$po['id']}/close-short";
+        $this->auth()->postJson($path)->assertOk();
 
         $this->assertSame(SupplierDeliveryStatus::ClosedShort, $notice->fresh()->status);
+        $this->assertSame($noticeOnly ? 'partially_received' : 'completed', $order->fresh()->status->value);
     }
 
     /**

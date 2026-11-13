@@ -23,12 +23,15 @@ class TrustProxyClientIp
     {
         $secret = config('app.proxy_client_ip_secret');
         $address = $request->headers->get('X-Alfarid-Client-IP');
+        $timestamp = $request->headers->get('X-Alfarid-Client-IP-Timestamp');
         $signature = $request->headers->get('X-Alfarid-Client-IP-Signature');
 
         if (is_string($secret) && $secret !== ''
             && is_string($address) && filter_var($address, FILTER_VALIDATE_IP) !== false
+            && is_string($timestamp) && preg_match('/^\d{1,12}$/', $timestamp) === 1
+            && abs(time() - (int) $timestamp) <= 60
             && is_string($signature) && $signature !== ''
-            && hash_equals(hash_hmac('sha256', $address, $secret), strtolower($signature))) {
+            && hash_equals(hash_hmac('sha256', $timestamp.'.'.$address, $secret), strtolower($signature))) {
             $request->server->set('REMOTE_ADDR', $address);
             // Some deployments terminate at a trusted load balancer that reads
             // X-Forwarded-For; keep both views consistent without trusting a

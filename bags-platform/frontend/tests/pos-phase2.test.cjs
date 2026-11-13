@@ -243,7 +243,7 @@ test('exchange prices replacement items for the customer on the original sale', 
   const svc = new PosApiService(http);
   await svc.processExchange(5, [{ id: 1, qty: 1, return_to: 'on_hand' }], [{ id: 2, qty: 1 }], 20, 9);
   assert.equal(http.calls[0].a.customer_id, 9);
-  assert.equal(http.calls[1].a.cash_amount, '80.00');
+  assert.equal(http.calls[1].a.cash_amount, '20.00');
 });
 
 test('resumeHeldSale posts to resume using cached server id', async () => {

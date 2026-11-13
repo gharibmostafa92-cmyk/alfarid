@@ -22,6 +22,8 @@ class PosHeldSale extends Model
         'items_payload',
         'notes',
         'created_at',
+        'resumed_by',
+        'resumed_at',
     ];
 
     protected function casts(): array
@@ -29,6 +31,7 @@ class PosHeldSale extends Model
         return [
             'items_payload' => 'array',
             'created_at'    => 'datetime',
+            'resumed_at'    => 'datetime',
         ];
     }
 
@@ -42,6 +45,12 @@ class PosHeldSale extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function resumer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'resumed_by');
     }
 
     /** @return BelongsTo<Customer, $this> */

@@ -30,7 +30,7 @@ class ProductFilterRequest extends FormRequest
             'on_sale' => ['nullable', 'boolean'],
             'discounted' => ['nullable', 'boolean'],
             'sort' => ['sometimes', 'nullable', Rule::in(['featured', 'newest', 'best_selling', 'price_asc', 'price_desc', 'name'])],
-            'page' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:'.config('storefront.max_per_page', 48)],
             'occasions' => ['sometimes', 'array', 'max:4'],
             'occasions.*' => ['string', 'distinct', Rule::enum(Occasion::class)],

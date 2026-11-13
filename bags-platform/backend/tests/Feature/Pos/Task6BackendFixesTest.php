@@ -48,21 +48,22 @@ class Task6BackendFixesTest extends PosScenarioFixture
             ->sum($column);
     }
 
-    public function test_f2_damaged_return_does_not_inflate_on_hand(): void
+    public function test_f2_damaged_return_does_not_inflate_sellable_stock(): void
     {
         $token = $this->tokenFor($this->cashier, ['pos.sales.refund']);
 
         $sale = $this->as($token)->postJson('/api/v1/pos/sales', $this->salePayload(200, 0, 2), $this->idem())
             ->assertCreated()->json('data');
         $onHandAfterSale = $this->stockSum('on_hand');
+        $availableAfterSale = $this->stockSum('available');
 
         $this->as($token)->postJson("/api/v1/pos/sales/{$sale['id']}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'damaged']],
         ], $this->idem())->assertOk();
 
-        // The damaged unit must leave OnHand again: net OnHand movement is zero.
-        $this->assertSame($onHandAfterSale, $this->stockSum('on_hand'));
+        $this->assertSame($onHandAfterSale + 1, $this->stockSum('on_hand'));
         $this->assertSame(1.0, $this->stockSum('damaged'));
+        $this->assertSame($availableAfterSale, $this->stockSum('available'));
 
         // SaleReturn history stays intact so previous-quantity accounting keeps working.
         $saleReturnQty = (float) StockMovement::query()
@@ -71,7 +72,7 @@ class Task6BackendFixesTest extends PosScenarioFixture
             ->sum('quantity');
         $this->assertSame(1.0, $saleReturnQty);
 
-        // Buckets audit: exactly one Damaged leg and one offsetting OnHand leg.
+        // Buckets audit: exactly one Damaged movement.
         $this->assertSame(1, StockMovement::query()
             ->where('reference_id', $sale['id'])
             ->where('type', StockMovementType::Damage)
@@ -237,14 +238,26 @@ class Task6BackendFixesTest extends PosScenarioFixture
             'notes' => 'parked cart',
         ], $this->idem())->assertCreated()->json('data');
 
-        $this->as($token)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [], $this->idem())
+        $this->as($token)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [])
             ->assertOk()
             ->assertJsonPath('data.hold_reference', $held['hold_reference']);
 
-        // The parked cart is gone: it cannot be resumed twice.
+        // Active lease protects against concurrent duplicate resume (409) without losing the parked row.
+        $this->assertDatabaseHas('pos_held_sales', [
+            'id' => $held['id'],
+            'resumed_by' => $this->cashier->id,
+        ]);
+        $this->as($token)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [])
+            ->assertStatus(409);
+
+        // Checking out with held_sale_id deletes the held row atomically.
+        $this->as($token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'cash_amount' => 100.00,
+            'held_sale_id' => $held['id'],
+        ], $this->idem())->assertCreated();
+
         $this->assertDatabaseMissing('pos_held_sales', ['id' => $held['id']]);
-        $this->as($token)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [], $this->idem())
-            ->assertNotFound();
     }
 
     public function test_f4_store_rejects_discount_without_permission(): void
@@ -295,17 +308,21 @@ class Task6BackendFixesTest extends PosScenarioFixture
         ], $this->idem())->assertCreated()->json('data');
         $this->assertDatabaseHas('pos_held_sales', ['id' => $held['id']]);
 
-        // Resume consumes the parked cart atomically.
+        // Resume acquires a soft lease while preserving the row until checkout consumes it.
         $this->as($token)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [], $this->idem())
             ->assertOk()
             ->assertJsonPath('data.hold_reference', $held['hold_reference']);
-        $this->assertDatabaseMissing('pos_held_sales', ['id' => $held['id']]);
+        $this->assertDatabaseHas('pos_held_sales', [
+            'id' => $held['id'],
+            'resumed_by' => $this->cashier->id,
+        ]);
 
         $sale = $this->as($token)->postJson('/api/v1/pos/sales', array_merge(
             $this->salePayload(100, 0, 1),
             ['held_sale_id' => $held['id']],
         ), $this->idem())->assertCreated();
 
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $held['id']]);
         $this->assertSame($this->variant->id, $sale->json('data.items.0.product_variant_id'));
     }
 

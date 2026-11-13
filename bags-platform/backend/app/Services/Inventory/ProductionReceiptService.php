@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Inventory;
 
-use App\Services\Shared\IdempotencyFingerprint;
-
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
@@ -14,6 +12,8 @@ use App\Models\Branch;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Shared\IdempotencyFingerprint;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +49,10 @@ class ProductionReceiptService
             return $this->replay($existing, $hash);
         }
 
+        foreach ($data['items'] as $item) {
+            DiscreteQuantity::assertWhole($item['quantity'] ?? null);
+        }
+
         try {
             return DB::transaction(function () use ($data, $userId, $key, $hash): ProductionReceipt {
                 DB::statement("SET LOCAL lock_timeout = '5s'");
@@ -56,6 +60,7 @@ class ProductionReceiptService
                 if (! $branch->is_active) {
                     throw new BusinessException('الفرع غير نشط.');
                 }
+                $locationId = $data['location_id'] ?? $this->inventory->receivingLocation($branch->id);
                 // FOR NO KEY UPDATE is enough for the cost_price update below and, unlike FOR UPDATE,
                 // does not block foreign-key checks against these hot variant rows from other branches.
                 $variants = ProductVariant::whereIn('id', array_column($data['items'], 'product_variant_id'))
@@ -76,7 +81,8 @@ class ProductionReceiptService
                 }
 
                 $receipt = ProductionReceipt::create([
-                    ...$data, 'items' => $itemsWithLabels, 'created_by' => $userId, 'idempotency_key' => $key, 'request_hash' => $hash,
+                    ...$data, 'location_id' => $locationId, 'items' => $itemsWithLabels, 'created_by' => $userId,
+                    'idempotency_key' => $key, 'request_hash' => $hash,
                 ]);
 
                 // Lock every receipt key once in global order and reuse the locked rows, so per-item
@@ -84,7 +90,7 @@ class ProductionReceiptService
                 $levels = $this->inventory->lockLevels(collect($sortedItems)->map(fn ($item) => [
                     'product_variant_id' => $item['product_variant_id'],
                     'branch_id' => (int) $data['branch_id'],
-                    'location_id' => $data['location_id'] ?? null,
+                    'location_id' => $locationId,
                 ])->all());
 
                 foreach ($sortedItems as $item) {
@@ -102,12 +108,12 @@ class ProductionReceiptService
                     $level = $levels->get($this->inventory->levelKey([
                         'product_variant_id' => $variant->id,
                         'branch_id' => (int) $data['branch_id'],
-                        'location_id' => $data['location_id'] ?? null,
+                        'location_id' => $locationId,
                     ]));
                     $this->inventory->recordMovement([
                         'product_variant_id' => $variant->id,
                         'branch_id' => (int) $data['branch_id'],
-                        'location_id' => $data['location_id'] ?? null,
+                        'location_id' => $locationId,
                         'type' => StockMovementType::ProductionReceipt,
                         'affected_bucket' => StockBucket::OnHand,
                         'quantity' => $quantity, 'unit_cost' => $unitCost,

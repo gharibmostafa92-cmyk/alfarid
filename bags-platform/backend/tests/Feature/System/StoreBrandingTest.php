@@ -31,7 +31,45 @@ class StoreBrandingTest extends TestCase
             'data' => ['name' => 'Alfarid', 'logo' => null, 'email' => null, 'phone' => null, 'address' => null],
         ]);
 
-        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $cacheControl = (string) $response->headers->get('Cache-Control');
+        $this->assertStringContainsString('public', $cacheControl);
+        $this->assertStringContainsString('max-age=60', $cacheControl);
+        $this->assertStringContainsString('stale-while-revalidate=300', $cacheControl);
+        $this->assertStringNotContainsString('no-store', $cacheControl);
+    }
+
+    public function test_public_branding_caches_response_and_invalidates_after_settings_update(): void
+    {
+        config(['cache.default' => 'branding_cache', 'cache.stores.branding_cache' => ['driver' => 'array']]);
+        $this->seed(SettingSeeder::class);
+
+        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+        app(\App\Services\Shared\SettingService::class)->forgetMemoryState();
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        try {
+            $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+            $queries = \Illuminate\Support\Facades\DB::getQueryLog();
+        } finally {
+            \Illuminate\Support\Facades\DB::disableQueryLog();
+        }
+        $this->assertCount(0, array_filter($queries, fn ($q) => str_contains($q['query'], 'settings')));
+
+        $staff = User::factory()->create();
+        $staff->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));
+        $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
+        $token = $staff->createToken('branding-cache-test')->plainTextToken;
+        Auth::forgetGuards();
+
+        $this->withToken($token)->putJson('/api/v1/admin/settings', [
+            'company_name' => 'Brand Cached Updated',
+            'expected' => ['company_name' => 'Alfarid'],
+        ])->assertOk();
+
+        Auth::forgetGuards();
+        $this->withHeader('Authorization', '')->getJson('/api/v1/store/branding')->assertOk()
+            ->assertJsonPath('data.name', 'Brand Cached Updated');
     }
 
     public function test_admin_rename_is_visible_publicly_after_warming_the_cache(): void

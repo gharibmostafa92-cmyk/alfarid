@@ -13,7 +13,16 @@ class CustomerWalletTransaction extends Model
 {
     public $timestamps = false;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'customer_id',
+        'type',
+        'amount',
+        'balance_after',
+        'reference_type',
+        'reference_id',
+        'created_by',
+        'created_at',
+    ];
 
     protected function casts(): array
     {

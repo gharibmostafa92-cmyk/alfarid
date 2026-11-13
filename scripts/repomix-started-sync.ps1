@@ -185,6 +185,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     # 1. Database Schema & Migrations
     if ($p -match 'migrations/|seeders/|factories/|database\.php|pgbouncer|verifydatabaseschema') {
         if ($configs.ContainsKey('repomix.database-schema.json')) { [void]$matchedConfigs.Add('repomix.database-schema.json') }
+        if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
         
         # Domain-specific migrations
         if ($p -match 'procurement|supplier|purchase_order') {
@@ -270,13 +271,13 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 11. Finance & Treasury
-    if ($p -match 'treasury|doubleentry|expense|vault|financial|/finance/|financeservice|wallet|budget|reportservice|statementbudget') {
+    if ($p -match 'treasury|doubleentry|expense|vault|financial|/finance/|financeservice|wallet|budget|reportservice|statementbudget|reconcil') {
         if ($configs.ContainsKey('repomix.subsystem-07-finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.subsystem-07-finance-treasury.json') }
         if ($configs.ContainsKey('repomix.finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.finance-treasury.json') }
     }
 
     # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
     }
@@ -289,6 +290,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     # 14. System Overview & Core Documentation / Scripts
     if ($p -match 'readme|\.env|composer\.json|package\.json|turbo\.json|bootstrap/|middleware/|providers/|routes/|scripts/|docs/|healthready') {
         if ($configs.ContainsKey('repomix.system-overview.json')) { [void]$matchedConfigs.Add('repomix.system-overview.json') }
+        if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
     }
 
     # Fallback to system-overview if nothing matched

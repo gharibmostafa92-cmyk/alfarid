@@ -61,6 +61,12 @@ export interface PosCartLine {
   manualPrice?: boolean;
   /** Per-line message from the last quote (e.g. insufficient stock). */
   error?: string | null;
+  /** Cached product metadata so lines render reliably even before/without mock catalog lookup. */
+  name?: string;
+  stock?: number;
+  wholesale?: number;
+  cat?: string;
+  h?: number;
 }
 
 export interface ShiftStats {
@@ -81,10 +87,10 @@ export interface PosShift {
   branch?: Branch;
   cashier?: CashierUser;
   opening_cash: number;
-  cash_sales_total: number;
-  card_sales_total: number;
-  cash_returns_total: number;
-  cash_expenses_total: number;
+  cash_sales_total?: number;
+  card_sales_total?: number;
+  cash_returns_total?: number;
+  cash_expenses_total?: number;
   /** Absent for blind cashiers: the server strips it from the summary. */
   expected_closing_cash?: number;
   actual_closing_cash?: number | null;
@@ -100,11 +106,14 @@ export interface PosHeldSale {
   at: string;
   mins: number;
   customer: string | null;
+  customerObj?: Customer | null;
   note: string;
   items: { id: number; qty: number; unit_price?: number; discount_amount?: number }[];
   /** Server id (pos_held_sales.id) used for resume/delete. */
   serverId?: number;
   _id?: number;
+  resumedBy?: number | null;
+  resumedAt?: string | null;
 }
 
 export interface PastSaleItem {
@@ -181,6 +190,7 @@ export interface CreateSalePayload {
     qty: number;
     unit_price: number;
     discount_amount?: number;
+    override_reason?: string;
   }[];
   customer_id: number | null;
   payment_method: 'cash' | 'card' | 'mixed';
@@ -189,6 +199,8 @@ export interface CreateSalePayload {
   notes?: string;
   /** When true every line's unit_price is sent and the server accepts the manual price. */
   override_price?: boolean;
+  /** Mandatory reason when override_price is true. */
+  override_reason?: string;
   /** When the cart resumes a held sale: lets the server consume it atomically. */
   held_sale_id?: number | null;
 }

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Enums\Orders\OrderStatus;
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Order;
@@ -105,8 +107,19 @@ class PosSaleController extends Controller
 
         /** @var PosShift $shift */
         $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
 
-        $held = $this->pos->holdSale($shift, $data);
+        $idempotencyKey = $this->idempotencyKey($request);
+        $held = $idempotencyKey !== null
+            ? app(OperationIdempotencyService::class)->run(
+                'pos_hold',
+                $user,
+                $idempotencyKey,
+                ['shift_id' => $shift->id, ...$data],
+                fn (): PosHeldSale => $this->pos->holdSale($shift, $data),
+            )
+            : $this->pos->holdSale($shift, $data);
 
         return response()->json([
             'message' => 'تم تعليق الفاتورة بنجاح.',
@@ -131,7 +144,7 @@ class PosSaleController extends Controller
 
         $query = PosHeldSale::query()
             ->where('branch_id', $branchId)
-            ->with(['customer:id,name,phone'])
+            ->with(['customer:id,name,phone,type,status'])
             ->orderByDesc('created_at')
             ->limit(100);
 
@@ -139,7 +152,19 @@ class PosSaleController extends Controller
             $query->where('user_id', $user->id);
         }
 
-        $held = $query->get();
+        $held = $query->get()->map(fn (PosHeldSale $h): array => [
+            'id' => $h->id,
+            'hold_reference' => $h->hold_reference,
+            'branch_id' => $h->branch_id,
+            'user_id' => $h->user_id,
+            'customer_id' => $h->customer_id,
+            'customer' => $this->formatHeldCustomer($h->customer),
+            'items_payload' => $h->items_payload,
+            'notes' => $h->notes,
+            'resumed_by' => $h->resumed_by,
+            'resumed_at' => $h->resumed_at,
+            'created_at' => $h->created_at,
+        ])->values()->all();
 
         return response()->json(['data' => $held]);
     }
@@ -365,20 +390,18 @@ class PosSaleController extends Controller
     }
 
     /**
-     * Atomically lock, retrieve, and delete a held sale so two cashiers cannot resume it twice.
+     * Atomically lock and lease a held sale for resumption without destroying the row until checkout or explicit deletion.
      */
     public function resumeHeld(Request $request, int $held_sale): JsonResponse
     {
         /** @var User $user */
         $user = $request->user('staff');
 
-        // Lock, retrieve, and delete atomically so two cashiers resuming the
-        // same parked cart cannot both receive its payload.
-        $data = DB::transaction(function () use ($user, $held_sale): array {
+        $acquireLease = function () use ($user, $held_sale): PosHeldSale {
             $heldSale = PosHeldSale::query()
                 ->whereKey($held_sale)
                 ->lockForUpdate()
-                ->with('customer:id,name,phone')
+                ->with('customer:id,name,phone,type,status')
                 ->first();
 
             if ($heldSale === null) {
@@ -391,29 +414,65 @@ class PosSaleController extends Controller
                 abort(403, 'لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
             }
 
-            $data = [
+            if ($heldSale->resumed_at !== null && $heldSale->resumed_at->gt(now()->subMinutes(5))) {
+                throw new BusinessException('الفاتورة المعلقة قيد الاستئناف حالياً.', [], 409);
+            }
+
+            $heldSale->update([
+                'resumed_by' => $user->id,
+                'resumed_at' => now(),
+            ]);
+
+            return $heldSale->fresh(['customer:id,name,phone,type,status']);
+        };
+
+        $idempotencyKey = $this->idempotencyKey($request);
+        /** @var PosHeldSale $heldSale */
+        $heldSale = $idempotencyKey !== null
+            ? app(OperationIdempotencyService::class)->run(
+                'pos_resume_held',
+                $user,
+                $idempotencyKey,
+                ['held_sale_id' => $held_sale],
+                $acquireLease,
+            )
+            : DB::transaction($acquireLease);
+
+        $heldSale->loadMissing('customer:id,name,phone,type,status');
+
+        return response()->json([
+            'message' => 'تم استعادة الفاتورة المعلقة بنجاح.',
+            'data' => [
                 'held_sale_id' => $heldSale->id,
                 'id' => $heldSale->id,
                 'hold_reference' => $heldSale->hold_reference,
                 'customer_id' => $heldSale->customer_id,
-                'customer' => $heldSale->customer !== null ? [
-                    'id' => $heldSale->customer->id,
-                    'name' => $heldSale->customer->name,
-                    'phone' => $heldSale->customer->phone,
-                ] : null,
+                'customer' => $this->formatHeldCustomer($heldSale->customer),
                 'notes' => $heldSale->notes,
                 'items_payload' => $heldSale->items_payload,
-            ];
-
-            $heldSale->delete();
-
-            return $data;
-        });
-
-        return response()->json([
-            'message' => 'تم استعادة الفاتورة المعلقة بنجاح.',
-            'data' => $data,
+                'resumed_by' => $heldSale->resumed_by,
+                'resumed_at' => $heldSale->resumed_at,
+            ],
         ]);
+    }
+
+    /**
+     * @return array{id: int, name: string, phone: string|null, type: string, status: string, loyalty_points: int}|null
+     */
+    private function formatHeldCustomer(?\App\Models\Customer $customer): ?array
+    {
+        if ($customer === null) {
+            return null;
+        }
+
+        return [
+            'id' => $customer->id,
+            'name' => $customer->name,
+            'phone' => $customer->phone,
+            'type' => $customer->type instanceof CustomerType ? $customer->type->value : (string) $customer->type,
+            'status' => $customer->status instanceof CustomerStatus ? $customer->status->value : (string) $customer->status,
+            'loyalty_points' => (int) ($customer->getAttribute('loyalty_points') ?? 0),
+        ];
     }
 
     /**
@@ -509,58 +568,13 @@ class PosSaleController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
-        $sale->load('items');
-
-        // Net the return credit against the replacement total up front so only
-        // the net cash/card difference moves through the drawer: the request
-        // tender is the net amount, never the full replacement price.
-        $returnEstimate = $this->pos->estimateReturnValue($sale, $data['returned_items']);
-        $quote = $this->pos->quote(
-            (int) $shift->branch_id,
-            $data['exchange_items'],
-            $sale->customer_id ? Customer::find($sale->customer_id) : null,
-            false,
-            $user,
-        );
-        $replacementTotal = (float) $quote['grand_total'];
-        $credit = min($returnEstimate, $replacementTotal);
-
-        $exchangePayload = [
-            'items' => $data['exchange_items'],
-            'customer_id' => $sale->customer_id,
-            'cash_amount' => (float) ($data['cash_amount'] ?? 0),
-            'card_amount' => (float) ($data['card_amount'] ?? 0),
-            'exchange_credit' => $credit,
-        ];
-
-        // Choose the order that keeps the drawer solvent: when the replacement
-        // costs at least the refund we can take the sale first, otherwise the
-        // refund has to come out of existing cash (and returning first avoids a
-        // same-variant stock conflict when the shelf is empty).
-        $saleFirst = $replacementTotal >= $returnEstimate;
-
         /** @var Order $returnOrder */
         $returnOrder = app(OperationIdempotencyService::class)->run(
             'pos_exchange',
             $user,
             $this->requiredIdempotencyKey($request),
             ['sale_id' => $sale->id, ...$data],
-            function () use ($shift, $sale, $data, $exchangePayload, $credit, $saleFirst): Order {
-                $createSale = fn (): Order => $this->pos->createSale($shift, $exchangePayload);
-
-                if ($saleFirst) {
-                    $exchangeOrder = $createSale();
-                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items'], [], $credit);
-                } else {
-                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items'], [], $credit);
-                    $exchangeOrder = $createSale();
-                }
-
-                $returnOrder = Order::findOrFail($result['return_order_id']);
-                $returnOrder->update(['exchange_order_id' => $exchangeOrder->id]);
-
-                return $returnOrder;
-            },
+            fn (): Order => $this->pos->processExchange($shift, $sale, $user, $data),
         );
 
         return response()->json([

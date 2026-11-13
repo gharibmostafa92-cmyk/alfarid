@@ -7,7 +7,6 @@ namespace App\Services\Catalog;
 use App\Services\Pricing\PricingService;
 use App\Services\Shared\SearchTerm;
 
-use App\Enums\Customer\CustomerStatus;
 use App\Enums\Catalog\Occasion;
 use App\Enums\Catalog\ProductStatus;
 use App\Enums\Orders\SalesChannel;
@@ -33,13 +32,43 @@ class StoreCatalogService
 {
     public const HOME_CACHE_KEY = 'store_home_data:v2';
 
+    public const FACETS_VERSION_KEY = 'store:facets:version';
+
+    public static function facetsVersion(): int
+    {
+        return max(1, (int) Cache::get(self::FACETS_VERSION_KEY, 1));
+    }
+
     /**
-     * Drop cached public catalog ID sets after a product's visibility changes.
+     * Drop cached public taxonomy payloads (categories & brands) across active locales.
+     */
+    public static function forgetTaxonomyCaches(): void
+    {
+        $locales = array_values(array_unique([
+            'ar',
+            'en',
+            app()->getLocale(),
+            (string) config('app.locale', 'en'),
+            (string) config('app.fallback_locale', 'en'),
+        ]));
+        foreach ($locales as $locale) {
+            if ($locale !== '') {
+                Cache::forget('store:categories:v1:'.$locale);
+                Cache::forget('store:brands:v1:'.$locale);
+            }
+        }
+    }
+
+    /**
+     * Drop cached public catalog ID sets and atomically bump facet cache generation after catalog changes.
      */
     public static function forgetStorefrontCaches(): void
     {
         Cache::forget(self::HOME_CACHE_KEY);
         Cache::forget('store:showcase:ids:'.(int) config('storefront.showcase_limit', 6));
+        if (! Cache::add(self::FACETS_VERSION_KEY, 2)) {
+            Cache::increment(self::FACETS_VERSION_KEY);
+        }
     }
 
     /** Per-request memo so facets/index resolve the category only once. */
@@ -288,6 +317,8 @@ class StoreCatalogService
                     ->where('price_lists.is_active', true)
                     ->where('price_lists.type', 'retail')
                     ->whereNull('price_lists.branch_id')
+                    ->whereNull('price_lists.customer_group_id')
+                    ->whereNull('price_lists.customer_id')
                     ->where('price_list_items.min_qty', '<=', 1)
                     ->where(fn ($w) => $w->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', now()))
                     ->where(fn ($w) => $w->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', now()))
@@ -406,13 +437,11 @@ class StoreCatalogService
     }
 
     /**
-     * Resolve the currently authenticated and approved customer model, if any.
+     * Resolve the currently authenticated shopper customer model, if eligible.
      */
     public function customer(): ?Customer
     {
-        $user = auth('sanctum')->user();
-
-        return $user instanceof Customer && $user->status === CustomerStatus::Approved ? $user : null;
+        return Customer::resolveShopper(auth('sanctum')->user());
     }
 
     /**
@@ -467,19 +496,21 @@ class StoreCatalogService
      */
     public function facets(array $filters): array
     {
-        if (! empty($filters['search']) || (string) config('cache.default') === 'array') {
+        if ((string) config('cache.default') === 'array') {
             return [...$this->computeStructuralFacets($filters), 'price_ranges' => $this->computePriceRanges($filters)];
         }
         $key = $this->facetsCacheKey($filters);
         $context = $this->pricing->catalogContext($this->customer());
+        $ttl = ! empty($filters['search']) ? [30, 120] : [60, 600];
 
-        return [...$this->cachedFacetsPart($key.':structure', fn () => $this->computeStructuralFacets($filters)),
-            'price_ranges' => $this->cachedFacetsPart($key.':prices:'.hash('sha256', $context['key']), fn () => $this->computePriceRanges($filters))];
+        return [...$this->cachedFacetsPart($key.':structure', fn () => $this->computeStructuralFacets($filters), $ttl),
+            'price_ranges' => $this->cachedFacetsPart($key.':prices:'.hash('sha256', $context['key']), fn () => $this->computePriceRanges($filters), $ttl)];
     }
 
-    private function cachedFacetsPart(string $key, \Closure $load): mixed
+    /** @param array{0: int, 1: int} $ttl */
+    private function cachedFacetsPart(string $key, \Closure $load, array $ttl = [60, 600]): mixed
     {
-        $flexible = fn () => Cache::flexible($key, [60, 600], $load, ['seconds' => 120]);
+        $flexible = fn () => Cache::flexible($key, $ttl, $load, ['seconds' => 120]);
         if (Cache::has($key)) {
             return $flexible();
         }
@@ -502,7 +533,11 @@ class StoreCatalogService
             $base['category'] = $category !== null ? 'id:'.$category->id : 'missing';
         }
         if (isset($base['search'])) {
-            $base['search'] = mb_strtolower(trim((string) $base['search']));
+            $search = mb_strtolower(trim((string) $base['search']));
+            if (mb_strlen($search) > 60) {
+                $search = mb_substr($search, 0, 60).':'.substr(hash('sha256', $search), 0, 12);
+            }
+            $base['search'] = $search;
         }
         if (isset($base['occasions'])) {
             sort($base['occasions']);
@@ -511,7 +546,10 @@ class StoreCatalogService
         ksort($base);
 
         // v3 stores plain arrays so database-cache unserialization never needs PHP classes.
-        return 'store:facets:v3:'.hash('sha256', json_encode($base, JSON_UNESCAPED_UNICODE));
+        $version = self::facetsVersion();
+        $prefix = $version === 1 ? 'store:facets:v3:' : 'store:facets:v3:r'.$version.':';
+
+        return $prefix.hash('sha256', json_encode($base, JSON_UNESCAPED_UNICODE));
     }
 
     /** @param array<string, mixed> $filters */
@@ -531,7 +569,7 @@ class StoreCatalogService
             ->orderByDesc('count')->orderBy('id')->limit(24)->get()
             ->map(fn ($c) => [...(array) $c, 'count' => (int) $c->count]);
 
-        // Aggregate occasion facets in a single query using PostgreSQL FILTER clauses instead of per-occasion queries.
+        // Aggregate occasion facets and total count in a single query using PostgreSQL FILTER clauses.
         $occasionBase = $this->applyFilters($this->publishedBaseQuery(),
             Arr::except($base, 'occasions'))->reorder()->select('products.id', 'products.occasions');
         $selects = [];
@@ -539,6 +577,16 @@ class StoreCatalogService
         foreach (Occasion::cases() as $occasion) {
             $selects[] = 'COUNT(*) FILTER (WHERE occasion_scope.occasions @> ?::jsonb) AS "occ_'.$occasion->value.'"';
             $bindings[] = json_encode([$occasion->value], JSON_THROW_ON_ERROR);
+        }
+        if (empty($base['occasions'])) {
+            $selects[] = 'COUNT(*) AS total';
+        } else {
+            $totalClauses = [];
+            foreach ($base['occasions'] as $occ) {
+                $totalClauses[] = 'occasion_scope.occasions @> ?::jsonb';
+                $bindings[] = json_encode([$occ], JSON_THROW_ON_ERROR);
+            }
+            $selects[] = 'COUNT(*) FILTER (WHERE '.implode(' OR ', $totalClauses).') AS total';
         }
         $occasionCounts = DB::query()->fromSub($occasionBase->toBase(), 'occasion_scope')
             ->selectRaw(implode(', ', $selects), $bindings)
@@ -549,7 +597,7 @@ class StoreCatalogService
         ])->values();
 
         return [
-            'total' => $scope()->count('products.id'),
+            'total' => (int) ($occasionCounts->total ?? 0),
             'colors' => $colors->all(),
             'occasions' => $occasions->all(),
         ];
@@ -617,7 +665,7 @@ class StoreCatalogService
         $this->applyDiscountedFilter($discounted);
         $discounted = $discounted
             ->orderByDesc('products.sales_count')->orderByDesc('products.id')
-            ->limit(12)->pluck('products.id')->all();
+            ->limit(30)->pluck('products.id')->all();
 
         return [
             'latest_ids' => $latest,

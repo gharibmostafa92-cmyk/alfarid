@@ -12,6 +12,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         ConcurrentIndex::ensure('pos_shifts_one_open_user', "ON pos_shifts (user_id) WHERE status = 'open'", unique: true);
         ConcurrentIndex::ensure('pos_shifts_one_unsettled_drawer', "ON pos_shifts (treasury_id) WHERE status IN ('open','closed_pending_approval')", unique: true);
         $this->replaceCheck('treasuries', 'treasuries_nonnegative_cash', "type = 'bank_account' OR current_balance >= 0");
@@ -41,6 +45,10 @@ SQL);
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         if (DB::table('treasury_transactions')->whereIn('type', ['cash_shortage', 'cash_overage'])->exists()
             || DB::table('orders')->where('payment_status', 'refund_pending')->exists()) {
             throw new RuntimeException('Resolve pending refunds and preserve cash discrepancy transactions before rollback.');

@@ -59,7 +59,7 @@ class ReportController extends Controller
             $to,
             $request->input('granularity', 'daily'),
             $request->input('group_by'),
-            app(BranchAccess::class)->restrictedBranch($request->user()),
+            app(BranchAccess::class)->restrictedBranch($request->user('staff')),
         )]);
     }
 
@@ -77,9 +77,9 @@ class ReportController extends Controller
         // keys per permission level. HTTP requests apply a tighter query timeout budget than background jobs.
         $data = $this->reports->inventoryReport(
             (int) $request->input('dead_days', 90),
-            app(BranchAccess::class)->restrictedBranch($request->user()),
-            CostAccess::canView($request->user()),
-            60000,
+            app(BranchAccess::class)->restrictedBranch($request->user('staff')),
+            CostAccess::canView($request->user('staff')),
+            15000,
         );
 
         return response()->json(['data' => $data]);
@@ -95,7 +95,7 @@ class ReportController extends Controller
     {
         [$from, $to] = $this->period($request);
 
-        return response()->json(['data' => $this->reports->profitReport($from, $to, app(BranchAccess::class)->restrictedBranch($request->user()))]);
+        return response()->json(['data' => $this->reports->profitReport($from, $to, app(BranchAccess::class)->restrictedBranch($request->user('staff')))]);
     }
 
     /**
@@ -106,7 +106,7 @@ class ReportController extends Controller
      */
     public function suppliers(Request $request): JsonResponse
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        app(BranchAccess::class)->assertCentralAccess($request->user('staff'));
 
         return response()->json(['data' => $this->reports->suppliersReport()]);
     }
@@ -126,7 +126,7 @@ class ReportController extends Controller
             $from,
             $to,
             $request->boolean('only_differences'),
-            app(BranchAccess::class)->restrictedBranch($request->user()),
+            app(BranchAccess::class)->restrictedBranch($request->user('staff')),
         )]);
     }
 }

@@ -2,6 +2,7 @@ import { createStore } from 'zustand/vanilla';
 import type { Customer, PosCartLine, PosProduct, QuoteResult } from '../types/pos.types';
 import type { QuoteRequest } from '../services/pos-api.core';
 import { spreadDiscount, toCents } from '../lib/money';
+import { isWholesaleEligible } from '../lib/wholesale';
 
 export interface CartDeps {
   quoteFn: (req: QuoteRequest, signal: AbortSignal) => Promise<QuoteResult | null>;
@@ -162,11 +163,24 @@ export function createPosCartStore(deps: CartDeps) {
 
       addItem: (p) => {
         const { customer } = get();
-        const unit = customer?.tier === 'wholesale' ? p.wholesale : p.price;
+        const unit = isWholesaleEligible(customer) ? p.wholesale : p.price;
         get().setCart((prev) => {
           const existing = prev.find((l) => l.id === p.id);
-          if (existing) return prev.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1 } : l));
-          return [...prev, { id: p.id, qty: 1, price: unit, listPrice: p.price }];
+          if (existing) return prev.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1, stock: p.stock } : l));
+          return [
+            ...prev,
+            {
+              id: p.id,
+              qty: 1,
+              price: unit,
+              listPrice: p.price,
+              name: p.name,
+              stock: p.stock,
+              wholesale: p.wholesale,
+              cat: p.cat,
+              h: p.h,
+            },
+          ];
         });
       },
 

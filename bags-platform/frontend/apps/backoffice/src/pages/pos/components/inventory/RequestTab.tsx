@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, Empty, Search, Field, cx } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
+import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { PosProduct, TransferSource, Branch } from '../../types/pos.types';
 
 interface RequestTabProps {
@@ -11,22 +12,30 @@ interface RequestTabProps {
 
 export function RequestTab({ toast, branch }: RequestTabProps) {
   const [src, setSrc] = useState<number>(1);
-  const [lines, setLines] = useState<{ id: number; qty: number }[]>([
-    { id: 106, qty: 8 },
-    { id: 112, qty: 10 },
-  ]);
+  const [lines, setLines] = useState<{ id: number; qty: number }[]>([]);
   const [q, setQ] = useState('');
   const [note, setNote] = useState('');
   const [allProducts, setAllProducts] = useState<PosProduct[]>([]);
   const [sources, setSources] = useState<TransferSource[]>([]);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    posMockService.getProducts().then(setAllProducts);
-    posMockService.getTransferSources().then((s) => {
-      setSources(s);
-      if (s.length > 0) setSrc(s[0].id);
-    });
-  }, []);
+    posMockService
+      .getProducts()
+      .then(setAllProducts)
+      .catch((error) => {
+        if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
+      });
+    posMockService
+      .getTransferSources()
+      .then((s) => {
+        setSources(s);
+        if (s.length > 0) setSrc(s[0].id);
+      })
+      .catch((error) => {
+        if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
+      });
+  }, [toast]);
 
   const res = q
     ? allProducts
@@ -46,11 +55,20 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
     setLines((l) => (l.find((x) => x.id === p.id) ? l : [...l, { id: p.id, qty }]));
 
   const handleSubmit = async () => {
-    if (!lines.length) return;
-    await posMockService.requestTransfer(src, lines, note);
-    toast('تم إرسال طلب التحويل للاعتماد');
-    setLines([]);
-    setNote('');
+    if (!lines.length || busy) return;
+    setBusy(true);
+    try {
+      await posMockService.requestTransfer(src, lines, note);
+      toast('تم إرسال طلب التحويل للاعتماد');
+      setLines([]);
+      setNote('');
+    } catch (error) {
+      if (!isCancel(error)) {
+        toast(normalizeError(error).message, 'bad');
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const currentSource = sources.find((s) => s.id === src);
@@ -245,11 +263,11 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
         </Field>
         <button
           className="btn btn-accent btn-lg"
-          disabled={!lines.length}
+          disabled={!lines.length || busy}
           onClick={handleSubmit}
         >
           <Icon n="arrowLeft" s={16} />
-          إرسال طلب التحويل
+          {busy ? 'جارِ الإرسال…' : 'إرسال طلب التحويل'}
         </button>
         <div className="col gap-1">
           <Api m="POST" path="/pos/transfer-requests" />

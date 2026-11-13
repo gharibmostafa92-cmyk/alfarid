@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { useSpotlight } from '@/hooks/useSpotlight';
@@ -118,18 +119,18 @@ export function SophieMegaDropdown({
         {colGroups.map((group, gIdx) => (
           <div key={`group-${gIdx}`} className="mega-group">
             <h4 className="mega-group-title">
-              <a
+              <Link
                 href={STORE_ROUTES.shop({ category: group.slug })}
                 aria-current={currentCategory === group.slug ? 'page' : undefined}
                 onClick={(e) => handleCategoryClick(e, group.slug)}
               >
                 {group.title}
-              </a>
+              </Link>
             </h4>
             <ul className="mega-group-list">
               {group.links.map((link, lIdx) => (
                 <li key={`link-${lIdx}`}>
-                  <a
+                  <Link
                     href={STORE_ROUTES.shop({ category: link.slug })}
                     aria-current={currentCategory === link.slug ? 'page' : undefined}
                     className="mega-link"
@@ -138,7 +139,7 @@ export function SophieMegaDropdown({
                   >
                     <span>{link.label}</span>
                     <span className="mega-link-count">{link.count}</span>
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -211,17 +212,17 @@ export function SophieMegaDropdown({
                 </button>
               );
             })}
-            {/* Offers: direct link — no discount sort/filter in the catalog API, so no columns */}
-            <a
-              href={STORE_ROUTES.shop()}
+            {/* Offers: direct link to discounted products */}
+            <Link
+              href={STORE_ROUTES.shop({ on_sale: 1 })}
               role="tab"
               aria-selected={false}
               className="mega-dept-tab offers-tab"
-              onClick={(e) => handleCategoryClick(e, '')}
+              onClick={() => onClose?.()}
               data-dept-tab="offers"
             >
               Offers
-            </a>
+            </Link>
           </div>
 
           <button
@@ -238,7 +239,7 @@ export function SophieMegaDropdown({
 
         {/* Mega Menu Body: 3 Columns of Categories + 1 Spotlight Offer Card */}
         {!activeDept ? error ? <p role="alert" className="p-6 text-sm text-red-700">تعذّر تحميل الأقسام. <button type="button" className="underline font-semibold ml-1" onClick={onRetry}>إعادة المحاولة</button></p>
-          : departments ? <p className="p-6 text-sm text-gray-600">لا توجد أقسام متاحة حاليًا. <a href="/shop" className="underline font-semibold">تصفّح المتجر</a></p> : renderSkeleton() : (
+          : departments ? <p className="p-6 text-sm text-gray-600">لا توجد أقسام متاحة حاليًا. <Link href="/shop" onClick={() => onClose?.()} className="underline font-semibold">تصفّح المتجر</Link></p> : renderSkeleton() : (
           <div className="mega-body" id="mega-body-content">
             {renderColumn(activeDept.col1, 1)}
             {renderColumn(activeDept.col2, 2)}

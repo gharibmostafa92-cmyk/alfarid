@@ -75,7 +75,13 @@
                     "bags-platform/backend/database/migrations/*scope_phone_unique*.php",
                     "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php",
                     "bags-platform/backend/database/seeders/InventoryPermissionSeeder.php",
-                    "bags-platform/backend/database/seeders/RolePermissionSeeder.php"
+                    "bags-platform/backend/database/seeders/RolePermissionSeeder.php",
+                    "bags-platform/backend/config/auth.php",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/AccountForm.tsx",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/RequireActor.tsx",
+                    "bags-platform/frontend/apps/storefront/src/services/auth.service.ts",
+                    "bags-platform/frontend/apps/storefront/src/store/auth.store.ts",
+                    "bags-platform/frontend/apps/storefront/src/hooks/use-auth-me.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

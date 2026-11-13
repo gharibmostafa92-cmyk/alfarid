@@ -101,22 +101,30 @@ test('shift filters preserve dates and serialize booleans using the shared contr
 test('shiftsApi and expensesApi support idempotency keys and shift lifecycle endpoints', async () => {
   const f = finance();
   await f.shiftsApi.approve(9, 'shift-approve-key');
-  await f.shiftsApi.reject(9, 'عد نقدي غير مطابق');
-  await f.shiftsApi.reopen(9, 'إعادة جرد الوردية');
-  await f.shiftsApi.forceClose(9, 'انصراف مفاجئ للكاشير');
+  await f.shiftsApi.reject(9, 'عد نقدي غير مطابق', 'shift-reject-key');
+  await f.shiftsApi.reopen(9, 'إعادة جرد الوردية', 'shift-reopen-key');
+  await f.shiftsApi.forceClose(9, { actual_closing_cash: '750.25', reason: 'انصراف مفاجئ للكاشير' }, 'shift-force-close-key');
   await f.expensesApi.void(5, 'خطأ إدخال في الفاتورة', 'expense-void-key');
+  await f.treasuryTransfersApi.reject(12, 'بيانات التحويل ناقصة', 'transfer-reject-key');
 
+  assert.equal(f.expensesApi.remove, undefined, 'expensesApi must expose void() instead of crud.remove()');
   assert.equal(f.calls[0].url, '/api/v1/admin/shifts/9/approve');
   assert.deepEqual(f.calls[0].config, { headers: { 'Idempotency-Key': 'shift-approve-key' } });
   assert.equal(f.calls[1].url, '/api/v1/admin/shifts/9/reject');
   assert.deepEqual(f.calls[1].body, { reason: 'عد نقدي غير مطابق' });
+  assert.deepEqual(f.calls[1].config, { headers: { 'Idempotency-Key': 'shift-reject-key' } });
   assert.equal(f.calls[2].url, '/api/v1/admin/shifts/9/reopen');
   assert.deepEqual(f.calls[2].body, { reason: 'إعادة جرد الوردية' });
+  assert.deepEqual(f.calls[2].config, { headers: { 'Idempotency-Key': 'shift-reopen-key' } });
   assert.equal(f.calls[3].url, '/api/v1/admin/shifts/9/force-close');
-  assert.deepEqual(f.calls[3].body, { reason: 'انصراف مفاجئ للكاشير' });
+  assert.deepEqual(f.calls[3].body, { actual_closing_cash: '750.25', reason: 'انصراف مفاجئ للكاشير' });
+  assert.deepEqual(f.calls[3].config, { headers: { 'Idempotency-Key': 'shift-force-close-key' } });
   assert.equal(f.calls[4].url, '/api/v1/admin/expenses/5/void');
   assert.deepEqual(f.calls[4].body, { void_reason: 'خطأ إدخال في الفاتورة' });
   assert.deepEqual(f.calls[4].config, { headers: { 'Idempotency-Key': 'expense-void-key' } });
+  assert.equal(f.calls[5].url, '/api/v1/admin/treasury-transfers/12/reject');
+  assert.deepEqual(f.calls[5].body, { reason: 'بيانات التحويل ناقصة' });
+  assert.deepEqual(f.calls[5].config, { headers: { 'Idempotency-Key': 'transfer-reject-key' } });
 });
 
 function transferFormHarness(api) {
@@ -191,7 +199,7 @@ test('transfer form retries reuse the same idempotency key and start a new key o
   open();
   assert.equal(modal().props.open, true);
   await submit();
-  assert.deepEqual(calls[0].body, { from_treasury_id: 3, to_treasury_id: 4, amount: 125.5, notes: null });
+  assert.deepEqual(calls[0].body, { from_treasury_id: 3, to_treasury_id: 4, amount: '125.50', notes: null });
   assert.deepEqual(calls[1], calls[0]);
   assert.equal(calls[0].key, 'transfer-key-1');
   assert.equal(modal().props.open, false);

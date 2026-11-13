@@ -85,7 +85,7 @@ export function PImg({
   size,
   children,
 }: {
-  p?: PosProduct;
+  p?: Partial<Pick<PosProduct, 'cat' | 'h'>> | null;
   size?: 'xs' | 'sm' | 'md';
   children?: ReactNode;
 }) {
@@ -104,7 +104,7 @@ export function PImg({
   return (
     <div
       className={cx('pimg', size)}
-      style={{ '--h': p.h } as React.CSSProperties}
+      style={{ '--h': p.h ?? 240 } as React.CSSProperties}
     >
       <Icon
         n={icon}

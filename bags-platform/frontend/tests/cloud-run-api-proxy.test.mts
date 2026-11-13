@@ -36,6 +36,7 @@ test('forwards the user token and idempotency key separately from the service id
       assert.equal(headers.get('idempotency-key'), 'test-key');
       assert.equal(headers.get('x-forwarded-for'), null);
       assert.equal(headers.get('x-alfarid-client-ip'), '10.0.0.1');
+      assert.match(headers.get('x-alfarid-client-ip-timestamp') ?? '', /^\d{10,}$/);
       assert.match(headers.get('x-alfarid-client-ip-signature') ?? '', /^[0-9a-f]{64}$/);
       assert.equal(headers.get('user-agent'), 'Alfarid-Test/1.0');
       assert.equal(headers.get('accept-language'), 'ar-EG,ar;q=0.9');
@@ -106,7 +107,7 @@ test('rejects non-POST webhook methods', async () => {
 
 test('passes safe public cache headers through while keeping authenticated responses private', async () => {
   const publicResponse = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog'), ['store', 'catalog'], {
-    upstream, origins: [office],
+    upstream, origins: [office], clientIpSecret,
     identityToken: async () => 'service-token',
     send: async () => new Response('catalog', { status: 200, headers: { 'cache-control': 'public, s-maxage=60' } }),
   });
@@ -115,9 +116,53 @@ test('passes safe public cache headers through while keeping authenticated respo
   const authenticatedResponse = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
     headers: { authorization: 'Bearer user-token' },
   }), ['store', 'catalog'], {
-    upstream, origins: [office],
+    upstream, origins: [office], clientIpSecret,
     identityToken: async () => 'service-token',
     send: async () => new Response('catalog', { status: 200, headers: { 'cache-control': 'public, s-maxage=60' } }),
   });
   assert.equal(authenticatedResponse.headers.get('cache-control'), 'no-store');
+});
+
+test('fails closed with 503 when clientIpSecret is missing or blank', async () => {
+  let called = false;
+  for (const secret of [undefined, '', '   ']) {
+    const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog'), ['store', 'catalog'], {
+      upstream, origins: [office], clientIpSecret: secret,
+      identityToken: async () => { called = true; return 'service-token'; },
+      send: async () => { called = true; return new Response('ok'); },
+    });
+    assert.equal(response.status, 503);
+    assert.equal(called, false);
+  }
+});
+
+test('extracts client IP using trustedProxyHops without sliding back on malformed hops', async () => {
+  let capturedHeaders: Headers | undefined;
+  const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'x-forwarded-for': '203.0.113.9, 198.51.100.44, 10.0.0.1' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret, trustedProxyHops: 2,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      capturedHeaders = new Headers(init?.headers);
+      return new Response('ok', { status: 200 });
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(capturedHeaders?.get('x-alfarid-client-ip'), '198.51.100.44');
+  assert.match(capturedHeaders?.get('x-alfarid-client-ip-timestamp') ?? '', /^\d{10,}$/);
+  assert.match(capturedHeaders?.get('x-alfarid-client-ip-signature') ?? '', /^[0-9a-f]{64}$/);
+
+  let invalidHopHeaders: Headers | undefined;
+  await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'x-forwarded-for': '198.51.100.44, not-an-ip, 10.0.0.1' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret, trustedProxyHops: 2,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      invalidHopHeaders = new Headers(init?.headers);
+      return new Response('ok', { status: 200 });
+    },
+  });
+  assert.equal(invalidHopHeaders?.get('x-alfarid-client-ip'), null);
 });

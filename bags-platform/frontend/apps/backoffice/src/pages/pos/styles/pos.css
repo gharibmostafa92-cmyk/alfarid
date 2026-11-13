@@ -169,6 +169,7 @@ html, body { height: 100%; overflow: hidden; }
 .bars { height: 34px; margin-top: 12px; background: repeating-linear-gradient(90deg, #18151c 0 2px, transparent 2px 4px, #18151c 4px 5px, transparent 5px 8px, #18151c 8px 11px, transparent 11px 12px); }
 
 /* 80mm Thermal Receipt Print */
+.print-receipt-host { display: none; }
 @media print {
   @page {
     size: 80mm auto;
@@ -182,6 +183,10 @@ html, body { height: 100%; overflow: hidden; }
   body * {
     visibility: hidden;
   }
+  .print-receipt-host {
+    display: block !important;
+  }
+  .print-receipt-host, .print-receipt-host *,
   .receipt, .receipt * {
     visibility: visible;
   }

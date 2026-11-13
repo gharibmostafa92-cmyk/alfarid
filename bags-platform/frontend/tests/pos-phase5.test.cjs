@@ -119,7 +119,7 @@ test('addItem merges quantity and uses wholesale price for wholesale customers',
   store.getState().addItem(prod(1));
   store.getState().addItem(prod(1));
   assert.equal(store.getState().cart[0].qty, 2);
-  store.getState().setCustomer({ id: 5, name: 'ج', phone: '', tier: 'wholesale', points: 0 });
+  store.getState().setCustomer({ id: 5, name: 'ج', phone: '', tier: 'wholesale', points: 0, status: 'approved' });
   store.getState().addItem(prod(2, 100, 80));
   assert.equal(store.getState().cart.find((l) => l.id === 2).price, 80);
 });
@@ -197,7 +197,7 @@ test('setCustomer triggers an immediate quote', async () => {
   store.getState().addItem(prod(1));
   await store.getState().flushQuote();
   const before = calls.length;
-  store.getState().setCustomer({ id: 5, name: 'ج', phone: '', tier: 'wholesale', points: 0 });
+  store.getState().setCustomer({ id: 5, name: 'ج', phone: '', tier: 'wholesale', points: 0, status: 'approved' });
   await wait(5);
   assert.equal(calls.length, before + 1);
   assert.equal(calls[calls.length - 1].customer_id, 5);

@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, Kbd } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
+import { fromCents, toCents } from '../../lib/money';
 import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos.types';
 
-interface ReceiptDoneProps {
+export interface ThermalReceiptProps {
   invoiceNumber: string;
   total: number;
   method: 'cash' | 'card' | 'mixed';
@@ -16,9 +17,121 @@ interface ReceiptDoneProps {
   customer: Customer | null;
   discount: number;
   notes?: string;
-  onNew: () => void;
   branch?: Branch | null;
   cashier?: CashierUser | null;
+  timestamp?: number;
+}
+
+export function ThermalReceipt({
+  invoiceNumber,
+  total,
+  method,
+  received,
+  change,
+  cashA,
+  cardA,
+  cart,
+  customer,
+  discount,
+  notes,
+  branch,
+  cashier,
+  timestamp,
+}: ThermalReceiptProps) {
+  const printedAt = new Date(timestamp ?? Date.now()).toLocaleString('ar-EG', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+
+  return (
+    <div className="receipt">
+      <div style={{ textAlign: 'center' }}>
+        <b className="fs-14 display">الفريد للشنط</b>
+        <div style={{ color: '#6f6a76' }}>{branch?.name || 'فرع مدينة نصر'}</div>
+        <div className="num" style={{ color: '#6f6a76' }}>
+          {invoiceNumber} · {printedAt}
+        </div>
+      </div>
+      <div className="dash" />
+      {cart.map((l) => {
+        const p = pos.getProductById(l.id);
+        const name = l.name ?? p?.name ?? `#${l.id}`;
+        return (
+          <div key={l.id}>
+            <div className="truncate">{name}</div>
+            <div className="rr" style={{ color: '#6f6a76' }}>
+              <span className="num">
+                {fmt(l.qty)} × {egp(l.price)}
+              </span>
+              <span className="num" style={{ color: '#18151c' }}>
+                {egp(fromCents(toCents(l.price) * l.qty))}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="dash" />
+      {discount > 0 && (
+        <div className="rr">
+          <span>خصم</span>
+          <span className="num">−{egp(discount)}</span>
+        </div>
+      )}
+      <div className="rr" style={{ fontWeight: 700, fontSize: 14 }}>
+        <span>الإجمالي</span>
+        <span className="num">{egp(total)} ج</span>
+      </div>
+      {method === 'cash' && (
+        <>
+          <div className="rr">
+            <span>نقدي مستلم</span>
+            <span className="num">{egp(received)}</span>
+          </div>
+          <div className="rr">
+            <span>الباقي</span>
+            <span className="num">{egp(Math.max(0, change))}</span>
+          </div>
+        </>
+      )}
+      {method === 'card' && (
+        <div className="rr">
+          <span>بطاقة</span>
+          <span className="num">{egp(total)}</span>
+        </div>
+      )}
+      {method === 'mixed' && (
+        <>
+          <div className="rr">
+            <span>نقدي</span>
+            <span className="num">{egp(cashA)}</span>
+          </div>
+          <div className="rr">
+            <span>بطاقة</span>
+            <span className="num">{egp(cardA)}</span>
+          </div>
+        </>
+      )}
+      {customer && (
+        <>
+          <div className="dash" />
+          <div className="rr">
+            <span>العميل</span>
+            <span>{customer.name}</span>
+          </div>
+        </>
+      )}
+      {notes && <div style={{ marginTop: 6, color: '#6f6a76' }}>{notes}</div>}
+      <div className="dash" />
+      <div style={{ textAlign: 'center', color: '#6f6a76' }}>
+        الكاشير: {cashier?.name || 'أحمد سمير'} — الاستبدال خلال ١٤ يومًا بالإيصال
+      </div>
+      <div className="bars" />
+    </div>
+  );
+}
+
+interface ReceiptDoneProps extends Omit<ThermalReceiptProps, 'timestamp'> {
+  onNew: () => void;
 }
 
 export function ReceiptDone({
@@ -107,90 +220,21 @@ export function ReceiptDone({
           borderInlineStart: '1px solid var(--line)',
         }}
       >
-        <div className="receipt">
-          <div style={{ textAlign: 'center' }}>
-            <b className="fs-14 display">الفريد للشنط</b>
-            <div style={{ color: '#6f6a76' }}>{branch?.name || 'فرع مدينة نصر'}</div>
-            <div className="num" style={{ color: '#6f6a76' }}>
-              {invoiceNumber} ·{' '}
-              {new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
-            </div>
-          </div>
-          <div className="dash" />
-          {cart.map((l) => {
-            const p = posMockService.getProductById(l.id);
-            if (!p) return null;
-            return (
-              <div key={l.id}>
-                <div className="truncate">{p.name}</div>
-                <div className="rr" style={{ color: '#6f6a76' }}>
-                  <span className="num">
-                    {fmt(l.qty)} × {egp(l.price)}
-                  </span>
-                  <span className="num" style={{ color: '#18151c' }}>
-                    {egp(l.qty * l.price)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          <div className="dash" />
-          {discount > 0 && (
-            <div className="rr">
-              <span>خصم</span>
-              <span className="num">−{egp(discount)}</span>
-            </div>
-          )}
-          <div className="rr" style={{ fontWeight: 700, fontSize: 14 }}>
-            <span>الإجمالي</span>
-            <span className="num">{egp(total)} ج</span>
-          </div>
-          {method === 'cash' && (
-            <>
-              <div className="rr">
-                <span>نقدي مستلم</span>
-                <span className="num">{egp(received)}</span>
-              </div>
-              <div className="rr">
-                <span>الباقي</span>
-                <span className="num">{egp(Math.max(0, change))}</span>
-              </div>
-            </>
-          )}
-          {method === 'card' && (
-            <div className="rr">
-              <span>بطاقة</span>
-              <span className="num">{egp(total)}</span>
-            </div>
-          )}
-          {method === 'mixed' && (
-            <>
-              <div className="rr">
-                <span>نقدي</span>
-                <span className="num">{egp(cashA)}</span>
-              </div>
-              <div className="rr">
-                <span>بطاقة</span>
-                <span className="num">{egp(cardA)}</span>
-              </div>
-            </>
-          )}
-          {customer && (
-            <>
-              <div className="dash" />
-              <div className="rr">
-                <span>العميل</span>
-                <span>{customer.name}</span>
-              </div>
-            </>
-          )}
-          {notes && <div style={{ marginTop: 6, color: '#6f6a76' }}>{notes}</div>}
-          <div className="dash" />
-          <div style={{ textAlign: 'center', color: '#6f6a76' }}>
-            الكاشير: {cashier?.name || 'أحمد سمير'} — الاستبدال خلال ١٤ يومًا بالإيصال
-          </div>
-          <div className="bars" />
-        </div>
+        <ThermalReceipt
+          invoiceNumber={invoiceNumber}
+          total={total}
+          method={method}
+          received={received}
+          change={change}
+          cashA={cashA}
+          cardA={cardA}
+          cart={cart}
+          customer={customer}
+          discount={discount}
+          notes={notes}
+          branch={branch}
+          cashier={cashier}
+        />
       </div>
     </div>
   );

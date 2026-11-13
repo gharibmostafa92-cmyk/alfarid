@@ -143,8 +143,13 @@ export const useCartStore = create<CartState>((set, get) => {
   };
 });
 
-export function resetCartIdentity() {
-  clearGuestCartSession();
+export function resetCartIdentity({ preserveSharedStorage = false } = {}) {
+  if (preserveSharedStorage) {
+    volatileSession = null;
+  } else {
+    clearGuestCartSession();
+    try { localStorage.removeItem('pending_checkout'); } catch { /* Storage may be blocked. */ }
+  }
   try { sessionStorage.removeItem('last_order'); sessionStorage.removeItem('pending_checkout'); } catch { /* Storage may be blocked. */ }
   useCartStore.setState({ items: [], serverTotal: 0, totals: null, couponCode: null, error: null, identity: identity() });
 }

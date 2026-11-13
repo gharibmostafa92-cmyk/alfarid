@@ -127,9 +127,10 @@ class CategoryController extends Controller implements HasMiddleware
      * @param Category $category Target category
      * @return JsonResponse Deletion confirmation
      */
-    public function destroy(Category $category): JsonResponse
+    public function destroy(Request $request, Category $category): JsonResponse
     {
-        $this->service->delete($category);
+        $validated = $request->validate(['expected_version' => ['nullable', 'integer', 'min:0']]);
+        $this->service->delete($category, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
 
         return response()->json(['message' => 'تم الحذف']);
     }

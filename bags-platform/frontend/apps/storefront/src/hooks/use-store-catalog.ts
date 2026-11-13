@@ -28,7 +28,7 @@ export function useStoreProducts(params: StoreProductListParams) {
     queryKey: ['store', 'products', viewer, params],
     queryFn: ({ pageParam, signal }) => storeEndpoints.products({ ...params, page: pageParam }, signal),
     initialPageParam: 1,
-    getNextPageParam: (last) => (last.meta.current_page < Math.min(last.meta.last_page, 500) ? last.meta.current_page + 1 : undefined),
+    getNextPageParam: (last) => (last.meta.current_page < Math.min(last.meta.last_page, 100) ? last.meta.current_page + 1 : undefined),
     enabled: hydrated, staleTime: 30_000,
     placeholderData: (previous, query) => query?.queryKey[2] === viewer ? previous : undefined, ...common,
   });

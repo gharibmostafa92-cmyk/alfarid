@@ -10,5 +10,5 @@ const loadBranding = async (signal?: AbortSignal) => {
 };
 
 export function StoreBrandingProvider({ children, initialBranding }: { children: React.ReactNode; initialBranding: BrandIdentity }) {
-  return <BrandingProvider loadBranding={loadBranding} initialBranding={{ ...initialBranding, logo: initialBranding.logo ? storeImageUrl(initialBranding.logo) : null }} manageHead={false} pollIntervalMs={0}>{children}</BrandingProvider>;
+  return <BrandingProvider loadBranding={loadBranding} initialBranding={{ ...initialBranding, logo: initialBranding.logo ? storeImageUrl(initialBranding.logo) : null }} hasInitialBranding manageHead={false} pollIntervalMs={0}>{children}</BrandingProvider>;
 }

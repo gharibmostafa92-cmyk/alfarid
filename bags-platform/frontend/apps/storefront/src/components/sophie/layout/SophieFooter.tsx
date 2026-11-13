@@ -96,24 +96,24 @@ export function SophieFooter() {
                   </Link>
                 </li>
                 <li>
-                  <a href={STORE_ROUTES.shop({ sort: 'best_selling' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <Link href={STORE_ROUTES.shop({ sort: 'best_selling' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Best Sellers
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a href={STORE_ROUTES.shop()} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <Link href={STORE_ROUTES.shop()} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Collections &amp; Accessories
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a href={STORE_ROUTES.shop({ sort: 'newest' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <Link href={STORE_ROUTES.shop({ sort: 'newest' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> New Arrivals
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a href="/wholesale" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <Link href="/wholesale" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Wholesale Portal
-                  </a>
+                  </Link>
                 </li>
                 <li>
                   <a href="#footer-contact" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">

@@ -30,6 +30,7 @@ function categoryFormData(p: CategoryPayload, spoofPut = false): FormData {
   const fd = new FormData();
   if (spoofPut) fd.append('_method', 'PUT');
   const put = (key: string, v: unknown) => appendFormField(fd, key, v);
+  put('expected_version', p.expected_version);
   put('parent_id', p.parent_id);
   put('name_ar', p.name_ar);
   put('name_en', p.name_en);
@@ -64,8 +65,8 @@ export const categoriesApi = {
       ...MULTIPART,
       onUploadProgress: progress(onProgress),
     }).then((r) => r.data.data),
-  remove: (id: number) =>
-    apiClient.delete<{ message: string }>(`${CAT}/${id}`).then((r) => r.data),
+  remove: (id: number, expectedVersion?: number) =>
+    apiClient.delete<{ message: string }>(`${CAT}/${id}`, expectedVersion !== undefined ? { params: { expected_version: expectedVersion } } : undefined).then((r) => r.data),
   reorder: (items: CategoryReorderItem[]) =>
     apiClient.put<{ message: string }>(`${CAT}/reorder`, { items }).then((r) => r.data),
 };
@@ -84,6 +85,7 @@ function brandFormData(p: BrandPayload, spoofPut = false): FormData {
   const fd = new FormData();
   if (spoofPut) fd.append('_method', 'PUT');
   const put = (key: string, v: unknown) => appendFormField(fd, key, v);
+  put('expected_version', p.expected_version);
   put('name_ar', p.name_ar);
   put('name_en', p.name_en);
   put('slug', p.slug);
@@ -104,7 +106,7 @@ export const brandsApi = {
     apiClient.post<{ data: AdminBrand }>(BR, brandFormData(p), { ...MULTIPART, onUploadProgress: progress(onProgress) }).then(r => r.data.data),
   update: (id: number, p: BrandPayload, onProgress?: (n: number) => void) =>
     apiClient.post<{ data: AdminBrand }>(`${BR}/${id}`, brandFormData(p, true), { ...MULTIPART, onUploadProgress: progress(onProgress) }).then(r => r.data.data),
-  remove: (id: number) => apiClient.delete<{ message: string }>(`${BR}/${id}`).then(r => r.data),
+  remove: (id: number, expectedVersion?: number) => apiClient.delete<{ message: string }>(`${BR}/${id}`, expectedVersion !== undefined ? { params: { expected_version: expectedVersion } } : undefined).then(r => r.data),
 };
 
 export const productsApi = {
@@ -121,7 +123,7 @@ export const variantsApi = {
   list: (productId: number) => apiClient.get<{ data: AdminVariant[] }>(`${PR}/${productId}/variants`).then(r => r.data.data),
   create: (productId: number, p: VariantPayload) => apiClient.post<{ data: AdminVariant }>(`${PR}/${productId}/variants`, p).then(r => r.data.data),
   update: (productId: number, id: number, p: Partial<VariantPayload>) => apiClient.put<{ data: AdminVariant }>(`${PR}/${productId}/variants/${id}`, p).then(r => r.data.data),
-  remove: (productId: number, id: number) => apiClient.delete(`${PR}/${productId}/variants/${id}`).then(r => r.data),
+  remove: (productId: number, id: number, expectedVersion?: number) => apiClient.delete(`${PR}/${productId}/variants/${id}`, expectedVersion !== undefined ? { params: { expected_version: expectedVersion } } : undefined).then(r => r.data),
 };
 
 export const productMediaApi = {
@@ -142,6 +144,6 @@ export const productMediaApi = {
     fd.append('file', file);
     return apiClient.post<{ data: AdminMedia[] }>(`${PR}/${productId}/media`, fd, { ...MULTIPART, onUploadProgress: progress(onProgress), timeout: 0 }).then(r => r.data.data);
   },
-  reorder: (productId: number, ids: number[]) => apiClient.put(`${PR}/${productId}/media/reorder`, { ids }).then(r => r.data),
+  reorder: (productId: number, ids: number[], expectedIds?: number[]) => apiClient.put(`${PR}/${productId}/media/reorder`, expectedIds !== undefined ? { ids, expected_ids: expectedIds } : { ids }).then(r => r.data),
   remove: (productId: number, mediaId: number) => apiClient.delete(`${PR}/${productId}/media/${mediaId}`).then(r => r.data),
 };

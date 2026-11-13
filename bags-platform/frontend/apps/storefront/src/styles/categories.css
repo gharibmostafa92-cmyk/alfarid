@@ -514,6 +514,7 @@
 }
 
 .checkbox-label {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -535,7 +536,17 @@
 }
 
 .checkbox-label input {
-  display: none;
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.checkbox-label input:focus-visible + .custom-box {
+  outline: 2px solid #4f7d88;
+  outline-offset: 2px;
 }
 
 .checkbox-label input:checked + .custom-box {

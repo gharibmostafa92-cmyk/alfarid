@@ -806,8 +806,8 @@ class PosPhase1EndpointsTest extends TestCase
         // Switch back to main cashier
         Auth::forgetGuards();
 
-        // Resume consumes the hold atomically: the payload is returned once,
-        // then the row is gone and a second resume 404s.
+        // Resume acquires a non-destructive lease (resumed_by/resumed_at) so another resume
+        // conflicts (409), while the parked cart survives until checkout consumes it atomically.
         $resumeRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume");
         $resumeRes->assertOk()
             ->assertJsonPath('data.held_sale_id', $heldId1)
@@ -816,10 +816,10 @@ class PosPhase1EndpointsTest extends TestCase
             ->assertJsonPath('data.items_payload.0.product_variant_id', $this->variant->id)
             ->assertJsonPath('data.items_payload.0.qty', 2);
 
-        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(404);
-        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId1]);
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(409);
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId1, 'resumed_by' => $this->cashier->id]);
 
-        // Completing the sale with the consumed held_sale_id still succeeds.
+        // Completing the sale consumes and deletes held_sale_id atomically.
         $items = [['product_variant_id' => $this->variant->id, 'qty' => 2]];
         $total = (float) $this->withToken($this->token)
             ->postJson('/api/v1/pos/sales/quote', ['items' => $items])
@@ -1177,6 +1177,11 @@ class PosPhase1EndpointsTest extends TestCase
 
     public function test_closing_with_cash_difference_requires_a_note(): void
     {
+        // Only cashiers who already hold pos_shifts.view_expected are required to supply
+        // closing notes on variance; blind cashiers close without notes (CRITICAL-02).
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos_shifts.view_expected', 'staff'));
+        $this->cashier->refresh();
+
         $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $this->posDrawer1->id,
             'opening_cash' => 200.00,
@@ -1191,7 +1196,6 @@ class PosPhase1EndpointsTest extends TestCase
             'notes' => 'نقص نقدي عند الجرد',
         ])->assertOk();
 
-        // The variance is stored for approvers even though the cashier cannot see it.
         $this->assertSame('-10.00', (string) PosShift::query()->latest('id')->firstOrFail()->cash_difference);
     }
 

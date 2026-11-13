@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, toAsciiNum, cx } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
+import { isCancel, normalizeError } from '../../lib/pos-error';
+import { beepError } from '../../lib/sound';
 import type { PosProduct, StocktakeSession } from '../../types/pos.types';
 
 interface StocktakePageProps {
@@ -24,10 +26,17 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const recognitionRef = useRef<any>(null);
 
   const loadSession = () => {
-    posMockService.getStocktakeSession().then((res) => {
-      setScope(res.scope);
-      setSession(res.session);
-    });
+    posMockService
+      .getStocktakeSession()
+      .then((res) => {
+        setScope(res.scope);
+        setSession(res.session);
+      })
+      .catch((error: unknown) => {
+        if (!isCancel(error)) {
+          toast(normalizeError(error).message, 'bad');
+        }
+      });
   };
 
   useEffect(() => {
@@ -63,14 +72,11 @@ export function StocktakePage({ toast }: StocktakePageProps) {
 
   const counts = session.counts;
   const counted = Object.keys(counts).length;
-  const last = session.lastScan || {
-    id: 111,
-    qty: 85,
-    via: 'voice' as const,
-    words: 'خمسة وتمانين',
-  };
+  const last = session.lastScan ?? null;
   const log = session.log;
-  const lp = posMockService.getProductById(last.id) || scope[0];
+  const lp = last
+    ? posMockService.getProductById(last.id) || scope.find((item) => item.id === last.id)
+    : undefined;
 
   const submitCode = async () => {
     const trimmed = code.trim();
@@ -82,12 +88,14 @@ export function StocktakePage({ toast }: StocktakePageProps) {
       try {
         const found = await posMockService.lookupByBarcode(trimmed);
         if (found) p = found;
-      } catch {}
+      } catch (error) {
+        if (!isCancel(error)) {
+          toast(normalizeError(error).message, 'bad');
+        }
+      }
     }
     if (!p) {
-      p = scope[0] || posMockService.getProductById(101);
-    }
-    if (!p) {
+      beepError();
       toast(`لا يوجد صنف بالرمز ${trimmed}`, 'bad');
       return;
     }
@@ -103,7 +111,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
       setQty('1');
       loadSession();
     } catch (e: any) {
-      toast(e?.message || 'تعذر تسجيل المسح', 'bad');
+      toast(normalizeError(e).message, 'bad');
     }
   };
 
@@ -114,80 +122,60 @@ export function StocktakePage({ toast }: StocktakePageProps) {
         ? (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition
         : undefined;
 
-    if (Speech) {
-      setListening(true);
-      setHeard('');
-      try {
-        const listener = new Speech();
-        recognitionRef.current = listener;
-        listener.lang = 'ar-EG';
-        listener.interimResults = false;
-        listener.maxAlternatives = 1;
+    if (!Speech) {
+      toast('الإدخال الصوتي غير مدعوم في هذا المتصفح', 'bad');
+      return;
+    }
 
-        listener.onresult = async (event: any) => {
-          const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
-          setHeard(transcript);
-          if (transcript) {
-            const targetProd = lp || scope[0];
-            if (targetProd) {
-              try {
-                const res = await posMockService.recordStocktakeScan(
-                  targetProd.id,
-                  undefined,
-                  'voice',
-                  transcript
-                );
-                if ((res as any)?.duplicate) {
-                  toast('تم تسجيل هذا المسح مسبقًا', 'bad');
-                } else {
-                  toast(`سُجّل «${transcript}» — ${targetProd.name}`);
-                }
-                loadSession();
-              } catch (e: any) {
-                toast(e?.message || 'تعذر تسجيل العدد الصوتي', 'bad');
-              }
-            }
+    setListening(true);
+    setHeard('');
+    try {
+      const listener = new Speech();
+      recognitionRef.current = listener;
+      listener.lang = 'ar-EG';
+      listener.interimResults = false;
+      listener.maxAlternatives = 1;
+
+      listener.onresult = async (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
+        setHeard(transcript);
+        if (transcript) {
+          const targetProd = lp || scope[0];
+          if (!targetProd) {
+            toast('اختر صنفًا أولًا عبر مسح الباركود', 'bad');
+            return;
           }
-        };
-
-        listener.onerror = () => {
-          toast('تعذّر سماع العدد؛ اكتب العدد بالخانة يدويًا', 'bad');
-          setListening(false);
-        };
-
-        listener.onend = () => {
-          setListening(false);
-        };
-
-        listener.start();
-      } catch {
-        setListening(false);
-      }
-    } else {
-      setListening(true);
-      setHeard('');
-      const words = 'اتناشر';
-      let i = 0;
-      const iv = setInterval(() => {
-        i++;
-        setHeard(words.slice(0, i));
-        if (i >= words.length) {
-          clearInterval(iv);
-          setTimeout(async () => {
-            setListening(false);
-            const targetProd = lp || scope[0];
-            if (targetProd) {
-              const res = await posMockService.recordStocktakeScan(targetProd.id, 12, 'voice', words);
-              if ((res as any)?.duplicate) {
-                toast('تم تسجيل هذا المسح مسبقًا', 'bad');
-              } else {
-                toast(`سُجّل ١٢ — ${targetProd.name}`);
-              }
-              loadSession();
+          try {
+            const res = await posMockService.recordStocktakeScan(
+              targetProd.id,
+              undefined,
+              'voice',
+              transcript
+            );
+            if ((res as any)?.duplicate) {
+              toast('تم تسجيل هذا المسح مسبقًا', 'bad');
+            } else {
+              toast(`سُجّل «${transcript}» — ${targetProd.name}`);
             }
-          }, 400);
+            loadSession();
+          } catch (e: any) {
+            toast(normalizeError(e).message, 'bad');
+          }
         }
-      }, 140);
+      };
+
+      listener.onerror = () => {
+        toast('تعذّر سماع العدد؛ اكتب العدد بالخانة يدويًا', 'bad');
+        setListening(false);
+      };
+
+      listener.onend = () => {
+        setListening(false);
+      };
+
+      listener.start();
+    } catch {
+      setListening(false);
     }
   };
 
@@ -288,7 +276,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                 </div>
               </div>
             </div>
-            {lp && (
+            {last && lp && (
               <div
                 className="last-scan"
                 key={last.id + '-' + last.qty}
@@ -337,7 +325,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                 </thead>
                 <tbody>
                   {scope.map((p) => (
-                    <tr key={p.id} className={last.id === p.id ? 'selected' : ''}>
+                    <tr key={p.id} className={last?.id === p.id ? 'selected' : ''}>
                       <td>
                         <div className="row gap-3">
                           <PImg p={p} size="xs" />

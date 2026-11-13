@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Services\Pricing\CouponService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** F-15: deleting and re-registering with the same phone must not reset the per-customer coupon limit. */
@@ -54,5 +55,39 @@ class CouponPhoneIdentityTest extends TestCase
         $usage = app(CouponService::class)->recordUsage($coupon, $order, $customer, 10.0);
 
         $this->assertSame('01098765432', $usage->phone_normalized);
+    }
+
+    public function test_punctuation_only_guest_phone_cannot_bypass_identity_check_and_uses_64bit_lock(): void
+    {
+        $coupon = Coupon::factory()->create(['usage_limit_per_customer' => 1]);
+        $service = app(CouponService::class);
+
+        try {
+            $service->redeemableById($coupon->id, 100.0, null, '---', true);
+            $this->fail('Punctuation-only guest phone must be rejected when requireIdentity=true.');
+        } catch (BusinessException) {
+            $this->assertTrue(true);
+        }
+
+        $guestOrder = Order::factory()->create(['customer_id' => null, 'guest_phone' => '---']);
+        try {
+            $service->recordUsage($coupon, $guestOrder, null, 10.0);
+            $this->fail('recordUsage must reject orders without a usable customer or phone identity.');
+        } catch (BusinessException) {
+            $this->assertTrue(true);
+        }
+
+        $customer = Customer::factory()->create(['phone' => '01055556666']);
+        $validOrder = Order::factory()->create(['customer_id' => $customer->id]);
+        $queries = [];
+        DB::listen(function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+
+        $service->recordUsage($coupon, $validOrder, $customer, 10.0);
+
+        $lockSql = collect($queries)->first(fn (string $sql) => str_contains($sql, 'pg_advisory_xact_lock'));
+        $this->assertNotNull($lockSql);
+        $this->assertStringContainsString('hashtextextended', $lockSql);
     }
 }

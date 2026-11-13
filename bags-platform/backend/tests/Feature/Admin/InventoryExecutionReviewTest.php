@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\TestWith;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -404,6 +405,79 @@ class InventoryExecutionReviewTest extends TestCase
         ], $this->staff->id, 'in-transit-cost');
 
         $this->assertSame('15.0000', $variant->fresh()->cost_price);
+    }
+
+    public function test_production_receipt_rejects_fractional_quantities_at_the_service_boundary(): void
+    {
+        $branch = Branch::factory()->create();
+        $variant = ProductVariant::factory()->create(['cost_price' => 10]);
+
+        $this->expectException(BusinessException::class);
+        try {
+            app(ProductionReceiptService::class)->receive([
+                'branch_id' => $branch->id, 'batch_number' => 'FRACTIONAL-RECEIPT',
+                'items' => [['product_variant_id' => $variant->id, 'quantity' => 2.5, 'unit_cost' => 20]],
+            ], $this->staff->id, 'fractional-receipt');
+        } finally {
+            $this->assertDatabaseMissing('production_receipts', ['batch_number' => 'FRACTIONAL-RECEIPT']);
+            $this->assertSame('10.0000', $variant->fresh()->cost_price);
+        }
+    }
+
+    public function test_receipts_and_inventory_increases_default_to_the_branch_receiving_location(): void
+    {
+        $branch = Branch::factory()->create();
+        $location = Location::factory()->create(['branch_id' => $branch->id, 'type' => 'receiving']);
+        $variant = ProductVariant::factory()->create();
+        $inventory = app(InventoryService::class);
+        $this->movement($variant, $branch, 1);
+
+        $inventory->applyAdjustments([
+            'branch_id' => $branch->id,
+            'items' => [
+                ['product_variant_id' => $variant->id, 'adjustment_type' => 'decrease', 'quantity' => 1],
+                ['product_variant_id' => $variant->id, 'adjustment_type' => 'increase', 'quantity' => 2],
+            ],
+        ], $this->staff->id);
+        $receipt = app(ProductionReceiptService::class)->receive([
+            'branch_id' => $branch->id, 'batch_number' => 'DEFAULT-RECEIVING',
+            'items' => [['product_variant_id' => $variant->id, 'quantity' => 3, 'unit_cost' => 20]],
+        ], $this->staff->id, 'default-receiving');
+
+        $this->assertEquals($location->id, $receipt->location_id);
+        $this->assertSame('5.0000', $inventory->levelFor($variant->id, $branch->id, $location->id)?->on_hand);
+        $this->assertSame('0.0000', $inventory->levelFor($variant->id, $branch->id, null)?->on_hand);
+    }
+
+    #[TestWith([false])]
+    #[TestWith([true])]
+    public function test_transfer_posts_stock_to_the_receiving_location(bool $locationAddedAfterShipping): void
+    {
+        $from = Branch::factory()->create();
+        $to = Branch::factory()->create();
+        $variant = ProductVariant::factory()->create();
+        $this->movement($variant, $from, 3);
+        $location = $locationAddedAfterShipping
+            ? null
+            : Location::factory()->create(['branch_id' => $to->id, 'type' => 'receiving']);
+        $transfers = app(TransferService::class);
+        $transfer = $transfers->create([
+            'from_branch_id' => $from->id, 'to_branch_id' => $to->id,
+            'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 3]],
+        ], $this->staff->id);
+        $transfers->approve($transfer, [], $this->staff->id);
+        $transfer = $transfers->ship($transfer, [], $this->staff->id);
+        $inventory = app(InventoryService::class);
+        $this->assertEquals($location?->id, $transfer->items->sole()->to_location_id);
+        $this->assertSame('3.0000', $inventory->levelFor($variant->id, $to->id, $location?->id)?->in_transit);
+        $location ??= Location::factory()->create(['branch_id' => $to->id, 'type' => 'receiving']);
+        $transfers->receive($transfer, [], $this->staff->id);
+
+        $this->assertSame('3.0000', $inventory->levelFor($variant->id, $to->id, $location->id)?->on_hand);
+        $this->assertSame('0.0000', $inventory->levelFor($variant->id, $to->id, $location->id)?->in_transit);
+        $legacy = $inventory->levelFor($variant->id, $to->id, null);
+        $this->assertSame($locationAddedAfterShipping ? '0.0000' : null, $legacy?->on_hand);
+        $this->assertSame($locationAddedAfterShipping ? '0.0000' : null, $legacy?->in_transit);
     }
 
     private function branchStaff(Branch $branch, array $permissions): User

@@ -4,8 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const ts = require('typescript');
-
-function loadService(cartMerged) {
+function loadService(cartMerged, options = {}) {
   const calls = [];
   const filename = path.resolve(__dirname, '../apps/storefront/src/services/auth.service.ts');
   const loaded = new Module(filename, module);
@@ -16,9 +15,20 @@ function loadService(cartMerged) {
         calls.push(['post', ...args]);
         return { data: { token: 'new-token', data: {}, cart_merged: cartMerged } };
       } },
+      authEndpoints: { login: async (...args) => {
+        calls.push(['login', ...args]);
+        return options.loginResponse ?? {
+          token: 'new-token',
+          actor: { type: 'customer', subtype: 'retail' },
+          redirect: { app: 'storefront', path: '/shop' },
+          data: {},
+          cart_merged: cartMerged,
+        };
+      } },
+      resolveServiceUrl: value => value,
     };
     if (name === '@/store/auth.store') return { useAuthStore: {
-      getState: () => ({ token: null, setSession: value => calls.push(['session', value]) }),
+      getState: () => ({ token: null, setSession: value => calls.push(['session', value]), clear: () => calls.push(['authClear']) }),
     } };
     if (name === '@/stores/cart-store') return {
       getCartSession: () => 'guest-session',
@@ -48,10 +58,38 @@ test('retail registration clears the guest cart after successful merging', async
   assert.ok(!calls.some(call => call[0] === 'restore'));
 });
 
-test('recovery rejects email locally and sends a phone identifier', async () => {
+test('recovery supports both email and phone identifiers', async () => {
   const { service, calls } = loadService(true);
-  await assert.rejects(service.requestPasswordReset('customer@example.test'));
-  assert.equal(calls.length, 0);
+  await service.requestPasswordReset(' Customer@Example.Test ');
   await service.requestPasswordReset(' 01012345678 ');
-  assert.deepEqual(calls[0].slice(0, 3), ['post', '/api/v1/store/auth/forgot-password', { phone: '01012345678' }]);
+  assert.deepEqual(calls[0].slice(0, 3), ['post', '/api/v1/store/auth/forgot-password', { email: 'customer@example.test' }]);
+  assert.deepEqual(calls[1].slice(0, 3), ['post', '/api/v1/store/auth/forgot-password', { phone: '01012345678' }]);
+});
+
+test('wholesale registration preserves the guest cart session', async () => {
+  const { service, calls } = loadService(undefined);
+  assert.equal(await service.registerWeb({ name: 'Trader', phone: '01012345678', password: 'password123456' }, true), '/wholesale/application-status');
+  assert.ok(calls.some(call => call[0] === 'session'));
+  assert.ok(calls.some(call => call[0] === 'restore' && call[1] === 'guest-session'));
+  assert.ok(!calls.some(call => call[0] === 'clear'));
+});
+
+test('loginUnified preserves the guest cart session for wholesale_pending and supplier actors', async () => {
+  for (const actor of [
+    { type: 'customer', subtype: 'wholesale_pending' },
+    { type: 'supplier', subtype: 'supplier' },
+  ]) {
+    const { service, calls } = loadService(true, {
+      loginResponse: {
+        token: 'actor-token',
+        actor,
+        redirect: { app: 'storefront', path: '/wholesale/application-status' },
+        data: {},
+        cart_merged: true,
+      },
+    });
+    await service.loginUnified('01012345678', 'password123');
+    assert.ok(calls.some(call => call[0] === 'restore' && call[1] === 'guest-session'), actor.subtype);
+    assert.ok(!calls.some(call => call[0] === 'clear'), actor.subtype);
+  }
 });

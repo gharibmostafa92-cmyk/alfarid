@@ -11,6 +11,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         $index = DB::selectOne("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('wallet_adjustments_one_reversal_idx')");
         if (! $index?->indisvalid) {
             if ($index !== null) {
@@ -35,6 +39,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::unprepared(<<<'SQL'
             DROP TRIGGER IF EXISTS wallet_adjustments_immutable ON wallet_adjustments;
             DROP TRIGGER IF EXISTS wallet_adjustments_no_truncate ON wallet_adjustments;

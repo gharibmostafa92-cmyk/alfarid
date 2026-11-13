@@ -97,6 +97,8 @@ class SettingService
 
     private const CACHE_KEY = 'app_settings_static';
 
+    public const BRANDING_CACHE_KEY = 'store:branding:v1';
+
     private const CACHE_VERSION_KEY = 'app_settings_static_version';
 
     private const CACHE_TTL_SECONDS = 3600;
@@ -567,6 +569,7 @@ class SettingService
     {
         Cache::forever(self::CACHE_VERSION_KEY, (string) Str::uuid());
         Cache::forget(self::CACHE_KEY); // Retire the cache key used before versioning.
+        Cache::forget(self::BRANDING_CACHE_KEY);
         $this->numberingConfig = [];
         $this->numberingConfigVersion = null;
         $this->requestCache = null;
