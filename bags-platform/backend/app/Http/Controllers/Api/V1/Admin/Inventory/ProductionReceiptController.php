@@ -10,8 +10,8 @@ use App\Models\Branch;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Services\Inventory\BranchAccess;
-use App\Services\Shared\CostAccess;
 use App\Services\Inventory\ProductionReceiptService;
+use App\Services\Shared\CostAccess;
 use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -62,13 +62,7 @@ class ProductionReceiptController extends Controller implements HasMiddleware
         $receipts = ProductionReceipt::query()->when($branch, fn ($q) => $q->where('branch_id', $branch))
             ->orderByDesc('id')->paginate($filters['per_page'] ?? 15);
         if (! CostAccess::canView($request->user())) {
-            $receipts->getCollection()->each(function ($receipt): void {
-                $receipt->items = array_map(function ($item) {
-                    unset($item['unit_cost']);
-
-                    return $item;
-                }, $receipt->items);
-            });
+            $receipts->getCollection()->each($this->hideCosts(...));
         }
 
         return response()->json($receipts);
@@ -79,7 +73,19 @@ class ProductionReceiptController extends Controller implements HasMiddleware
         $key = $this->idempotencyKey($request);
         abort_if($key === null, 422, 'مفتاح Idempotency-Key مطلوب لاستلام الإنتاج.');
         $receipt = $this->productionReceipts->receive($request->validated(), $request->user()->id, $key);
+        if (! CostAccess::canView($request->user())) {
+            $this->hideCosts($receipt);
+        }
 
         return response()->json(['message' => 'تم استلام الإنتاج وإضافة الكميات للمخزون.', 'data' => $receipt], 201);
+    }
+
+    private function hideCosts(ProductionReceipt $receipt): void
+    {
+        $receipt->items = array_map(function (array $item): array {
+            unset($item['unit_cost']);
+
+            return $item;
+        }, $receipt->items);
     }
 }

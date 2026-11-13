@@ -484,11 +484,13 @@ class Task9FixesTest extends PosScenarioFixture
 
         $rcvKey = $this->idem();
         $this->as($token)->postJson("/api/v1/pos/transfers/{$transfer->id}/receive", [
+            'expected_version' => $transfer->fresh()->version,
             'items' => [['id' => $item->id, 'received_qty' => 2]],
         ], $rcvKey)->assertOk();
 
         // Payload tampering under the same Idempotency-Key rejects cleanly with 409.
         $this->as($token)->postJson("/api/v1/pos/transfers/{$transfer->id}/receive", [
+            'expected_version' => $transfer->fresh()->version,
             'items' => [['id' => $item->id, 'received_qty' => 1]],
         ], $rcvKey)->assertStatus(409);
     }

@@ -278,6 +278,7 @@ class ReturnManagementTest extends TestCase
         $this->assertSame(1, $movements->where('type', 'damage')->count());
         // عدّاد المبيعات تراجع بالكمية المستلمة كلها
         $this->assertSame(0, (int) $variant->product->fresh()->sales_count);
+        $this->assertSame('3.0000', $order->items()->firstOrFail()->returned_qty);
     }
 
     public function test_refund_to_wallet_credits_customer_and_completes_order_return_without_double_effects(): void

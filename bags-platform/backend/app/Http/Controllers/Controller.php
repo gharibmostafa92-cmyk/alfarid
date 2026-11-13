@@ -25,8 +25,8 @@ abstract class Controller
         }
 
         $key = trim($key);
-        if ($key === '' || strlen($key) > 128) {
-            throw new BusinessException('قيمة Idempotency-Key غير صالحة (1 إلى 128 حرفًا).');
+        if (! preg_match('/\A[A-Za-z0-9._:-]{1,128}\z/', $key)) {
+            throw new BusinessException('قيمة Idempotency-Key غير صالحة (1 إلى 128 حرفًا إنجليزيًا أو رقمًا أو رموز ._:-).');
         }
 
         return $key;

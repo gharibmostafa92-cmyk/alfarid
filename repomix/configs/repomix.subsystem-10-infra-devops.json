@@ -92,7 +92,15 @@
                     "bags-platform/backend/database/migrations/2026_11_12_000069_restrict_treasury_branch_deletes.php",
                     "bags-platform/frontend/apps/backoffice/package.json",
                     "docs/TASK5_DEPLOYMENT_STATUS.md",
-                    "bags-platform/frontend/packages/pos-core/package.json"
+                    "bags-platform/frontend/packages/pos-core/package.json",
+                    "bags-platform/backend/database/migrations/2026_11_12_000006_widen_returned_qty_precision.php",
+                    "bags-platform/backend/database/seeders/InventoryPermissionSeeder.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000094_reclassify_legacy_wallet_adjustments.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000095_add_treasury_order_refund_type.php",
+                    "bags-platform/backend/database/migrations/2026_11_13_000001_remove_numbering_subtransactions.php",
+                    "bags-platform/backend/database/migrations/2026_11_13_000002_sync_branch_city_names.php",
+                    "bags-platform/backend/database/migrations/2026_11_13_000003_guard_production_receipt_location.php",
+                    "docs/TASKS_EXECUTION_CLOSEOUT.md"
                 ],
     "ignore":  {
                    "useGitignore":  true,

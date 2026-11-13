@@ -15,6 +15,7 @@ use App\Models\City;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
@@ -77,6 +78,21 @@ class OrderAllocationTest extends TestCase
         $this->assertSame(OrderStatus::Pending, $order->status);
         $order->delete();
         $this->assertSoftDeleted('orders', ['id' => $order->id]);
+    }
+
+    public function test_first_guest_adds_with_the_same_client_session_share_one_cart(): void
+    {
+        $product = Product::factory()->create(['status' => 'published']);
+        $variant = ProductVariant::factory()->for($product)->create(['retail_price' => 100]);
+        $this->giveStock($variant, Branch::factory()->create(), 10);
+        $session = (string) \Illuminate\Support\Str::uuid();
+        $headers = ['X-Cart-Session' => $session];
+        $payload = ['product_variant_id' => $variant->id, 'qty' => 1];
+
+        $this->postJson('/api/v1/store/cart/items', $payload, $headers)->assertOk()->assertJsonPath('data.cart_token', $session);
+        $this->postJson('/api/v1/store/cart/items', $payload, $headers)->assertOk()->assertJsonPath('data.cart_token', $session);
+        $this->assertSame('2.0000', CartItem::query()->sole()->qty);
+        $this->assertDatabaseCount('carts', 1);
     }
 
     // ---------- 7.2: التوزيع ----------
@@ -178,6 +194,9 @@ class OrderAllocationTest extends TestCase
         $this->assertSame($branchB->id, $byVariant[$variantB->id]->allocated_branch_id);
         $this->assertSame('6.0000', (string) $this->level($variantA->id, $branchA->id)->reserved);
         $this->assertSame('3.0000', (string) $this->level($variantB->id, $branchB->id)->reserved);
+        $this->assertTrue(Order::query()->whereKey($order->id)->allocatedToBranch($branchA->id)->exists());
+        $this->assertTrue(Order::query()->whereKey($order->id)->allocatedToBranch($branchB->id)->exists());
+        $this->assertFalse(Order::query()->whereKey($order->id)->allocatedToBranch(Branch::factory()->create()->id)->exists());
     }
 
     public function test_insufficient_stock_anywhere_rolls_back_all_reservations(): void

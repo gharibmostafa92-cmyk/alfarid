@@ -14,6 +14,7 @@ use App\Services\Orders\CartService;
 use App\Services\Pricing\CouponService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -86,7 +87,12 @@ class CartController extends Controller
     public function removeCoupon(Request $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
-        $cart->update(['coupon_id' => null]);
+        $cart = DB::transaction(function () use ($cart): Cart {
+            $locked = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+            $locked->update(['coupon_id' => null]);
+
+            return $locked;
+        });
 
         return response()->json(['data' => $this->carts->present($cart->refresh(), $customer)]);
     }

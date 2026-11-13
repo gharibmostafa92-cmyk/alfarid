@@ -35,12 +35,19 @@ class OrderController extends Controller
         $request->validate(['phone' => ['required', 'string', 'max:50']]);
 
         $order = Order::query()
-            ->where('order_number', $number)
-            ->with('customer')
+            ->leftJoin('customers as tracking_customer', 'tracking_customer.id', '=', 'orders.customer_id')
+            ->where('orders.order_number', $number)
+            ->select('orders.*', 'tracking_customer.phone as tracking_phone')
             ->first();
 
         // Return generic 404 on phone mismatch to prevent phone/order enumeration.
-        if ($order === null || ! $order->matchesPhone((string) $request->input('phone'))) {
+        $phone = Customer::normalizePhone((string) $request->input('phone'));
+        $match = false;
+        foreach ([$order?->guest_phone_normalized, $order?->guest_phone, $order?->tracking_phone] as $candidate) {
+            $matches = hash_equals(Customer::normalizePhone((string) $candidate), $phone);
+            $match = $match || ($candidate !== null && $matches);
+        }
+        if ($order === null || $phone === '' || ! $match) {
             abort(404);
         }
 

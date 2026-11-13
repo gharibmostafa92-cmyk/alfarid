@@ -7,6 +7,7 @@ namespace Tests\Feature\Wholesale;
 use App\Enums\Finance\TreasuryType;
 use App\Models\Branch;
 use App\Models\Customer;
+use App\Models\Order;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
@@ -72,7 +73,7 @@ class TaskTxtNoticeAdminGuardsTest extends TestCase
     public function test_approve_and_reject_require_their_own_permissions(): void
     {
         $notice = $this->pendingNotice();
-        $token = $this->staffToken(['payment_notices.view']);
+        $token = $this->staffToken(['payment_notices.view', 'inventory.all_branches']);
 
         $this->asStaff($token)->getJson('/api/v1/admin/payment-notices')->assertOk();
         $this->asStaff($token)->postJson("/api/v1/admin/payment-notices/{$notice->id}/approve", [])->assertForbidden();
@@ -100,16 +101,29 @@ class TaskTxtNoticeAdminGuardsTest extends TestCase
         $this->assertDatabaseCount('treasury_transactions', 0);
     }
 
-    public function test_branch_restricted_staff_index_is_currently_unscoped(): void
+    public function test_branch_staff_can_only_access_notices_for_their_branch(): void
     {
-        // Documents current behavior: index/show/reject carry no branch scope
-        // while receipt download does. Owner decision on scoping is pending.
-        $branchA = Branch::factory()->create();
-        $notice = $this->pendingNotice();
-        $token = $this->staffToken(['payment_notices.view'], $branchA->id);
+        $branch = Branch::factory()->create();
+        $own = $this->pendingNotice();
+        $own->update(['order_id' => Order::factory()->create([
+            'customer_id' => $own->customer_id,
+            'allocated_branch_id' => $branch->id,
+        ])->id]);
+        $central = $this->pendingNotice();
+        $token = $this->staffToken([
+            'payment_notices.view', 'payment_notices.approve', 'payment_notices.reject',
+        ], $branch->id);
 
         $this->asStaff($token)->getJson('/api/v1/admin/payment-notices')
             ->assertOk()
-            ->assertJsonFragment(['id' => $notice->id]);
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $own->id);
+        $this->asStaff($token)->getJson("/api/v1/admin/payment-notices/{$own->id}")->assertOk();
+        $this->asStaff($token)->getJson("/api/v1/admin/payment-notices/{$central->id}")->assertForbidden();
+        $this->asStaff($token)->postJson("/api/v1/admin/payment-notices/{$central->id}/reject", [
+            'admin_notes' => 'رفض الإشعار',
+        ])->assertForbidden();
+        $this->asStaff($token)->postJson("/api/v1/admin/payment-notices/{$own->id}/approve")->assertForbidden();
+        $this->assertDatabaseCount('treasury_transactions', 0);
     }
 }

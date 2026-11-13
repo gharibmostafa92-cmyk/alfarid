@@ -235,15 +235,17 @@ test('createSale sends Idempotency-Key and string money amounts', async () => {
   assert.ok(call.b.headers['Idempotency-Key']);
 });
 
-test('exchange prices replacement items for the customer on the original sale', async () => {
+test('exchange submits the net tender and lets the server price the original customer', async () => {
   const http = fakeHttp({
     [`POST ${API}/sales/quote`]: { status: 200, data: { data: { lines: [], subtotal: 80, discount_total: 0, grand_total: 80 } } },
     [`POST ${API}/sales/5/exchange`]: { status: 200, data: { data: { exchange_order_id: 6, refund_amount: 60 } } },
   });
   const svc = new PosApiService(http);
   await svc.processExchange(5, [{ id: 1, qty: 1, return_to: 'on_hand' }], [{ id: 2, qty: 1 }], 20, 9);
-  assert.equal(http.calls[0].a.customer_id, 9);
-  assert.equal(http.calls[1].a.cash_amount, '20.00');
+  const exchange = http.calls.find((call) => call.url === `${API}/sales/5/exchange`);
+  assert.equal(exchange.a.customer_id, undefined);
+  assert.equal(exchange.a.cash_amount, '20.00');
+  assert.equal(http.calls.some((call) => call.url === `${API}/sales/quote`), false);
 });
 
 test('resumeHeldSale posts to resume using cached server id', async () => {

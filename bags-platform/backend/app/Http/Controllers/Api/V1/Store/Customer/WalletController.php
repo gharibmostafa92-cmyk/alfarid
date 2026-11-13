@@ -15,7 +15,10 @@ class WalletController extends Controller
     public function index(Request $request, \App\Services\Ai\Finance\FinancePresenter $presenter): JsonResponse
     {
         $customerId = $request->user()->id;
-        $query = CustomerWalletTransaction::query()->useWritePdo()->where('customer_id', $customerId);
+        $query = CustomerWalletTransaction::query()->where('customer_id', $customerId);
+        if ((int) $request->query('page', 1) <= 1) {
+            $query->useWritePdo();
+        }
         if (in_array($request->query('direction'), ['credit', 'debit'], true)) {
             $query->where('amount', $request->query('direction') === 'credit' ? '>' : '<', 0);
         }

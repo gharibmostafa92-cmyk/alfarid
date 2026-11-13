@@ -43,7 +43,9 @@
                     "bags-platform/frontend/apps/pos/src/lib/wholesale.ts",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/application-status/page.tsx",
                     "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
-                    "bags-platform/frontend/packages/pos-core/src/lib/wholesale.ts"
+                    "bags-platform/frontend/packages/pos-core/src/lib/wholesale.ts",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/QuotationController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/WholesalePaymentNoticeController.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

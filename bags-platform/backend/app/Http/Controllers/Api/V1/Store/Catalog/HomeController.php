@@ -41,6 +41,7 @@ class HomeController extends Controller
         } catch (LockTimeoutException) {
             $ids = Cache::get(StoreCatalogService::HOME_CACHE_KEY) ?? $this->catalog->homeSectionIds();
         }
+        $ids['discounted_ids'] = $this->catalog->personalizedDiscountedIds() ?? $ids['discounted_ids'];
         $allIds = array_unique([...$ids['latest_ids'], ...$ids['best_seller_ids'], ...$ids['discounted_ids']]);
         $cards = StoreProductCardResource::collection($this->catalog->publishedQuery()
             ->whereIn('products.id', $allIds)->get())->resolve($request);

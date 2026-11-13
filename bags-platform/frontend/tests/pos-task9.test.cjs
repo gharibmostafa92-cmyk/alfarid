@@ -136,7 +136,12 @@ describe('Task 9 POS Frontend Fixes', () => {
 
     const http = fakeHttp({
       [`POST ${API}/sales/hold`]: { status: 201, data: { data: { id: 2, hold_reference: 'H-2', created_at: new Date().toISOString(), items_payload: [] } } },
-      [`GET ${API}/transfers/incoming`]: { status: 200, data: { data: [{ id: 8, transfer_number: 'TRF-8', status: 'shipped', items: [{ id: 91, product_variant_id: 1, shipped_qty: '5.0000' }] }] } },
+      [`GET ${API}/transfers/incoming`]: { status: 200, data: { data: [{
+        id: 8, version: 3, transfer_number: 'TRF-8', status: 'shipped', items: [
+          { id: 91, product_variant_id: 1, shipped_qty: '5.0000' },
+          { id: 92, product_variant_id: 1, shipped_qty: '5.0000' },
+        ],
+      }] } },
       [`POST ${API}/transfers/8/receive`]: { status: 200, data: { data: { id: 8, status: 'received' } } },
     });
     const svc = new PosApiService(http, { sleep: noSleep });
@@ -145,9 +150,24 @@ describe('Task 9 POS Frontend Fixes', () => {
     assert.ok(holdCall.b?.headers?.['Idempotency-Key'], 'holdSale must send Idempotency-Key');
 
     await svc.getTransfersIn();
-    await svc.receiveTransfer(8, { 1: 5 });
+    await svc.receiveTransfer(8, { 91: 3, 92: 4 });
     const recCall = http.calls.find((c) => c.url === `${API}/transfers/8/receive`);
+    assert.equal(recCall.a.expected_version, 3);
+    assert.deepEqual(recCall.a.items, [
+      { id: 91, received_qty: 3 },
+      { id: 92, received_qty: 4 },
+    ]);
     assert.ok(recCall.b?.headers?.['Idempotency-Key'], 'receiveTransfer must send Idempotency-Key');
+  });
+
+  test('stock page requests filtered ledger rows independently from the sale catalog', async () => {
+    const row = { id: 22, product_variant_id: 99, available: '0.0000', reorder_level: 5 };
+    const http = fakeHttp({
+      [`GET ${API}/stock`]: { status: 200, data: { data: [row], meta: { last_page: 3 } } },
+    });
+    const svc = new PosApiService(http, { sleep: noSleep });
+    assert.deepEqual(await svc.getStockPage('SKU', true, 2), { rows: [row], lastPage: 3 });
+    assert.deepEqual(http.calls[0].a.params, { q: 'SKU', low_stock: 1, page: 2, per_page: 20 });
   });
 
   test('MEDIUM-01: isWholesaleEligible & cart store deny wholesale price to Pending customers', () => {

@@ -6,7 +6,7 @@ function recentGuestOrders(): Array<{ number: string; expiresAt: number }> {
   const orders: unknown = JSON.parse(localStorage.getItem(guestOrdersKey) ?? '[]');
   if (!Array.isArray(orders)) return [];
   return orders.filter(entry => entry && typeof entry.number === 'string' &&
-    /^[a-z0-9-]{1,100}$/i.test(entry.number) && Number.isFinite(entry.expiresAt) &&
+    /^[a-z0-9_.-]{1,40}$/i.test(entry.number) && Number.isFinite(entry.expiresAt) &&
     entry.expiresAt > Date.now()).slice(0, GUEST_ORDER_LIMIT);
 }
 

@@ -22,6 +22,7 @@ use App\Services\Finance\WalletService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -136,6 +137,54 @@ class Task8Slice3WalletAndIdempotencyTest extends TestCase
         } catch (BusinessException $e) {
             $this->assertSame(403, $e->status);
         }
+    }
+
+    public function test_legacy_wallet_adjustment_repair_preserves_balances_and_immutability(): void
+    {
+        $customer = Customer::factory()->create(['wallet_balance' => '40.00']);
+        $entry = CustomerWalletTransaction::query()->create([
+            'customer_id' => $customer->id,
+            'type' => 'opening',
+            'amount' => '40.00',
+            'balance_after' => '40.00',
+            'reference_type' => 'wallet_adjustment',
+            'reference_id' => 400,
+        ]);
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+        $migration = require database_path('migrations/2026_11_12_000094_reclassify_legacy_wallet_adjustments.php');
+        $migration->up();
+        $migration->up();
+
+        $this->assertSame('adjustment', $entry->refresh()->type);
+        $this->assertSame('40.00', $entry->balance_after);
+        $this->expectException(\Illuminate\Database\QueryException::class);
+        DB::transaction(fn () => $entry->update(['type' => 'opening']));
+    }
+
+    public function test_refund_reversal_offsets_the_customer_refund_breakdown(): void
+    {
+        $branch = Branch::factory()->create();
+        $actor = $this->makeStaff($branch->id, ['customers.wallet.adjust']);
+        $customer = Customer::factory()->create(['status' => CustomerStatus::Approved]);
+        $service = app(WalletAdjustmentService::class);
+        $refund = $service->adjust([
+            'customer_id' => $customer->id,
+            'kind' => 'refund',
+            'amount' => '40.00',
+            'reason' => 'refund fixture',
+        ], $actor, 'refund-original');
+        $reversal = $service->reverse($refund, $actor, 'refund-reversal');
+
+        $this->assertDatabaseHas('customer_wallet_transactions', [
+            'reference_type' => 'wallet_adjustment',
+            'reference_id' => $reversal->id,
+            'type' => 'refund_reversal',
+            'amount' => '-40.00',
+        ]);
+        $controller = app(\App\Http\Controllers\Api\V1\Admin\Customer\CustomerWalletController::class);
+        $breakdown = $controller->summary($customer->refresh())->getData(true)['breakdown'];
+        $this->assertEquals(0, $breakdown['refunds']);
+        $this->assertEquals(0, $breakdown['adjustments']);
     }
 
     public function test_f08_shift_reject_reopen_force_close_and_transfer_reject_honor_idempotency_key(): void

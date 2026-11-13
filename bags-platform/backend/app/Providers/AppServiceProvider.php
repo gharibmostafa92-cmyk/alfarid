@@ -514,6 +514,7 @@ class AppServiceProvider extends ServiceProvider
         });
         RateLimiter::for('order-tracking', fn (Request $request) => [
             Limit::perMinute(10)->by('order-tracking-ip:'.$networkIp($request)),
+            Limit::perMinutes(15, 10)->by('order-tracking-pair:'.hash('sha256', $networkIp($request).'|'.strtolower((string) $request->route('number')))),
         ]);
         // M14: the readiness probe hits PostgreSQL (and optionally Redis) —
         // cap it generously so floods cannot convert health checks into a DB DoS
@@ -684,6 +685,7 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by($staffKey($request)));
         RateLimiter::for('pos-api', fn (Request $request) => Limit::perMinute(180)->by($staffKey($request)));
         RateLimiter::for('pos-lookup', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
+        RateLimiter::for('pos-returns', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
         RateLimiter::for('pos-customers', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
     }
 

@@ -31,6 +31,10 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
   useEffect(() => setHl(0), [q]);
 
   const pick = (p: PosProduct) => {
+    if (p.stock <= 0) {
+      beepError();
+      return;
+    }
     onAdd(p);
     setQ('');
     setOpen(false);
@@ -127,8 +131,9 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
             results.map((p, i) => (
               <button
                 key={p.id}
-                className={cx('scan-row', i === hl && 'hl')}
-                onMouseDown={() => pick(p)}
+                className={cx('scan-row', i === hl && 'hl', p.stock === 0 && 'out')}
+                disabled={p.stock === 0}
+                onMouseDown={() => p.stock > 0 && pick(p)}
                 onMouseEnter={() => setHl(i)}
               >
                 <PImg p={p} size="xs" />

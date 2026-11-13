@@ -74,7 +74,8 @@ class PosStockController extends Controller
             })
             // Matches alert thresholds: evaluates row-level minimum per location, and variant reorder point across branch totals.
             ->when($filters['low_stock'] ?? null, fn ($q) => $q->whereLowStock())
-            ->orderBy('product_variant_id')
+            ->orderBy('stock_levels.product_variant_id')
+            ->orderBy('stock_levels.id')
             ->paginate($filters['per_page'] ?? 15);
 
         return StockLevelResource::collection($levels);

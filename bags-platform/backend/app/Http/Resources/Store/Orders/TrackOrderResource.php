@@ -28,8 +28,10 @@ class TrackOrderResource extends JsonResource
         return [
             'order_number' => $this->order_number,
             'status' => $this->status,
+            'payment_status' => $this->payment_status,
             'instapay' => $this->when($instapay !== null, $instapay),
             'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item): array => [
+                'id' => $item->id,
                 'product_name' => $item->product_name_snapshot,
                 'qty' => $item->qty,
             ])->all()),
@@ -37,6 +39,7 @@ class TrackOrderResource extends JsonResource
             'status_history' => $this->whenLoaded('statusHistories', fn () => $this->statusHistories
                 ->sortBy('id')
                 ->map(fn ($history): array => [
+                    'id' => $history->id,
                     'status' => $history->to_status,
                     'at' => $history->created_at,
                 ])->values()->all()),

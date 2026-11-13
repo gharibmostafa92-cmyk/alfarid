@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\Orders\OrderStatus;
 use Database\Factories\OrderFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -130,13 +131,13 @@ class Order extends Model
         return $this->belongsTo(Branch::class, 'allocated_branch_id');
     }
 
-    /**
-     * Determine whether the given phone number matches this order (guest or registered customer).
-     * Compares canonical E.164 formats to prevent false mismatches from dialing codes.
-     *
-     * @param  string  $phone  Input phone string to compare
-     * @return bool True if phone matches guest or customer phone
-     */
+    public function scopeAllocatedToBranch(Builder $query, int $branchId): Builder
+    {
+        return $query->where(fn ($scope) => $scope->where('allocated_branch_id', $branchId)
+            ->orWhereHas('items', fn ($items) => $items->where('allocated_branch_id', $branchId)));
+    }
+
+    /** Compare the canonical phone number against the order and customer. */
     public function matchesPhone(string $phone): bool
     {
         $normalized = Customer::normalizePhone($phone);

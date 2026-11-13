@@ -19,6 +19,8 @@ use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
@@ -48,8 +50,8 @@ class InventoryService
                 throw new BusinessException('كمية الحركة غير صالحة.');
             }
             // Work in ten-thousandths to avoid floating point residues at zero.
-            $units = (int) round((float) $rawQty * 10000);
-            $qty = $units / 10000;
+            $qty = BigDecimal::of((string) $rawQty)->toScale(4, RoundingMode::HalfUp);
+            $units = $qty->getUnscaledValue()->toInt();
 
             if ($units === 0) {
                 throw new BusinessException('كمية الحركة يجب ألا تساوي صفرًا.');
@@ -94,22 +96,22 @@ class InventoryService
             }
 
             $bucketKey = $bucket->value;
-            $before = (float) $stock->{$bucketKey};
-            $afterUnits = (int) round($before * 10000) + $units;
-            $after = $afterUnits / 10000;
+            $before = BigDecimal::of((string) $stock->{$bucketKey})->toScale(4);
+            $after = $before->plus($qty);
+            $afterUnits = $after->getUnscaledValue()->toInt();
             if ($afterUnits > 999999999999) {
                 throw new BusinessException('الرصيد يتجاوز الحد المسموح.');
             }
 
-            if ($after < 0) {
+            if ($afterUnits < 0) {
                 throw new BusinessException("الرصيد غير كافٍ في ({$bucketKey}) لإتمام العملية.");
             }
 
             // Ensure available-for-sale quantity (on_hand - reserved - damaged) does not drop below zero.
-            $onHand = $bucket === StockBucket::OnHand ? $after : (float) $stock->on_hand;
-            $reserved = $bucket === StockBucket::Reserved ? $after : (float) $stock->reserved;
-            $damaged = $bucket === StockBucket::Damaged ? $after : (float) $stock->damaged;
-            $availableAfter = (int) round($onHand * 10000) - (int) round($reserved * 10000) - (int) round($damaged * 10000);
+            $onHand = $bucket === StockBucket::OnHand ? $after : BigDecimal::of((string) $stock->on_hand);
+            $reserved = $bucket === StockBucket::Reserved ? $after : BigDecimal::of((string) $stock->reserved);
+            $damaged = $bucket === StockBucket::Damaged ? $after : BigDecimal::of((string) $stock->damaged);
+            $availableAfter = $onHand->minus($reserved)->minus($damaged)->toScale(4)->getUnscaledValue()->toInt();
 
             if ($availableAfter < 0) {
                 $availableNow = (float) $stock->on_hand - (float) $stock->reserved - (float) $stock->damaged;
@@ -136,9 +138,9 @@ class InventoryService
                 'location_id' => $locationId,
                 'type' => $type,
                 'affected_bucket' => $bucket,
-                'quantity' => $qty,
-                'balance_before' => $before,
-                'balance_after' => $after,
+                'quantity' => (string) $qty,
+                'balance_before' => (string) $before,
+                'balance_after' => (string) $after,
                 'unit_cost' => $data['unit_cost'] ?? null,
                 'reference_type' => $referenceType,
                 'reference_id' => $data['reference_id'] ?? null,
@@ -146,7 +148,7 @@ class InventoryService
                 'notes' => $data['notes'] ?? null,
             ]);
 
-            $stock->{$bucketKey} = $after;
+            $stock->{$bucketKey} = (string) $after;
             $stock->save();
             \App\Services\Pos\PosService::invalidateCatalogVersionCache((int) $stock->branch_id);
 
@@ -311,11 +313,12 @@ class InventoryService
                 // Apply adjustment directly to prelocked level instance.
                 $key = $keys[$index];
                 $level = $levels->get($this->levelKey($key));
+                $quantity = BigDecimal::of((string) $item['quantity'])->abs();
                 if (in_array($item['adjustment_type'], ['write_off_damaged', 'restore_damaged'], true)) {
                     $base = [
                         ...$key,
                         'created_by' => $userId, 'notes' => $item['reason'] ?? null,
-                        'quantity' => -abs((float) $item['quantity']),
+                        'quantity' => (string) $quantity->negated(),
                     ];
                     $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageRelease, 'affected_bucket' => StockBucket::Damaged], $level);
                     if ($item['adjustment_type'] === 'write_off_damaged') {
@@ -335,7 +338,7 @@ class InventoryService
                     ...$key,
                     'type' => $type,
                     'affected_bucket' => $bucket,
-                    'quantity' => $sign * abs((float) $item['quantity']),
+                    'quantity' => (string) $quantity->multipliedBy($sign),
                     'created_by' => $userId,
                     'notes' => $item['reason'] ?? null,
                 ], $level);
@@ -444,13 +447,10 @@ class InventoryService
                     }
                 }
             }
+            // Inactive locations are not rejected here: only new inbound stock is blocked (see recordMovement),
+            // so outbound, release and transit movements can still liquidate balances left on a disabled location.
             if ($locationIds->isNotEmpty()) {
-                $inactiveLocations = Location::query()->whereIn('id', $locationIds->all())->sharedLock()->pluck('is_active', 'id');
-                foreach ($locationIds as $locationId) {
-                    if ($inactiveLocations->has($locationId) && ! (bool) $inactiveLocations->get($locationId)) {
-                        throw new BusinessException('الموقع متوقف حالياً ولا يقبل حركات مخزنية.');
-                    }
-                }
+                Location::query()->whereIn('id', $locationIds->all())->orderBy('id')->sharedLock()->pluck('id');
             }
         } catch (QueryException $e) {
             // Map 55P03 lock timeouts to RetryableConflict so background queues and HTTP callers retry safely.

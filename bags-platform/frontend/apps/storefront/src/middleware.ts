@@ -43,9 +43,9 @@ export function middleware(request: NextRequest) {
   headers.set('Content-Security-Policy', csp);
   const response = NextResponse.next({ request: { headers } });
   response.headers.set('Content-Security-Policy', csp);
-  // A nonce is only valid for the response that carried it; never let a CDN or ISR
-  // layer replay HTML whose nonce no longer matches the CSP header.
-  response.headers.set('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  // Private documents can be retained by the browser but must be revalidated.
+  // Shared caches must never replay HTML with a per-response CSP nonce.
+  response.headers.set('Cache-Control', 'private, no-cache, must-revalidate');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');

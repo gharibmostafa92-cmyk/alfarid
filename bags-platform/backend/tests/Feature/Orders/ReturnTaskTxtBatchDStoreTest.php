@@ -151,10 +151,10 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
         $returnId = (int) $created['id'];
         $itemId = (int) $created['items'][0]['id'];
 
-        // الصورة مخزنة تحت return_requests/pending/{uuid}/ وموجودة على القرص.
+        // الصورة مخزنة تحت return_requests/items/{uuid}/ وموجودة على القرص.
         $stored = ReturnRequest::findOrFail($returnId)->items()->firstOrFail()->attachments;
         $this->assertCount(1, $stored);
-        $this->assertStringStartsWith('return_requests/pending/', $stored[0]);
+        $this->assertStringStartsWith('return_requests/items/', $stored[0]);
         $this->assertTrue(Storage::disk('r2')->exists($stored[0]));
 
         // 2) الإدارة توافق وتستلم وترد للمحفظة.

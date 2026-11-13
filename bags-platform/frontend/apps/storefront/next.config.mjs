@@ -27,6 +27,7 @@ const nextConfig = {
     outputFileTracingRoot: resolve(import.meta.dirname, '../..'),
   } : {}),
   reactStrictMode: true,
+  env: { NEXT_PUBLIC_R2_PUBLIC_URL: r2Public },
   devIndicators: false,
   transpilePackages: ['@alfarid/ui', '@alfarid/api-client', '@alfarid/utils', '@alfarid/config'],
   async rewrites() {

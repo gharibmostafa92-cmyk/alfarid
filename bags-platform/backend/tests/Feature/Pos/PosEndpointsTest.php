@@ -67,7 +67,7 @@ class PosEndpointsTest extends TestCase
 
         $role = Role::findOrCreate('cashier', 'staff');
         $this->cashier->assignRole($role);
-        foreach (['pos.access', 'pos.sales.refund'] as $permission) {
+        foreach (['pos.access', 'pos.sales.create', 'pos.sales.refund'] as $permission) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
         }
 
@@ -369,6 +369,7 @@ class PosEndpointsTest extends TestCase
         $itemId = StockTransfer::findOrFail($transferId)->items->first()->id;
 
         $recRes = $this->withToken($token)->postJson("/api/v1/pos/transfers/{$transferId}/receive", [
+            'expected_version' => StockTransfer::findOrFail($transferId)->version,
             'items' => [['id' => $itemId, 'received_qty' => 2]],
         ]);
         $recRes->assertOk()->assertJsonPath('status', 'received');

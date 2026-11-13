@@ -36,10 +36,14 @@ class PosProductController extends Controller
 
         $cursor = $request->query('cursor');
         if (is_string($cursor) && $cursor !== '') {
-            // Follow-up pages reuse the snapshot version the client already
-            // holds: recomputing per page would thrash the database and could
-            // shift the tag mid-pagination, so no ETag is emitted here.
+            $expectedVersion = $request->query('catalog_version');
+            if ($expectedVersion !== null && $expectedVersion !== $this->pos->computeCatalogVersion($branchId)) {
+                return response()->json(['message' => 'تغيّر الكتالوج؛ أعد تحميله.'], 412);
+            }
             $payload = $this->pos->getBranchCatalog($branchId, '', $cursor);
+            if ($expectedVersion !== null && $expectedVersion !== $this->pos->computeCatalogVersion($branchId)) {
+                return response()->json(['message' => 'تغيّر الكتالوج؛ أعد تحميله.'], 412);
+            }
 
             return response()->json($payload);
         }
@@ -56,6 +60,9 @@ class PosProductController extends Controller
         }
 
         $payload = $this->pos->getBranchCatalog($branchId, $catalogVersion);
+        if ($catalogVersion !== $this->pos->computeCatalogVersion($branchId)) {
+            return response()->json(['message' => 'تغيّر الكتالوج؛ أعد تحميله.'], 412);
+        }
 
         return response()->json($payload)->header('ETag', $etag);
     }
@@ -89,6 +96,9 @@ class PosProductController extends Controller
         $customer = isset($data['customer_id'])
             ? Customer::find($data['customer_id'])
             : null;
+        if ($customer !== null && ! $customer->canShop()) {
+            $customer = null;
+        }
 
         $results = $this->pos->lookupProducts($query, $branchId, $customer);
 

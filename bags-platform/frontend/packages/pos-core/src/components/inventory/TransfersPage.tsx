@@ -4,6 +4,7 @@ import { fmt } from '../ui/SharedUI';
 import { ReceiveTab } from './ReceiveTab';
 import { RequestTab } from './RequestTab';
 import { pos } from '../../services/pos-data-source';
+import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { Branch, StockTransfer } from '../../types/pos.types';
 
 interface TransfersPageProps {
@@ -16,7 +17,13 @@ export function TransfersPage({ toast, branch }: TransfersPageProps) {
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
 
   const loadTransfers = () => {
-    pos.getTransfersIn().then(setTransfers);
+    pos.getTransfersIn()
+      .then(setTransfers)
+      .catch((err) => {
+        if (!isCancel(err)) {
+          toast(normalizeError(err).message, 'bad');
+        }
+      });
   };
 
   useEffect(() => {
@@ -33,7 +40,7 @@ export function TransfersPage({ toast, branch }: TransfersPageProps) {
             <h1>التحويلات بين الفروع</h1>
             <p>
               اطلب بضاعة من المخزن أو فرع آخر، واستلم الشحنات الواردة لـ
-              {branch?.name || 'فرع مدينة نصر'}.
+              {branch?.name || 'الفرع'}.
             </p>
           </div>
         </div>

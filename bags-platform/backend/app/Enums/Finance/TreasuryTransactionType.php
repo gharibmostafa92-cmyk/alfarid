@@ -12,6 +12,7 @@ enum TreasuryTransactionType: string
     case OpeningBalance = 'opening_balance';
     case PosSale = 'pos_sale';
     case PosReturn = 'pos_return';
+    case OrderRefund = 'order_refund';
     case Expense = 'expense';
     case ExpenseReversal = 'expense_reversal';
     case TransferIn = 'transfer_in';

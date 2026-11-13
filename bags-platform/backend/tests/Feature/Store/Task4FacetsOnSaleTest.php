@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\Store;
 
 use App\Models\Category;
+use App\Models\Customer;
+use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Catalog\StoreCatalogService;
@@ -15,6 +17,23 @@ use Tests\TestCase;
 class Task4FacetsOnSaleTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    public function test_customer_specific_discounts_are_isolated_from_public_offers(): void
+    {
+        $customer = Customer::factory()->create(['status' => 'approved']);
+        $product = Product::factory()->create(['status' => 'published']);
+        $variant = ProductVariant::factory()->create([
+            'product_id' => $product->id, 'retail_price' => 200, 'compare_at_price' => null, 'is_active' => true,
+        ]);
+        PriceList::create([
+            'name' => 'Private offer', 'type' => 'customer_specific', 'customer_id' => $customer->id, 'is_active' => true,
+        ])->items()->create(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 90]);
+
+        $this->getJson('/api/v1/store/catalog/filters?on_sale=1')->assertOk()->assertJsonPath('data.total', 0);
+        $this->withToken($customer->createToken('offers')->plainTextToken)
+            ->getJson('/api/v1/store/catalog/filters?on_sale=1')->assertOk()->assertJsonPath('data.total', 1);
+        $this->getJson('/api/v1/store/home')->assertOk()->assertJsonPath('data.discounted_products.0.id', $product->id);
+    }
 
     public function test_facets_filter_by_on_sale_and_discounted_interchangeably(): void
     {

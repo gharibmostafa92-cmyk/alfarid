@@ -6,9 +6,19 @@ export function printReceipt(receipt: HTMLElement | null): void {
   host.setAttribute('aria-hidden', 'true');
   host.appendChild(receipt.cloneNode(true));
   document.body.appendChild(host);
+
+  const cleanup = () => {
+    clearTimeout(timer);
+    window.removeEventListener('afterprint', cleanup);
+    host.remove();
+  };
+
+  window.addEventListener('afterprint', cleanup, { once: true });
+  const timer = setTimeout(cleanup, 60_000);
+
   try {
     window.print();
-  } finally {
-    host.remove();
+  } catch {
+    cleanup();
   }
 }

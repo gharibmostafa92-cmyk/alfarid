@@ -12,6 +12,23 @@ use Tests\TestCase;
 
 class OperationIdempotencyRegressionTest extends TestCase
 {
+    public function test_failed_key_reservation_restores_the_outer_transaction_timeout(): void
+    {
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '1200ms'");
+            DB::statement('CREATE TEMPORARY TABLE operation_idempotency_keys (operation text) ON COMMIT DROP');
+            $actor = new User;
+            $actor->id = 1;
+            try {
+                app(OperationIdempotencyService::class)->run('test', $actor, 'key', [], fn () => $actor);
+                $this->fail('The key reservation should fail before calling the operation.');
+            } catch (\Illuminate\Database\QueryException $exception) {
+                $this->assertSame('42703', $exception->errorInfo[0]);
+            }
+            $this->assertSame('1200ms', DB::scalar("SELECT current_setting('lock_timeout')"));
+        });
+    }
+
     public function test_a_concurrency_failure_does_not_repeat_external_side_effects(): void
     {
         // A connection-local table allows a real root transaction and retry,

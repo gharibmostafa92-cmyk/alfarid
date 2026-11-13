@@ -753,10 +753,21 @@ class PosService
                     ->lockForUpdate()
                     ->get();
 
+                if ($heldSales->count() !== count($heldSaleIds)) {
+                    throw new BusinessException('إحدى الفواتير المعلقة المطلوبة لم تعد متاحة أو تم استهلاكها مسبقاً.', [], 409);
+                }
+
                 foreach ($heldSales as $heldSale) {
                     app(BranchAccess::class)->assertBranch($actor->id, (int) $heldSale->branch_id);
                     if ((int) $heldSale->branch_id !== (int) $shift->branch_id) {
                         throw new BusinessException('الفاتورة المعلقة تخص فرعاً آخر.');
+                    }
+
+                    if ($heldSale->resumed_by !== null
+                        && (int) $heldSale->resumed_by !== (int) $actor->id
+                        && $heldSale->resumed_at !== null
+                        && $heldSale->resumed_at->gt(now()->subMinutes(5))) {
+                        throw new BusinessException('الفاتورة المعلقة قيد الدفع لدى مستخدم آخر.', [], 409);
                     }
 
                     if ($heldSale->user_id !== $actor->id && ! $actor->can('pos.held.view_all')) {
@@ -823,7 +834,7 @@ class PosService
                 throw new BusinessException('مجموع المبالغ (نقدي + بطاقة + رصيد استبدال) لا يساوي إجمالي الفاتورة.');
             }
 
-            $orderNumber = $this->settings->generateNextNumber('order');
+            $orderNumber = $this->settings->generateNextNumber('pos_invoice');
 
             // Derive the payment method from the actual tender split instead of
             // trusting a client-supplied value that can disagree with the amounts.
@@ -1127,7 +1138,7 @@ class PosService
                     }
                 }
 
-                $returnOrderNumber = $this->settings->generateNextNumber('order');
+                $returnOrderNumber = $this->settings->generateNextNumber('pos_invoice');
                 $returnAttrs = [
                     'order_number' => $returnOrderNumber,
                     'channel' => 'pos',
@@ -1249,11 +1260,15 @@ class PosService
                 }
             }
 
+            $hasOverrides = collect($data['exchange_items'])->some(
+                fn (array $item): bool => isset($item['unit_price'])
+            );
+
             $quote = $this->quote(
                 (int) $shift->branch_id,
                 $data['exchange_items'],
                 $customer,
-                false,
+                $hasOverrides,
                 $actor,
             );
 
@@ -1278,6 +1293,8 @@ class PosService
                 'cash_amount' => $cashAmount,
                 'card_amount' => $cardAmount,
                 'exchange_credit' => $credit,
+                'override_price' => $hasOverrides,
+                'override_reason' => $data['override_reason'] ?? ($hasOverrides ? 'تجاوز سعر في استبدال' : null),
             ];
 
             $saleFirst = $replacementTotal >= $returnEstimate;
@@ -1377,46 +1394,75 @@ class PosService
     /**
      * F-01: chain-wide tender totals for refund caps.
      *
-     * Walks funding returns (exchange_order_id) back to their source tenders
-     * (return_of_order_id) so exchange credit inherits the tender mix that
-     * funded it. Plain orders have no funding returns and collapse exactly to
-     * their own tender — no behavior change outside exchange chains.
+     * Walks funding returns (exchange_order_id) and return_of_order_id to build the complete
+     * connected component of the exchange-funding tree, locking all involved orders in deterministic
+     * id order. Sums actual cash/card physical tender paid across all sales and all cash/card refunds
+     * recorded across all return orders in the tree to prevent double/concurrent refunding.
      *
      * @return array{0: float, 1: float, 2: float, 3: float} [cashPaid, cardPaid, cashRefunded, cardRefunded]
      */
     private function chainTenderCaps(Order $originalOrder, float $previousCashRefunded, float $previousCardRefunded): array
     {
-        $cashPaid = (float) $originalOrder->cash_amount;
-        $cardPaid = (float) $originalOrder->card_amount;
-        $cashRefunded = $previousCashRefunded;
-        $cardRefunded = $previousCardRefunded;
-
         $visited = [$originalOrder->id => true];
         $queue = [$originalOrder->id];
+
         while ($queue !== []) {
             $currentId = array_shift($queue);
-            $funding = Order::withTrashed()->where('exchange_order_id', $currentId)->get();
-            foreach ($funding as $fundingReturn) {
-                if (isset($visited[$fundingReturn->id])) {
-                    continue;
+
+            $related = Order::withTrashed()
+                ->where(function ($q) use ($currentId): void {
+                    $q->where('return_of_order_id', $currentId)
+                        ->orWhere('exchange_order_id', $currentId);
+                })
+                ->get(['id', 'return_of_order_id', 'exchange_order_id']);
+
+            foreach ($related as $rel) {
+                if (! isset($visited[$rel->id])) {
+                    $visited[$rel->id] = true;
+                    $queue[] = $rel->id;
                 }
-                $visited[$fundingReturn->id] = true;
-                $source = $fundingReturn->return_of_order_id
-                    ? Order::withTrashed()->find($fundingReturn->return_of_order_id)
-                    : null;
-                if ($source === null) {
-                    continue;
+                if ($rel->return_of_order_id !== null && ! isset($visited[$rel->return_of_order_id])) {
+                    $visited[$rel->return_of_order_id] = true;
+                    $queue[] = $rel->return_of_order_id;
                 }
-                $cashPaid += (float) $source->cash_amount;
-                $cardPaid += (float) $source->card_amount;
-                $cashRefunded += (float) Order::withTrashed()
-                    ->where('return_of_order_id', $source->id)->sum('cash_amount');
-                $cardRefunded += (float) Order::withTrashed()
-                    ->where('return_of_order_id', $source->id)->sum('card_amount');
-                if (! isset($visited[$source->id])) {
-                    $visited[$source->id] = true;
-                    $queue[] = $source->id;
+                if ($rel->exchange_order_id !== null && ! isset($visited[$rel->exchange_order_id])) {
+                    $visited[$rel->exchange_order_id] = true;
+                    $queue[] = $rel->exchange_order_id;
                 }
+            }
+
+            $currentOrder = Order::withTrashed()->find($currentId, ['id', 'return_of_order_id', 'exchange_order_id']);
+            if ($currentOrder !== null) {
+                if ($currentOrder->return_of_order_id !== null && ! isset($visited[$currentOrder->return_of_order_id])) {
+                    $visited[$currentOrder->return_of_order_id] = true;
+                    $queue[] = $currentOrder->return_of_order_id;
+                }
+                if ($currentOrder->exchange_order_id !== null && ! isset($visited[$currentOrder->exchange_order_id])) {
+                    $visited[$currentOrder->exchange_order_id] = true;
+                    $queue[] = $currentOrder->exchange_order_id;
+                }
+            }
+        }
+
+        // Lock all discovered orders in deterministic order to prevent race conditions
+        $allOrders = Order::withTrashed()
+            ->whereIn('id', array_keys($visited))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $cashPaid = 0.0;
+        $cardPaid = 0.0;
+        $cashRefunded = 0.0;
+        $cardRefunded = 0.0;
+
+        foreach ($allOrders as $order) {
+            if ($order->return_of_order_id === null) {
+                $cashPaid += (float) $order->cash_amount;
+                $cardPaid += (float) $order->card_amount;
+            } else {
+                $cashRefunded += (float) $order->cash_amount;
+                $cardRefunded += (float) $order->card_amount;
             }
         }
 
@@ -1453,11 +1499,15 @@ class PosService
      */
     public function lookupProducts(string $query, int $branchId, ?Customer $customer = null): array
     {
+        if ($customer !== null && ! $customer->canShop()) {
+            $customer = null;
+        }
+
         $trimmed = trim($query);
         $normalized = ArabicDigits::normalize($trimmed);
 
         $baseQuery = ProductVariant::query()
-            ->with(['product', 'media'])
+            ->with('product')
             ->whereHas('product', fn ($q) => $q->where('is_active', true)->whereNotNull('published_at'))
             ->where('is_active', true);
 

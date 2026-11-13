@@ -43,6 +43,11 @@ Run the storage gate immediately before each push. It sums repository storage ac
 
 ## 2. Deploy the IAM-private pilot
 
+Assistant turns can run on a separate IAM-private service configured by the
+`DeployAi` action in `pilot.ps1`. Set `PRIVATE_CLOUD_RUN_AI_ORIGIN` on the
+storefront proxy and grant the proxy identity invoker access to that service.
+Both Laravel services use the same database, cache and proxy signing secret.
+
 Log in with `gcloud auth login` and verify access to the dedicated project. Provision a runtime service account with Secret Manager accessor on the two required secrets only. Store the runtime DB password and stable `APP_KEY` as separate pinned versions. The deployment identity needs permission to deploy and act as the runtime identity. Give the separate Scheduler service account `roles/run.invoker` on the two Jobs individually after deployment. Keep the Cloud Scheduler service agent role intact. Use a separate tester identity with invoker access to the API. [Run Jobs IAM](https://docs.cloud.google.com/run/docs/execute/jobs-on-schedule)
 
 Run these commands from `bags-platform/`. Replace all placeholders locally. The settings below contain references only.

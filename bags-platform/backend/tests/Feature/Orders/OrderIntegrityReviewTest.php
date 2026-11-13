@@ -169,6 +169,15 @@ class OrderIntegrityReviewTest extends TestCase
         $this->assertSame(1, Order::query()->where('idempotency_key', 'checkout-key-abc')->count());
     }
 
+    public function test_checkout_discount_caps_stacked_promotions_at_subtotal(): void
+    {
+        $orders = app(OrderService::class);
+        $discount = $orders->checkoutDiscount(100.00, 50.005, 50.01);
+
+        $this->assertSame(100.0, $discount);
+        $this->assertSame(50.0, $orders->calculateCharges(100.00, $discount, 50.0, 0.0)['grand_total']);
+    }
+
     // ---------- F-14 ----------
 
     public function test_manual_delivered_settles_cod_and_paid_return_flags_refund(): void

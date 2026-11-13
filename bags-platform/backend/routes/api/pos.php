@@ -22,50 +22,82 @@ if (config('auth.legacy_login_enabled', false)) {
 Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throttle:pos-api'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
     Route::get('bootstrap', [PosBootstrapController::class, 'show'])->name('bootstrap');
-    Route::get('treasuries/available', [PosShiftController::class, 'availableDrawers'])->name('treasuries.available');
+    Route::get('treasuries/available', [PosShiftController::class, 'availableDrawers'])
+        ->middleware('permission:pos.sales.create')
+        ->name('treasuries.available');
 
     // Shift management: opening, closing, and inspecting shifts do not require
     // an active shift (F-10: close resolves its own shift so idempotent
     // retries replay the close summary instead of hitting pos.shift 403).
-    Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
-    Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
+    Route::post('shifts/open', [PosShiftController::class, 'open'])
+        ->middleware('permission:pos.sales.create')
+        ->name('shifts.open');
+    Route::post('shifts/close', [PosShiftController::class, 'close'])
+        ->middleware('permission:pos.sales.create')
+        ->name('shifts.close');
     Route::get('shifts/current', [PosShiftController::class, 'current'])->name('shifts.current');
 
     // Product catalog, lookup, and held carts accessible prior to shift opening.
-    Route::get('catalog', [PosProductController::class, 'catalog'])->name('catalog');
-    Route::get('products/lookup', [PosProductController::class, 'lookup'])->name('products.lookup');
-    Route::get('sales/held', [PosSaleController::class, 'held'])->name('sales.held');
+    // Shielded with permission:pos.sales.create|inventory.view to prevent blind stocktake data leaks.
+    Route::get('catalog', [PosProductController::class, 'catalog'])
+        ->middleware('permission:pos.sales.create|inventory.view')
+        ->name('catalog');
+    Route::get('products/lookup', [PosProductController::class, 'lookup'])
+        ->middleware('permission:pos.sales.create|inventory.view')
+        ->name('products.lookup');
+    Route::get('sales/held', [PosSaleController::class, 'held'])
+        ->middleware('permission:pos.sales.create')
+        ->name('sales.held');
+
+    // Stocktake blind scanning without requiring an open cashier shift
+    Route::get('stocktakes/current', [PosStockController::class, 'currentStocktake'])->name('stocktakes.current');
+    Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])->name('stocktakes.scan');
 
     // Protected endpoints requiring an active shift (pos.shift middleware injects current shift).
     Route::middleware('pos.shift')->group(function (): void {
         Route::get('shifts/current/summary', [PosShiftController::class, 'summary'])->name('shifts.current.summary');
 
         // POS sales, held carts, refunds, and exchanges.
-        Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');
-        Route::post('sales/hold', [PosSaleController::class, 'hold'])->name('sales.hold');
-        Route::post('sales/quote', [PosSaleController::class, 'quote'])->name('sales.quote');
+        Route::post('sales', [PosSaleController::class, 'store'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.store');
+        Route::post('sales/hold', [PosSaleController::class, 'hold'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.hold');
+        Route::post('sales/quote', [PosSaleController::class, 'quote'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.quote');
+        Route::post('sales/expenses', [PosSaleController::class, 'recordExpense'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.expenses');
         Route::get('sales/lookup', [PosSaleController::class, 'lookupForReturn'])
             ->middleware(['permission:pos.sales.refund', 'throttle:pos-lookup'])
             ->name('sales.lookup');
-        Route::post('sales/held/{held_sale}/resume', [PosSaleController::class, 'resumeHeld'])->name('sales.held.resume');
-        Route::delete('sales/held/{held_sale}', [PosSaleController::class, 'deleteHeld'])->name('sales.held.delete');
-        Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->middleware('permission:pos.sales.refund')->name('sales.return');
-        Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->middleware('permission:pos.sales.refund')->name('sales.exchange');
+        Route::post('sales/held/{held_sale}/resume', [PosSaleController::class, 'resumeHeld'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.held.resume');
+        Route::delete('sales/held/{held_sale}', [PosSaleController::class, 'deleteHeld'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.held.delete');
+        Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])
+            ->middleware(['permission:pos.sales.refund', 'throttle:pos-returns'])->name('sales.return');
+        Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])
+            ->middleware(['permission:pos.sales.refund', 'throttle:pos-returns'])->name('sales.exchange');
 
         // Restrict customer lookup and creation to an active shift.
         Route::get('customers', [PosCustomerController::class, 'index'])
             ->middleware('throttle:pos-customers')->name('customers.index');
         Route::post('customers', [PosCustomerController::class, 'store'])
-            ->middleware('throttle:pos-customers')->name('customers.store');
+            ->middleware(['permission:pos.sales.create', 'throttle:pos-customers'])->name('customers.store');
 
         // Branch inventory, transfers, and barcode scanning.
-        Route::get('stock', [PosStockController::class, 'index'])->name('stock.index');
+        Route::get('stock', [PosStockController::class, 'index'])
+            ->middleware('permission:pos.sales.create|inventory.view')
+            ->name('stock.index');
         Route::get('transfers/incoming', [PosStockController::class, 'incoming'])->name('transfers.incoming');
         Route::get('transfer-sources', [PosStockController::class, 'sources'])->name('transfer-sources.index');
         Route::post('transfer-requests', [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
         Route::post('transfers/{transfer}/receive', [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
-        Route::get('stocktakes/current', [PosStockController::class, 'currentStocktake'])->name('stocktakes.current');
-        Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])->name('stocktakes.scan');
     });
 
     // Staff notifications

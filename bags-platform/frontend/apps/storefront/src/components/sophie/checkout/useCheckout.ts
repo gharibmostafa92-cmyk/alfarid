@@ -207,6 +207,8 @@ export function useCheckout() {
   const attemptOwner = token
     ? `${actorType}:${String(user?.id ?? 'unknown')}`
     : 'guest';
+  const quotePhone = normalizeCheckoutPhone(form.phone);
+  const recipientPhone = !token && /^\+?[0-9]{7,15}$/.test(quotePhone) ? quotePhone : undefined;
   const quoteKey = JSON.stringify([
     owner,
     form.cityId,
@@ -214,6 +216,7 @@ export function useCheckout() {
     couponCode,
     items,
     quoteRevision,
+    recipientPhone,
   ]);
   const liveQuote = shownQuote(quote, quotedFor, quoteKey, cartBusy, cartLoading);
   const cartSignature = cartFingerprint(items);
@@ -366,7 +369,7 @@ export function useCheckout() {
     const t = setTimeout(() => {
       checkoutEndpoints
         .shippingOptions(
-          { city_id: form.cityId as number, payment_method: form.paymentMethod },
+          { city_id: form.cityId as number, payment_method: form.paymentMethod, recipient_phone: recipientPhone },
           getCartSession(),
           controller.signal,
         )
@@ -394,6 +397,7 @@ export function useCheckout() {
                 couponCode,
                 items,
                 quoteRevision,
+                recipientPhone,
               ]),
             );
             return;
@@ -416,7 +420,7 @@ export function useCheckout() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [quoteKey, hydrated, cartBusy, cartLoading, form.cityId, form.paymentMethod]);
+  }, [quoteKey, hydrated, cartBusy, cartLoading, form.cityId, form.paymentMethod, recipientPhone]);
 
   // ?promo=CODE auto-applies once.
   useEffect(() => {

@@ -191,21 +191,26 @@ test('a failed login cart merge preserves the original guest session after auth 
 
 test('public API images use a same-origin path across surfaces without proxying unrelated URLs', () => {
   const previous = process.env.NEXT_PUBLIC_API_URL;
+  const previousCdn = process.env.NEXT_PUBLIC_R2_PUBLIC_URL;
   process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8000';
+  process.env.NEXT_PUBLIC_R2_PUBLIC_URL = 'https://cdn.example.test';
   try {
     const { storeImageUrl } = load('apps/storefront/src/lib/catalog/store-image.ts');
     assert.equal(storeImageUrl('http://localhost:8000/storage/product/conversions/thumb.webp'), '/store-media/product/conversions/thumb.webp');
     assert.equal(storeImageUrl('http://127.0.0.1:8000/storage/brand.svg'), '/store-media/brand.svg');
+    assert.equal(storeImageUrl('http://192.168.1.10:8000/storage/brand.svg'), '/store-media/brand.svg');
     assert.equal(storeImageUrl('/storage/product.jpg?v=2'), '/store-media/product.jpg?v=2');
     assert.equal(storeImageUrl('https://cdn.example.test/bag.webp'), 'https://cdn.example.test/bag.webp');
     assert.equal(storeImageUrl('/images/fallback.png'), '/images/fallback.png');
-    assert.equal(storeImageUrl('http://unrelated.test/storage/private.jpg'), 'http://unrelated.test/storage/private.jpg');
-    assert.equal(storeImageUrl('http://localhost:8000/api/v1/store/products'), 'http://localhost:8000/api/v1/store/products');
+    assert.equal(storeImageUrl('http://unrelated.test/storage/private.jpg'), '');
+    assert.equal(storeImageUrl('https://unrelated.test/pixel.gif'), '');
+    assert.equal(storeImageUrl('http://localhost:8000/api/v1/store/products'), '');
     assert.equal(storeImageUrl(null), '');
     process.env.NEXT_PUBLIC_API_URL = 'https://api.store.test';
     assert.equal(storeImageUrl('https://api.store.test/storage/banner.png'), '/store-media/banner.png');
   } finally {
     if (previous === undefined) delete process.env.NEXT_PUBLIC_API_URL; else process.env.NEXT_PUBLIC_API_URL = previous;
+    if (previousCdn === undefined) delete process.env.NEXT_PUBLIC_R2_PUBLIC_URL; else process.env.NEXT_PUBLIC_R2_PUBLIC_URL = previousCdn;
   }
 });
 

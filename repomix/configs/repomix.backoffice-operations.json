@@ -38,7 +38,9 @@
                     "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php",
                     "bags-platform/frontend/apps/backoffice/tailwind.config.js",
                     "bags-platform/frontend/apps/storefront/src/components/auth/AccountMenu.tsx",
-                    "bags-platform/frontend/apps/storefront/src/components/auth/PhoneVerification.tsx"
+                    "bags-platform/frontend/apps/storefront/src/components/auth/PhoneVerification.tsx",
+                    "bags-platform/backend/app/Http/Controllers/Controller.php",
+                    "bags-platform/backend/app/Listeners/Orders/SendStaffOrderNotification.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

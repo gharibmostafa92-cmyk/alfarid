@@ -21,6 +21,28 @@ class Task8Slice1SchemaAndMigrationsTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_bank_overdraft_is_bounded_and_cannot_be_funded_by_a_late_opening_entry(): void
+    {
+        config(['treasury.bank_overdraft_limit' => '20.00']);
+        $actor = User::factory()->create();
+        $bank = Treasury::query()->create([
+            'name' => 'Bank', 'code' => 'OVERDRAFT-TEST', 'type' => TreasuryType::BankAccount, 'is_active' => true,
+        ]);
+        $service = app(TreasuryService::class);
+        $record = fn (TreasuryTransactionType $type, string $amount) => $service->record([
+            'treasury_id' => $bank->id, 'type' => $type, 'amount' => $amount, 'created_by' => $actor->id,
+        ]);
+        $record(TreasuryTransactionType::TransferOut, '-20.00');
+        foreach ([[TreasuryTransactionType::TransferOut, '-0.01'], [TreasuryTransactionType::OpeningBalance, '10.00']] as [$type, $amount]) {
+            try {
+                $record($type, $amount);
+                $this->fail('The treasury entry must be rejected.');
+            } catch (\App\Exceptions\BusinessException) {
+                $this->assertSame('-20.00', $bank->refresh()->current_balance);
+            }
+        }
+    }
+
     public function test_f01_treasury_transactions_immutability_sign_constraint_and_opening_balance_uniqueness(): void
     {
         $branch = Branch::factory()->create(['is_active' => true]);

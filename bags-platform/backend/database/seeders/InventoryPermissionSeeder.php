@@ -29,6 +29,7 @@ class InventoryPermissionSeeder extends Seeder
             'transfers.approve_shortage', // Record a shortage write-off when receiving
             'stocktakes.view', 'stocktakes.create', 'stocktakes.update', 'stocktakes.delete',
             'stocktakes.approve',
+            'locations.view', 'locations.create', 'locations.update', 'locations.delete', 'locations.manage',
         ];
 
         $created = [];

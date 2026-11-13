@@ -57,9 +57,11 @@ class OperationIdempotencyService
         $hash = IdempotencyFingerprint::hash($payload);
 
         return DB::transaction(function () use ($scope, $hash, $execute): Model {
-            $previousTimeout = DB::selectOne("SELECT current_setting('lock_timeout') AS value")->value;
             // Bound lock wait time to quickly fail concurrent duplicates instead of exhausting connection pool.
-            DB::statement("SET LOCAL lock_timeout = '3s'");
+            $previousTimeout = DB::selectOne(
+                "WITH prior AS MATERIALIZED (SELECT current_setting('lock_timeout') AS value)
+                SELECT value, set_config('lock_timeout', '3s', true) FROM prior",
+            )->value;
             try {
                 $inserted = DB::table('operation_idempotency_keys')->insertOrIgnore([
                     ...$scope, 'request_hash' => $hash, 'created_at' => now(),
@@ -72,7 +74,8 @@ class OperationIdempotencyService
                 }
                 throw $e;
             }
-            // Restore connection-level lock timeout to avoid leaking the 3-second limit to subsequent queries.
+            // A failed query is rolled back to the surrounding transaction or savepoint.
+            // Restore explicitly on success before running the operation callback.
             DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
             if ($record === null) {
                 throw new BusinessException('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', [], 409);

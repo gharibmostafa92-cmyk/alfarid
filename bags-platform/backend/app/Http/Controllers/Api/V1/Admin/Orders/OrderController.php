@@ -42,6 +42,7 @@ class OrderController extends Controller implements HasMiddleware
         'unpaid' => ['paid', 'failed'],
         'failed' => ['paid', 'unpaid'],
         'paid' => ['refunded'],
+        'partially_refunded' => ['refunded'],
         'refunded' => [],
     ];
 
@@ -89,11 +90,10 @@ class OrderController extends Controller implements HasMiddleware
         }
 
         $orders = Order::query()
-            ->when($branch !== null, fn ($q) => $q->where('allocated_branch_id', $branch))
+            ->when($branch ?? $filters['allocated_branch_id'] ?? null, fn ($q, $branchId) => $q->allocatedToBranch((int) $branchId))
             ->with(['customer', 'allocatedBranch'])
             ->withCount('items')
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->when($filters['allocated_branch_id'] ?? null, fn ($q, $branchId) => $q->where('allocated_branch_id', $branchId))
             ->when($filters['payment_method'] ?? null, fn ($q, $method) => $q->where('payment_method', $method))
             ->when(array_key_exists('needs_attention', $filters) && $filters['needs_attention'] !== null,
                 fn ($q) => $q->where('needs_attention', (bool) $filters['needs_attention']))
@@ -140,7 +140,7 @@ class OrderController extends Controller implements HasMiddleware
         $branch = $this->branchAccess->restrictedBranch($request->user());
 
         $row = Order::query()
-            ->when($branch !== null, fn ($q) => $q->where('allocated_branch_id', $branch))
+            ->when($branch !== null, fn ($q) => $q->allocatedToBranch($branch))
             ->selectRaw("COUNT(*) FILTER (WHERE status = 'pending') AS pending")
             ->selectRaw("COUNT(*) FILTER (WHERE status = 'processing') AS processing")
             ->selectRaw('COUNT(*) FILTER (WHERE needs_attention IS TRUE) AS needs_attention')
@@ -164,7 +164,10 @@ class OrderController extends Controller implements HasMiddleware
      */
     public function show(Request $request, Order $order): AdminOrderResource
     {
-        $this->authorizeOrder($request, $order);
+        $branch = $this->branchAccess->restrictedBranch($request->user());
+        if ($branch !== null && ! Order::query()->whereKey($order->id)->allocatedToBranch($branch)->exists()) {
+            throw new AuthorizationException('لا تملك صلاحية الوصول إلى هذا الطلب.');
+        }
 
         return $this->orderResource($order);
     }

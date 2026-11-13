@@ -244,7 +244,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
           <span className="truncate">{currentSource?.name || 'المخزن الرئيسي — العبور'}</span>
           <span className="ln" />
           <Icon n="store" s={15} className="t-acc" />
-          {branch?.name || 'فرع مدينة نصر'}
+          {branch?.name || 'الفرع'}
         </div>
         <Field
           label={

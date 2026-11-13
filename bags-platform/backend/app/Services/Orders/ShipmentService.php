@@ -42,6 +42,9 @@ class ShipmentService
         return DB::transaction(function () use ($order, $companyId, $awbNumber, $actor): Shipment {
             // Pessimistic lock serializes concurrent manifest requests and prevents duplicate AWBs.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($order->requires_refund || in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
+                throw new BusinessException('لا يمكن إنشاء بوليصة لطلب قيد الاسترداد أو سبق استرداده.');
+            }
             // Active shipments cannot be duplicated; only previously failed or returned attempts permit re-shipment.
             $hasActiveShipment = $order->shipments()->active()->exists();
             if ($hasActiveShipment) {

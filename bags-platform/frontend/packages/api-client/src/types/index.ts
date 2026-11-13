@@ -225,8 +225,9 @@ export interface CartCouponResponse { cart: StoreCart; coupon_discount: number }
 export interface TrackOrderResponse {
   instapay?: InstapayDetails;
   order_number: string; status: string;
-  items: Array<{ product_name: string; qty: number }>;
-  status_history: Array<{ status: string; at: string }>;
+  payment_status?: string;
+  items: Array<{ id?: number; product_name: string; qty: number }>;
+  status_history: Array<{ id?: number; status: string; at: string }>;
   created_at: string;
 }
 export type StoreBannerLinkType = 'product' | 'category' | 'brand' | 'external' | 'none';

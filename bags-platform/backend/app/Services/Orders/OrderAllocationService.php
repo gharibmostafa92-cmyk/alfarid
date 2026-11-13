@@ -234,6 +234,18 @@ class OrderAllocationService
             || $order->items->contains(fn (OrderItem $item): bool => $item->allocated_branch_id !== null);
     }
 
+    public function isFullyAllocated(Order $order): bool
+    {
+        if ($order->allocated_branch_id !== null) {
+            return true;
+        }
+
+        $items = $order->items()->toBase()
+            ->selectRaw('COUNT(*) AS total, COUNT(allocated_branch_id) AS allocated')->first();
+
+        return (int) $items->total > 0 && (int) $items->total === (int) $items->allocated;
+    }
+
     /** Lock only the branch/variant pairs selected by the coverage plan. */
     private function lockPlannedLevels(array $plan): Collection
     {

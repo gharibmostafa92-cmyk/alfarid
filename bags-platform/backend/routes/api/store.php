@@ -75,7 +75,7 @@ Route::middleware('throttle:checkout')->prefix('checkout')->name('checkout.')->g
 
 // Public order tracking with strict rate limiting to prevent enumeration attacks
 Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
-    ->where('number', '[A-Za-z0-9-]{1,40}')
+    ->where('number', '[A-Za-z0-9_.-]{1,40}')
     ->middleware('throttle:order-tracking')->name('orders.track');
 
 // Authenticated customer account routes
@@ -84,7 +84,7 @@ Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('a
     Route::get('wallet', [WalletController::class, 'index'])->name('wallet.index');
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
     Route::get('orders/{number}', [StoreOrderController::class, 'show'])
-        ->where('number', '[A-Za-z0-9-]{1,40}')
+        ->where('number', '[A-Za-z0-9_.-]{1,40}')
         ->name('orders.show');
     Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->where('order', '[0-9]{1,18}')->name('orders.cancel');
     // Return requests (RMA) for delivered orders

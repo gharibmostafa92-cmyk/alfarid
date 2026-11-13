@@ -21,6 +21,7 @@ const responseHeaders = [
 
 type ProxyConfig = {
   upstream: string;
+  aiUpstream?: string;
   origins: readonly string[];
   identityToken: (audience: string) => Promise<string>;
   clientIpSecret?: string;
@@ -184,9 +185,12 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   }
 
   try {
-    const upstream = new URL(config.upstream);
+    const isAiTurn = request.method === 'POST' && path.length === 5 && path[0] === 'admin' && path[1] === 'ai'
+      && path[2] === 'conversations' && (path[4] === 'stream' || path[4] === 'messages');
+    const target = isAiTurn && config.aiUpstream ? config.aiUpstream : config.upstream;
+    const upstream = new URL(target);
     if (upstream.protocol !== 'https:' || !upstream.hostname.endsWith('.run.app')
-      || config.upstream !== upstream.origin) return fail(503, 'API is not configured');
+      || target !== upstream.origin) return fail(503, 'API is not configured');
     const clientIpSecret = config.clientIpSecret?.trim();
     if (!clientIpSecret) return fail(503, 'API proxy signing secret is not configured');
     upstream.pathname = '/api/v1/' + path.map(encodeURIComponent).join('/');

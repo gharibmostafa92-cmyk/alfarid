@@ -426,8 +426,15 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         const next = prev.map((l) => ({ ...l }));
         for (const nl of newLines) {
           const existing = next.find((l) => l.id === nl.id);
-          if (existing) existing.qty += nl.qty;
-          else next.push({ ...nl });
+          if (existing) {
+            existing.qty += nl.qty;
+            if (nl.manualPrice) {
+              existing.price = nl.price;
+              existing.manualPrice = true;
+            }
+          } else {
+            next.push({ ...nl });
+          }
         }
         return next;
       });
@@ -464,6 +471,12 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     try {
       await pos.deleteHeldSale(heldItem.ref);
       setHeldSales((list) => list.filter((item) => item.ref !== heldItem.ref));
+      if (heldItem.serverId != null) {
+        const currentHeld = posCartStore.getState().heldSaleIds;
+        if (currentHeld.includes(heldItem.serverId)) {
+          posCartStore.getState().setHeldSaleIds(currentHeld.filter((id) => id !== heldItem.serverId));
+        }
+      }
       toast(`تم حذف الفاتورة المعلقة ${heldItem.ref}`);
     } catch (err) {
       if (!isCancel(err)) {

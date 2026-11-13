@@ -12,6 +12,26 @@ const makeRequest = (origin = office, init: RequestInit = {}) =>
     headers: { ...init.headers, origin },
   });
 
+test('routes assistant turns to a separate worker pool and keeps other API routes on the main pool', async () => {
+  const aiUpstream = 'https://private-ai.run.app';
+  const audiences: string[] = [];
+  const config = {
+    upstream, aiUpstream, origins: [office], clientIpSecret,
+    identityToken: async (audience: string) => { audiences.push(audience); return 'service-token'; },
+    send: async (url: URL | RequestInfo) => new Response(new URL(String(url)).origin),
+  };
+  for (const [method, path, expected] of [
+    ['POST', ['admin', 'ai', 'conversations', '7', 'stream'], aiUpstream],
+    ['POST', ['admin', 'ai', 'conversations', '7', 'messages'], aiUpstream],
+    ['GET', ['admin', 'ai', 'conversations', '7', 'messages'], upstream],
+    ['POST', ['pos', 'sales'], upstream],
+  ] as const) {
+    const response = await proxyCloudRunApi(makeRequest(office, { method }), [...path], config);
+    assert.equal(await response.text(), expected);
+  }
+  assert.deepEqual(audiences, [aiUpstream, aiUpstream, upstream, upstream]);
+});
+
 test('forwards the user token and idempotency key separately from the service identity', async () => {
   const response = await proxyCloudRunApi(makeRequest(office, {
     method: 'POST',

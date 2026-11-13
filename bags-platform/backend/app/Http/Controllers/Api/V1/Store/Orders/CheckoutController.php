@@ -62,9 +62,14 @@ class CheckoutController extends Controller
             $coupon = Coupon::query()->whereKey($cart->coupon_id)->first();
             if ($coupon && $coupon->type === 'free_shipping') {
                 try {
-                    $this->coupons->redeemableById($coupon->id, (float) $totals['subtotal'], $customer);
+                    $this->coupons->redeemableById(
+                        $coupon->id,
+                        (float) $totals['items_total'],
+                        $customer,
+                        $customer === null ? ($validated['recipient_phone'] ?? null) : null,
+                    );
                     $cost = 0.0;
-                } catch (\Throwable) {
+                } catch (BusinessException) {
                     // Coupon is not redeemable for this subtotal/customer; keep normal shipping cost.
                 }
             }
@@ -74,7 +79,7 @@ class CheckoutController extends Controller
 
         // Pre-compute expected total with the exact same decimal math used by
         // OrderService::createFromCart so expected_total can never drift.
-        $discountAmount = round($totals['pricing_discount'] + $totals['coupon_discount'], 2);
+        $discountAmount = $this->orders->checkoutDiscount($totals['subtotal'], $totals['pricing_discount'], $totals['coupon_discount']);
         $charges = $this->orders->calculateCharges($totals['subtotal'], $discountAmount, $cost, $quote['cod_fee']);
         $taxAmount = $charges['tax'];
         $grandTotal = $charges['grand_total'];
@@ -127,6 +132,7 @@ class CheckoutController extends Controller
         }
 
         $order = $this->orders->createFromCart($cart, $data, $customer);
+        $order->loadMissing(['items.variant.media', 'items.variant.product' => fn ($query) => $query->withTrashed()->with('media')]);
 
         return response()->json([
             'data' => OrderResource::make($order)->resolve($request),

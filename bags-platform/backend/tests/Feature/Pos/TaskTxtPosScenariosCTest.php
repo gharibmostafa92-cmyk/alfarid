@@ -206,6 +206,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
 
         // Receiving a transfer bound for B from A: rejected.
         $this->withToken($tokenA)->postJson("/api/v1/pos/transfers/{$transfer->id}/receive", [
+            'expected_version' => $transfer->fresh()->version,
             'items' => [['id' => $transfer->items->first()->id, 'received_qty' => 1]],
         ])->assertStatus(403);
 
@@ -289,11 +290,13 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         app(TransferService::class)->ship($transfer->fresh(), [], $hq->id);
         $transfer = $transfer->fresh();
         $this->withToken($baseToken)->postJson("/api/v1/pos/transfers/{$transfer->id}/receive", [
+            'expected_version' => $transfer->fresh()->version,
             'items' => [['id' => $transfer->items->first()->id, 'received_qty' => 1]],
         ])->assertStatus(403);
         Auth::forgetGuards();
         $recvToken = $this->tokenFor($this->cashier, ['transfers.receive']);
         $this->withToken($recvToken)->postJson("/api/v1/pos/transfers/{$transfer->id}/receive", [
+            'expected_version' => $transfer->fresh()->version,
             'items' => [['id' => $transfer->items->first()->id, 'received_qty' => 1]],
         ])->assertOk();
 
@@ -348,7 +351,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $this->assertContains($this->branchB->id, $branchOf);
 
         $settings = app(\App\Services\Shared\SettingService::class);
-        $prefix = (string) $settings->get('order_prefix', 'ORD-');
+        $prefix = (string) $settings->get('pos_invoice_prefix', 'POS-');
         foreach ($numbers as $number) {
             $this->assertStringStartsWith($prefix, $number);
         }

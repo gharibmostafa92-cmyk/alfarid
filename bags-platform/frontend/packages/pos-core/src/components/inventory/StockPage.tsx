@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, PImg, Api, KPI, FilterSelect, Empty, cx } from '../ui/SharedUI';
+import { fmt, Api, Empty, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
-import type { PosProduct, ProductCategory, Branch } from '../../types/pos.types';
+import type { Branch, PosStockRow } from '../../types/pos.types';
 
 interface StockPageProps {
   branch?: Branch | null;
@@ -11,33 +11,42 @@ interface StockPageProps {
 export function StockPage({ branch }: StockPageProps) {
   const [q, setQ] = useState('');
   const [low, setLow] = useState(false);
-  const [cat, setCat] = useState('all');
-  const [products, setProducts] = useState<PosProduct[]>([]);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
-
-  const loadData = () => {
-    pos.getProducts().then(setProducts);
-    pos.getCategories().then(setCategories);
-  };
+  const [page, setPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
+  const [rows, setRows] = useState<PosStockRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    loadData();
-    const unsub = pos.subscribe(loadData);
-    return unsub;
-  }, []);
-
-  const list = products.filter(
-    (p) =>
-      (!q ||
-        p.name.includes(q) ||
-        p.sku.toLowerCase().includes(q.toLowerCase()) ||
-        p.barcode.includes(q)) &&
-      (!low || p.stock <= p.reorder) &&
-      (cat === 'all' || p.cat === cat)
-  );
-
-  const lowCount = products.filter((p) => p.stock <= p.reorder).length;
-  const outCount = products.filter((p) => p.stock === 0).length;
+    let active = true;
+    let request = 0;
+    const load = async () => {
+      const current = ++request;
+      setLoading(true);
+      setFailed(false);
+      try {
+        const result = await pos.getStockPage(q.trim(), low, page);
+        if (!active || current !== request) return;
+        setRows(result.rows);
+        setLastPage(result.lastPage);
+        if (page > result.lastPage) setPage(result.lastPage);
+      } catch {
+        if (active && current === request) {
+          setRows([]);
+          setFailed(true);
+        }
+      } finally {
+        if (active && current === request) setLoading(false);
+      }
+    };
+    const timer = setTimeout(load, q ? 200 : 0);
+    const unsubscribe = pos.subscribe(load);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [branch?.id, q, low, page]);
 
   return (
     <div className="page" data-screen-label="08 Branch Stock">
@@ -45,43 +54,9 @@ export function StockPage({ branch }: StockPageProps) {
         <div className="page-title">
           <div>
             <h1>مخزون الفرع</h1>
-            <p>أرصدة {branch?.name || 'فرع مدينة نصر'} لحظيًا — بدون مغادرة نقطة البيع.</p>
+            <p>أرصدة {branch?.name || 'الفرع'} لحظيًا — بدون مغادرة نقطة البيع.</p>
           </div>
           <Api path={`/pos/stock?q=${q || '…'}&low_stock=${low}&per_page=20`} />
-        </div>
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}
-        >
-          <KPI
-            label="أصناف بالفرع"
-            value={fmt(products.length)}
-            icon="box"
-            foot={
-              <>
-                إجمالي{' '}
-                <b className="num t-1">
-                  {fmt(products.reduce((s, p) => s + p.stock, 0))}
-                </b>{' '}
-                قطعة
-              </>
-            }
-          />
-          <KPI
-            label="منخفضة عن حد الطلب"
-            value={fmt(lowCount)}
-            icon="alert"
-            warn
-            onClick={() => setLow(!low)}
-            active={low}
-            foot="اضغط للفلترة"
-          />
-          <KPI
-            label="نفدت من الفرع"
-            value={fmt(outCount)}
-            icon="x"
-            foot="اطلب تحويل من فرع آخر"
-          />
         </div>
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="toolbar">
@@ -91,22 +66,14 @@ export function StockPage({ branch }: StockPageProps) {
                 className="input"
                 autoFocus
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={(e) => { setQ(e.target.value); setPage(1); }}
                 placeholder="SKU أو الاسم أو الباركود"
               />
             </div>
-            <button className={cx('chip', low && 'on')} onClick={() => setLow(!low)}>
+            <button className={cx('chip', low && 'on')} aria-pressed={low} onClick={() => { setLow(!low); setPage(1); }}>
               <Icon n="alert" s={13} />
               الأصناف المنخفضة
-              <span className="count">{fmt(lowCount)}</span>
             </button>
-            <FilterSelect
-              label="الفئة"
-              value={cat === 'all' ? '' : cat}
-              options={categories.slice(1).map((c) => ({ value: c.id, label: c.name }))}
-              onChange={(v) => setCat(v || 'all')}
-            />
-            <span className="ms-auto fs-12 t-3">{fmt(list.length)} صنف</span>
           </div>
           <div className="table-wrap">
             <table className="tbl">
@@ -115,7 +82,7 @@ export function StockPage({ branch }: StockPageProps) {
                   <th>الصنف</th>
                   <th>الكود</th>
                   <th>الباركود</th>
-                  <th className="n">السعر</th>
+                  <th>الموقع</th>
                   <th>المستوى</th>
                   <th className="n">الرصيد المتاح</th>
                   <th className="n">حد إعادة الطلب</th>
@@ -123,24 +90,26 @@ export function StockPage({ branch }: StockPageProps) {
                 </tr>
               </thead>
               <tbody>
-                {list.map((p) => {
-                  const st = p.stock === 0 ? 'out' : p.stock <= p.reorder ? 'low' : 'ok';
-                  const pct = Math.min(100, (p.stock / (p.reorder * 3)) * 100);
+                {!loading && rows.map((row) => {
+                  const stock = Number(row.available);
+                  const reorder = row.reorder_level;
+                  const st = stock <= 0 ? 'out' : row.is_low_stock || low ? 'low' : 'ok';
+                  const denominator = reorder > 0 ? reorder * 3 : Math.max(1, stock);
+                  const pct = Math.max(0, Math.min(100, (stock / denominator) * 100));
                   return (
-                    <tr key={p.id}>
+                    <tr key={row.id}>
                       <td>
                         <div className="row gap-3">
-                          <PImg p={p} size="sm" />
-                          <span className="fw-5">{p.name}</span>
+                          <span className="fw-5">{row.variant?.product_name_ar || row.variant?.product_name_en || row.variant?.sku || row.product_variant_id}</span>
                         </div>
                       </td>
                       <td>
-                        <span className="mono">{p.sku}</span>
+                        <span className="mono">{row.variant?.sku || '—'}</span>
                       </td>
                       <td>
-                        <span className="mono t-3">{p.barcode}</span>
+                        <span className="mono t-3">{row.variant?.barcode || '—'}</span>
                       </td>
-                      <td className="n">{egp(p.price)}</td>
+                      <td>{row.location?.name || '—'}</td>
                       <td>
                         <div className="lvl">
                           <span
@@ -164,10 +133,10 @@ export function StockPage({ branch }: StockPageProps) {
                             st === 'out' ? 't-bad' : st === 'low' ? 't-warn' : ''
                           )}
                         >
-                          {fmt(p.stock)}
+                          {fmt(stock)}
                         </span>
                       </td>
-                      <td className="n t-2">{fmt(p.reorder)}</td>
+                      <td className="n t-2">{fmt(reorder)}</td>
                       <td>
                         {st === 'out' ? (
                           <span className="badge b-bad">
@@ -192,12 +161,21 @@ export function StockPage({ branch }: StockPageProps) {
               </tbody>
             </table>
           </div>
-          {list.length === 0 && (
+          {loading && <p role="status">جارٍ تحميل المخزون…</p>}
+          {failed && <p role="alert">تعذّر تحميل المخزون.</p>}
+          {!loading && !failed && rows.length === 0 && (
             <Empty
               icon="search"
               title="لا توجد نتائج"
               body="جرّب كلمة بحث مختلفة أو أزل فلتر المنخفضة."
             />
+          )}
+          {lastPage > 1 && (
+            <nav className="toolbar" aria-label="صفحات المخزون">
+              <button className="btn" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>السابق</button>
+              <span>{fmt(page)} / {fmt(lastPage)}</span>
+              <button className="btn" disabled={page >= lastPage || loading} onClick={() => setPage(page + 1)}>التالي</button>
+            </nav>
           )}
         </div>
       </div>

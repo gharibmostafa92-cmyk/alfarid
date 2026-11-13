@@ -11,7 +11,7 @@ Status: 100% Implemented & Verified in local repository (`task3.txt` all marked 
 ## A. Already Deployed on Server
 
 > [!IMPORTANT]
-> Live server deployment status is **unverified / not deployed**. All fixes below have been implemented, tested with TDD and verified locally with exit code 0 (`45 passed, 193 assertions` backend test suite, plus clean monorepo typecheck). None of these changes have been pushed or applied to the production server.
+> Live server deployment status is **unverified / not deployed**. All fixes below have been implemented, tested with TDD and verified locally: Task3 POS regression suites `25 passed / 114 assertions`, Unit suite `212 passed / 40,322 assertions`, `pnpm -r typecheck` and `pnpm -r build` both exit `0`. The repository-wide `php artisan test` run is not green because of pre-existing failures in unrelated Customer/Admin/Ai/Attachments suites and legacy POS fixtures; those are outside the task3 scope. None of these changes have been pushed or applied to the production server.
 
 - **Current Live Server Baseline Commit:** `25ee590` (refer to `docs/.last-deployed`)
 - **Confirmed Live Code:** Pre-task3 codebase.
@@ -80,11 +80,11 @@ The following 19 roadmap items are fully tested, verified, and ready for deploym
 - **MEDIUM-05 (`barcode-scanner.ts`, `PosApp.tsx`):**
   - `defaultScanIgnore` ignores focused `INPUT`, `TEXTAREA`, `SELECT`, and `contenteditable`.
   - `PosApp.tsx` suppresses global scanner listener when modals (`isReturnOpen`, `isHoldOpen`, `isHeldOpen`, `isCheckoutOpen`, `closingShift`, `hasTabConflict`) are open.
-- **MEDIUM-06 (`SharedUI.tsx`):**
+- **MEDIUM-06 (`SharedUI.tsx`, `StocktakePage.tsx`, `ReceiveTab.tsx`):**
   - `toAsciiNum` supports Persian/Urdu digits (`۰-۹`) and Arabic decimal separators (`،` and `٫`).
-  - Added optional `maxDecimals = 2` parameter, allowing inventory transfers to parse 4 decimal places.
+  - Added optional `maxDecimals` parameter; stocktake quantity input and inventory transfers now parse 4 decimal places, matching the backend `decimal:0,4` validation.
 - **MEDIUM-07 (Code Drift):**
-  - Synchronized `bags-platform/frontend/apps/pos/src/` with `bags-platform/frontend/apps/backoffice/src/pages/pos/` with 0 differences in components, stores, lib, types, and styles.
+  - Extracted the shared POS implementation into `bags-platform/frontend/packages/pos-core`; `apps/pos` and `apps/backoffice` now consume the same package instead of maintaining duplicated component/store/lib/type/style trees.
 - **LOW-01 (`sound.ts`):**
   - Disconnected `osc` and `gain` inside `osc.onended` to prevent memory leaks in Web Audio API.
 - **LOW-02 (`tab-coordinator.ts`, `PosApp.tsx`):**

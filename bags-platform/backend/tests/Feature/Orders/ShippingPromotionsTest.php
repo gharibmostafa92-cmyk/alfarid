@@ -253,7 +253,7 @@ class ShippingPromotionsTest extends TestCase
 
     public function test_free_shipping_coupon_waives_shipping_and_records_usage(): void
     {
-        Coupon::factory()->create(['code' => 'FREESHIP', 'type' => 'free_shipping', 'value' => 0]);
+        Coupon::factory()->create(['code' => 'FREESHIP', 'type' => 'free_shipping', 'value' => 0, 'usage_limit_per_customer' => 1]);
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 5);
         $city = City::factory()->create(['shipping_cost' => 45]);
@@ -262,6 +262,9 @@ class ShippingPromotionsTest extends TestCase
         ])->assertOk()->json('data.cart_token');
         $headers = ['X-Cart-Session' => $token];
         $this->withHeaders($headers)->postJson('/api/v1/store/cart/coupon', ['code' => 'FREESHIP'])->assertOk();
+        $this->withHeaders($headers)->postJson('/api/v1/store/checkout/shipping-options', [
+            'city_id' => $city->id, 'payment_method' => 'cod', 'recipient_phone' => '٠١٠١٢٣٤٥٦٧٨',
+        ])->assertOk()->assertJsonPath('data.preview.shipping', 0);
 
         $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
             'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',

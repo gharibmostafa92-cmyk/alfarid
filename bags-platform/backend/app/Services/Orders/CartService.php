@@ -65,7 +65,20 @@ class CartService
             return $cart->loadMissing('items');
         }
 
-        return ($create ? Cart::create([]) : new Cart)->loadMissing('items');
+        if (! $create) {
+            return (new Cart(['cart_token' => $guestToken]))->loadMissing('items');
+        }
+        if ($guestToken !== null) {
+            try {
+                return Cart::query()->createOrFirst(['cart_token' => $guestToken, 'customer_id' => null])->loadMissing('items');
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $exception) {
+                if (! Cart::query()->where('cart_token', $guestToken)->whereNotNull('customer_id')->exists()) {
+                    throw $exception;
+                }
+            }
+        }
+
+        return Cart::create([])->loadMissing('items');
     }
 
     /**
@@ -94,20 +107,28 @@ class CartService
             return;
         }
 
-        // Lock guest cart under transaction to serialize concurrent post-login requests.
+        // Lock both carts in ID order so concurrent merges share the same lock order.
         DB::transaction(function () use ($customer, $guestToken): void {
-            $guest = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')
-                ->lockForUpdate()->first();
+            $guestId = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->value('id');
+            if ($guestId === null) {
+                return;
+            }
+            $accountId = $this->accountCart($customer)->id;
+            $carts = Cart::query()->whereKey([$guestId, $accountId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $guest = $carts->get($guestId);
+            $account = $carts->get($accountId);
             if ($guest === null) {
                 return;
             }
-            if (! $guest->items()->exists()) {
+            $guestItems = $guest->items()->get();
+            if ($guestItems->isEmpty()) {
                 $guest->delete();
 
                 return;
             }
 
-            $account = Cart::query()->lockForUpdate()->findOrFail($this->accountCart($customer)->id);
+            $purchasableIds = $this->retailVariants()->whereKey($guestItems->pluck('product_variant_id')->all())
+                ->pluck('id')->flip();
             // Enforce cart line and item quantity caps during guest cart merger.
             $maxLines = (int) config('store.max_cart_lines', 50);
             $lineCap = $this->lineQtyCap($customer);
@@ -115,8 +136,11 @@ class CartService
                 ->map(fn ($qty): float => (float) $qty)->all();
             $accountLines = count($accountQty);
 
-            foreach ($guest->items as $item) {
+            foreach ($guestItems as $item) {
                 $variantId = (int) $item->product_variant_id;
+                if (! $purchasableIds->has($variantId)) {
+                    continue;
+                }
                 $existingQty = $accountQty[$variantId] ?? null;
                 $isNew = $existingQty === null;
 
@@ -178,7 +202,7 @@ class CartService
         return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
             // Lock cart row to serialize concurrent item additions and enforce line limits.
             if (! $cart->exists) {
-                $cart = $customer !== null ? $this->accountCart($customer) : Cart::create([]);
+                $cart = $customer !== null ? $this->accountCart($customer) : $this->resolveCart(null, $cart->cart_token);
             }
             $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
 

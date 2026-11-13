@@ -333,16 +333,16 @@ class PosShiftController extends Controller
             'actual_closing_cash'   => $shift->actual_closing_cash,
             'cash_difference'       => $shift->cash_difference,
             'notes'                 => $shift->notes,
-            'cashier'               => $shift->relationLoaded('cashier') ? [
+            'cashier'               => ($shift->relationLoaded('cashier') && $shift->cashier !== null) ? [
                 'id'   => $shift->cashier->id,
                 'name' => $shift->cashier->name,
             ] : null,
-            'treasury'              => $shift->relationLoaded('treasury') ? [
+            'treasury'              => ($shift->relationLoaded('treasury') && $shift->treasury !== null) ? [
                 'id'   => $shift->treasury->id,
                 'name' => $shift->treasury->name,
                 'code' => $shift->treasury->code,
             ] : null,
-            'branch'                => $shift->relationLoaded('branch') ? [
+            'branch'                => ($shift->relationLoaded('branch') && $shift->branch !== null) ? [
                 'id'   => $shift->branch->id,
                 'name' => $shift->branch->name,
             ] : null,

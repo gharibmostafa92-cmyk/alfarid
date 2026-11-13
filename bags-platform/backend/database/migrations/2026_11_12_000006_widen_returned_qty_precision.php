@@ -12,8 +12,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        $type = DB::selectOne("SELECT numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'order_items' AND column_name = 'returned_qty'");
+        $type = DB::selectOne("SELECT numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'order_items' AND column_name = 'returned_qty'");
         if ($type === null || (int) $type->numeric_precision !== 12 || (int) $type->numeric_scale !== 4) {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
             DB::statement('ALTER TABLE order_items ALTER COLUMN returned_qty TYPE numeric(12,4)');
         }
     }

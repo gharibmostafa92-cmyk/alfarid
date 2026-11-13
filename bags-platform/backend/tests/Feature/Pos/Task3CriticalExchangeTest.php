@@ -116,5 +116,17 @@ class Task3CriticalExchangeTest extends PosScenarioFixture
             'cash_amount' => 0,
             'card_amount' => 0,
         ], $this->idem())->assertForbidden();
+
+        $this->as($token)->postJson("/api/v1/pos/sales/{$sale['id']}/exchange", [
+            'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'exchange_items' => [[
+                'product_variant_id' => $replacement->id,
+                'qty' => 1,
+                'unit_price' => 80,
+                'override_reason' => 'Manual price',
+            ]],
+            'cash_amount' => 0,
+            'card_amount' => 0,
+        ], $this->idem())->assertForbidden();
     }
 }

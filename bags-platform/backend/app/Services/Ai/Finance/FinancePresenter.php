@@ -87,6 +87,7 @@ final class FinancePresenter
             'opening_balance' => 'رصيد افتتاحي',
             'pos_sale' => 'مبيعات POS',
             'pos_return' => 'مرتجع POS',
+            'order_refund' => 'استرداد طلب',
             'expense' => 'مصروف',
             'expense_reversal' => 'عكس مصروف',
             'transfer_in' => 'تحويل وارد',

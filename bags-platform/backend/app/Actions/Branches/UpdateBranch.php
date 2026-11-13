@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Actions\Branches;
 
 use App\Enums\Finance\PosShiftStatus;
+use App\Enums\Inventory\BranchType;
+use App\Enums\Inventory\StocktakeStatus;
 use App\Enums\Inventory\TransferStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
@@ -12,6 +14,7 @@ use App\Models\City;
 use App\Models\PosShift;
 use App\Models\StockLevel;
 use App\Models\StockTransfer;
+use App\Models\Stocktake;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
@@ -64,15 +67,22 @@ final class UpdateBranch
                 && ($city = City::query()->find($data['city_id']))) {
                 $data['city'] = $city->name_ar ?: $city->name_en;
             }
+            if (array_key_exists('city_id', $data) && $data['city_id'] === null && ! array_key_exists('city', $data)) {
+                $data['city'] = null;
+            }
 
             // An approved transfer from a disabled branch cannot be cancelled and in-transit shipments cannot be received.
             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
                 $hasOpenTransfers = StockTransfer::query()
                     ->where(fn ($q) => $q->where('from_branch_id', $locked->id)->orWhere('to_branch_id', $locked->id))
-                    ->whereIn('status', [TransferStatus::Approved->value, TransferStatus::Shipped->value])
+                    ->whereIn('status', [TransferStatus::Draft->value, TransferStatus::Approved->value, TransferStatus::Shipped->value])
                     ->exists();
                 if ($hasOpenTransfers) {
-                    throw new BusinessException('لا يمكن تعطيل الفرع وبه تحويلات معتمدة أو مشحونة لم تُستلم؛ ألغها أو أكمل استلامها أولًا.');
+                    throw new BusinessException('لا يمكن تعطيل الفرع وبه تحويلات مفتوحة؛ ألغها أو أكمل استلامها أولًا.');
+                }
+                if (Stocktake::query()->where('branch_id', $locked->id)
+                    ->whereIn('status', [StocktakeStatus::Draft->value, StocktakeStatus::InProgress->value])->exists()) {
+                    throw new BusinessException('لا يمكن تعطيل الفرع وبه جلسات جرد مفتوحة؛ اعتمدها أو ألغها أولًا.');
                 }
                 if (StockLevel::query()->where('branch_id', $locked->id)->hasNonZeroBalance()->exists()) {
                     throw new BusinessException('لا يمكن تعطيل الفرع وبه أرصدة غير صفرية؛ صفّرها أولًا.');
@@ -93,7 +103,7 @@ final class UpdateBranch
 
             // Prevent changing to warehouse while open POS shifts exist to prevent unclosable shifts.
             if (array_key_exists('type', $data) && (string) $locked->type->value === 'branch'
-                && (string) ($data['type'] instanceof \App\Enums\BranchType ? $data['type']->value : $data['type']) === 'warehouse'
+                && ($data['type'] instanceof BranchType ? $data['type']->value : (string) $data['type']) === 'warehouse'
                 && PosShift::query()->where('branch_id', $locked->id)->where('status', PosShiftStatus::Open->value)->exists()) {
                 throw new BusinessException('لا يمكن تحويل الفرع إلى مخزن وبه وردية POS مفتوحة؛ أغلقها أولًا.');
             }

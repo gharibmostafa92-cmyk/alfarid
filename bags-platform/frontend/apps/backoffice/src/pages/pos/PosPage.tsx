@@ -19,17 +19,6 @@ export function PosPage() {
   }, [user]);
 
   useEffect(() => {
-    let fonts = document.querySelector('[data-pos-fonts]');
-    if (!fonts) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href =
-        'https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap';
-      link.setAttribute('data-pos-fonts', '');
-      document.head.appendChild(link);
-      fonts = link;
-    }
-
     const styleEl = document.createElement('style');
     styleEl.setAttribute('data-pos-styles', '');
     styleEl.textContent = `${tokensCss}\n${posCss}`;

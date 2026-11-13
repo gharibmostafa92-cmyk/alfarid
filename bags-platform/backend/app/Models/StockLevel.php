@@ -63,14 +63,6 @@ class StockLevel extends Model
     {
         return $query
             ->join('product_variants as pv_low', 'pv_low.id', '=', 'stock_levels.product_variant_id')
-            ->leftJoinSub(
-                self::query()->selectRaw('branch_id, product_variant_id, COALESCE(SUM(on_hand - reserved - damaged), 0) AS branch_available')
-                    ->groupBy('branch_id', 'product_variant_id'),
-                'branch_totals',
-                fn ($join) => $join
-                    ->on('branch_totals.branch_id', '=', 'stock_levels.branch_id')
-                    ->on('branch_totals.product_variant_id', '=', 'stock_levels.product_variant_id')
-            )
             ->where(fn (Builder $q) => $q
                 ->where(fn (Builder $row) => $row
                     ->where('stock_levels.reorder_level', '>', 0)
@@ -78,7 +70,9 @@ class StockLevel extends Model
                 ->orWhere(fn (Builder $variant) => $variant
                     ->whereRaw('COALESCE(stock_levels.reorder_level, 0) = 0')
                     ->where('pv_low.reorder_level', '>', 0)
-                    ->whereRaw('COALESCE(branch_totals.branch_available, 0) <= pv_low.reorder_level')))
+                    ->whereRaw('(SELECT COALESCE(SUM(balance.available), 0) FROM stock_levels AS balance
+                        WHERE balance.branch_id = stock_levels.branch_id
+                        AND balance.product_variant_id = stock_levels.product_variant_id) <= pv_low.reorder_level')))
             ->select('stock_levels.*');
     }
 

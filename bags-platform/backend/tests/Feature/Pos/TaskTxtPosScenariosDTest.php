@@ -265,6 +265,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
             ->where('product_variant_id', $this->variant->id)
             ->where('branch_id', $this->branch->id)->sum('on_hand');
         $recv = $this->withToken($token)->postJson("/api/v1/pos/transfers/{$transferId}/receive", [
+            'expected_version' => StockTransfer::findOrFail($transferId)->version,
             'items' => [['id' => $itemId, 'received_qty' => 2]],
         ])->assertOk()->assertJsonPath('status', 'received');
         $this->assertSame($before + 2, (float) \App\Models\StockLevel::query()
@@ -280,10 +281,12 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
 
         // Replay with identical quantities returns the same result; different quantities conflict.
         $same = $this->withToken($token)->postJson("/api/v1/pos/transfers/{$transferId}/receive", [
+            'expected_version' => StockTransfer::findOrFail($transferId)->version,
             'items' => [['id' => $itemId, 'received_qty' => 2]],
         ])->assertOk();
         $this->assertSame('received', $same->json('status'));
         $this->withToken($token)->postJson("/api/v1/pos/transfers/{$transferId}/receive", [
+            'expected_version' => StockTransfer::findOrFail($transferId)->version,
             'items' => [['id' => $itemId, 'received_qty' => 1]],
         ])->assertStatus(409);
 
@@ -295,6 +298,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
         $draft2Transfer = StockTransfer::findOrFail($draft2->json('id'));
         app(TransferService::class)->approve($draft2Transfer, [], $hq->id);
         $this->withToken($token)->postJson("/api/v1/pos/transfers/{$draft2->json('id')}/receive", [
+            'expected_version' => $draft2Transfer->fresh()->version,
             'items' => [['id' => $draft2Transfer->fresh()->items->first()->id, 'received_qty' => 1]],
         ])->assertStatus(422);
     }

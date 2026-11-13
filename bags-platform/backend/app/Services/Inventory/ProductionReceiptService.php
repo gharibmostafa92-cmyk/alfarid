@@ -8,7 +8,6 @@ use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;
-use App\Models\Branch;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
@@ -56,15 +55,13 @@ class ProductionReceiptService
         try {
             return DB::transaction(function () use ($data, $userId, $key, $hash): ProductionReceipt {
                 DB::statement("SET LOCAL lock_timeout = '5s'");
-                $branch = Branch::whereKey($data['branch_id'])->sharedLock()->firstOrFail();
-                if (! $branch->is_active) {
-                    throw new BusinessException('الفرع غير نشط.');
-                }
-                $locationId = $data['location_id'] ?? $this->inventory->receivingLocation($branch->id);
+                $branchId = (int) $data['branch_id'];
                 // FOR NO KEY UPDATE is enough for the cost_price update below and, unlike FOR UPDATE,
                 // does not block foreign-key checks against these hot variant rows from other branches.
                 $variants = ProductVariant::whereIn('id', array_column($data['items'], 'product_variant_id'))
                     ->with('product:id,name_ar')->orderBy('id')->lock('for no key update')->get()->keyBy('id');
+                app(BranchAccess::class)->lockActiveBranch($branchId);
+                $locationId = $data['location_id'] ?? $this->inventory->receivingLocation($branchId);
 
                 $sortedItems = collect($data['items'])->sortBy('product_variant_id')->values()->all();
                 $itemsWithLabels = [];

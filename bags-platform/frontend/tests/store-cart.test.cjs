@@ -45,7 +45,9 @@ test('add sends only variant/quantity/session and trusts the server total', asyn
   const store = load({ add: async (...args) => { calls.push(args); return cart(1, 777); } }, values);
 
   assert.equal(await store.getState().addItem(88), true);
-  assert.deepEqual(calls, [[88, 1, null]]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].slice(0, 2), [88, 1]);
+  assert.match(calls[0][2], /^[a-f0-9-]{36}$/);
   assert.equal(values.get('cart_session'), token);
   assert.equal(store.getState().items[0].id, 101);
   assert.equal(store.getState().total(), 777, 'The total must not be recomputed from the displayed item price');
@@ -76,19 +78,19 @@ test('clearing uses one bulk request and keeps the current cart on failure', asy
   assert.equal(store.getState().total(), 0);
 });
 
-test('queued additions share the server-issued guest session and errors retain the last valid cart', async () => {
+test('queued additions share the guest session and errors retain the last valid cart', async () => {
   const calls = [], updates = [], values = new Map();
   const store = load({
-    add: async (...args) => { calls.push(args); return cart(calls.length); },
+    add: async (...args) => { calls.push(args); return { ...cart(calls.length), cart_token: args[2] }; },
     update: async (...args) => { updates.push(args); throw { response: { data: { message: 'الكمية غير متاحة' } } }; },
   }, values);
   await Promise.all([store.getState().addItem(88), store.getState().addItem(88)]);
-  assert.equal(calls[0][2], null);
-  assert.equal(calls[1][2], token);
+  assert.match(calls[0][2], /^[a-f0-9-]{36}$/);
+  assert.equal(calls[1][2], calls[0][2]);
   assert.equal(store.getState().items[0].quantity, 2);
   // Stay within the displayed ceiling so stale stock reaches server validation.
   assert.equal(await store.getState().updateQuantity(101, 4), false);
-  assert.deepEqual(updates, [[101, 4, token]]);
+  assert.deepEqual(updates, [[101, 4, calls[0][2]]]);
   assert.equal(store.getState().items[0].quantity, 2);
   assert.equal(store.getState().error, 'الكمية غير متاحة');
   assert.equal(await store.getState().updateQuantity(101, -1), false);
@@ -129,17 +131,18 @@ test('two tabs serialize their first additions and share one guest session', asy
   const api = { async add(variant, qty, session) {
     sessions.push(session);
     if (sessions.length === 1) return firstResponse;
-    return cart(2);
+    return { ...cart(2), cart_token: session };
   } };
   const firstTab = load(api, values, undefined, navigator);
   const secondTab = load(api, values, undefined, navigator);
 
   const adding = [firstTab.getState().addItem(88), secondTab.getState().addItem(88)];
   await new Promise(setImmediate);
-  assert.deepEqual(sessions, [null]);
-  releaseFirst(cart());
+  assert.equal(sessions.length, 1);
+  assert.match(sessions[0], /^[a-f0-9-]{36}$/);
+  releaseFirst({ ...cart(), cart_token: sessions[0] });
   assert.deepEqual(await Promise.all(adding), [true, true]);
-  assert.deepEqual(sessions, [null, token]);
+  assert.deepEqual(sessions, [sessions[0], sessions[0]]);
   assert.equal(secondTab.getState().items[0].quantity, 2);
 });
 

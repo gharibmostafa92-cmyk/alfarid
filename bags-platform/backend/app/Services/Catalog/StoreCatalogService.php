@@ -292,46 +292,27 @@ class StoreCatalogService
         }
 
         if (! empty($filters['on_sale']) || ! empty($filters['discounted'])) {
-            $this->applyDiscountedFilter($query);
+            $this->applyDiscountedFilter($query, $this->customer());
         }
 
         return $this->applySort($query, $filters['sort'] ?? 'featured');
     }
 
-    /**
-     * Restrict products to variants whose compare-at or price-list price is genuinely
-     * below the effective retail selling price, matching displayPrice().
-     *
-     * Intentional contract: this filter only reflects public retail price lists
-     * (no branch/customer-group/customer scope). Structural facet caches are
-     * therefore shared across pricing contexts, while price_ranges stays keyed by
-     * the pricing context. Customer-specific or wholesale discounts are not
-     * represented here and must not be assumed to appear in the on_sale facet.
-     */
-    private function applyDiscountedFilter(Builder $query): void
+    /** Match the priced variant selected by the product card. */
+    private function applyDiscountedFilter(Builder $query, ?Customer $customer): void
     {
-        $sellingPrice = DB::raw('COALESCE(product_variants.retail_price, product_variants.base_price)');
+        $variants = $this->withVariantAvailability($this->pricing->withStorePrice(ProductVariant::query(), $customer))
+            ->whereColumn('product_variants.product_id', 'products.id')
+            ->where('product_variants.is_active', true);
+        $basis = 'GREATEST(priced.compare_at_price, priced.store_base_price)';
+        $discount = DB::query()->fromSub($variants, 'priced')
+            ->whereNotNull('priced.store_price')
+            ->orderByRaw('(priced.store_available > 0) DESC')
+            ->orderBy('priced.store_price')->orderBy('priced.sort_order')->orderBy('priced.id')
+            ->selectRaw("ROUND((1 - priced.store_price / NULLIF({$basis}, 0)) * 100) >= 1")
+            ->limit(1);
 
-        $query->where(fn (Builder $q) => $q
-            ->whereHas('variants', fn ($v) => $v->where('is_active', true)
-                ->whereNotNull('compare_at_price')
-                ->whereColumn('compare_at_price', '>', $sellingPrice))
-            ->orWhereHas('variants', fn ($v) => $v->where('is_active', true)
-                ->whereExists(fn ($sub) => $sub->select(DB::raw(1))
-                    ->from('price_list_items')
-                    ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
-                    ->whereColumn('price_list_items.product_variant_id', 'product_variants.id')
-                    ->where('price_lists.is_active', true)
-                    ->where('price_lists.type', 'retail')
-                    ->whereNull('price_lists.branch_id')
-                    ->whereNull('price_lists.customer_group_id')
-                    ->whereNull('price_lists.customer_id')
-                    ->where('price_list_items.min_qty', '<=', 1)
-                    ->where(fn ($w) => $w->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', now()))
-                    ->where(fn ($w) => $w->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', now()))
-                    ->where(fn ($w) => $w->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', now()))
-                    ->where(fn ($w) => $w->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', now()))
-                    ->whereColumn('price_list_items.price', '<', $sellingPrice))));
+        $query->whereRaw('('.$discount->toSql().') IS TRUE', $discount->getBindings());
     }
 
     /**
@@ -511,7 +492,7 @@ class StoreCatalogService
         $context = $this->pricing->catalogContext($this->customer());
         $ttl = ! empty($filters['search']) ? [30, 120] : [60, 600];
 
-        return [...$this->cachedFacetsPart($key.':structure', fn () => $this->computeStructuralFacets($filters), $ttl),
+        return [...$this->cachedFacetsPart($key.':structure'.($filters['on_sale'] ? ':'.hash('sha256', $context['key']) : ''), fn () => $this->computeStructuralFacets($filters), $ttl),
             'price_ranges' => $this->cachedFacetsPart($key.':prices:'.hash('sha256', $context['key']), fn () => $this->computePriceRanges($filters), $ttl)];
     }
 
@@ -535,8 +516,6 @@ class StoreCatalogService
      */
     private function facetsCacheKey(array $filters): string
     {
-        // Structure facets (including on_sale) are pricing-context independent by
-        // design; only price_ranges is keyed by the pricing context.
         $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
         $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock', 'on_sale']);
         if (! empty($base['category'])) {
@@ -676,7 +655,7 @@ class StoreCatalogService
         $best = $this->publishedBaseQuery()->reorder()->orderByDesc('products.sales_count')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
 
         $discounted = $this->publishedBaseQuery()->reorder();
-        $this->applyDiscountedFilter($discounted);
+        $this->applyDiscountedFilter($discounted, null);
         $discounted = $discounted
             ->orderByDesc('products.sales_count')->orderByDesc('products.id')
             ->limit(30)->pluck('products.id')->all();
@@ -686,6 +665,19 @@ class StoreCatalogService
             'best_seller_ids' => $best,
             'discounted_ids' => $discounted,
         ];
+    }
+
+    public function personalizedDiscountedIds(): ?array
+    {
+        $customer = $this->customer();
+        if ($customer === null || $this->pricing->catalogContext($customer)['public_retail']) {
+            return null;
+        }
+        $discounted = $this->publishedBaseQuery()->reorder();
+        $this->applyDiscountedFilter($discounted, $customer);
+
+        return $discounted->orderByDesc('products.sales_count')->orderByDesc('products.id')
+            ->limit(12)->pluck('products.id')->all();
     }
 
     /**

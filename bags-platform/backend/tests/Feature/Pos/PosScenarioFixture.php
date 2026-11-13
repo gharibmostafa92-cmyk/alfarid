@@ -189,7 +189,7 @@ abstract class PosScenarioFixture extends TestCase
 
     protected function openShift(User $user, Treasury $drawer, float $openingCash): string
     {
-        $token = $this->tokenFor($user);
+        $token = $this->tokenFor($user, ['pos.sales.create']);
         $this->withToken($token)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $drawer->id,
             'opening_cash' => $openingCash,

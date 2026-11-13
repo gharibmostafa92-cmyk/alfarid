@@ -150,6 +150,16 @@ export interface StockTransferItem {
   transferItemId?: number;
 }
 
+export interface PosStockRow {
+  id: number;
+  product_variant_id: number;
+  variant?: { sku?: string; barcode?: string; product_name_ar?: string; product_name_en?: string };
+  location?: { name: string } | null;
+  available: string | number;
+  reorder_level: number;
+  is_low_stock: boolean;
+}
+
 export interface StockTransfer {
   id: number;
   version?: number;

@@ -624,7 +624,7 @@ export class PosMockService {
     if (!transfer) return;
 
     for (const item of transfer.items) {
-      const receivedQty = quantities[item.id] ?? item.qty;
+      const receivedQty = quantities[item.transferItemId ?? item.id] ?? item.qty;
       const product = this.products.find((p) => p.id === item.id);
       if (product) {
         product.stock += receivedQty;
@@ -634,6 +634,19 @@ export class PosMockService {
     transfer.status = 'received';
     this.transfersIn = this.transfersIn.filter((t) => t.id !== transferId);
     this.notify();
+  }
+
+  public async getStockPage(query: string, low: boolean, page: number) {
+    const products = await this.getProducts('all', query, low);
+    return {
+      rows: products.slice((page - 1) * 20, page * 20).map((product) => ({
+        id: product.id, product_variant_id: product.id,
+        variant: { sku: product.sku, barcode: product.barcode, product_name_ar: product.name },
+        location: null, available: product.stock, reorder_level: product.reorder,
+        is_low_stock: product.reorder > 0 && product.stock <= product.reorder,
+      })),
+      lastPage: Math.max(1, Math.ceil(products.length / 20)),
+    };
   }
 
   public async getTransferSources(): Promise<TransferSource[]> {

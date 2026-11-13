@@ -39,7 +39,7 @@ export function PosHeader({
       </div>
       <div className="ph-meta">
         <b>الفريد</b>
-        <span>{branch?.name || 'فرع مدينة نصر'}</span>
+        <span>{branch?.name || 'الفرع'}</span>
       </div>
       <div className="ph-sep" />
       <nav className="ph-nav" aria-label="شاشات نقطة البيع">
@@ -136,7 +136,7 @@ export function PosHeader({
             {cashier?.initials || 'أس'}
           </span>
           <div className="col hide-mobile" style={{ lineHeight: 1.2 }}>
-            <span className="fw-6">{cashier?.name || 'أحمد سمير'}</span>
+            <span className="fw-6">{cashier?.name || 'الكاشير'}</span>
             <span className="fs-12 t-3">{cashier?.role || 'كاشير أول'}</span>
           </div>
           {onLogout && (

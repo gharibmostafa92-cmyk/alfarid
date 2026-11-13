@@ -24,7 +24,7 @@ class WalletService
 {
     public const ORDER_REFERENCES = ['order', 'orders', Order::class];
 
-    private const RETURN_REFERENCES = ['return_request', 'return_requests', ReturnRequest::class];
+    public const RETURN_REFERENCES = ['return_request', 'return_requests', ReturnRequest::class];
 
     public const ALLOWED_TYPES = [
         'opening',

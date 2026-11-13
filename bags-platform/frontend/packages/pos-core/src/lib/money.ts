@@ -1,4 +1,19 @@
-export const toCents = (v: string | number | null | undefined): number => Math.round(Number(v ?? 0) * 100);
+export const toCents = (v: string | number | null | undefined): number => {
+  if (v == null || v === '') return 0;
+  const s = String(v).trim();
+  if (!s || s === 'NaN') return 0;
+  const neg = s.startsWith('-');
+  const clean = neg ? s.slice(1) : s;
+  const parts = clean.split('.');
+  const whole = parseInt(parts[0] || '0', 10);
+  if (Number.isNaN(whole)) return 0;
+  const rawFrac = (parts[1] || '').replace(/\D/g, '');
+  const frac = rawFrac.padEnd(2, '0').slice(0, 2);
+  const third = rawFrac.length > 2 ? parseInt(rawFrac[2], 10) : 0;
+  let cents = whole * 100 + (parseInt(frac, 10) || 0);
+  if (third >= 5) cents += 1;
+  return neg ? -cents : cents;
+};
 export const fromCents = (c: number): number => c / 100;
 export const toApi = (c: number): string => (c / 100).toFixed(2);
 

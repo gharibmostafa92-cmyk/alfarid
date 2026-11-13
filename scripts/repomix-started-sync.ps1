@@ -198,19 +198,19 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
             if ($configs.ContainsKey('repomix.orders-returns.json')) { [void]$matchedConfigs.Add('repomix.orders-returns.json') }
             if ($configs.ContainsKey('repomix.subsystem-02-orders-returns.json')) { [void]$matchedConfigs.Add('repomix.subsystem-02-orders-returns.json') }
         }
-        if ($p -match 'stock|inventory|movement|stocktake|transfer|branch') {
+        if ($p -match 'stock|inventory|movement|stocktake|transfer|branch|location|production_receipt|productionreceipt') {
             if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
         }
         if ($p -match 'webhook|whatsapp|ai_') {
             if ($configs.ContainsKey('repomix.subsystem-05-ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.subsystem-05-ai-trader-gateway.json') }
         }
-        if ($p -match 'financial|treasury|expense|precision|reconcil|number_sync|role_timeout') {
+        if ($p -match 'financial|treasury|expense|precision|reconcil|number_sync|numbering|role_timeout') {
             if ($configs.ContainsKey('repomix.subsystem-07-finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.subsystem-07-finance-treasury.json') }
         }
         if ($p -match 'pos|cashier|shift') {
             if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         }
-        if ($p -match 'catalog|product|category|cart|coupon') {
+        if ($p -match 'catalog|\bproduct\b|category|cart|coupon' -and $p -notmatch 'production') {
             if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
         }
         if ($p -match 'statement_timeout|idle_transaction|hot_fk|drop_redundant|widen_text') {
@@ -244,7 +244,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 6. Inventory & Ledger
-    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|inventory.*seeder') {
+    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|production_receipt|inventory.*seeder|/branches/|/locations/|actions/branch|actions/location|inventoryanomalies|detectinventoryanomalies') {
         if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
         if ($configs.ContainsKey('repomix.inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.inventory-ledger.json') }
     }
@@ -280,6 +280,13 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
 
     # 12. Security & Backoffice
     if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
+        if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
+        if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
+    }
+
+    # 12b. Base Controllers & Core Framework Classes
+    if ($p -match 'app/http/controllers/controller\.php$') {
+        if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
     }

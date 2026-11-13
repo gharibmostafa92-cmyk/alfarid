@@ -6,6 +6,7 @@ namespace App\Console\Commands\Operations;
 
 use App\Enums\Inventory\StockMovementType;
 use App\Models\Stocktake;
+use App\Models\StockTransfer;
 use App\Notifications\Inventory\InventoryAnomalyDigestNotification;
 use App\Notifications\StaffRecipients;
 use App\Services\Inventory\BranchAccess;
@@ -55,7 +56,8 @@ class DetectInventoryAnomalies extends Command
             ->orderByDesc('c')->get();
         if ($rates->count() >= 3) {
             $sorted = $rates->pluck('c')->sort()->values();
-            $median = (float) $sorted[(int) floor($sorted->count() / 2)];
+            $middle = intdiv($sorted->count(), 2);
+            $median = ((float) $sorted[$middle] + (float) $sorted[intdiv($sorted->count() - 1, 2)]) / 2;
             foreach ($rates as $row) {
                 if ($median > 0 && (float) $row->c > $median * 3) {
                     $notes[] = [
@@ -103,6 +105,23 @@ class DetectInventoryAnomalies extends Command
                 'title' => 'عجز استلام متكرر',
                 'detail' => "الفرع #{$row->branch_id} سجّل عجز استلام {$row->c} مرات آخر 90 يوم. راجع التغليف والعد عند الشحن.",
                 'branch_ids' => [(int) $row->branch_id],
+            ];
+        }
+
+        $senders = DB::table('stock_movements as movement')
+            ->join('stock_transfers as transfer', 'transfer.id', '=', 'movement.reference_id')
+            ->whereIn('movement.reference_type', [StockTransfer::class, (new StockTransfer)->getMorphClass()])
+            ->where('movement.type', StockMovementType::TransferShortage->value)
+            ->where('movement.created_at', '>=', now()->subDays(90))
+            ->selectRaw('transfer.from_branch_id, COUNT(DISTINCT transfer.id) AS c, json_agg(DISTINCT transfer.to_branch_id) AS destinations')
+            ->groupBy('transfer.from_branch_id')
+            ->havingRaw('COUNT(DISTINCT transfer.id) >= 3')
+            ->orderByDesc('c')->limit(5)->get();
+        foreach ($senders as $row) {
+            $notes[] = [
+                'title' => 'عجز متكرر في شحنات الفرع',
+                'detail' => "ظهر عجز في {$row->c} تحويلات من الفرع #{$row->from_branch_id} آخر 90 يوم.",
+                'branch_ids' => [(int) $row->from_branch_id, ...array_map('intval', json_decode($row->destinations, true))],
             ];
         }
 

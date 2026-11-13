@@ -33,7 +33,7 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
 
   useEffect(() => {
     if (t) {
-      setRec(Object.fromEntries(t.items.map((i) => [i.id, String(i.qty)])));
+      setRec(Object.fromEntries(t.items.map((i) => [i.transferItemId ?? i.id, String(i.qty)])));
     }
   }, [cur, t]);
 
@@ -50,14 +50,14 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
   }
 
   const shipped = t.items.reduce((s, i) => s + i.qty, 0);
-  const got = t.items.reduce((s, i) => s + Number(rec[i.id] || 0), 0);
-  const diffs = t.items.filter((i) => Number(rec[i.id] || 0) !== i.qty).length;
+  const got = t.items.reduce((s, i) => s + Number(rec[i.transferItemId ?? i.id] || 0), 0);
+  const diffs = t.items.filter((i) => Number(rec[i.transferItemId ?? i.id] || 0) !== i.qty).length;
 
   const handleReceive = async () => {
     if (submittingRef.current || busy) return;
 
     for (const item of t.items) {
-      const raw = rec[item.id];
+      const raw = rec[item.transferItemId ?? item.id];
       if (raw === undefined || raw.trim() === '') {
         toast('يرجى تحديد الكمية المستلمة لكل الأصناف', 'bad');
         return;
@@ -149,7 +149,7 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
           <button
             className="btn btn-secondary btn-sm"
             onClick={() =>
-              setRec(Object.fromEntries(t.items.map((i) => [i.id, String(i.qty)])))
+              setRec(Object.fromEntries(t.items.map((i) => [i.transferItemId ?? i.id, String(i.qty)])))
             }
           >
             <Icon n="check" s={14} />
@@ -169,11 +169,12 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
           <tbody>
             {t.items.map((i) => {
               const p = pos.getProductById(i.id);
-              const r = Number(rec[i.id] || 0);
+              const lineId = i.transferItemId ?? i.id;
+              const r = Number(rec[lineId] || 0);
               const d = r - i.qty;
               const stock = p?.stock || 0;
               return (
-                <tr key={i.id} className={d !== 0 ? 'selected' : ''}>
+                <tr key={lineId} className={d !== 0 ? 'selected' : ''}>
                   <td>
                     <div className="row gap-3">
                       <PImg p={p} size="xs" />
@@ -189,9 +190,9 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
                   <td style={{ textAlign: 'center' }}>
                     <input
                       className={cx('qty-input', d !== 0 && 'bad')}
-                      value={rec[i.id] ?? ''}
+                      value={rec[lineId] ?? ''}
                       onChange={(e) =>
-                        setRec({ ...rec, [i.id]: toAsciiNum(e.target.value, 4) })
+                        setRec({ ...rec, [lineId]: toAsciiNum(e.target.value, 4) })
                       }
                     />
                   </td>

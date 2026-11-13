@@ -1,13 +1,15 @@
 import { api, ADMIN, asPage, one, crud, cleanParams, reader, type Id, type Paginated } from './http';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'returned';
-export type PaymentStatus = 'unpaid' | 'paid' | 'failed' | 'refunded';
+export type PaymentStatus = 'unpaid' | 'paid' | 'failed' | 'partially_refunded' | 'refund_pending' | 'refunded';
 export type PaymentMethod = 'cod' | 'card' | 'wallet' | 'bank_transfer' | 'credit';
 
 export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   unpaid: ['paid', 'failed'],
   failed: ['paid', 'unpaid'],
   paid: ['refunded'],
+  partially_refunded: ['refunded'],
+  refund_pending: [],
   refunded: [],
 };
 
@@ -163,7 +165,7 @@ export interface StoreReturnPayload {
 }
 export interface ApproveReturnPayload { branch_id: number; items?: { id: number; approved_qty: number }[]; admin_notes?: string }
 export interface ReceiveReturnPayload { items: { id: number; received_good_qty: number; received_damaged_qty: number }[] }
-export interface RefundReturnPayload { refund_method?: RefundMethod | null; refund_reference?: string }
+export interface RefundReturnPayload { refund_method?: RefundMethod | null; refund_reference?: string; treasury_id?: number }
 
 const R = `${ADMIN}/returns`;
 export const adminReturnsApi = {

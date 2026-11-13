@@ -413,7 +413,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
             $attachments = $return->items()->sole()->attachments;
             $this->assertCount(2, $attachments);
             foreach ($attachments as $path) {
-                $this->assertStringStartsWith('return_requests/pending/', $path);
+                $this->assertStringStartsWith('return_requests/items/', $path);
                 $disk->assertExists($path);
             }
         } finally {
@@ -657,7 +657,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
         ]])->assertCreated();
         $itemId = (int) $response->json('data.items.0.id');
         $path = ReturnRequest::findOrFail($response->json('data.id'))->items()->firstOrFail()->attachments[0];
-        $this->assertStringStartsWith('return_requests/pending/', $path);
+        $this->assertStringStartsWith('return_requests/items/', $path);
         $this->assertTrue(Storage::disk('r2')->exists($path));
 
         $url = fn (int $i, bool $signed = false): string => "/api/v1/store/account/return-items/{$itemId}/attachments/{$i}".($signed ? '?signed=1' : '');

@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('Plan', 'DeployApi', 'DeployJobs', 'EnableQueue', 'EnableLaravelSchedule', 'PauseQueue', 'PauseLaravelSchedule')]
+    [ValidateSet('Plan', 'DeployApi', 'DeployAi', 'DeployJobs', 'EnableQueue', 'EnableLaravelSchedule', 'PauseQueue', 'PauseLaravelSchedule')]
     [string]$Action = 'Plan',
     [ValidatePattern('^[a-z][a-z0-9-]{4,28}[a-z0-9]$')]
     [string]$ProjectId,
@@ -14,7 +14,10 @@ param(
     [string]$DatabaseName,
     [string]$DatabaseUser,
     [string]$AppKeySecret,
-    [string]$DatabasePasswordSecret
+    [string]$DatabasePasswordSecret,
+    [string]$GeminiApiKeySecret,
+    [string]$GeminiModel,
+    [string]$ProxyClientIpSecret
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +35,10 @@ if ($Action -eq 'Plan') {
         LaravelCron = $laravelCron
         QueueTimeoutSeconds = $queueTimeout
         LaravelTimeoutSeconds = $laravelTimeout
+        ApiConcurrency = 8
+        ApiMaxInstances = 10
+        AiConcurrency = 2
+        AiMaxInstances = 4
         MonthlyScheduledVcpuSecondsAtTaskTimeout = 23 * (6 * $queueTimeout + 11 * $laravelTimeout)
     }
     return
@@ -50,7 +57,7 @@ function Invoke-Gcloud {
 
 $scope = @("--project=$ProjectId", "--region=$Region")
 switch ($Action) {
-    { $_ -in 'DeployApi', 'DeployJobs' } {
+    { $_ -in 'DeployApi', 'DeployAi', 'DeployJobs' } {
         $registryPattern = '^{0}-docker\.pkg\.dev/{1}/[a-z0-9_-]+/[a-z0-9_./-]+@sha256:[0-9a-f]{{64}}$' -f $Region, $ProjectId
         if ($Image -cnotmatch $registryPattern) {
             throw 'Image must be a digest reference in the pilot project regional Artifact Registry.'
@@ -93,6 +100,20 @@ switch ($Action) {
                 '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=10', '--concurrency=8',
                 '--port=8080', '--timeout=60s', "--set-env-vars=$apiEnvironment"
             ) + $scope + $runtime)
+            return
+        }
+        if ($Action -eq 'DeployAi') {
+            if ($GeminiApiKeySecret -cnotmatch $secretPattern -or $ProxyClientIpSecret -cnotmatch $secretPattern -or $GeminiModel -cnotmatch '^[a-zA-Z0-9_-]+$') {
+                throw 'DeployAi requires pinned Gemini and proxy signing secrets and a model name.'
+            }
+            $aiEnvironment = ($environment + @('PHP_FPM_PM_MAX_CHILDREN=2', "GEMINI_MODEL=$GeminiModel")) -join ','
+            $aiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
+            $aiRuntime += "--set-secrets=$secrets,GEMINI_API_KEY=$GeminiApiKeySecret,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
+            Invoke-Gcloud -Arguments (@(
+                'run', 'deploy', 'alfarid-ai', '--no-allow-unauthenticated', '--invoker-iam-check',
+                '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=4', '--concurrency=2',
+                '--port=8080', '--timeout=60s', "--set-env-vars=$aiEnvironment"
+            ) + $scope + $aiRuntime)
             return
         }
 

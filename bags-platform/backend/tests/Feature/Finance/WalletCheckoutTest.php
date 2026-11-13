@@ -12,6 +12,7 @@ use App\Models\CustomerWalletTransaction;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReturnRequest;
 use App\Models\ShippingCompany;
 use App\Models\StockLevel;
 use App\Models\User;
@@ -151,6 +152,30 @@ class WalletCheckoutTest extends TestCase
             'partially refunded' => ['40.00', '90.00', '60.00'],
             'fully refunded' => ['100.00', '150.00', null],
         ];
+    }
+
+    public function test_cancellation_subtracts_wallet_credits_from_an_earlier_return(): void
+    {
+        $this->fund(150);
+        $this->cart();
+        $id = $this->postJson('/api/v1/store/checkout', $this->payload())->assertCreated()->json('data.id');
+        $order = Order::findOrFail($id);
+        $return = ReturnRequest::factory()->create([
+            'order_id' => $order->id,
+            'customer_id' => $this->customer->id,
+            'status' => 'refunded',
+        ]);
+        app(WalletService::class)->record($this->customer->id, '40.00', 'return_refund', 'return_request', $return->id);
+        $order->update(['payment_status' => 'partially_refunded']);
+
+        app(OrderService::class)->changeStatus($order, OrderStatus::Cancelled, User::factory()->create());
+
+        $this->assertSame('refunded', $order->fresh()->payment_status);
+        $this->assertSame('150.00', $this->customer->fresh()->wallet_balance);
+        $this->assertDatabaseHas('customer_wallet_transactions', [
+            'customer_id' => $this->customer->id, 'type' => 'order_reversal',
+            'reference_id' => $id, 'amount' => '60.00',
+        ]);
     }
 
     public function test_guest_cannot_choose_wallet_even_if_it_is_misconfigured_as_public_payment_method(): void

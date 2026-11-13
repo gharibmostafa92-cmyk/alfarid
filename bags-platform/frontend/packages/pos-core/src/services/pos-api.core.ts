@@ -9,6 +9,7 @@ import type {
   PosHeldSale,
   PosProduct,
   PosSettings,
+  PosStockRow,
   ProcessReturnResult,
   PosShift,
   ProductCategory,
@@ -51,6 +52,7 @@ export interface PosApiOptions {
 export interface ExchangePaymentOptions {
   method?: 'cash' | 'card' | 'mixed';
   cashAmount?: number;
+  cardAmount?: number;
 }
 
 export interface QuoteRequest {
@@ -90,6 +92,7 @@ export class PosApiService {
   private byCode = new Map<string, PosProduct>();
   private searchIndex: { p: PosProduct; key: string }[] = [];
   private catalogEtag: string | null = null;
+  private catalogActorGeneration = 0;
   private catalogLoadedAt = 0;
   private catalogInflight: Promise<void> | null = null;
 
@@ -157,6 +160,27 @@ export class PosApiService {
   // ---- bootstrap / actor ----
   public syncActor(actor?: ActorInput | null): void {
     if (!actor || !actor.name) return;
+    const actorBranchId = actor.branch?.id || actor.branch_id || 0;
+    const isNewUser = this.cashier && actor.id != null && this.cashier.id !== actor.id;
+    const isNewBranch = this.branch && actorBranchId > 0 && this.branch.id !== actorBranchId;
+
+    if (isNewUser || isNewBranch) {
+      this.currentShift = null;
+      this.shiftLoaded = false;
+      this.drawers = null;
+      this.held = [];
+      this.heldCount = 0;
+      this.transfersIn = [];
+      this.stocktakeId = null;
+      this.catalogEtag = null;
+      this.catalogActorGeneration += 1;
+      this.catalogLoadedAt = 0;
+      this.byId.clear();
+      this.byCode.clear();
+      this.searchIndex = [];
+      this.idemDrafts.clear();
+    }
+
     const first = actor.roles?.[0];
     this.cashier = {
       id: actor.id ?? this.cashier?.id ?? 0,
@@ -327,24 +351,38 @@ export class PosApiService {
   }
 
   private async fetchCatalog(): Promise<void> {
+    const generation = this.catalogActorGeneration;
+    try {
+      await this.fetchCatalogPages(generation);
+    } catch (error) {
+      if (generation !== this.catalogActorGeneration) return;
+      if (normalizeError(error).status !== 412) throw error;
+      this.catalogEtag = null;
+      await this.fetchCatalogPages(generation);
+    }
+  }
+
+  private async fetchCatalogPages(generation: number): Promise<void> {
     const headers: Record<string, string> = {};
     if (this.catalogEtag) headers['If-None-Match'] = this.catalogEtag;
     const first = await this.call(() =>
       this.http.get(EP.CATALOG, { headers, validateStatus: (s: number) => (s >= 200 && s < 300) || s === 304 }),
     );
+    if (generation !== this.catalogActorGeneration) return;
     if (first.status === 304) {
       this.catalogLoadedAt = Date.now();
       return;
     }
     const items: any[] = [...first.data.data];
+    const version = first.data.meta?.catalog_version;
     let cursor: string | null = first.data.meta?.next_cursor ?? null;
     while (cursor) {
-      const next = await this.call(() => this.http.get(EP.CATALOG, { params: { cursor } }));
+      const next = await this.call(() => this.http.get(EP.CATALOG, { params: { cursor, catalog_version: version } }));
+      if (generation !== this.catalogActorGeneration) return;
       items.push(...next.data.data);
       cursor = next.data.meta?.next_cursor ?? null;
     }
     this.rebuild(items);
-    const version = first.data.meta?.catalog_version;
     this.catalogEtag = first.headers?.etag ?? first.headers?.ETag ?? (version ? `"${version}"` : null);
     this.catalogLoadedAt = Date.now();
     this.notify();
@@ -353,6 +391,13 @@ export class PosApiService {
   public async getCategories(): Promise<ProductCategory[]> {
     if (!this.categories) await this.bootstrap();
     return [{ id: 'all', name: 'الكل' }, ...(this.categories ?? [])];
+  }
+
+  public async getStockPage(query: string, low: boolean, page: number): Promise<{ rows: PosStockRow[]; lastPage: number }> {
+    const response = await this.call(() => this.http.get(EP.STOCK, {
+      params: { q: query || undefined, low_stock: low ? 1 : 0, page, per_page: 20 },
+    }));
+    return { rows: response.data.data, lastPage: response.data.meta.last_page };
   }
 
   public async getProducts(cat = 'all', query = '', lowStockOnly = false): Promise<PosProduct[]> {
@@ -603,7 +648,7 @@ export class PosApiService {
   public async processExchange(
     saleId: number,
     returnItems: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
-    exchangeItems: { id: number; qty: number }[],
+    exchangeItems: { id: number; qty: number; unit_price?: number }[],
     netDiff: number,
     customerId: number | null = null,
     payment: ExchangePaymentOptions = {},
@@ -612,10 +657,6 @@ export class PosApiService {
     if (!Number.isFinite(netDiff)) {
       throw new PosApiError(422, 'المبلغ المدخل غير صالح', 'validation');
     }
-    await this.quoteSale({
-      items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
-      customer_id: customerId,
-    });
     const dueCents = Math.max(0, toCents(netDiff));
     const method = payment.method ?? 'cash';
     let cashCents = 0;
@@ -624,7 +665,11 @@ export class PosApiService {
       if (method === 'card') {
         cardCents = dueCents;
       } else if (method === 'mixed') {
-        cashCents = Math.min(dueCents, Math.max(0, toCents(payment.cashAmount ?? 0)));
+        const reqCash = toCents(payment.cashAmount ?? 0);
+        if (reqCash <= 0 || reqCash >= dueCents) {
+          throw new PosApiError(422, 'في الدفع المختلط، يجب تحديد جزء نقدي وجزء بالبطاقة', 'validation');
+        }
+        cashCents = reqCash;
         cardCents = dueCents - cashCents;
       } else {
         cashCents = dueCents;
@@ -632,7 +677,11 @@ export class PosApiService {
     }
     const body = {
       returned_items: this.groupReturnLines(returnItems),
-      exchange_items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
+      exchange_items: exchangeItems.map((i) => ({
+        product_variant_id: i.id,
+        qty: i.qty,
+        ...(i.unit_price != null ? { unit_price: i.unit_price } : {}),
+      })),
       cash_amount: toApi(cashCents),
       card_amount: toApi(cardCents),
     };
@@ -658,11 +707,11 @@ export class PosApiService {
     return this.transfersIn.map((t) => ({ ...t }));
   }
 
-  /** `quantities` is keyed by variant id; the server wants stock_transfer_items.id. */
+  /** `quantities` is keyed by the transfer line ID. */
   public async receiveTransfer(transferId: number, quantities: Record<number, number>): Promise<void> {
     const t = this.transfersIn.find((x) => x.id === transferId);
     if (!t) throw new PosApiError(404, 'التحويل غير موجود', 'not_found');
-    const items = t.items.map((i) => ({ id: i.transferItemId, received_qty: quantities[i.id] ?? i.qty }));
+    const items = t.items.map((i) => ({ id: i.transferItemId, received_qty: quantities[i.transferItemId ?? i.id] ?? i.qty }));
     const body = { items, expected_version: t.version };
     const key = this.idemKey(`receive:${transferId}`, body);
     await this.call(() =>

@@ -1,4 +1,4 @@
-import { normalizeError, PosApiError } from './pos-error';
+import { isCancel, normalizeError, PosApiError } from './pos-error';
 
 export interface PendingSaleDraft {
   hash: string;
@@ -61,23 +61,42 @@ function parseDraft(raw: string | null): PendingSaleDraft | null {
 }
 
 export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
-  const storage = opts.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
+  let storage = opts.storage;
+  try {
+    storage ??= typeof window !== 'undefined' ? window.localStorage : undefined;
+  } catch { /* Storage access may be blocked. */ }
   const keyName = opts.storageKey ?? scopedKey(opts.owner);
   const delays = opts.retryDelays ?? [1000, 3000, 6000];
   const sleep = opts.sleep ?? defaultSleep;
+  let memoryDraft: PendingSaleDraft | null = null;
+
+  const read = (key: string) => {
+    try { return parseDraft(storage?.getItem(key) ?? null); } catch { return null; }
+  };
+  const remove = (key: string) => {
+    try { storage?.removeItem(key); } catch { /* The current manager still clears its in-memory draft. */ }
+  };
+  const save = (draft: PendingSaleDraft) => {
+    try {
+      storage?.setItem(keyName, JSON.stringify(draft));
+      memoryDraft = storage ? null : draft;
+    } catch {
+      memoryDraft = draft;
+    }
+  };
 
   const getSaved = (): PendingSaleDraft | null => {
-    if (!storage) return null;
+    if (memoryDraft) return memoryDraft;
     // F-05: drafts are namespaced per shift owner so one terminal can serve
     // consecutive shifts without a stale draft bricking the next cashier.
-    const own = parseDraft(storage.getItem(keyName));
+    const own = read(keyName);
     if (own) return own;
     if (opts.owner) {
       // Adopt pre-scoping drafts that provably belong to this owner.
-      const legacy = parseDraft(storage.getItem(LEGACY_KEY));
+      const legacy = read(LEGACY_KEY);
       if (legacy && legacy.owner === opts.owner) {
-        storage.setItem(keyName, JSON.stringify(legacy));
-        storage.removeItem(LEGACY_KEY);
+        save(legacy);
+        if (read(keyName)?.key === legacy.key) remove(LEGACY_KEY);
         return legacy;
       }
     }
@@ -85,26 +104,25 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
   };
 
   const clear = (): void => {
-    storage?.removeItem(keyName);
+    memoryDraft = null;
+    remove(keyName);
   };
 
   /** F-05: every draft on this terminal (own scope + stale owners + legacy) for the review banner. */
   const listDrafts = (): PendingSaleDraft[] => {
-    if (!storage) return [];
-    const out: PendingSaleDraft[] = [];
-    for (const k of storageKeys(storage)) {
-      const d = parseDraft(storage.getItem(k));
-      if (d) out.push(d);
-    }
-    return out;
+    let keys: string[] = [];
+    try { if (storage) keys = storageKeys(storage); } catch { /* Storage access may be blocked. */ }
+    const drafts = keys.map(read).filter((draft): draft is PendingSaleDraft => draft !== null);
+    if (memoryDraft && !drafts.some((draft) => draft.key === memoryDraft?.key)) drafts.push(memoryDraft);
+    return drafts;
   };
 
   /** F-05: supervised discard of a stale draft after manual review. Never touches other owners. */
   const discardDraft = (owner: string): void => {
-    if (!storage) return;
-    storage.removeItem(scopedKey(owner));
-    const legacy = parseDraft(storage.getItem(LEGACY_KEY));
-    if (legacy && legacy.owner === owner) storage.removeItem(LEGACY_KEY);
+    if (owner === opts.owner) memoryDraft = null;
+    remove(scopedKey(owner));
+    const legacy = read(LEGACY_KEY);
+    if (legacy && legacy.owner === owner) remove(LEGACY_KEY);
   };
 
   const prepare = (payload: any): PendingSaleDraft => {
@@ -121,7 +139,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
       created_at: Date.now(),
       owner: opts.owner,
     };
-    storage?.setItem(keyName, JSON.stringify(draft));
+    save(draft);
     return draft;
   };
 
@@ -143,17 +161,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
 
     // A reload during the request must treat its result as unknown.
     let uncertain = existing?.submitted === true;
-    storage?.setItem(
-      keyName,
-      JSON.stringify({
-        hash: JSON.stringify(payload),
-        key: idempotencyKey,
-        payload,
-        created_at: Date.now(),
-        owner: opts.owner,
-        submitted: true,
-      })
-    );
+    save({ ...existing, submitted: true });
 
     let lastError: any = null;
 
@@ -163,6 +171,9 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
         clear();
         return result;
       } catch (err: any) {
+        if (isCancel(err)) {
+          throw new PosApiError(0, 'تعذّر تأكيد نتيجة البيع. أعد إرسال الفاتورة المعلقة.', 'pending_sale', undefined, true);
+        }
         const apiErr = normalizeError(err);
         lastError = apiErr;
 

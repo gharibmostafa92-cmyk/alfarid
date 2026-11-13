@@ -526,6 +526,7 @@ export function CheckoutModal({
                   <input
                     className="input"
                     value={notes}
+                    maxLength={470}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="تظهر في أسفل الإيصال"
                   />

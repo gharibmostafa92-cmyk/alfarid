@@ -157,7 +157,7 @@ final class ExplainOrderMoneyTool implements AgentTool
             fn ($w) => in_array($w['type'], ['return_refund', 'refund', 'checkout_refund', 'order_reversal'], true) && $w['amount'] > 0
         )) > 0 || count(array_filter(
             $treasuryTxs,
-            fn ($t) => in_array($t['type'], ['pos_return'], true)
+            fn ($t) => in_array($t['type'], ['pos_return', 'order_refund'], true)
         )) > 0;
 
         $warnings = [];

@@ -305,7 +305,7 @@ class CheckoutReservationReviewTest extends TestCase
 
     // ---------- F-04: حد كوبون الزائر من العمود الموحد ----------
 
-    public function test_guest_cannot_redeem_a_coupon_limited_per_customer(): void
+    public function test_guest_can_apply_a_coupon_before_checkout_identifies_the_recipient(): void
     {
         $variant = $this->makeVariant();
         $this->giveStock($variant->id, 10);
@@ -318,7 +318,7 @@ class CheckoutReservationReviewTest extends TestCase
         $token = $add->json('data.cart_token');
         $this->withHeaders(['X-Cart-Session' => $token])
             ->postJson('/api/v1/store/cart/coupon', ['code' => $coupon->code])
-            ->assertStatus(422);
+            ->assertOk();
         $this->assertDatabaseMissing('coupon_usages', ['coupon_id' => $coupon->id]);
     }
 
@@ -376,7 +376,7 @@ class CheckoutReservationReviewTest extends TestCase
     {
         Config::set('webhooks.payment.stripe', ['driver' => 'stripe', 'secret' => 'whsec_test']);
         $order = Order::factory()->create(['status' => 'pending', 'payment_status' => 'unpaid', 'grand_total' => 100]);
-        $body = json_encode(['id' => 'evt_9', 'status' => 'paid', 'order_number' => $order->order_number, 'amount' => 100]);
+        $body = json_encode(['id' => 'evt_9', 'status' => 'paid', 'order_number' => $order->order_number, 'amount' => 100, 'currency' => 'EGP']);
         $sign = fn (int $t): string => 't='.$t.',v1='.hash_hmac('sha256', $t.'.'.$body, 'whsec_test');
 
         $this->call('POST', '/api/v1/webhooks/payment/stripe', [], [], [],
@@ -444,7 +444,7 @@ class CheckoutReservationReviewTest extends TestCase
     {
         Config::set('webhooks.payment.moyasar', ['driver' => 'moyasar', 'secret' => 'ms_token']);
         $order = Order::factory()->create(['status' => 'pending', 'payment_status' => 'unpaid', 'grand_total' => 100]);
-        $good = json_encode(['id' => 'pay_1', 'secret_token' => 'ms_token', 'status' => 'paid', 'order_number' => $order->order_number, 'amount' => 100]);
+        $good = json_encode(['id' => 'pay_1', 'secret_token' => 'ms_token', 'status' => 'paid', 'order_number' => $order->order_number, 'amount' => 100, 'currency' => 'EGP']);
         $bad = json_encode(['id' => 'pay_2', 'secret_token' => 'wrong', 'status' => 'paid', 'order_number' => $order->order_number, 'amount' => 100]);
 
         $this->call('POST', '/api/v1/webhooks/payment/moyasar', [], [], [],

@@ -11,6 +11,7 @@ use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Customer;
+use App\Models\Expense;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\PosHeldSale;
@@ -58,7 +59,7 @@ class PosSaleController extends Controller
             // A hold consumed by resumeHeld no longer exists; the service
             // tolerates the missing row, so the rule must not reject it.
             'held_sale_id' => ['nullable', 'integer', 'min:1'],
-            'held_sale_ids' => ['nullable', 'array'],
+            'held_sale_ids' => ['nullable', 'array', 'max:20'],
             'held_sale_ids.*' => ['integer', 'min:1'],
         ]);
 
@@ -561,7 +562,7 @@ class PosSaleController extends Controller
     public function processReturn(Request $request, Order $sale): JsonResponse
     {
         $data = $request->validate([
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.product_variant_id' => ['required', 'integer', 'min:1'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.return_to' => ['nullable', 'string', 'in:on_hand,damaged'],
@@ -607,17 +608,18 @@ class PosSaleController extends Controller
     public function processExchange(Request $request, Order $sale): JsonResponse
     {
         $data = $request->validate([
-            'returned_items' => ['required', 'array', 'min:1'],
+            'returned_items' => ['required', 'array', 'min:1', 'max:100'],
             'returned_items.*.product_variant_id' => ['required', 'integer', 'min:1'],
             'returned_items.*.qty' => ['required', 'integer', 'min:1'],
             'returned_items.*.return_to' => ['nullable', 'string', 'in:on_hand,damaged'],
-            'exchange_items' => ['required', 'array', 'min:1'],
+            'exchange_items' => ['required', 'array', 'min:1', 'max:100'],
             'exchange_items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
             'exchange_items.*.qty' => ['required', 'integer', 'min:1'],
             'exchange_items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'exchange_items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
             'cash_amount' => ['nullable', 'numeric', 'min:0'],
             'card_amount' => ['nullable', 'numeric', 'min:0'],
+            'override_reason' => ['nullable', 'string', 'max:255'],
         ]);
 
         /** @var PosShift $shift */
@@ -630,6 +632,13 @@ class PosSaleController extends Controller
         );
         if ($hasDiscounts && ! $user->can('pos.discount')) {
             throw new AuthorizationException('لا تملك صلاحية تطبيق خصم على أصناف الاستبدال.');
+        }
+
+        $hasOverrides = collect($data['exchange_items'])->some(
+            fn (array $item): bool => isset($item['unit_price'])
+        );
+        if ($hasOverrides && ! $user->can('pos.override_price')) {
+            throw new AuthorizationException('لا تملك صلاحية تجاوز أسعار أصناف الاستبدال.');
         }
 
         /** @var Order $returnOrder */
@@ -654,6 +663,43 @@ class PosSaleController extends Controller
                 'exchange_credit' => (float) $returnOrder->exchange_credit,
             ],
         ]);
+    }
+
+    /**
+     * Record an operating cash expense directly from the active POS drawer.
+     */
+    public function recordExpense(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999.99'],
+            'category' => ['required', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        $expense = app(OperationIdempotencyService::class)->run(
+            'pos_expense',
+            $user,
+            $this->idempotencyKey($request),
+            ['shift_id' => $shift->id, ...$data],
+            fn (): Expense => $this->pos->recordExpense($shift, $data, (int) $user->id),
+        );
+
+        return response()->json([
+            'message' => 'تم تسجيل المصروف بنجاح.',
+            'data' => [
+                'id' => $expense->id,
+                'expense_number' => $expense->expense_number,
+                'amount' => (float) $expense->amount,
+                'category' => $expense->category,
+                'notes' => $expense->notes,
+                'created_at' => $expense->created_at,
+            ],
+        ], 201);
     }
 
     // ===================================================================

@@ -56,10 +56,11 @@ class LocationController extends Controller
     public function store(StoreLocationRequest $request, Branch $branch): JsonResponse
     {
         $this->branchAccess->assertBranch($request->user()->id, $branch->id);
-        // Creating a location inside an inactive branch is rejected.
-        abort_unless((bool) $branch->fresh()->is_active, 422, 'لا يمكن إنشاء موقع داخل فرع متوقف.');
         try {
             $location = DB::transaction(function () use ($request, $branch): Location {
+                StaffAdministration::authorize($request->user('staff'), ['locations.create', 'locations.manage']);
+                // Shared lock serializes with UpdateBranch's exclusive lock so a location is never created in a branch being disabled.
+                abort_unless((bool) Branch::query()->whereKey($branch->getKey())->sharedLock()->value('is_active'), 422, 'لا يمكن إنشاء موقع داخل فرع متوقف.');
                 $created = $branch->locations()->create($request->validated());
                 $created->refresh();
                 // Audit record is emitted within transaction to prevent unlogged mutations if rollback occurs.
@@ -102,6 +103,8 @@ class LocationController extends Controller
         // Convert unique constraint race conditions to 422 instead of unhandled 500 error.
         try {
             $updated = DB::transaction(function () use ($request, $location, $validated): Location {
+                // Same boundary as SetLocationStatus: the full-update path must not bypass the permission re-check.
+                StaffAdministration::authorize($request->user('staff'), ['locations.update', 'locations.manage']);
                 $locked = Location::query()->whereKey($location->getKey())->lockForUpdate()->firstOrFail();
                 $before = ['name' => $locked->name, 'code' => $locked->code, 'type' => $locked->type->value, 'is_active' => (bool) $locked->is_active];
                 $after = $before;
@@ -117,13 +120,16 @@ class LocationController extends Controller
                         abort_unless(! $hasBalances, 422, 'لا يمكن تغيير نوع الموقع وهو عليه أرصدة غير صفرية؛ صفّرها أولًا.');
                     }
                 }
-                if (array_key_exists('is_active', $validated) && ! (bool) $validated['is_active']) {
-                    $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
-                    abort_unless(! $hasBalances, 422, 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
+                if (array_key_exists('is_active', $validated) && ! (bool) $validated['is_active'] && (bool) $locked->is_active) {
+                    SetLocationStatus::assertDeactivatable($locked);
                 }
                 if (array_key_exists('is_active', $validated) && (bool) $validated['is_active']
-                    && ! (bool) Branch::query()->find($locked->branch_id)?->is_active) {
+                    && ! (bool) Branch::query()->whereKey($locked->branch_id)->sharedLock()->value('is_active')) {
                     abort(422, 'لا يمكن تفعيل موقع داخل فرع متوقف.');
+                }
+                // Skip the write and the audit row when the request changes nothing.
+                if ($after === $before) {
+                    return $locked;
                 }
                 $locked->update($validated);
                 StaffAdministration::audit($request->user('staff'), 'location.updated', 'location', $locked->getKey(),
@@ -147,6 +153,7 @@ class LocationController extends Controller
 
         try {
             $deleted = DB::transaction(function () use ($request, $branch, $location): bool {
+                StaffAdministration::authorize($request->user('staff'), ['locations.delete', 'locations.manage']);
                 // Consistent lock ordering (stock levels first, then location) prevents 40P01 deadlocks.
                 StockLevel::query()->where('location_id', $location->getKey())
                     ->orderBy('branch_id')

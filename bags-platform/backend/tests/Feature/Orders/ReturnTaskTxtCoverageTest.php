@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Orders;
 
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Orders\ReturnStatus;
 use App\Models\Branch;
 use App\Models\City;
@@ -20,11 +21,13 @@ use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\ShippingCompany;
 use App\Models\StockLevel;
+use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\Orders\OrderService;
 use App\Services\Orders\ReturnService;
 use App\Services\Orders\ShipmentService;
+use App\Services\Pos\TreasuryService;
 use Database\Seeders\ReturnPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -377,7 +380,7 @@ class ReturnTaskTxtCoverageTest extends TestCase
      * task.txt (7): توثيق سلوك حالي بانتظار قرار صاحب المشروع — رد مرتجع
      * متجر بطريقة cash يُتم الرد دون تسجيل أي حركة خزينة.
      */
-    public function test_cash_refund_records_no_treasury_movement_pending_owner_decision(): void
+    public function test_cash_refund_requires_and_debits_an_active_branch_safe(): void
     {
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 10);
@@ -392,12 +395,43 @@ class ReturnTaskTxtCoverageTest extends TestCase
         ])->assertOk();
 
         $this->assertSame(0, TreasuryTransaction::query()->count());
-        $this->adminPost("/api/v1/admin/returns/{$returnId}/refund", ['refund_method' => 'cash'])->assertOk()
+        $url = "/api/v1/admin/returns/{$returnId}/refund";
+        $this->adminPost($url, ['refund_method' => 'cash'])->assertUnprocessable();
+        $treasury = Treasury::query()->create([
+            'name' => 'Cash refunds', 'code' => 'RETURN-CASH', 'type' => 'main_safe',
+            'branch_id' => $this->branch->id, 'is_active' => true,
+        ]);
+        $this->adminPost($url, ['refund_method' => 'cash', 'treasury_id' => $treasury->id])->assertUnprocessable();
+        app(TreasuryService::class)->record([
+            'treasury_id' => $treasury->id,
+            'type' => TreasuryTransactionType::OpeningBalance,
+            'amount' => '300.00',
+            'created_by' => User::query()->firstOrFail()->id,
+        ]);
+        $this->adminPost($url, ['refund_method' => 'cash', 'treasury_id' => $treasury->id])->assertOk()
             ->assertJsonPath('data.status', 'refunded');
 
-        // السلوك الحالي: لا حركة خزينة لطرق الرد غير المحفظة.
-        $this->assertSame(0, TreasuryTransaction::query()->count());
+        $this->assertDatabaseHas('treasury_transactions', [
+            'treasury_id' => $treasury->id, 'type' => 'order_refund', 'amount' => '-200.00',
+            'reference_type' => 'return_request', 'reference_id' => $returnId,
+        ]);
+        $this->assertSame('100.00', $treasury->fresh()->current_balance);
         $this->assertSame('0.00', (string) $customer->fresh()->wallet_balance);
+    }
+
+    public function test_original_payment_refund_requires_verified_gateway_amount(): void
+    {
+        $order = Order::factory()->create(['payment_method' => 'card', 'payment_status' => 'paid']);
+        $return = ReturnRequest::factory()->create([
+            'order_id' => $order->id, 'status' => 'received', 'total_refund_amount' => '40.00',
+        ]);
+        $url = "/api/v1/admin/returns/{$return->id}/refund";
+        $payload = ['refund_method' => 'original_payment', 'refund_reference' => 'gateway-reference'];
+        $this->adminPost($url, $payload)->assertUnprocessable();
+
+        $order->forceFill(['payment_status' => 'refunded', 'gateway_refunded_amount' => '40.00'])->save();
+        $this->adminPost($url, $payload)->assertOk()->assertJsonPath('data.status', 'refunded');
+        $this->assertSame('refunded', $order->refresh()->payment_status);
     }
 
     /**
@@ -452,7 +486,7 @@ class ReturnTaskTxtCoverageTest extends TestCase
                 $payload = match ($action) {
                     'approve' => $payloads['approve'],
                     'receive' => ['items' => [['id' => $item->id, 'received_good_qty' => 2, 'received_damaged_qty' => 0]]],
-                    'refund' => ['refund_method' => 'cash'],
+                    'refund' => ['refund_method' => 'bank_transfer', 'refund_reference' => 'matrix-'.$return->id],
                     'delete' => [],
                     default => $payloads[$action],
                 };

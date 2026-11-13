@@ -85,7 +85,7 @@ class OrderSpecCoverageTest extends TestCase
             'id' => 'evt_refund',
             'type' => 'charge.refunded',
             'data' => ['object' => [
-                'id' => 'ch_refund', 'status' => 'succeeded', 'amount' => 50000,
+                'id' => 'ch_refund', 'status' => 'succeeded', 'amount' => 50000, 'amount_refunded' => 50000,
                 'currency' => 'egp', 'metadata' => ['order_number' => $refunded->order_number],
             ]],
         ])->assertOk();
@@ -496,6 +496,10 @@ class OrderSpecCoverageTest extends TestCase
         $this->withHeaders([...$headers, 'X-Cart-Session' => $differentCart])
             ->postJson('/api/v1/store/checkout', $payload)
             ->assertStatus(409)->assertJsonPath('code', 'idempotency_conflict');
+        $this->travel(1)->minutes();
+        $this->withHeaders([...$headers, 'X-Cart-Session' => $differentCart])
+            ->postJson('/api/v1/store/checkout', [...$payload, 'expected_total' => '500.00'])
+            ->assertCreated()->assertJsonPath('data.id', $created->json('data.id'));
         $this->assertSame(1, Order::query()->count());
 
         $otherPhone = $this->cart($variant);
@@ -613,7 +617,23 @@ class OrderSpecCoverageTest extends TestCase
         $this->assertSame(0.0, (float) StockLevel::query()->sum('reserved'));
     }
 
-    public function test_coupon_budget_is_shared_between_customers_on_the_same_ip_only_for_that_code(): void
+    public function test_order_service_recovers_when_system_actor_is_created_after_a_lookup_miss(): void
+    {
+        $service = app(\App\Services\Orders\OrderService::class);
+        $actor = new \ReflectionMethod($service, 'inventoryActorId');
+        User::query()->where('is_system', true)->delete();
+        try {
+            $actor->invoke($service, null);
+            $this->fail('The system user is absent.');
+        } catch (\LogicException $exception) {
+            $this->assertStringContainsString('System audit identity', $exception->getMessage());
+        }
+        $system = User::factory()->create();
+        \Illuminate\Support\Facades\DB::table('users')->where('id', $system->id)->update(['is_system' => true]);
+        $this->assertSame($system->id, $actor->invoke($service, null));
+    }
+
+    public function test_coupon_code_budget_is_independent_for_customers_on_the_same_ip(): void
     {
         config(['store.coupon_apply_per_minute' => 1]);
         $variant = $this->purchasableVariant(100);
@@ -636,8 +656,8 @@ class OrderSpecCoverageTest extends TestCase
         };
 
         $apply($firstToken, ' shared ')->assertOk();
+        $apply($secondToken, 'SHARED')->assertOk();
         $apply($secondToken, 'SHARED')->assertTooManyRequests();
-        $this->assertDatabaseHas('carts', ['customer_id' => $second->id, 'coupon_id' => null]);
         $apply($secondToken, 'OTHER')->assertOk();
         $this->assertDatabaseHas('carts', ['customer_id' => $first->id, 'coupon_id' => $coupon->id]);
         $this->assertDatabaseHas('carts', ['customer_id' => $second->id, 'coupon_id' => $otherCoupon->id]);

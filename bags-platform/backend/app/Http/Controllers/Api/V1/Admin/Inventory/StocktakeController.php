@@ -53,6 +53,8 @@ class StocktakeController extends Controller implements HasMiddleware
         ]);
 
         $filters['staff_branch_id'] = $this->branchAccess->restrictedBranch($request->user());
+        abort_if($filters['staff_branch_id'] !== null && isset($filters['branch_id'])
+            && (int) $filters['branch_id'] !== $filters['staff_branch_id'], 403);
 
         return StocktakeResource::collection($this->stocktakes->paginate($filters));
     }

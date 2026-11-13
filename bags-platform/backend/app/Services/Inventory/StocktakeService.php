@@ -93,6 +93,7 @@ class StocktakeService
     {
         return DB::transaction(function () use ($data, $userId): Stocktake {
             app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
+            app(BranchAccess::class)->lockActiveBranch((int) $data['branch_id']);
             $this->assertScopedLocation((int) $data['branch_id'], $data['location_id'] ?? null);
             $stocktake = Stocktake::query()->create([
                 'stocktake_number' => $this->settings->generateNextNumber('stocktake'),
@@ -312,6 +313,10 @@ class StocktakeService
     private function assertScopedLocation(int $branchId, mixed $locationId): void
     {
         if ($locationId !== null) {
+            $location = Location::query()->whereKey($locationId)->sharedLock()->first();
+            if (! $location?->is_active || (int) $location->branch_id !== $branchId) {
+                throw new BusinessException('موقع الجرد غير نشط أو لا ينتمي إلى الفرع المحدد.');
+            }
             return;
         }
 
@@ -538,10 +543,6 @@ class StocktakeService
 
     private function assertNoInterveningMovement(Stocktake $stocktake, int $variantId, int $snapshotMovementId): void
     {
-        if ($snapshotMovementId <= 0) {
-            return;
-        }
-
         $moved = StockMovement::query()
             ->where('branch_id', $stocktake->branch_id)
             ->where('location_id', $stocktake->location_id)

@@ -70,7 +70,7 @@ class DocumentNumberingConcurrencyTest extends TestCase
         }
     }
 
-    public function test_allocated_number_does_not_block_sync_until_order_commit(): void
+    public function test_sync_fails_fast_until_the_numbering_transaction_releases_its_lock(): void
     {
         $other = DB::build([...DB::connection()->getConfig(), 'name' => 'numbering_release_test']);
         DB::beginTransaction();
@@ -78,10 +78,20 @@ class DocumentNumberingConcurrencyTest extends TestCase
         try {
             $allocated = (int) DB::scalar("SELECT document_next_number('order')");
             $minimum = $allocated + 100;
+            try {
+                $other->scalar("SELECT document_next_number('order', ?)", [$minimum]);
+                $this->fail('Expected the numbering lock conflict.');
+            } catch (QueryException $e) {
+                $this->assertSame('55P03', $e->errorInfo[0]);
+            }
+        } finally {
+            DB::rollBack();
+        }
+
+        try {
             $this->assertSame($minimum, (int) $other->scalar("SELECT document_next_number('order', ?)", [$minimum]));
             $this->assertSame($minimum, (int) DB::scalar("SELECT document_next_number('order')"));
         } finally {
-            DB::rollBack();
             $other->disconnect();
         }
     }

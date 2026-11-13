@@ -30,7 +30,7 @@ export function HeldDrawer({
       title="الفواتير المعلقة"
       sub={
         <span className="row gap-2">
-          {fmt(held.length)} فاتورة في {branch?.name || 'فرع مدينة نصر'}{' '}
+          {fmt(held.length)} فاتورة في {branch?.name || 'الفرع'}{' '}
           <Api path="/pos/sales/held" />
         </span>
       }

@@ -15,11 +15,36 @@ const money = require(path.join(POS, 'lib/money.ts'));
 const { normAr } = require(path.join(POS, 'lib/arabic.ts'));
 const { normalizeError, PosApiError, isCancel } = require(path.join(POS, 'lib/pos-error.ts'));
 const { createPendingSaleManager } = require(path.join(POS, 'lib/pending-sale.ts'));
+const { printReceipt } = require(path.join(POS, 'lib/print-receipt.ts'));
 const { createScanDetector } = require(path.join(POS, 'lib/barcode-scanner.ts'));
 const { createTabCoordinator } = require(path.join(POS, 'lib/tab-coordinator.ts'));
 const { pushReceipt, getReceiptArchive, clearReceiptArchive } = require(path.join(POS, 'lib/receipt-archive.ts'));
 const { PosApiService } = require(path.join(POS, 'services/pos-api.core.ts'));
 const { createApiClient } = require('../packages/api-client/src/axios-instance.ts');
+
+test('a non-blocking print call leaves the receipt mounted until afterprint', () => {
+  const beforeWindow = global.window;
+  const beforeDocument = global.document;
+  const window = new EventTarget();
+  window.print = () => {};
+  let mounted = false;
+  const host = { setAttribute() {}, appendChild() {}, remove() { mounted = false; } };
+  global.window = window;
+  global.document = {
+    createElement: () => host,
+    body: { appendChild() { mounted = true; } },
+  };
+  try {
+    printReceipt({ cloneNode: () => ({}) });
+    assert.equal(mounted, true);
+    window.dispatchEvent(new Event('afterprint'));
+    assert.equal(mounted, false);
+  } finally {
+    window.dispatchEvent(new Event('afterprint'));
+    global.window = beforeWindow;
+    global.document = beforeDocument;
+  }
+});
 
 function mulberry32(seed) {
   let s = seed >>> 0;
@@ -81,6 +106,22 @@ test('spreadDiscount property: shares sum to the discount within line bounds', (
 });
 
 // ---------- pending-sale: exact delays, final 422 clears, 500 keeps ----------
+test('a cancelled send survives blocked storage and retries with its original key', async () => {
+  const unavailable = () => { throw new Error('Storage unavailable'); };
+  const manager = createPendingSaleManager({
+    storage: { getItem: unavailable, setItem: unavailable, removeItem: unavailable },
+  });
+  const payload = { payment_method: 'cash', items: [{ product_variant_id: 1, qty: 1 }] };
+  const draft = manager.prepare(payload);
+  const cancelled = new Error('Cancelled');
+  cancelled.name = 'AbortError';
+  await assert.rejects(manager.executeWithRetry(payload, draft.key, async () => { throw cancelled; }), {
+    code: 'pending_sale',
+  });
+  assert.equal(manager.getSaved()?.submitted, true);
+  await manager.executeWithRetry(payload, draft.key, async (_payload, key) => assert.equal(key, draft.key));
+  assert.equal(manager.getSaved(), null);
+});
 test('pending sale default backoff is exactly [1000, 3000, 6000]', async () => {
   const storage = memStorage();
   const mgr = createPendingSaleManager({ storage, sleep: noSleep });

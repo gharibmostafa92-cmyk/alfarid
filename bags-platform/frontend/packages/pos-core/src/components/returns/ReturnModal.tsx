@@ -30,6 +30,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
     Array<{ id: number; qty: number; unit_price: number; line_total: number; error?: string | null }>
   >([]);
   const [payMethod, setPayMethod] = useState<'cash' | 'card' | 'mixed'>('cash');
+  const [exchangeCashPart, setExchangeCashPart] = useState<string>('');
 
   useEffect(() => {
     if (open) {
@@ -44,6 +45,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
       setReplQuoteTotal(null);
       setReplQuoteLines([]);
       setPayMethod('cash');
+      setExchangeCashPart('');
       pos.getProducts().then(setAllProducts).catch((error) => {
         if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
       });
@@ -111,27 +113,38 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   };
 
   // F-07: server-compatible proportional cents (never unit-price drift).
-  const lineRefund = (i: PastSale['items'][number], selQty: number): number => {
+  const lineRefundCents = (i: PastSale['items'][number], selQty: number): number => {
     const soldNetCents = toCents(i.line_total ?? i.price * i.qty);
     const alreadyReturned = Math.max(0, i.qty - (i.returnable_qty ?? i.qty));
-    return fromCents(
-      proportionalRefundCents(soldNetCents, i.qty, alreadyReturned, selQty, toCents(i.previous_refunded_amount ?? 0)),
+    return proportionalRefundCents(
+      soldNetCents,
+      i.qty,
+      alreadyReturned,
+      selQty,
+      toCents(i.previous_refunded_amount ?? 0),
     );
   };
 
-  const retTotal = sale ? sale.items.reduce((s, i) => s + lineRefund(i, sel[i.id]?.qty || 0), 0) : 0;
+  const lineRefund = (i: PastSale['items'][number], selQty: number): number => fromCents(lineRefundCents(i, selQty));
 
-  const fallbackReplTotal = repl.reduce((s, r) => {
+  const retTotalCents = sale ? sale.items.reduce((s, i) => s + lineRefundCents(i, sel[i.id]?.qty || 0), 0) : 0;
+  const retTotal = fromCents(retTotalCents);
+
+  const fallbackReplTotalCents = repl.reduce((s, r) => {
     const p = pos.getProductById(r.id);
-    return s + (p?.price || 0) * r.qty;
+    return s + toCents(p?.price || 0) * r.qty;
   }, 0);
-  const replTotal = replQuoteTotal != null ? replQuoteTotal : fallbackReplTotal;
+  const replTotalCents = replQuoteTotal != null ? toCents(replQuoteTotal) : fallbackReplTotalCents;
+  const replTotal = fromCents(replTotalCents);
 
-  const net = replTotal - retTotal;
+  const netCents = replTotalCents - retTotalCents;
+  const net = fromCents(netCents);
   const anySel = Object.values(sel).some((v) => v.qty > 0);
   // F-06: a quoted line error (e.g. replacement out of stock) blocks submit.
   const quoteBlocked = mode === 'exchange' && replQuoteLines.some((l) => l.error);
-  const canSubmit = anySel && (mode === 'return' || replQuoteTotal != null) && !quoteBlocked && !busy;
+  const mixedCents = toCents(exchangeCashPart);
+  const mixedValid = payMethod !== 'mixed' || (mode === 'exchange' && netCents > 0 && mixedCents > 0 && mixedCents < netCents);
+  const canSubmit = anySel && (mode === 'return' || replQuoteTotal != null) && !quoteBlocked && !busy && (mode === 'return' || netCents <= 0 || mixedValid);
 
   const results = rq
     ? allProducts
@@ -170,13 +183,27 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
           toast('تم تسجيل المرتجع وتحديث المخزون', 'ok');
         }
       } else {
+        const paymentOptions = {
+          method: payMethod,
+          ...(mode === 'exchange' && netCents > 0 && payMethod === 'mixed'
+            ? { cashAmount: fromCents(mixedCents), cardAmount: fromCents(netCents - mixedCents) }
+            : {}),
+        };
+        const exchangePayload = repl.map((r) => {
+          const ql = replQuoteLines.find((l) => l.id === r.id);
+          return {
+            id: r.id,
+            qty: r.qty,
+            ...(ql?.unit_price != null ? { unit_price: ql.unit_price } : {}),
+          };
+        });
         const res = await pos.processExchange(
           sale.id,
           returnPayload,
-          repl,
+          exchangePayload,
           net,
           sale.customer_id,
-          { method: payMethod },
+          paymentOptions,
         );
         const cardRefund = res?.card_refund_amount ?? 0;
         const cashRefund = res?.cash_refund_amount ?? 0;
@@ -548,18 +575,39 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                       );
                     })}
                     {mode === 'exchange' && net > 0 && (
-                      <div className="row between" style={{ paddingTop: 4 }}>
-                        <span className="fs-13 t-2">طريقة تحصيل الفرق:</span>
-                        {/* F-06: mixed collection is supported by the server — no cash-only dead end. */}
-                        <Seg
-                          value={payMethod}
-                          onChange={setPayMethod}
-                          options={[
-                            { value: 'cash', label: 'نقدي' },
-                            { value: 'card', label: 'بطاقة' },
-                            { value: 'mixed', label: 'مختلط' },
-                          ]}
-                        />
+                      <div className="col gap-2" style={{ paddingTop: 4 }}>
+                        <div className="row between">
+                          <span className="fs-13 t-2">طريقة تحصيل الفرق:</span>
+                          <Seg
+                            value={payMethod}
+                            onChange={setPayMethod}
+                            options={[
+                              { value: 'cash', label: 'نقدي' },
+                              { value: 'card', label: 'بطاقة' },
+                              { value: 'mixed', label: 'مختلط' },
+                            ]}
+                          />
+                        </div>
+                        {payMethod === 'mixed' && (
+                          <div className="row between gap-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', padding: '8px 12px', borderRadius: 8 }}>
+                            <span className="fs-12 t-2">المبلغ نقداً:</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                max={net - 0.01}
+                                value={exchangeCashPart}
+                                onChange={(e) => setExchangeCashPart(e.target.value)}
+                                placeholder="المبلغ نقداً"
+                                style={{ width: 100, textAlign: 'end', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)' }}
+                              />
+                              <span className="fs-12 t-2">
+                                البطاقة: {egp(Math.max(0, fromCents(netCents - mixedCents)))} ج
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     {repl.length === 0 && (

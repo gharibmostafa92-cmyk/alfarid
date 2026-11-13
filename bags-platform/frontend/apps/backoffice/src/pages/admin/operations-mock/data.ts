@@ -61,6 +61,8 @@ export const PAY_STATUS: Record<string, StatusMeta> = {
   unpaid: { label: 'غير مدفوع', tone: 'amber' },
   paid: { label: 'مدفوع', tone: 'green' },
   failed: { label: 'فشل الدفع', tone: 'red' },
+  partially_refunded: { label: 'مسترد جزئيًا', tone: 'amber' },
+  refund_pending: { label: 'قيد الاسترداد', tone: 'amber' },
   refunded: { label: 'مسترد', tone: 'gray' },
 };
 

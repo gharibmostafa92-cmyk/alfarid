@@ -25,6 +25,18 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const [lastScanned, setLastScanned] = useState<PosProduct | null>(null);
 
   const recognitionRef = useRef<any>(null);
+  const scanDraft = useRef<{ payload: string; id: string } | null>(null);
+  const submitting = useRef(false);
+
+  const recordScan = async (productId: number, amount: number | undefined, source: 'barcode' | 'voice', transcript?: string) => {
+    const payload = JSON.stringify([session?.id, productId, amount, source, transcript]);
+    if (scanDraft.current?.payload !== payload) {
+      scanDraft.current = { payload, id: globalThis.crypto.randomUUID() };
+    }
+    const result = await pos.recordStocktakeScan(productId, amount, source, transcript, scanDraft.current.id);
+    scanDraft.current = null;
+    return result;
+  };
 
   const loadSession = () => {
     pos
@@ -94,29 +106,19 @@ export function StocktakePage({ toast }: StocktakePageProps) {
 
   const submitCode = async () => {
     const trimmed = code.trim();
-    if (!trimmed) return;
-    let p = scope.find(
-      (x) => x.barcode === trimmed || x.sku.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (!p) {
-      try {
-        const found = await pos.lookupByBarcode(trimmed);
-        if (found) p = found;
-      } catch (error) {
-        if (!isCancel(error)) {
-          toast(normalizeError(error).message, 'bad');
-        }
-      }
-    }
-    if (!p) {
-      beepError();
-      toast(`لا يوجد صنف بالرمز ${trimmed}`, 'bad');
-      return;
-    }
-
+    if (!trimmed || submitting.current) return;
+    submitting.current = true;
     try {
+      const p = scope.find(
+        (x) => x.barcode === trimmed || x.sku.toLowerCase() === trimmed.toLowerCase()
+      ) ?? await pos.lookupByBarcode(trimmed);
+      if (!p) {
+        beepError();
+        toast(`لا يوجد صنف بالرمز ${trimmed}`, 'bad');
+        return;
+      }
       const amount = parseCount(qty);
-      const res = await pos.recordStocktakeScan(p.id, amount, 'barcode');
+      const res = await recordScan(p.id, amount, 'barcode');
       setLastScanned(p);
       if ((res as any)?.duplicate) {
         toast('تم تسجيل هذا المسح مسبقًا', 'bad');
@@ -126,8 +128,10 @@ export function StocktakePage({ toast }: StocktakePageProps) {
       setCode('');
       setQty('1');
       loadSession();
-    } catch (e: any) {
-      toast(normalizeError(e).message, 'bad');
+    } catch (error) {
+      if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
+    } finally {
+      submitting.current = false;
     }
   };
 
@@ -153,6 +157,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
       listener.maxAlternatives = 1;
 
       listener.onresult = async (event: any) => {
+        if (submitting.current) return;
         const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
         setHeard(transcript);
         if (transcript) {
@@ -161,21 +166,19 @@ export function StocktakePage({ toast }: StocktakePageProps) {
             toast('امسح باركود الصنف أولًا قبل تسجيل الكمية بالصوت', 'bad');
             return;
           }
+          submitting.current = true;
           try {
-            const res = await pos.recordStocktakeScan(
-              targetProd.id,
-              undefined,
-              'voice',
-              transcript
-            );
+            const res = await recordScan(targetProd.id, undefined, 'voice', transcript);
             if ((res as any)?.duplicate) {
               toast('تم تسجيل هذا المسح مسبقًا', 'bad');
             } else {
               toast(`سُجّل «${transcript}» — ${targetProd.name}`);
             }
             loadSession();
-          } catch (e: any) {
-            toast(normalizeError(e).message, 'bad');
+          } catch (error) {
+            if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
+          } finally {
+            submitting.current = false;
           }
         }
       };
@@ -278,7 +281,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                         fontWeight: 600,
                       }}
                       value={qty}
-                      onChange={(e) => setQty(toAsciiNum(e.target.value))}
+                      onChange={(e) => setQty(toAsciiNum(e.target.value, 4))}
                       aria-label="الكمية"
                     />
                   </div>

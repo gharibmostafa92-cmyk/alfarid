@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { checkoutEndpoints, type TrackOrderResponse } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
-import { getStatusLabel, OrderStatusLabelsAr } from '@alfarid/utils';
+import { getStatusLabel, OrderStatusLabelsAr, PaymentStatusLabelsAr } from '@alfarid/utils';
 import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
 
@@ -178,6 +178,9 @@ export default function TrackOrderPage() {
                 >
                   {localizedStatus}
                 </span>
+                {result.payment_status && PaymentStatusLabelsAr[result.payment_status] && (
+                  <span>{PaymentStatusLabelsAr[result.payment_status]}</span>
+                )}
               </div>
 
               {result.instapay && (
@@ -208,7 +211,7 @@ export default function TrackOrderPage() {
               <h3 className="track-sub-heading">المنتجات ({result.items.length})</h3>
               <div className="track-timeline-list">
                 {result.items.map((item, i) => (
-                  <div key={i} className="bag-totals-row">
+                  <div key={item.id ?? i} className="bag-totals-row">
                     <span>{item.product_name}</span>
                     <strong dir="ltr">× {item.qty}</strong>
                   </div>
@@ -220,7 +223,7 @@ export default function TrackOrderPage() {
                   <h3 className="track-sub-heading">سجل حالة الطلب</h3>
                   <div className="track-timeline-list">
                     {result.status_history.map((h, i) => (
-                      <div key={i} className="bag-totals-row">
+                      <div key={h.id ?? i} className="bag-totals-row">
                         <span>{getStatusLabel(OrderStatusLabelsAr, h.status)}</span>
                         <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>
                           {h.at ? new Date(h.at).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}

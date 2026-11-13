@@ -89,11 +89,13 @@ export const useCartStore = create<CartState>((set, get) => {
       couponCode: cart.totals.coupon_code,
     });
   };
-  const run = (operation: () => Promise<StoreCart>, mutation: boolean): Promise<boolean> => {
+  const run = (operation: () => Promise<StoreCart>, mutation: boolean, guard?: () => boolean): Promise<boolean> => {
     const owner = identity();
     if (get().identity !== owner) set({ items: [], serverTotal: 0, totals: { ...emptyTotals }, couponCode: null, identity: owner, error: null });
     const execute = async (): Promise<boolean> => {
       if (owner !== identity()) return false;
+      // Re-validate against the latest cart state once the queue/lock has settled.
+      if (guard && !guard()) return false;
       set({ busy: mutation, loading: !mutation, error: null });
       try {
         const cart = await operation();
@@ -146,14 +148,22 @@ export const useCartStore = create<CartState>((set, get) => {
     addItem: (variantId, quantity) => {
       const qty = quantity ?? 1;
       if (!Number.isInteger(qty) || qty < 1) return Promise.resolve(false);
-      return run(() => cartEndpoints.add(variantId, qty, session()), true);
+      return run(() => {
+        let cartSession = session();
+        if (cartSession === null && getAuthToken() === null) {
+          cartSession = globalThis.crypto.randomUUID();
+          restoreGuestCartSession(cartSession);
+        }
+        return cartEndpoints.add(variantId, qty, cartSession);
+      }, true);
     },
     removeItem: (id) => run(() => cartEndpoints.remove(id, session()), true),
     updateQuantity: (id, qty) => {
       if (!Number.isInteger(qty) || qty < 0) return Promise.resolve(false);
-      const item = get().items.find((item) => item.id === id);
-      if (qty > 0 && item && qty > item.available) return Promise.resolve(false);
-      return run(() => cartEndpoints.update(id, qty, session()), true);
+      return run(() => cartEndpoints.update(id, qty, session()), true, () => {
+        const item = get().items.find((item) => item.id === id);
+        return !(qty > 0 && item && qty > item.available);
+      });
     },
     clearCart: () => run(() => cartEndpoints.clear(session()), true),
     applyCoupon: (code) => run(() => cartEndpoints.applyCoupon(code, session()).then((res) => res.cart), true),

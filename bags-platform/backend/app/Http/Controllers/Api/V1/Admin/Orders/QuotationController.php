@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\PriceQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;
 use App\Models\Quotation;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\QuotationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,10 @@ use Illuminate\Validation\Rule;
  */
 class QuotationController extends Controller implements HasMiddleware
 {
-    public function __construct(private readonly QuotationService $service) {}
+    public function __construct(
+        private readonly QuotationService $service,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public static function middleware(): array
     {
@@ -36,6 +40,7 @@ class QuotationController extends Controller implements HasMiddleware
      */
     public function index(Request $request): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $filters = $request->validate([
             'status' => ['nullable', Rule::in(array_column(QuotationStatus::cases(), 'value'))],
             'customer_id' => ['nullable', 'integer', 'min:1'],
@@ -55,8 +60,9 @@ class QuotationController extends Controller implements HasMiddleware
     /**
      * Retrieve quotation details with items and variants.
      */
-    public function show(int $quotation): JsonResponse
+    public function show(Request $request, int $quotation): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $model = Quotation::query()->with(['customer', 'items.variant.product'])->findOrFail($quotation);
 
         return QuotationResource::make($model)->response();
@@ -67,6 +73,7 @@ class QuotationController extends Controller implements HasMiddleware
      */
     public function price(PriceQuotationRequest $request, int $quotation): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $model = Quotation::query()->findOrFail($quotation);
         $priced = $this->service->price($model, [
             ...$request->validated(),
@@ -81,8 +88,9 @@ class QuotationController extends Controller implements HasMiddleware
     /**
      * Expire a quotation that passed its validity window.
      */
-    public function expire(int $quotation): JsonResponse
+    public function expire(Request $request, int $quotation): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $model = Quotation::query()->findOrFail($quotation);
 
         return QuotationResource::make($this->service->expire($model))->response();

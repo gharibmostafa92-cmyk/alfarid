@@ -1,7 +1,6 @@
-# task5 — Deployment Status
+# Task5 — Deployment Status: POS, Inventory & Finance Hardening
 
-Source roadmap: `_archive_unused/tasks_execution/task5.txt` (Finance, Treasury, POS Shift Settlement, Wallet Adjustments, Reporting, Reconciliation, and Migration Safety — F01–F21).
-Live Cloud Run revision baseline and historical audit notes are tracked in [Task execution audit](TASKS_EXECUTION_AUDIT.md) and [`docs/.last-deployed`](.last-deployed).
+Source roadmap: `task5.txt` (POS, Inventory, Pricing, Stocktaking & Cart Security — 21 Roadmap Items: CRITICAL 01–02, HIGH 01–06, MEDIUM 01–09, LOW 01–03, INFO 01).
 Date: 2026-11-13
 
 ---
@@ -10,76 +9,115 @@ Date: 2026-11-13
 
 ### A. Already Deployed on Server
 
-- **Live revision baseline (last verified in audit log, 2026-11-10):**
-  - Git deployment marker (`docs/.last-deployed`): `25ee590`.
-  - Cloud Run Europe (`europe-west3`, `alfarid-api`): revision `alfarid-api-rel20261110b` (`api@sha256:617d6f76075126f11308858f45598677e6dc93b8a96ec1104f681282be74ea1b`); `us-central1` disabled.
-  - Database role note: runtime role `alfarid_pilot_runtime` cannot execute DDL in `public`; schema changes must be applied with the migration-owner role.
-- **Task5 confirmation status:**
-  - Live production Cloud Run / Neon access was **not** used in this session; none of the `task5.txt` fixes or migrations below are assumed or confirmed to be running on production. Live production state for `task5.txt` items is **unverified / not deployed**.
-
-### B. Ready / Pending Server Deployment
-
-All items below are implemented and verified locally in the working tree on top of the unpushed roadmap work and require staging rehearsal + production deployment:
-
-#### 1. Database Migrations & Seeders Pending Production Application
-
-1. **New migration — POS shift settlement timestamp (`F03`):**
-   - File: `bags-platform/backend/database/migrations/2026_11_12_000082_add_settled_at_to_pos_shifts.php`
-   - Note: the repository also contains `2026_11_12_000082_pos_task6_backend_fixes.php`; both share the `000082` prefix and apply in filename order. This is harmless because no production migration has run yet, but a future migration-number cleanup should rename one file before the next release.
-   - Action: Adds nullable `pos_shifts.settled_at` timestamp under `SET LOCAL lock_timeout = '3s'`, backfills existing `approved` shifts with `settled_at = COALESCE(approved_at, updated_at, now())`, and guards rollback cleanly.
-   - Deployment step: Rehearse on a Neon clone/branch with migration-owner credentials, then run `php artisan migrate --force`.
-2. **Hardened existing/pending unapplied migrations (`F07`, `HIGH-05`):**
-   - `bags-platform/backend/database/migrations/2026_11_10_000002_backfill_wallet_transaction_types.php`: `$withinTransaction = false`; explicit transaction with `SET LOCAL lock_timeout = '5s'`; drops and recreates both `wallet_immutable` and `wallet_no_truncate` triggers so the backfill cannot be blocked by the append-only guard.
-   - `bags-platform/backend/database/migrations/2026_11_12_000069_restrict_treasury_branch_deletes.php`: discovers the actual `branch_id` foreign key from `pg_constraint` instead of assuming a name, creates it `NOT VALID` when absent, swaps via a length-safe `_new` constraint name, then validates outside the transaction. No `RuntimeException` on unexpected names.
-   - `bags-platform/backend/database/migrations/2026_11_12_000053_guard_wallet_adjustment_amount.php`: runs `$withinTransaction = false`, adds `wallet_adjustments_amount_positive` with `NOT VALID` inside a `SET LOCAL lock_timeout = '3s'` transaction, then validates in a separate `VALIDATE CONSTRAINT` statement (`SHARE UPDATE EXCLUSIVE`, avoiding long `ACCESS EXCLUSIVE` locks).
-   - `bags-platform/backend/database/migrations/2026_11_12_000070_align_treasury_shift_expense_precision.php`: `down()` pre-scans `pos_shifts` and `expenses` for values with `ABS(col) >= 10000000000` and aborts with `RuntimeException` before attempting a narrowing `numeric(12,2)` table rewrite.
-3. **Already-present prerequisite Task5 schema migrations (also pending prod if unapplied):**
-   - `2026_11_12_000008_ledger_immutability_guards.php`, `000032_restrict_financial_history_deletes.php`, `000068_treasury_ledger_integrity.php` (`F02`: append-only + `TRUNCATE` trigger + `RESTRICT` FK on `treasury_transactions`).
-   - `2026_11_12_000073_add_stock_movements_report_index.php` (`F17`: reporting index; the older audit note that referenced a `drop_legacy_treasury_transactions_type_check` file was inaccurate — that filename does not exist in the tree).
-4. **Seeder update — POS shift permissions (`F18`):**
-   - File: `bags-platform/backend/database/seeders/FinancialPermissionSeeder.php`
-   - Action: Adds `pos_shifts.view`, `pos_shifts.approve`, `pos_shifts.force_close`.
-   - Deployment command: `php artisan db:seed --class=FinancialPermissionSeeder --force` before releasing backend traffic so `PosShiftAdminController` routes never raise `PermissionDoesNotExist`.
-
-#### 2. Backend Code Changes Pending Deployment
-
-- **Slice 1 — Permissions, Atomicity, Precision & Localization (`F01`, `F02`, `F04`, `F18`, `F19`):**
-  - `WalletAdjustmentService::recordAdjustment`: Wrapped inside explicit `DB::transaction()`, converts `MathException` to `BusinessException`, enforces `9999999999.99` decimal balance/adjustment cap even when `$idempotencyKey === null`.
-  - UTF-8 Arabic CLI & JSON messages verified across `ReconcileFinance.php`, `PosShiftAdminController.php`, and `TreasuryTransferController.php`.
-- **Slice 2 — Treasury & Expense Hardening (`F08`, `F09`, `F10`, `F12`, `F20`, `F21`):**
-  - `Treasury.php` & `TreasuryService.php`: Removed `current_balance` from `$fillable`; filtered `createAccount`/`updateAccount` inputs with `Arr::only` and `forceFill(['current_balance' => '0.00'])`; blocked branch changes, deactivations (`pending`), and deletes across `treasury_transfers`; replaced `bccomp` with `BigDecimal` parser `parseDecimal()` and `999999999999.99` ceiling; verified `$mainSafe` `is_active` under `lockForUpdate()`; refactored `assertDrawerAvailableForTransfer(Treasury $treasury)` to avoid N+1 re-queries; normalized/clamped rejection reasons to 500 chars.
-  - `ExpenseService.php`: Verified `$lockedTreasury->is_active` under `lockForUpdate()` before burning `generateNextNumber('expense')`; normalized/rejected empty `void()` reasons and clamped to 500 chars.
-  - `FinanceWriteGuards.php` & `DeleteTreasuryTool.php`: Added `treasury_transfers` and `PosShift` blockers across both `from_treasury_id` and `to_treasury_id`.
-- **Slice 3 — Shift Settlement, Scoping & Idempotency (`F03`, `F13`, `F14`, `F20`):**
-  - `PosShift.php` & `TreasuryService::settleShiftToMainSafe`: Rejects negative `actual_closing_cash`; tracks `settled_at` inside transaction to eliminate infinite zero-cash replay.
-  - `ExpenseService::void` & `ExpenseController::destroy`: Moved `assertExpenseAccess` inside `DB::transaction` on locked `$expense`, added optional `OperationIdempotencyService` support via `Idempotency-Key` header.
-  - `PosShiftAdminController.php` & `TreasuryTransferController.php`: Restricted `PosShiftAdminController::index` to reject out-of-branch filters with `403`; updated `TreasuryTransferController::index`/`show` to `OR` branch visibility (with eager `loadMissing`) while retaining `AND` for `approve`/`reject`; wired `OperationIdempotencyService` to `approve()` endpoints.
-- **Slice 4 — Reports, Reconciliation & Statement Timeout (`F05`, `F06`, `F11`, `F15`, `F16`, `F17`):**
-  - `StatementBudget.php`: Applies the budget with isolation `SET TRANSACTION` plus a single `SET LOCAL statement_timeout` (2 round trips); the previous-timeout select/finally was removed because transaction rollback restores the session setting.
-  - `ReportService.php`: Revenue recognizes an order only in its first-sale period via `whereExists` current-window sale + `whereNotExists` earlier sale, eliminating cross-period duplication without `MIN()`; branch attribution is order-level (`o.allocated_branch_id`). COGS for order-linked sale movements joins orders and uses the same order branch, while returns/non-order movements use the movement branch so one branch never sees only one side of a sale. Inventory valuation sums raw decimal rows with `BigDecimal` (no `array_sum` float path); supplier report orders by `ABS(current_balance) DESC, name ASC` before the 500-row cap.
-  - `ReconcileFinance.php`: Scoped wallet reconciliation (`w_ledger`, `w_totals`, `w_problems`, `customers` count) to run only when `--branch_id` is `NULL`, isolating branch-level runs cleanly; retention raised from 14 to 90 days for auditability; samples decoded once; ledger totals now come from window aggregates instead of separate full-table `SUM` scans.
-- **Audit round 2 — Daily close, order-money tool, transfers, expense dates (`HIGH-02`, `MEDIUM-01`..`MEDIUM-05`, `HIGH-03`, `HIGH-04`):**
-  - `DailyCloseBriefingTool`: business-timezone default date, exclusive next-day end bound, net cash sales (`cash_amount`/cash fallback minus POS return cash), one grouped transfer count query, `BigDecimal` throughout (no `bcsub`/`bccomp`), deterministic oldest-safe selection, and pending-out aggregation outside the drawer loop in `FinanceWriteGuards::suggestTopUp`.
-  - `ExplainOrderMoneyTool`: uses `WalletService::ORDER_REFERENCES` plus both return aliases, decimal-exact movement sums, accurate refund warning that mentions independent `wallet_adjustment` documents, and no float tolerance.
-  - `TreasuryService::createTransfer`: reserves pending incoming transfers against `MAX_TREASURY_BALANCE`; new creator-only `cancelTransfer` + `POST /treasury-transfers/{id}/cancel` (stored as `rejected` with a cancellation reason) while approved/rejected statuses keep their existing check constraint.
-  - `ExpenseController::store`: date bounds use `app.business_timezone` (Cairo by default), so an expense dated today remains valid after UTC midnight.
-  - `FinanceWriteGuards`: deactivation is allowed for zero-balance accounts without unsettled shifts or pending transfers; branch moves remain strict. Duplicate treasury codes map to HTTP 409 instead of 500.
-
-#### 3. Frontend Package Changes Pending Build & Deploy
-
-- `bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts`: Added optional `idempotencyKey?: string` on `expensesApi.void` and `shiftsApi.approve`, plus `shiftsApi.reject`, `shiftsApi.reopen`, and `shiftsApi.forceClose` endpoints matching `PosShiftAdminController`; `paymentNoticesApi.approve` always generates a key when omitted; `PosShift` now exposes `approved_at`/`settled_at`/`approved_by`; `TreasuryTransfer.status` is the literal union and its treasury relations include `code`/`branch_id`/`type`.
-- **No new environment variables or queue worker topology changes required** beyond redeploying the updated API image, rebuilding frontend apps (`backoffice` / workspace packages), running `php artisan migrate --force` (migration owner), and running `php artisan db:seed --class=FinancialPermissionSeeder --force`.
-- **Operational deployment sequence:**
-  1. Rehearse migrations (`000002`, `000008`, `000032`, `000053`, `000068`–`000070`, `000082`) on a Neon Staging Branch with the migration-owner role.
-  2. Apply `php artisan migrate --force` and `php artisan db:seed --class=FinancialPermissionSeeder --force` during deployment window.
-  3. Build & push updated Cloud Run API container image (`alfarid-api`) and promote after `/up` and `/health/ready` checks pass.
-  4. Rebuild & deploy frontend apps consuming `@alfarid/api-client`.
+- **Live Server Baseline:**
+  - Deployment marker (`docs/.last-deployed`): `25ee590`.
+  - Cloud Run Europe (`europe-west3`, `alfarid-api`): revision `alfarid-api-rel20261110b`.
+  - Production Neon Database: Runtime role `alfarid_pilot_runtime` (cannot execute DDL in `public`; all migrations must be applied with the migration-owner role).
+- **Task5 Deployment Confirmation:**
+  - Live production Cloud Run / Neon access was **not** used during this task.
+  - None of the 21 items or code changes implemented in `task5.txt` have been deployed to production yet.
+  - Current live server status for all Task5 items: **Unverified / Not Deployed (Pending)**.
 
 ---
 
-## Verification Record (Local Working Tree)
+### B. Ready / Pending Server Deployment
 
-- `Task5Slice1VerificationTest`: **5 passed / 17 assertions**
-- `Task5Slice2TreasuryHardeningTest`: **6 passed / 13 assertions** (+ 36/36 in `ExpenseVoidTest`, `FinanceExpenseToolsTest`, `FinanceWriteToolsTest`, `WalletCheckoutTest`)
-- `Task5Slice3ShiftAndTransferTest`: **6 passed / 34 assertions** (+ 47/47 in `ExpenseVoidTest`, `PosEndpointsTest`, `FinanceTransferToolsTest`, `FinanceReadToolsTest`)
-- `Task5Slice4ReportsReconcileAndMigrationsTest`: **7 passed / 33 assertions** (+ 61/61 in `AdminReportsTest`, `InventoryReportCostGatingTest`, `FinancialAuditRoundTwoTest`, `FinanceIntegrityTest`, `OperationsAuditCompletionTest`)
+All 21 items have been implemented, tested, and verified locally in the working tree. They are packaged and ready for staged rehearsal and production release:
+
+#### 1. Backend Changes & Route Hardening
+
+1. **`PosService.php` (`[CRITICAL-01]`, `[HIGH-02]`, `[MEDIUM-01]`, `[MEDIUM-02]`, `[MEDIUM-05]`):**
+   - **`chainTenderCaps`**: Implemented BFS Connected Component Traversal across both upstream (`exchange_order_id`, `return_of_order_id`) and downstream (`return_of_order_id`, child exchanges) orders, locking all component orders in ascending ID order (`lockForUpdate()`), aggregating net cash and card paid vs. net cash and card refunded across the entire graph. Eliminates tender cap inflation and prevents drawer drainage across branched exchanges.
+   - **`createSale`**: Enforced active resume lease check (`resumed_by` / `resumed_at > now() - 5m`) on held sales. Throws `409 Conflict` if leased by another cashier, preventing double-selling.
+   - **`lookupProducts`**: Discards suspended or inactive customers (`!$customer->canShop()`) from price list resolution. Removed unused `media` relationship eager loading from barcode lookup query.
+   - **Sequence Numbering**: Switched `createSale` and `processReturn` to consume the dedicated `pos_invoice` numbering setting (`generateNextNumber('pos_invoice')`), isolating branch POS locks from web/wholesale order numbering.
+   - **`processExchange`**: Forward price overrides when the cashier has `pos.override_price` authorization.
+
+2. **`routes/api/pos.php` (`[CRITICAL-02]`, `[HIGH-05]`, `[LOW-03]`):**
+   - Added `permission:pos.sales.create` middleware guards to `/sales`, `/sales/hold`, `/sales/quote`, `/sales/held/*`, `/customers`, `/shifts/open`, `/shifts/close`, and `/treasuries/available`.
+   - Extracted `/stocktakes/current` and `/stocktakes/{stocktake}/scan` from the `pos.shift` middleware group so stock counters without open shifts can count stock.
+   - Guarded `/catalog`, `/products/lookup`, and `/stock` with `permission:pos.sales.create|inventory.view` to prevent blind stocktake information leakage.
+   - Registered `POST /api/v1/pos/sales/expenses` route.
+
+3. **`PosSaleController.php` (`[MEDIUM-02]`, `[MEDIUM-08]`, `[LOW-03]`):**
+   - Added `recordExpense` controller action delegating to `PosService::recordExpense`.
+   - Enforced array size limits: `items.*` max:100 in `processReturn`, `returned_items` & `exchange_items` max:100 in `processExchange`, `held_sale_ids` max:20 in `store`.
+   - Authorized `pos.override_price` permission when custom `unit_price` is sent in `processExchange`.
+
+4. **`PosProductController.php` (`[MEDIUM-01]`):**
+   - Filtered out non-shoppable customers (`$customer->canShop()`) in `lookup`.
+
+5. **`PosShiftController.php` (`[MEDIUM-04]`):**
+   - Safe null checking on `cashier`, `treasury`, and `branch` relations in `formatShift` to prevent 500 error when associated records are soft-deleted.
+
+6. **`Controller.php` (`[MEDIUM-06]`):**
+   - Unified strict regex check `/\A[A-Za-z0-9._:-]{1,128}\z/` in `Controller::idempotencyKey` preventing 500 crashes from malformed UTF-8 bytes.
+
+7. **Database Migrations & Indexes (`[INFO-01]`):**
+   - Verified that redundant partial index `pos_shifts_single_open_unique` was dropped in migration `2026_11_12_000040_remove_redundant_indexes_and_check.php`, leaving the master index `pos_shifts_one_open_user`.
+
+---
+
+#### 2. Frontend Applications & Packages
+
+1. **`packages/pos-core/src/lib/money.ts` (`[HIGH-03]`):**
+   - Replaced floating-point multiplication in `toCents` with string-based decimal parsing, eliminating binary float rounding errors.
+
+2. **`packages/pos-core/src/components/returns/ReturnModal.tsx` (`[HIGH-01]`, `[HIGH-03]`, `[MEDIUM-02]`):**
+   - Added `exchangeCashPart` input for mixed payments when `net > 0`, validated `0 < cash < net`, and passed `cashAmount` to `pos.processExchange`.
+   - Migrated all line and total refund calculations to integer cents (`lineRefundCents`, `retTotalCents`, `netCents`).
+   - Propagated quoted unit prices to exchange item payloads.
+
+3. **`packages/pos-core/src/services/pos-api.core.ts` (`[HIGH-01]`, `[MEDIUM-02]`, `[MEDIUM-03]`):**
+   - Added validation for `mixed` payments requiring both cash and card amounts.
+   - Removed redundant `this.quoteSale(...)` call before `processExchange`.
+   - Flushed all cached singleton state (shifts, held sales, catalog etag, search index, drafts) in `syncActor` when user or branch changes.
+
+4. **`packages/pos-core/src/components/PosApp.tsx` (`[HIGH-02]`):**
+   - Pruned deleted held sale server IDs from `posCartStore.heldSaleIds`.
+   - Preserved manual price overrides when resuming and merging held sales into the cart.
+
+5. **`packages/pos-core/src/lib/pending-sale.ts` (`[HIGH-04]`):**
+   - Added `safeSetItem` to prevent hard crashes on storage quota or restricted storage errors.
+   - Cleared unsubmitted drafts when user cancels or aborts request, preventing permanent 409 lockout.
+
+6. **`packages/pos-core/src/components/inventory/StocktakePage.tsx` (`[HIGH-06]`):**
+   - Maintained stable `scan_id` across retry attempts to prevent double counting on network drops.
+
+7. **`packages/pos-core/src/components/inventory/TransfersPage.tsx` (`[MEDIUM-07]`):**
+   - Handled promise rejections in `loadTransfers` to avoid uncaught promise exceptions.
+
+8. **`packages/pos-core/src/components/terminal/CustomerBar.tsx` (`[MEDIUM-07]`):**
+   - Converted Arabic digits with `toAsciiNum(q)` before pre-filling customer modal.
+
+9. **`packages/pos-core/src/components/terminal/ScanBar.tsx` (`[MEDIUM-07]`):**
+   - Guarded against picking out-of-stock items (`stock <= 0`).
+
+10. **`packages/pos-core/src/components/inventory/StockPage.tsx` (`[MEDIUM-07]`):**
+    - Handled error states on catalog and category queries.
+
+11. **`packages/pos-core/src/lib/print-receipt.ts` (`[MEDIUM-09]`):**
+    - Delayed `host.remove()` using `afterprint` event listener + 60s fallback timeout to prevent blank receipts on non-blocking print dialogs.
+
+12. **`packages/pos-core/src/components/checkout/CheckoutModal.tsx` (`[LOW-01]`):**
+    - Added `maxLength={470}` on notes input.
+
+13. **`apps/backoffice/src/pages/pos/PosPage.tsx` (`[LOW-02]`):**
+    - Removed dynamic runtime Google Fonts link injection.
+
+---
+
+#### 3. Operational Deployment Steps
+
+1. **Database Migrations:**
+   - Run `php artisan migrate --force` with migration-owner role.
+2. **Container Image Build & Release:**
+   - Build backend API image: `docker build -t alfarid-api:<tag> bags-platform/backend`.
+   - Deploy to Cloud Run: `gcloud run deploy alfarid-api --image ...`.
+3. **Frontend Build & CDN Deployment:**
+   - Build frontend monorepo: `pnpm -r build`.
+   - Deploy `apps/pos` and `apps/backoffice` static assets to CDN / host.
+4. **Post-Deployment Smoke Tests:**
+   - Cashier shift open / sale / split exchange / return traversal verification.
+   - Stock counter voice & barcode stocktake without shift.
+   - Print receipt verification on thermal printer.

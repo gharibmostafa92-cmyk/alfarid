@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ApproveReturnRequest;
 use App\Http\Requests\Admin\Orders\ReceiveReturnRequest;
 use App\Http\Requests\Admin\Orders\RefundReturnRequest;
-use App\Http\Requests\Store\Orders\StoreReturnRequest;
+use App\Http\Requests\Admin\Orders\StoreReturnRequest;
 use App\Http\Requests\Admin\Orders\UpdateReturnRequest;
 use App\Http\Resources\Admin\Orders\ReturnRequestResource;
 use App\Models\Order;

@@ -75,13 +75,13 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
             <div className="grow">
               <div style={{ fontSize: 13, opacity: 0.85 }}>{greet}،</div>
               <div className="display" style={{ fontSize: 22, fontWeight: 500, lineHeight: 1.25 }}>
-                {cashier?.name || 'أحمد سمير'}
+                {cashier?.name || 'الكاشير'}
               </div>
             </div>
             <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>
               <span className="badge" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}>
                 <Icon n="store" s={13} />
-                {branch?.name || 'فرع مدينة نصر'}
+                {branch?.name || 'الفرع'}
               </span>
               <span style={{ fontSize: 12, opacity: 0.85 }} className="num">
                 {now.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long' })}

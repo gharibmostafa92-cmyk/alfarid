@@ -326,17 +326,16 @@ class Task6BackendFixesTest extends PosScenarioFixture
         $this->assertSame($this->variant->id, $sale->json('data.items.0.product_variant_id'));
     }
 
-    public function test_f5_fabricated_held_sale_id_proceeds_as_normal_sale(): void
+    public function test_f5_fabricated_held_sale_id_is_rejected_without_creating_a_sale(): void
     {
         $token = $this->tokenFor($this->cashier);
 
-        $sale = $this->as($token)->postJson('/api/v1/pos/sales', array_merge(
+        $this->as($token)->postJson('/api/v1/pos/sales', array_merge(
             $this->salePayload(100, 0, 1),
             ['held_sale_id' => 999999],
-        ), $this->idem())->assertCreated();
+        ), $this->idem())->assertConflict();
 
-        $this->assertSame($this->variant->id, $sale->json('data.items.0.product_variant_id'));
-        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseCount('orders', 0);
     }
 
     public function test_f5_wrong_branch_existing_hold_still_rejected(): void
@@ -494,6 +493,11 @@ class Task6BackendFixesTest extends PosScenarioFixture
         $page = $this->withToken($token)->getJson('/api/v1/pos/catalog?cursor='.urlencode($cursor))->assertOk();
         $this->assertSame('', $page->json('meta.catalog_version'));
         $this->assertFalse($page->headers->has('ETag'));
+        $this->stockIn($this->branch->id, $this->variant, 1);
+        $this->withToken($token)->getJson('/api/v1/pos/catalog?'.http_build_query([
+            'cursor' => $cursor,
+            'catalog_version' => $first->json('meta.catalog_version'),
+        ]))->assertStatus(412);
     }
 
     public function test_f16_return_lookup_exact_first_then_scoped_like_fallback(): void

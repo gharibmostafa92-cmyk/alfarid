@@ -22,8 +22,11 @@ class SendStaffOrderNotification implements ShouldQueue
 {
     public function handle(OrderCreated $event): void
     {
-        $branch = $event->order->allocated_branch_id;
-        $staff = StaffRecipients::withAnyPermission(['orders.view'], $branch === null ? [] : [(int) $branch]);
+        $branches = $event->order->items()->whereNotNull('allocated_branch_id')->pluck('allocated_branch_id');
+        if ($event->order->allocated_branch_id !== null) {
+            $branches->push($event->order->allocated_branch_id);
+        }
+        $staff = StaffRecipients::withAnyPermission(['orders.view'], $branches->map(fn ($id) => (int) $id)->unique()->values()->all());
 
         if ($staff->isNotEmpty()) {
             DB::transaction(fn () => Notification::sendNow($staff, new AdminOrderCreatedNotification($event->order), ['database']));

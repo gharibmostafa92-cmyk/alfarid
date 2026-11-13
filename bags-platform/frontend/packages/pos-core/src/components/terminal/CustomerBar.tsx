@@ -28,14 +28,15 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
   useOutside(ref, () => setOpen(false));
 
   useEffect(() => {
-    if (q.trim().length < 2) {
+    const term = toAsciiNum(q.trim());
+    if (term.length < 2) {
       setCustomers([]);
       return;
     }
     const controller = new AbortController();
     const timer = setTimeout(() => {
       pos
-        .getCustomers(q.trim(), controller.signal)
+        .getCustomers(term, controller.signal)
         .then(setCustomers)
         .catch((err) => {
           if (isCancel(err)) return;
@@ -139,7 +140,16 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
         <button
           className="btn btn-secondary"
           style={{ height: 40, padding: '0 12px' }}
-          onClick={() => setQuick(true)}
+          onClick={() => {
+            const ascii = toAsciiNum(q.trim());
+            const isPhone = /^\+?[0-9]{7,15}$/.test(ascii.replace(/[\s-]/g, ''));
+            setNw({
+              name: isPhone ? '' : q.trim(),
+              phone: isPhone ? ascii : '',
+              tier: 'retail',
+            });
+            setQuick(true);
+          }}
           title="تسجيل عميل سريع"
         >
           <Icon n="userPlus" s={16} />
@@ -167,7 +177,13 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
           {res.length === 0 && (
             <button
               onClick={() => {
-                setNw({ ...nw, phone: q });
+                const ascii = toAsciiNum(q.trim());
+                const isPhone = /^\+?[0-9]{7,15}$/.test(ascii.replace(/[\s-]/g, ''));
+                setNw({
+                  name: isPhone ? '' : q.trim(),
+                  phone: isPhone ? ascii : '',
+                  tier: 'retail',
+                });
                 setQuick(true);
                 setOpen(false);
               }}

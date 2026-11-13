@@ -104,6 +104,9 @@ class TaskTxtInventoryTransfersTest extends TaskTxtInventoryCase
 
         $transfer = $this->makeTransfer($token, $from, $to, $variant, 6);
 
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [])
+            ->assertUnprocessable()->assertJsonValidationErrors('expected_version');
+
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
             'expected_version' => $transfer['version'] + 99,
         ])->assertConflict()

@@ -47,6 +47,7 @@ class TreasuryService
     /** Transaction types whose amount is always a debit (negative). */
     private const NEGATIVE_TYPES = [
         TreasuryTransactionType::PosReturn,
+        TreasuryTransactionType::OrderRefund,
         TreasuryTransactionType::Expense,
         TreasuryTransactionType::TransferOut,
         TreasuryTransactionType::SupplierPayment,
@@ -256,14 +257,22 @@ class TreasuryService
 
             $amount = $this->parseDecimal($data['amount'] ?? null, 'مبلغ الحركة')->toScale(2, RoundingMode::HalfUp);
             $this->assertAmountSign($type, $amount);
+            if ($type === TreasuryTransactionType::OpeningBalance && ($data['shift_id'] ?? null) === null
+                && TreasuryTransaction::query()->where('treasury_id', $treasury->id)->exists()) {
+                throw new BusinessException('الرصيد الافتتاحي مسموح فقط كأول حركة في الخزينة.');
+            }
             $balanceAfter = $this->parseDecimal($treasury->current_balance, 'رصيد الخزينة')->plus($amount)->toScale(2);
             if ($balanceAfter->abs()->isGreaterThan(self::MAX_TREASURY_BALANCE)) {
                 throw new BusinessException('رصيد الخزينة يتجاوز الحد المسموح.');
             }
 
-            // Bank accounts support overdrafts; physical safes and POS drawers cannot go negative.
-            if ($balanceAfter->isNegative() && $treasury->type->value !== 'bank_account') {
-                throw new BusinessException('رصيد الخزينة غير كافٍ لإتمام العملية.');
+            if ($amount->isNegative() && $balanceAfter->isNegative()) {
+                $limit = $treasury->type === TreasuryType::BankAccount
+                    ? $this->parseDecimal(config('treasury.bank_overdraft_limit', '0.00'), 'حد السحب على المكشوف')
+                    : BigDecimal::zero();
+                if ($balanceAfter->abs()->isGreaterThan($limit)) {
+                    throw new BusinessException('رصيد الخزينة غير كافٍ لإتمام العملية.');
+                }
             }
 
             $transaction = TreasuryTransaction::create([

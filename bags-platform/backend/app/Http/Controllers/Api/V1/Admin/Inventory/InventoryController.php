@@ -54,10 +54,11 @@ class InventoryController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
+        $branch = $this->branchAccess->restrictedBranch($request->user());
+        abort_if($branch !== null && isset($filters['branch_id']) && (int) $filters['branch_id'] !== $branch, 403);
         $levels = StockLevel::query()
-            ->when($this->branchAccess->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('stock_levels.branch_id', $branch))
+            ->when($branch ?? $filters['branch_id'] ?? null, fn ($q, $branchId) => $q->where('stock_levels.branch_id', $branchId))
             ->with(['variant.product', 'branch', 'location'])
-            ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.branch_id', $v))
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.location_id', $v))
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))

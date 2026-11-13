@@ -78,11 +78,12 @@ abstract class TaskTxtInventoryCase extends TestCase
 
     protected function posCashierWithShift(Branch $branch, array $permissions): array
     {
-        foreach (array_merge(['pos.access'], $permissions) as $permission) {
+        $permissions = array_unique(['pos.access', 'pos.sales.create', ...$permissions]);
+        foreach ($permissions as $permission) {
             Permission::findOrCreate($permission, 'staff');
         }
         $cashier = User::factory()->create(['branch_id' => $branch->id]);
-        $cashier->givePermissionTo(array_merge(['pos.access'], $permissions));
+        $cashier->givePermissionTo($permissions);
 
         $drawer = \App\Models\Treasury::create([
             'name' => 'Drawer '.uniqid(), 'code' => 'DRW-'.uniqid(),

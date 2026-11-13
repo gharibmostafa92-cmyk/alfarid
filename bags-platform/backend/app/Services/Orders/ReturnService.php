@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
+use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryType;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Orders\OrderStatus;
@@ -18,12 +20,16 @@ use App\Models\Product;
 use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\StockMovement;
+use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Finance\WalletService;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Inventory\InventoryService;
+use App\Services\Pos\TreasuryService;
 use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
+use Illuminate\Support\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +50,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class ReturnService
 {
+    private const ATTACHMENT_DIRECTORY = 'return_requests/items';
+
     public function __construct(
         protected SettingService $settings,
         protected InventoryService $inventory,
@@ -60,14 +68,13 @@ class ReturnService
         if ($data['items'] === []) {
             throw new BusinessException('طلب الإرجاع يجب أن يتضمن بندًا واحدًا على الأقل.');
         }
-        $returnNumber = $this->settings->generateNextNumber('return');
         $uploads = [];
         foreach ($data['items'] as $item) {
             foreach ($item['attachments'] ?? [] as $file) {
-                $uploads[] = [$file, 'return_requests/pending'];
+                $uploads[] = [$file, self::ATTACHMENT_DIRECTORY];
             }
         }
-        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer, $returnNumber): ReturnRequest {
+        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer): ReturnRequest {
             // Lock order row to serialize concurrent return requests against line item quantities.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
@@ -115,7 +122,7 @@ class ReturnService
             }
 
             $return = ReturnRequest::create([
-                'return_number' => $returnNumber,
+                'return_number' => $this->settings->generateNextNumber('return'),
                 'order_id' => $order->id,
                 'customer_id' => $order->customer_id,
                 'status' => ReturnStatus::Pending,
@@ -315,6 +322,7 @@ class ReturnService
                 $orderItem = $item->orderItem;
                 $netCents = $this->netLineRefundCents($orderItem);
                 $cumulativeQty = $previousQty + $receivedTotal;
+                $orderItem->update(['returned_qty' => $cumulativeQty]);
                 $targetCents = $cumulativeQty >= (float) $orderItem->qty
                     ? $netCents
                     : min($netCents, (int) round($cumulativeQty * (float) $item->unit_refund_price * 100));
@@ -341,7 +349,7 @@ class ReturnService
     /**
      * Issues financial reimbursement to the customer via wallet credit or recorded payment gateway reference.
      *
-     * @param  array{refund_method?: string|null, refund_reference?: string|null}  $data
+     * @param  array{refund_method?: string|null, refund_reference?: string|null, treasury_id?: int|null}  $data
      */
     public function refund(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
@@ -371,16 +379,42 @@ class ReturnService
             if ($method === RefundMethod::OriginalPayment->value && $order->payment_method === 'cod') {
                 throw new BusinessException('طلب الدفع عند الاستلام لا يُرد إلى بوابة الدفع.');
             }
+            if ($method === RefundMethod::OriginalPayment->value) {
+                $confirmed = (int) round((float) $order->gateway_refunded_amount * 100);
+                $used = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)
+                    ->where('refund_method', RefundMethod::OriginalPayment)->sum('total_refund_amount') * 100);
+                if ($confirmed <= 0 || $confirmed - $used < (int) round((float) $return->total_refund_amount * 100)) {
+                    throw new BusinessException('سجّل الاسترداد في بوابة الدفع وانتظر تأكيدها قبل إقفال المرتجع.');
+                }
+            } elseif ((float) $order->gateway_refunded_amount > 0) {
+                throw new BusinessException('يوجد استرداد مؤكد في بوابة الدفع؛ اختر طريقة الدفع الأصلية لتوثيقه.');
+            }
             $reference = $reference !== null ? trim((string) $reference) : $reference;
             if ($reference !== null && $reference !== '' && ReturnRequest::query()
                 ->where('id', '!=', $return->id)
                 ->whereNotIn('status', [ReturnStatus::Rejected, ReturnStatus::Cancelled])
-                ->whereRaw('lower(btrim(refund_reference)) = ?', [mb_strtolower($reference)])
+                ->whereRaw('lower(btrim(refund_reference)) = lower(btrim(?))', [$reference])
                 ->exists()) {
                 throw new BusinessException('مرجع الرد مسجّل سابقًا.', [], 409);
             }
 
-            if ($method === RefundMethod::Wallet->value) {
+            if ($method === RefundMethod::Cash->value && (float) $return->total_refund_amount > 0) {
+                $treasury = Treasury::query()->where('branch_id', $return->branch_id)
+                    ->whereNotNull('branch_id')->where('type', TreasuryType::MainSafe)
+                    ->where('is_active', true)->lockForUpdate()->find($data['treasury_id'] ?? null);
+                if ($treasury === null) {
+                    throw new BusinessException('اختر خزينة نقدية نشطة في فرع المرتجع.');
+                }
+                app(BranchAccess::class)->assertTreasury($admin->id, $treasury);
+                app(TreasuryService::class)->record([
+                    'treasury_id' => $treasury->id,
+                    'type' => TreasuryTransactionType::OrderRefund,
+                    'amount' => '-'.(string) $return->total_refund_amount,
+                    'reference_type' => 'return_request',
+                    'reference_id' => $return->id,
+                    'created_by' => $admin->id,
+                ]);
+            } elseif ($method === RefundMethod::Wallet->value) {
                 if ($return->customer_id === null) {
                     throw new BusinessException('الاسترداد إلى المحفظة يتطلب حساب عميل مسجل؛ اختر طريقة أخرى لطلبات الزوار.');
                 }
@@ -464,9 +498,9 @@ class ReturnService
     /**
      * Cancels an unreceived return request (pending or approved).
      */
-    public function cancel(ReturnRequest $return, ?string $notes = null): ReturnRequest
+    public function cancel(ReturnRequest $return, ?string $notes = null, ?User $admin = null): ReturnRequest
     {
-        return DB::transaction(function () use ($return, $notes): ReturnRequest {
+        return DB::transaction(function () use ($return, $notes, $admin): ReturnRequest {
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if (! in_array($return->status, [ReturnStatus::Pending, ReturnStatus::Approved], true)) {
                 throw new BusinessException('لا يمكن إلغاء مرتجع بعد استلامه.');
@@ -474,7 +508,7 @@ class ReturnService
             $return->update([
                 'status' => ReturnStatus::Cancelled,
                 'admin_notes' => $notes ?? $return->admin_notes,
-                'cancelled_by' => auth()->id(),
+                'cancelled_by' => $admin?->id,
                 'cancelled_at' => now(),
             ]);
 
@@ -497,7 +531,7 @@ class ReturnService
             return $this->reject($return, $admin, $data['admin_notes'] ?? null);
         }
         if (($data['status'] ?? null) === ReturnStatus::Cancelled->value) {
-            return $this->cancel($return, $data['admin_notes'] ?? null);
+            return $this->cancel($return, $data['admin_notes'] ?? null, $admin);
         }
 
         return DB::transaction(function () use ($return, $data): ReturnRequest {
@@ -537,14 +571,13 @@ class ReturnService
 
         $deliveredAt = $order->statusHistories()
             ->where('to_status', OrderStatus::Delivered->value)
-            ->latest('id')
             ->value('created_at');
 
         if ($deliveredAt === null) {
             throw new BusinessException('لا يوجد سجل تسليم موثوق لحساب فترة الاسترجاع.');
         }
 
-        if ($deliveredAt->copy()->addDays($windowDays)->isPast()) {
+        if (Carbon::parse($deliveredAt)->addDays($windowDays)->isPast()) {
             throw new BusinessException("انتهت فترة الاسترجاع المسموحة ({$windowDays} يومًا من التسليم) لهذا الطلب.");
         }
     }
@@ -585,7 +618,8 @@ class ReturnService
      */
     private function syncOrderPaymentStatusAfterRefund(Order $order): void
     {
-        if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
+        if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)
+            || (float) $order->gateway_refunded_amount > 0) {
             return;
         }
         $refundedCents = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)->sum('total_refund_amount') * 100);
@@ -624,7 +658,7 @@ class ReturnService
             }
             $paths = [];
             foreach ($itemFiles as $file) {
-                $paths[] = $files->store($file, "return_requests/{$return->id}");
+                $paths[] = $files->store($file, self::ATTACHMENT_DIRECTORY);
             }
             $item->update(['attachments' => array_merge($item->attachments ?? [], $paths)]);
         }

@@ -161,14 +161,15 @@ class WebhookTest extends TestCase
         $order = $this->makeOrder($variant, 1, 'cod');
         app(OrderService::class)->changeStatus($order, OrderStatus::Confirmed, $this->staff);
 
+        $code = str_repeat('b', 40);
         $company = ShippingCompany::factory()->create([
-            'code' => 'bosta',
+            'code' => $code,
             'api_credentials' => ['webhook_secret' => self::SHIP_SECRET],
         ]);
         app(ShipmentService::class)->createForOrder($order, $company->id, 'BOSTA-123', $this->staff);
         $this->assertSame(OrderStatus::Shipped, $order->fresh()->status);
 
-        $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
+        $this->postWebhook('/api/v1/webhooks/shipping/'.$code, [
             'event_id' => 'ev_ship_1', 'awb_number' => 'BOSTA-123', 'status' => 'delivered',
         ], self::SHIP_SECRET)->assertOk()->assertJsonPath('received', true);
 

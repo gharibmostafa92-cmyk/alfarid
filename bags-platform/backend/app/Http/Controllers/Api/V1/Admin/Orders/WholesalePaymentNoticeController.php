@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ReviewPaymentNoticeRequest;
 use App\Http\Resources\Wholesale\WholesalePaymentNoticeResource;
 use App\Models\Treasury;
+use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
@@ -54,6 +55,8 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
 
         $notices = WholesalePaymentNotice::query()
             ->with(['customer', 'order'])
+            ->when($this->branchAccess->restrictedBranch($request->user()), fn ($query, $branchId) => $query
+                ->whereHas('order', fn ($order) => $order->where('allocated_branch_id', $branchId)))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->when($filters['customer_id'] ?? null, fn ($q, $v) => $q->where('customer_id', $v))
             ->latest('id')
@@ -68,11 +71,12 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
      * @param int $paymentNotice Notice ID
      * @return JsonResponse Notice details response
      */
-    public function show(int $paymentNotice): JsonResponse
+    public function show(Request $request, int $paymentNotice): JsonResponse
     {
         $notice = WholesalePaymentNotice::query()
             ->with(['customer', 'order', 'treasury'])
             ->findOrFail($paymentNotice);
+        $this->assertNoticeAccess($request->user(), $notice);
 
         return WholesalePaymentNoticeResource::make($notice)->response();
     }
@@ -87,6 +91,7 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
     public function approve(ReviewPaymentNoticeRequest $request, int $paymentNotice): JsonResponse
     {
         $notice = WholesalePaymentNotice::query()->findOrFail($paymentNotice);
+        $this->assertNoticeAccess($request->user(), $notice);
         $data = $request->validated();
         if (isset($data['treasury_id'])) {
             $treasury = Treasury::query()->findOrFail((int) $data['treasury_id']);
@@ -94,6 +99,8 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
             if (! $treasury->is_active) {
                 throw new BusinessException('الخزينة غير مفعّلة.');
             }
+        } else {
+            $this->branchAccess->assertCentralAccess($request->user());
         }
 
         $approved = $this->service->approve(
@@ -116,9 +123,20 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
     public function reject(ReviewPaymentNoticeRequest $request, int $paymentNotice): JsonResponse
     {
         $notice = WholesalePaymentNotice::query()->findOrFail($paymentNotice);
+        $this->assertNoticeAccess($request->user(), $notice);
 
         $rejected = $this->service->reject($notice, (int) $request->user()->id, $request->validated('admin_notes'));
 
         return WholesalePaymentNoticeResource::make($rejected)->response();
+    }
+
+    private function assertNoticeAccess(User $user, WholesalePaymentNotice $notice): void
+    {
+        $branchId = $notice->order?->allocated_branch_id;
+        if ($branchId === null) {
+            $this->branchAccess->assertCentralAccess($user);
+        } else {
+            $this->branchAccess->assertBranch($user->id, (int) $branchId);
+        }
     }
 }

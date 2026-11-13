@@ -112,6 +112,8 @@ class Task3Slice5CatalogCacheAndMigrationTest extends PosScenarioFixture
         ]);
 
         $this->as($token)->postJson("/api/v1/pos/transfers/{$transfer->id}/receive", [
+            'expected_version' => $transfer->fresh()->version,
+            'expected_version' => (int) $transfer->version,
             'items' => [
                 ['id' => $item->id, 'received_qty' => 5],
             ],

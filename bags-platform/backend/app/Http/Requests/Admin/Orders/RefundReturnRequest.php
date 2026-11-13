@@ -26,6 +26,7 @@ class RefundReturnRequest extends FormRequest
         return [
             'refund_method' => ['nullable', Rule::enum(RefundMethod::class)],
             'refund_reference' => ['nullable', 'string', 'max:191'],
+            'treasury_id' => ['nullable', 'integer', 'min:1'],
         ];
     }
 }

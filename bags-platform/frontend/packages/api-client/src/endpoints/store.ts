@@ -74,7 +74,7 @@ export const storeEndpoints = {
 
 export const checkoutEndpoints = {
   cities: () => apiClient.get<{ data: StoreCity[] }>('/api/v1/store/cities').then((r) => r.data.data),
-  shippingOptions: (body: { city_id: number; payment_method?: string }, session: string | null, signal?: AbortSignal) =>
+  shippingOptions: (body: { city_id: number; payment_method?: string; recipient_phone?: string }, session: string | null, signal?: AbortSignal) =>
     apiClient.post<{ data: ShippingOptionsResponse }>('/api/v1/store/checkout/shipping-options', body, { headers: cartHeaders(session), signal }).then((r) => r.data.data),
   place: (body: CheckoutPayload, session: string | null, idempotencyKey: string) =>
     apiClient.post<CheckoutResponse>('/api/v1/store/checkout', body, {

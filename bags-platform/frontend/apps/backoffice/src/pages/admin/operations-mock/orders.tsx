@@ -15,7 +15,7 @@ import {
   type OrderRow,
   type ReturnRow,
 } from './data';
-import { adminOrdersApi, adminReturnsApi, branchesApi, shippingCompaniesApi, PAYMENT_TRANSITIONS, type AdminOrderListParams, type OrderStatus, type PaymentStatus, type ReturnStatus, type RefundMethod } from '@alfarid/api-client';
+import { adminOrdersApi, adminReturnsApi, branchesApi, shippingCompaniesApi, treasuriesApi, PAYMENT_TRANSITIONS, type AdminOrderListParams, type OrderStatus, type PaymentStatus, type ReturnStatus, type RefundMethod } from '@alfarid/api-client';
 import { useRemote, useDebounced, useAction } from './api/useRemote';
 import { useFormState } from './api/useFormState';
 import { RemoteFeedback } from './api/RemoteFeedback';
@@ -1164,6 +1164,12 @@ export function ReturnDetail({
   const [damagedQtys, setDamagedQtys] = useState<Record<number, number | undefined>>({});
   const [refundMethod, setRefundMethod] = useState('');
   const [refundRef, setRefundRef] = useState('');
+  const [refundTreasury, setRefundTreasury] = useState('');
+  const needsRefundTreasury = (refundMethod || ret?.refund_method) === 'cash' && num(ret?.total_refund_amount) > 0;
+  const treasuryBranch = modal === 'refund' && needsRefundTreasury ? ret?.branch_id : null;
+  const refundTreasuries = useRemote((signal) => treasuryBranch
+    ? treasuriesApi.list({ branch_id: treasuryBranch, is_active: true, type: 'main_safe', per_page: 100 }, signal).then((result) => result.data)
+    : Promise.resolve([]), [treasuryBranch]);
   const [rejectNotes, setRejectNotes] = useState('');
   const [approveNotes, setApproveNotes] = useState('');
   useEffect(() => { if (ret) setApproveBranch(ret.branch_id ? String(ret.branch_id) : ''); }, [ret]);
@@ -1191,7 +1197,12 @@ export function ReturnDetail({
 
   const refund = async () => {
     if (!ret || remote.usingMock) return;
-    const res = await run(() => adminReturnsApi.refund(ret.id, { refund_method: (refundMethod === 'bank' ? 'bank_transfer' : refundMethod === 'original' ? 'original_payment' : refundMethod || ret.refund_method || undefined) as RefundMethod | undefined, refund_reference: refundRef || undefined }), { toast, success: 'تم تنفيذ الاسترداد' });
+    if (needsRefundTreasury && !refundTreasury) return toast('اختر خزينة رد النقدية', 'red');
+    const res = await run(() => adminReturnsApi.refund(ret.id, {
+      refund_method: (refundMethod === 'bank' ? 'bank_transfer' : refundMethod === 'original' ? 'original_payment' : refundMethod || ret.refund_method || undefined) as RefundMethod | undefined,
+      refund_reference: refundRef || undefined,
+      treasury_id: needsRefundTreasury ? Number(refundTreasury) : undefined,
+    }), { toast, success: 'تم تنفيذ الاسترداد' });
     if (res) { setRet(res); setModal(null); }
   };
 
@@ -1614,7 +1625,18 @@ export function ReturnDetail({
               ))}
             </select>
           </Field>
-          <Field label="المرجع" hint="اختياري — رقم العملية أو التحويل.">
+          {needsRefundTreasury && (
+            <Field label="خزينة رد النقدية" req>
+              <select className="inp" value={refundTreasury} onChange={(e) => setRefundTreasury(e.target.value)} disabled={refundTreasuries.loading}>
+                <option value="">{refundTreasuries.loading ? 'جارٍ تحميل الخزائن' : 'اختر خزينة الفرع'}</option>
+                {(refundTreasuries.data ?? []).map((treasury) => (
+                  <option key={treasury.id} value={treasury.id}>{treasury.name}</option>
+                ))}
+              </select>
+              {refundTreasuries.error && <p role="alert">{refundTreasuries.error.message}</p>}
+            </Field>
+          )}
+          <Field label="المرجع" hint="رقم العملية أو التحويل عند الاسترداد خارج النظام.">
             <input className="inp num" dir="ltr" value={refundRef} onChange={(e) => setRefundRef(e.target.value)} />
           </Field>
         </div>

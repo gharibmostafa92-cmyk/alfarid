@@ -78,7 +78,8 @@ class Task2PaymentWebhookTest extends TestCase
 
         $this->postWebhook($this->refundPayload('evt_r1', $order, ['amount_refunded' => 10000]))
             ->assertOk()->assertJsonPath('received', true);
-        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame('partially_refunded', $order->fresh()->payment_status);
+        $this->assertSame(100.0, (float) $order->fresh()->gateway_refunded_amount);
         $this->assertTrue($order->fresh()->needs_attention);
 
         $this->postWebhook($this->refundPayload('evt_r2', $order, [
@@ -154,7 +155,7 @@ class Task2PaymentWebhookTest extends TestCase
         ]);
 
         $this->postPaymob($callback)->assertOk();
-        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame('partially_refunded', $order->fresh()->payment_status);
         $this->postPaymob($callback)->assertOk();
         $this->assertSame('refunded', $order->fresh()->payment_status);
         $this->postPaymob($callback)->assertOk()->assertJsonPath('duplicate', true);

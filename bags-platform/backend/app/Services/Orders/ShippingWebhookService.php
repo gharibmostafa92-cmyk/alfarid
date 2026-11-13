@@ -68,7 +68,7 @@ class ShippingWebhookService
     public function handle(string $companyCode, array $payload, string $rawBody, ?string $signature, ?string $ip): array
     {
         $companyCode = strtolower($companyCode);
-        if (preg_match('/\A[a-z0-9_-]{1,32}\z/', $companyCode) !== 1) {
+        if (preg_match('/\A[a-z0-9_-]{1,40}\z/', $companyCode) !== 1) {
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
         $provider = 'shipping:'.$companyCode;

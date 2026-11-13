@@ -101,6 +101,7 @@ class TransferService
     {
         return DB::transaction(function () use ($data, $userId): StockTransfer {
             $this->assertCreateAccess($userId, (int) $data['from_branch_id'], (int) $data['to_branch_id']);
+            app(BranchAccess::class)->lockActiveBranches([$data['from_branch_id'], $data['to_branch_id']]);
             $transfer = StockTransfer::query()->create([
                 'transfer_number' => $this->settings->generateNextNumber('transfer'),
                 'from_branch_id' => $data['from_branch_id'],
@@ -144,6 +145,7 @@ class TransferService
             if ((int) $fromBranch === (int) $toBranch) {
                 throw new BusinessException('يجب اختلاف الفرع المرسل عن الفرع المستلم.');
             }
+            app(BranchAccess::class)->lockActiveBranches([$fromBranch, $toBranch]);
             $items = $data['items'] ?? $transfer->items->toArray();
             foreach ($items as $item) {
                 foreach (['from_location_id' => $fromBranch, 'to_location_id' => $toBranch] as $field => $branchId) {
@@ -384,11 +386,20 @@ class TransferService
             }
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
+            $hasShortage = $transfer->items->contains(fn ($item) => round(
+                (float) $item->shipped_qty - (float) ($itemsPayload[$item->id] ?? $item->shipped_qty), 4,
+            ) > 0);
+            if ($hasShortage && ! User::query()->findOrFail($userId)->can('transfers.approve_shortage')) {
+                throw new BusinessException('تسجيل عجز عند الاستلام يتطلب صلاحية اعتماد العجز.', [], 403);
+            }
             // Older transfers can have transit stock on the branch-level row.
+            $inactiveLocations = Location::query()->whereKey($transfer->items->pluck('to_location_id')->filter()->unique()->all())
+                ->where('is_active', false)->pluck('id')->flip();
             $needsReceivingLocation = $transfer->items->contains(fn ($item) =>
-                $item->to_location_id === null && (float) ($itemsPayload[$item->id] ?? $item->shipped_qty) > 0);
+                ($item->to_location_id === null || $inactiveLocations->has($item->to_location_id))
+                && (float) ($itemsPayload[$item->id] ?? $item->shipped_qty) > 0);
             $receivingLocation = $needsReceivingLocation ? $this->inventory->receivingLocation($transfer->to_branch_id) : null;
-            $levels = $this->lockTransferLevels($transfer, false, true, $receivingLocation);
+            $levels = $this->lockTransferLevels($transfer, false, true, $receivingLocation, $inactiveLocations);
 
             $shortageNotes = [];
             $qtyUpdates = [];
@@ -426,7 +437,7 @@ class TransferService
                         'notes' => 'استلام تحويل '.$transfer->transfer_number,
                     ], $levels);
                     $this->move([...$base,
-                        'location_id' => $item->to_location_id ?? $receivingLocation,
+                        'location_id' => $inactiveLocations->has($item->to_location_id) ? $receivingLocation : ($item->to_location_id ?? $receivingLocation),
                         'type' => StockMovementType::TransferIn,
                         'affected_bucket' => StockBucket::OnHand,
                         'quantity' => $receivedQty,
@@ -445,12 +456,6 @@ class TransferService
                     ], $levels);
                     $shortageNotes[] = "عجز {$shortage} وحدة في المتغير #{$item->product_variant_id}";
                 }
-            }
-
-            if ($shortageNotes !== [] && ! User::query()->findOrFail($userId)->can('transfers.approve_shortage')) {
-                // Writing off in-transit stock as a shortage moves value out of the books with
-                // no counter-entry: only a second authorized approver may declare it.
-                throw new BusinessException('تسجيل عجز عند الاستلام يتطلب صلاحية اعتماد العجز.', [], 403);
             }
 
             if ($qtyUpdates !== []) {
@@ -700,7 +705,19 @@ class TransferService
     private function syncItems(StockTransfer $transfer, array $items): void
     {
         $this->assertDistinctItems($items);
+        $locationIds = collect($items)->flatMap(fn ($item) => [$item['from_location_id'] ?? null, $item['to_location_id'] ?? null])
+            ->filter()->unique()->values();
+        $locations = Location::query()->whereKey($locationIds->all())->orderBy('id')->sharedLock()->get()->keyBy('id');
         foreach ($items as $item) {
+            foreach (['from', 'to'] as $side) {
+                $locationId = $item[$side.'_location_id'] ?? null;
+                if ($locationId !== null) {
+                    $location = $locations->get($locationId);
+                    if (! $location?->is_active || (int) $location->branch_id !== (int) $transfer->{$side.'_branch_id'}) {
+                        throw new BusinessException('موقع التحويل غير نشط أو لا ينتمي إلى الفرع المحدد.');
+                    }
+                }
+            }
             $transfer->items()->create([
                 'product_variant_id' => $item['product_variant_id'],
                 'from_location_id' => $item['from_location_id'] ?? null,
@@ -764,7 +781,7 @@ class TransferService
         $this->assertDistinctItems($transfer->items->toArray());
     }
 
-    private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination, ?int $legacyReceivingLocation = null): Collection
+    private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination, ?int $legacyReceivingLocation = null, ?Collection $inactiveLocations = null): Collection
     {
         $keys = [];
         foreach ($transfer->items as $item) {
@@ -774,7 +791,8 @@ class TransferService
             if ($destination) {
                 $key = ['branch_id' => $transfer->to_branch_id, 'location_id' => $item->to_location_id, 'product_variant_id' => $item->product_variant_id];
                 $keys[] = $key;
-                if ($item->to_location_id === null && $legacyReceivingLocation !== null) {
+                if ($legacyReceivingLocation !== null
+                    && ($item->to_location_id === null || $inactiveLocations?->has($item->to_location_id))) {
                     $keys[] = [...$key, 'location_id' => $legacyReceivingLocation];
                 }
             }

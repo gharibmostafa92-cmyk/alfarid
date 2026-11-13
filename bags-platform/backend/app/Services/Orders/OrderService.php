@@ -66,6 +66,14 @@ class OrderService
         protected ShippingQuoteService $shippingQuote,
     ) {}
 
+    public function checkoutDiscount(float $subtotal, float $pricingDiscount, float $couponDiscount): float
+    {
+        return BigDecimal::min(
+            BigDecimal::of((string) $subtotal),
+            BigDecimal::of((string) $pricingDiscount)->plus((string) $couponDiscount),
+        )->toScale(2, RoundingMode::HalfUp)->toFloat();
+    }
+
     /**
      * Converts a customer or guest cart into a pending order with reserved inventory.
      *
@@ -97,7 +105,7 @@ class OrderService
                 ->where('idempotency_scope', $idempotencyScope)
                 ->first();
             if ($existing !== null) {
-                return $this->assertMatchingIdempotentReplay($existing, $data, $cart);
+                return $this->assertMatchingIdempotentReplay($existing, $data, $cart, $customer);
             }
         }
 
@@ -132,7 +140,7 @@ class OrderService
                     ->where('idempotency_scope', $idempotencyScope)
                     ->first();
                 if ($existing !== null) {
-                    return $this->assertMatchingIdempotentReplay($existing, $data, $cart);
+                    return $this->assertMatchingIdempotentReplay($existing, $data, $cart, $customer);
                 }
             }
 
@@ -219,8 +227,7 @@ class OrderService
                 $couponId = $coupon->id;
                 $couponCode = $coupon->code;
             }
-            $discountAmount = BigDecimal::of((string) $pricingDiscount)
-                ->plus((string) $couponDiscount)->toScale(2, RoundingMode::HalfUp)->toFloat();
+            $discountAmount = $this->checkoutDiscount($subtotal, $pricingDiscount, $couponDiscount);
 
             // Calculate shipping quote and COD surcharge based on destination city and active rates.
             $city = null;
@@ -397,47 +404,26 @@ class OrderService
     /**
      * Replays an idempotent checkout only when the new request still describes the stored order.
      */
-    private function assertMatchingIdempotentReplay(Order $existing, array $data, Cart $cart): Order
+    private function assertMatchingIdempotentReplay(Order $existing, array $data, Cart $cart, ?Customer $customer): Order
     {
+        $storedPhone = $existing->guest_phone_normalized ?? Customer::normalizePhone((string) $existing->guest_phone);
+        $mismatched = ($data['payment_method'] ?? 'cod') !== $existing->payment_method
+            || ($data['channel'] ?? 'store') !== $existing->channel
+            || (int) ($data['city_id'] ?? 0) !== (int) $existing->city_id
+            || trim((string) ($data['shipping_address_line'] ?? '')) !== trim((string) $existing->shipping_address_line)
+            || trim((string) ($data['shipping_notes'] ?? '')) !== trim((string) $existing->shipping_notes)
+            || trim((string) ($data['recipient_name'] ?? $customer?->name)) !== trim((string) $existing->guest_name)
+            || trim((string) ($data['recipient_email'] ?? $customer?->email)) !== trim((string) $existing->guest_email)
+            || Customer::normalizePhone((string) ($data['recipient_phone'] ?? $customer?->phone)) !== $storedPhone
+            || $this->expectedTotalChanged($data, (float) $existing->grand_total);
+
         $existing->loadMissing('items');
-        $cart->loadMissing('items');
-        $mismatched = false;
-
-        if (array_key_exists('payment_method', $data) && (string) $data['payment_method'] !== (string) $existing->payment_method) {
-            $mismatched = true;
-        }
-        if (array_key_exists('city_id', $data) && (int) $data['city_id'] !== (int) $existing->city_id) {
-            $mismatched = true;
-        }
-        if (array_key_exists('shipping_address_line', $data)
-            && trim((string) $data['shipping_address_line']) !== trim((string) $existing->shipping_address_line)) {
-            $mismatched = true;
-        }
-        if (array_key_exists('recipient_name', $data)
-            && trim((string) $data['recipient_name']) !== trim((string) $existing->guest_name)) {
-            $mismatched = true;
-        }
-        if (array_key_exists('recipient_phone', $data)) {
-            $incoming = Customer::normalizePhone((string) $data['recipient_phone']);
-            $stored = $existing->guest_phone_normalized
-                ?? ($existing->guest_phone !== null ? Customer::normalizePhone((string) $existing->guest_phone) : '');
-            if ($incoming !== $stored) {
-                $mismatched = true;
-            }
-        }
-        if ($this->expectedTotalChanged($data, (float) $existing->grand_total)) {
-            $mismatched = true;
-        }
-
-        if ($cart->items->isNotEmpty()) {
-            $cartSignature = $cart->items
-                ->map(fn ($item): string => $item->product_variant_id.':'.(int) $item->qty)
-                ->sort()->values()->all();
-            $orderSignature = $existing->items
-                ->map(fn ($item): string => $item->product_variant_id.':'.(int) $item->qty)
-                ->sort()->values()->all();
-            if ($cartSignature !== $orderSignature) {
-                $mismatched = true;
+        if (! isset($data['expected_total'])) {
+            $cart->loadMissing('items');
+            if ($cart->items->isNotEmpty()) {
+                $signature = static fn ($items) => $items->map(fn ($item) => $item->product_variant_id.':'.(int) $item->qty)
+                    ->sort()->values()->all();
+                $mismatched = $mismatched || $signature($cart->items) !== $signature($existing->items);
             }
         }
 
@@ -450,7 +436,7 @@ class OrderService
             );
         }
 
-        return $existing->load('items');
+        return $existing;
     }
 
     /**
@@ -553,20 +539,21 @@ class OrderService
                 }
             }
 
+            $hasRefundablePayment = in_array($order->payment_status, ['paid', 'partially_refunded'], true);
             if ($to === OrderStatus::Cancelled) {
                 // Restore coupon usage quota upon order cancellation.
                 $this->reverseCouponUsage($order);
-                if ($order->payment_status === 'paid') {
+                if ($hasRefundablePayment) {
                     $order->update(['requires_refund' => true]);
                 }
             }
 
             // Flag paid returned order for refund processing.
-            if ($to === OrderStatus::Returned && $order->payment_status === 'paid' && $returnEffects) {
+            if ($to === OrderStatus::Returned && $hasRefundablePayment && $returnEffects) {
                 $order->update(['requires_refund' => true]);
             }
 
-            if ($order->payment_method === 'wallet' && $order->payment_status === 'paid'
+            if ($order->payment_method === 'wallet' && $hasRefundablePayment
                 && ($to === OrderStatus::Cancelled || ($to === OrderStatus::Returned && $returnEffects))) {
                 $payment = CustomerWalletTransaction::query()->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id)
                     ->where('type', 'checkout_payment')->first();
@@ -574,9 +561,15 @@ class OrderService
                     // Historical order credits predate the order_reversal type.
                     $alreadyRefunded = BigDecimal::of((string) CustomerWalletTransaction::query()
                         ->where('customer_id', $payment->customer_id)
-                        ->whereIn('reference_type', WalletService::ORDER_REFERENCES)
-                        ->where('reference_id', $order->id)
-                        ->whereIn('type', ['refund', 'checkout_refund'])
+                        ->where(fn ($credits) => $credits
+                            ->where(fn ($direct) => $direct
+                                ->whereIn('reference_type', WalletService::ORDER_REFERENCES)
+                                ->where('reference_id', $order->id)
+                                ->whereIn('type', ['refund', 'checkout_refund', 'order_reversal']))
+                            ->orWhere(fn ($returns) => $returns
+                                ->whereIn('reference_type', WalletService::RETURN_REFERENCES)
+                                ->whereIn('reference_id', ReturnRequest::query()->where('order_id', $order->id)->select('id'))
+                                ->where('type', 'return_refund')))
                         ->where('amount', '>', 0)
                         ->sum('amount'));
                     $remaining = BigDecimal::of((string) $payment->amount)->negated()
@@ -628,32 +621,15 @@ class OrderService
             ]);
 
             // Trigger item allocation if the order transitioned to confirmed without full allocation.
-            if ($to === OrderStatus::Confirmed && ! $this->isAllocated($order)) {
+            if ($to === OrderStatus::Confirmed && ! $this->allocationService->isFullyAllocated($order)) {
+                if ($this->allocationService->isAllocated($order)) {
+                    $this->allocationService->deallocate($order, $actorId);
+                }
                 $this->allocationService->allocate($order, performedBy: $actorId);
             }
 
             return $order->fresh(['items', 'statusHistories']);
         });
-    }
-
-    /**
-     * Checks whether all order items have been allocated to fulfillment branches.
-     */
-    private function isAllocated(Order $order): bool
-    {
-        if ($order->allocated_branch_id !== null) {
-            return true;
-        }
-
-        $distribution = $order->items()
-            ->selectRaw('COUNT(*) AS total, COUNT(allocated_branch_id) AS allocated')
-            ->first();
-
-        if ($distribution === null || (int) $distribution->total === 0) {
-            return false;
-        }
-
-        return (int) $distribution->total === (int) $distribution->allocated;
     }
 
     /**
@@ -804,10 +780,19 @@ class OrderService
             ], $levels->get($this->inventoryService->levelKey($row)));
         }
 
-        foreach ($order->items as $item) {
+        $returnedByVariant = $net->groupBy('product_variant_id')
+            ->map(fn (Collection $rows): float => -$rows->sum('net_qty'));
+        foreach ($order->items()->with('variant')->orderBy('id')->lockForUpdate()->get() as $item) {
+            $variantId = $item->product_variant_id;
+            $quantity = min((float) $item->qty - (float) $item->returned_qty, $returnedByVariant->get($variantId, 0));
+            if ($quantity <= 0) {
+                continue;
+            }
+            $item->increment('returned_qty', $quantity);
+            $returnedByVariant->put($variantId, $returnedByVariant->get($variantId) - $quantity);
             if ($item->variant?->product_id) {
                 Product::query()->whereKey($item->variant->product_id)
-                    ->update(['sales_count' => DB::raw('GREATEST(sales_count - '.(int) round((float) $item->qty).', 0)')]);
+                    ->update(['sales_count' => DB::raw('GREATEST(sales_count - '.(int) round($quantity).', 0)')]);
             }
         }
 
@@ -866,8 +851,6 @@ class OrderService
     // Instance-level cache avoids cross-test/Octane bleed of static properties.
     private ?int $systemActorId = null;
 
-    private bool $systemActorResolved = false;
-
     /**
      * Resolves the user identity responsible for stock ledger entries.
      *
@@ -879,8 +862,7 @@ class OrderService
             return (int) $actor->getKey();
         }
 
-        if (! $this->systemActorResolved) {
-            $this->systemActorResolved = true;
+        if ($this->systemActorId === null) {
             $systemId = User::query()
                 ->where('is_system', true)
                 ->value('id');

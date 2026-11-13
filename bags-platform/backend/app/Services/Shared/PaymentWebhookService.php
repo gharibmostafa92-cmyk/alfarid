@@ -234,7 +234,7 @@ class PaymentWebhookService
 
                 $note = null;
                 if ($outcome === 'paid') {
-                    if ($order->payment_status === 'refunded') {
+                    if (in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
                         // WH-H2: البوابات لا تضمن ترتيب التسليم — paid متأخر يجب ألا يقلب
                         // مستردًا إلى paid؛ يُرفع للمراجعة البشرية بلا تغيير حالة.
                         $order->update(['needs_attention' => true]);
@@ -298,7 +298,7 @@ class PaymentWebhookService
 
                         return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
                     }
-                    if ($order->payment_status === 'refunded') {
+                    if (in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
                         // WH-H2: فشل متأخر لا يمحو حقيقة استرداد مُثبت.
                         $log->update(['status' => 'ignored', 'error' => 'حدث فشل على طلب مسترد — يُتجاهل']);
 
@@ -315,7 +315,7 @@ class PaymentWebhookService
                             'order_number' => $order->order_number,
                             'gateway' => $gateway,
                         ]);
-                    } elseif (! in_array($order->payment_status, ['paid', 'refunded'], true)) {
+                    } elseif (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refund_pending', 'refunded'], true)) {
                         // M9: money that was never captured cannot be refunded.
                         $order->update(['needs_attention' => true]);
                         $note = 'استرداد على طلب غير مدفوع — يحتاج مراجعة';
@@ -326,13 +326,23 @@ class PaymentWebhookService
                         ]);
                     } elseif ($refundAmount === null || ! $this->sameMoney($refundAmount, (float) $order->grand_total)) {
                         $order->update(['needs_attention' => true]);
+                        $isCumulative = $isPaymob || data_get($payload, 'type') === 'charge.refunded';
+                        if ($isCumulative && $refundAmount !== null && $refundAmount < (float) $order->grand_total
+                            && $order->payment_status !== 'refunded'
+                            && $refundAmount > (float) $order->gateway_refunded_amount) {
+                            $order->forceFill([
+                                'gateway_refunded_amount' => $refundAmount,
+                                'payment_status' => 'partially_refunded',
+                            ])->save();
+                        }
                         $note = 'مبلغ الاسترداد غير مؤكد أو لا يطابق إجمالي الطلب — يحتاج مراجعة';
                     } else {
                         // Mark non-cancelled orders for staff review and block shipping dispatch
-                        $order->update([
+                        $order->forceFill([
                             'payment_status' => 'refunded',
                             'needs_attention' => $order->status !== OrderStatus::Cancelled,
-                        ]);
+                            'gateway_refunded_amount' => $refundAmount,
+                        ])->save();
                         Log::warning('Payment refunded for a non-cancelled order.', [
                             'order_number' => $order->order_number,
                             'gateway' => $gateway,
@@ -490,16 +500,10 @@ class PaymentWebhookService
             return null;
         }
 
-        // A charge-level refunded event fires only when Stripe refunded that
-        // charge in full, so the charge amount itself is the refunded amount.
-        if (is_string($type) && strtolower($type) === 'charge.refunded') {
-            $chargeCents = data_get($payload, 'data.object.amount');
-            if (is_numeric($chargeCents) && (float) $chargeCents > 0 && floor((float) $chargeCents) === (float) $chargeCents) {
-                return (float) $chargeCents / 100;
-            }
-        }
-
         $stripeCents = data_get($payload, 'data.object.amount_refunded');
+        if ($type === 'charge.refunded' && $stripeCents === null) {
+            return null;
+        }
         $amount = $stripeCents ?? $this->firstValue($payload, [
             'amount_refunded', 'data.amount_refunded', 'refunded_amount', 'amount', 'data.amount',
         ]);

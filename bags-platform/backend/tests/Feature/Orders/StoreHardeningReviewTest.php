@@ -181,6 +181,8 @@ class StoreHardeningReviewTest extends TestCase
 
         $tracked = $this->getJson("/api/v1/store/orders/{$number}/track?phone=%2B201012345678")
             ->assertOk()->json('data');
+        $this->getJson("/api/v1/store/orders/{$number}/track?".http_build_query(['phone' => '٠١٠١٢٣٤٥٦٧٨']))
+            ->assertOk()->assertJsonPath('data.order_number', $number);
         foreach ($tracked['status_history'] as $entry) {
             $this->assertArrayNotHasKey('notes', $entry);
         }
@@ -213,7 +215,7 @@ class StoreHardeningReviewTest extends TestCase
             ->getJson('/api/v1/admin/coupons/abc')->assertNotFound();
         $this->withToken($this->staff->createToken('t')->plainTextToken)
             ->getJson('/api/v1/admin/orders/abc')->assertNotFound();
-        $this->getJson('/api/v1/store/account/orders/abc')->assertNotFound();
+        $this->postJson('/api/v1/store/account/orders/abc/cancel')->assertNotFound();
     }
 
     // ---------- M8 ----------
