@@ -103,6 +103,9 @@ test('spreadDiscount property: shares sum to the discount within line bounds', (
   }
   assert.equal(money.maxDiscountAmount(999, 33), 329);
   assert.equal(money.toCents(0.1 + 0.2), 30);
+  assert.equal(money.toCents(1e-7), 0);
+  assert.equal(money.toCents('1e-5'), 0);
+  assert.equal(money.toCents(1e4), 1000000);
 });
 
 // ---------- pending-sale: exact delays, final 422 clears, 500 keeps ----------
@@ -147,6 +150,15 @@ test('pending sale clears the draft on a final 422 and keeps it on 500', async (
     throw { response: { status: 422, data: { message: 'rejected' } } };
   }));
   assert.equal(s422.getItem('pos-pending-sale'), null);
+
+  const s409 = memStorage();
+  const m409 = createPendingSaleManager({ storage: s409, retryDelays: [1], sleep: noSleep });
+  const p409 = { items: [] };
+  const d409 = m409.prepare(p409);
+  await assert.rejects(() => m409.executeWithRetry(p409, d409.key, async () => {
+    throw { response: { status: 409, data: { message: 'يوجد أكثر من وردية مفتوحة' } } };
+  }));
+  assert.equal(s409.getItem('pos-pending-sale'), null);
 
   const s500 = memStorage();
   const m500 = createPendingSaleManager({ storage: s500, retryDelays: [1], sleep: noSleep });
@@ -308,5 +320,112 @@ test('receipt archive listing is detached from the store', () => {
   listed.push({ invoiceNumber: 'forged' });
   listed.length = 0;
   assert.equal(getReceiptArchive().length, 1);
+});
+
+test('getLastReceipt scopes by cashier and does not leak cross-cashier or anonymous receipts', () => {
+  const { pushReceipt, getLastReceipt, clearReceiptArchive } = require(path.join(POS, 'lib/receipt-archive.ts'));
   clearReceiptArchive();
+  pushReceipt(
+    { invoiceNumber: 'POS-C10', total: 100, method: 'cash', received: 100, change: 0, cashA: 100, cardA: 0, cart: [], customer: null, discount: 0, timestamp: 1 },
+    '10:5'
+  );
+  // Match by exact scope string
+  assert.equal(getLastReceipt('10:5')?.invoiceNumber, 'POS-C10');
+  // Match by cashierId number
+  assert.equal(getLastReceipt(10)?.invoiceNumber, 'POS-C10');
+  // Match by cashierId object
+  assert.equal(getLastReceipt({ cashierId: 10 })?.invoiceNumber, 'POS-C10');
+  // Different cashier returns null
+  assert.equal(getLastReceipt(99), null);
+  // Null scope returns null (no cross-cashier leak)
+  assert.equal(getLastReceipt(null), null);
+});
+
+test('an active tab leaving unblocks its waiting tab', () => {
+  const { createTabCoordinator } = require(path.join(POS, 'lib/tab-coordinator.ts'));
+  const channels = new Set();
+  const channelFactory = () => {
+    const channel = {
+      postMessage(data) {
+        for (const peer of channels) {
+          if (peer !== channel) peer.onmessage?.({ data });
+        }
+      },
+      close() { channels.delete(channel); },
+    };
+    channels.add(channel);
+    return channel;
+  };
+  let blocked = false;
+  const owner = createTabCoordinator({ channelFactory });
+  const waiting = createTabCoordinator({
+    channelFactory,
+    onDuplicate: () => { blocked = true; },
+    onAvailable: () => { blocked = false; },
+  });
+  owner.start();
+  waiting.start();
+  assert.equal(blocked, true);
+  owner.destroy();
+  assert.equal(blocked, false);
+  waiting.destroy();
+});
+
+test('PosApiService enforces 15000ms default timeout across POS requests (LOW-04)', async () => {
+  const configs = [];
+  const fakeHttp = {
+    async get(_url, config) {
+      configs.push(config);
+      return {
+        data: {
+          data: {
+            shift: { id: 1, opening_cash: 100, status: 'open', branch_id: 1, treasury_id: 1, user_id: 1 },
+            user: { id: 1, name: 'Cashier', branch_id: 1, permissions: [] },
+            branch: { id: 1, name: 'Main' },
+            drawers: [],
+            items: [],
+            expected_closing_cash: 100,
+          },
+          meta: { etag: 'v1' },
+        },
+      };
+    },
+    async post(_url, _body, config) {
+      configs.push(config);
+      return {
+        data: {
+          data: {
+            id: 10,
+            order_number: 'POS-1',
+            grand_total: 50,
+            cash_amount: 50,
+            card_amount: 0,
+            items: [],
+            lines: [],
+            subtotal: 50,
+            discount_total: 0,
+          },
+        },
+      };
+    },
+    async delete(_url, config) {
+      configs.push(config);
+      return { data: {} };
+    },
+  };
+
+  const api = new PosApiService(fakeHttp);
+  await api.bootstrap();
+  await api.getCurrentShift();
+  await api.getShiftStats();
+  await api.openShift(1, 100);
+  await api.closeShift(100);
+  await api.quoteSale({ items: [{ product_variant_id: 1, qty: 1 }] });
+  await api.processReturn(10, [{ id: 1, qty: 1 }]);
+  await api.processExchange(10, [{ id: 1, qty: 1 }], [{ id: 2, qty: 1 }], 0, 0);
+
+  assert.equal(configs.length, 10);
+  for (const cfg of configs) {
+    assert.equal(cfg?.timeout, 15000);
+  }
 });

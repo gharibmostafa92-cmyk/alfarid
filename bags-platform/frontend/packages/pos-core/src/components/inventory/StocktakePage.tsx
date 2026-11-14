@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, toAsciiNum, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
@@ -10,9 +10,29 @@ interface StocktakePageProps {
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
 }
 
+type SpeechListener = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  start: () => void;
+  abort: () => void;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+};
+
 type SpeechWindow = Window & {
-  SpeechRecognition?: new () => any;
-  webkitSpeechRecognition?: new () => any;
+  SpeechRecognition?: new () => SpeechListener;
+  webkitSpeechRecognition?: new () => SpeechListener;
+};
+
+type Scan = {
+  id: string;
+  sessionId: number;
+  product: Pick<PosProduct, 'id' | 'name'>;
+  source: 'barcode' | 'voice';
+  amount?: number;
+  transcript?: string;
 };
 
 export function StocktakePage({ toast }: StocktakePageProps) {
@@ -22,42 +42,72 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const [qty, setQty] = useState('1');
   const [listening, setListening] = useState(false);
   const [heard, setHeard] = useState('');
-  const [lastScanned, setLastScanned] = useState<PosProduct | null>(null);
+  const [pendingScan, setPendingScan] = useState<Scan | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const recognitionRef = useRef<any>(null);
-  const scanDraft = useRef<{ payload: string; id: string } | null>(null);
+  const recognitionRef = useRef<SpeechListener | null>(null);
   const submitting = useRef(false);
+  const toastRef = useRef(toast);
+  const refreshSession = useRef<(() => void) | null>(null);
 
-  const recordScan = async (productId: number, amount: number | undefined, source: 'barcode' | 'voice', transcript?: string) => {
-    const payload = JSON.stringify([session?.id, productId, amount, source, transcript]);
-    if (scanDraft.current?.payload !== payload) {
-      scanDraft.current = { payload, id: globalThis.crypto.randomUUID() };
-    }
-    const result = await pos.recordStocktakeScan(productId, amount, source, transcript, scanDraft.current.id);
-    scanDraft.current = null;
-    return result;
-  };
+  const last = session?.lastScan;
+  // Server-provided names also cover variants absent from the catalog.
+  const lp = last
+    ? pos.getProductById(last.id) ||
+      scope.find((item) => item.id === last.id) ||
+      (last.name ? ({ id: last.id, name: last.name } as PosProduct) : undefined)
+    : undefined;
+  const lpName = last?.name ?? lp?.name ?? '';
+  const sessionId = session?.id ?? 0;
+  const voiceContext = useRef({ sessionId, product: lp, pendingScan });
 
-  const loadSession = () => {
-    pos
-      .getStocktakeSession()
-      .then((res) => {
-        setScope(res.scope);
-        setSession(res.session);
-      })
-      .catch((error: unknown) => {
-        if (!isCancel(error)) {
-          toast(normalizeError(error).message, 'bad');
-        }
-      });
-  };
+  useLayoutEffect(() => {
+    toastRef.current = toast;
+    voiceContext.current = { sessionId, product: lp, pendingScan };
+  }, [sessionId, lp, pendingScan, toast]);
+
+  const stopRecognition = useCallback((abort: boolean) => {
+    const listener = recognitionRef.current;
+    if (!listener) return;
+    recognitionRef.current = null;
+    listener.onresult = null;
+    listener.onerror = null;
+    listener.onend = null;
+    if (abort) listener.abort();
+    setListening(false);
+  }, []);
+
+  useLayoutEffect(() => {
+    setPendingScan(null);
+    setHeard('');
+    setCode('');
+    setQty('1');
+    return () => stopRecognition(true);
+  }, [sessionId, stopRecognition]);
 
   useEffect(() => {
-    loadSession();
-    const unsub = pos.subscribe(loadSession);
+    let active = true;
+    let request = 0;
+    const loadSession = async () => {
+      const current = ++request;
+      try {
+        const res = await pos.getStocktakeSession();
+        if (!active || current !== request) return;
+        setScope(res.scope);
+        setSession(res.session);
+      } catch (error) {
+        if (active && current === request && !isCancel(error)) {
+          toastRef.current(normalizeError(error).message, 'bad');
+        }
+      }
+    };
+    refreshSession.current = loadSession;
+    void loadSession();
+    const unsubscribe = pos.subscribe(loadSession);
     return () => {
-      unsub();
-      recognitionRef.current?.abort?.();
+      active = false;
+      refreshSession.current = null;
+      unsubscribe();
     };
   }, []);
 
@@ -86,16 +136,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
 
   const counts = session.counts;
   const counted = Object.keys(counts).length;
-  const last = session.lastScan ?? null;
   const log = session.log;
-  // F-14: server-provided names keep the card working after a reload, when
-  // neither local state nor the catalog may know the variant yet.
-  const lp = last
-    ? pos.getProductById(last.id) ||
-      scope.find((item) => item.id === last.id) ||
-      (last.name ? ({ id: last.id, name: last.name } as PosProduct) : undefined)
-    : undefined;
-  const lpName = last?.name ?? lp?.name ?? '';
 
   // F-14: "0" is a truthy string and "." is NaN — both must become 1, never 0/NaN.
   const parseCount = (raw: string): number => {
@@ -104,39 +145,74 @@ export function StocktakePage({ toast }: StocktakePageProps) {
     return Math.round(n * 10000) / 10000;
   };
 
-  const submitCode = async () => {
-    const trimmed = code.trim();
-    if (!trimmed || submitting.current) return;
+  const submit = async (action: () => Promise<void>) => {
+    if (submitting.current) return;
     submitting.current = true;
+    setBusy(true);
     try {
+      await action();
+    } catch (error) {
+      if (!isCancel(error)) toastRef.current(normalizeError(error).message, 'bad');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+  const recordScan = async (scan: Scan) => {
+    if (scan.sessionId !== voiceContext.current.sessionId) return;
+    const { product, amount, source, transcript, id } = scan;
+    try {
+      const result = await pos.recordStocktakeScan(product.id, amount, source, transcript, id);
+      if (scan.sessionId !== voiceContext.current.sessionId) return;
+      setPendingScan(null);
+      if (source === 'barcode') {
+        if (!result.duplicate && amount !== undefined) {
+          setSession((current) => current?.id === scan.sessionId
+            ? { ...current, lastScan: { id: product.id, qty: amount, via: source, name: result.product_name ?? product.name } }
+            : current);
+        }
+        setCode('');
+        setQty('1');
+      }
+      const message = source === 'barcode' ? fmt(amount ?? 1) : `«${transcript}»`;
+      toastRef.current(result.duplicate
+        ? 'تم تأكيد تسجيل هذا المسح'
+        : `سُجّل ${message} — ${result.product_name ?? product.name}`);
+      refreshSession.current?.();
+    } catch (error) {
+      if (scan.sessionId !== voiceContext.current.sessionId) return;
+      if (isCancel(error)) return;
+      const failure = normalizeError(error);
+      setPendingScan(failure.retryable || failure.status >= 500 ? scan : null);
+      throw failure;
+    }
+  };
+
+  const submitCode = () => {
+    const trimmed = code.trim();
+    if (!trimmed || pendingScan) return;
+    void submit(async () => {
       const p = scope.find(
         (x) => x.barcode === trimmed || x.sku.toLowerCase() === trimmed.toLowerCase()
       ) ?? await pos.lookupByBarcode(trimmed);
       if (!p) {
         beepError();
-        toast(`لا يوجد صنف بالرمز ${trimmed}`, 'bad');
+        toastRef.current(`لا يوجد صنف بالرمز ${trimmed}`, 'bad');
         return;
       }
-      const amount = parseCount(qty);
-      const res = await recordScan(p.id, amount, 'barcode');
-      setLastScanned(p);
-      if ((res as any)?.duplicate) {
-        toast('تم تسجيل هذا المسح مسبقًا', 'bad');
-      } else {
-        toast(`سُجّل ${fmt(amount)} — ${res.product_name ?? p.name}`);
-      }
-      setCode('');
-      setQty('1');
-      loadSession();
-    } catch (error) {
-      if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
-    } finally {
-      submitting.current = false;
-    }
+      await recordScan({
+        id: globalThis.crypto.randomUUID(),
+        sessionId,
+        product: p,
+        amount: parseCount(qty),
+        source: 'barcode',
+      });
+    });
   };
 
   const mic = () => {
-    if (listening) return;
+    if (recognitionRef.current || submitting.current || pendingScan) return;
     const Speech =
       typeof window !== 'undefined'
         ? (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition
@@ -147,8 +223,6 @@ export function StocktakePage({ toast }: StocktakePageProps) {
       return;
     }
 
-    setListening(true);
-    setHeard('');
     try {
       const listener = new Speech();
       recognitionRef.current = listener;
@@ -156,45 +230,44 @@ export function StocktakePage({ toast }: StocktakePageProps) {
       listener.interimResults = false;
       listener.maxAlternatives = 1;
 
-      listener.onresult = async (event: any) => {
-        if (submitting.current) return;
+      listener.onresult = (event) => {
+        if (recognitionRef.current !== listener) return;
+        stopRecognition(true);
+        const context = voiceContext.current;
+        if (context.sessionId !== sessionId || context.pendingScan || submitting.current) return;
         const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
         setHeard(transcript);
-        if (transcript) {
-          const targetProd = lastScanned || lp;
-          if (!targetProd) {
-            toast('امسح باركود الصنف أولًا قبل تسجيل الكمية بالصوت', 'bad');
-            return;
-          }
-          submitting.current = true;
-          try {
-            const res = await recordScan(targetProd.id, undefined, 'voice', transcript);
-            if ((res as any)?.duplicate) {
-              toast('تم تسجيل هذا المسح مسبقًا', 'bad');
-            } else {
-              toast(`سُجّل «${transcript}» — ${targetProd.name}`);
-            }
-            loadSession();
-          } catch (error) {
-            if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
-          } finally {
-            submitting.current = false;
-          }
+        if (!transcript) return;
+        const product = context.product;
+        if (!product) {
+          toastRef.current('امسح باركود الصنف أولًا قبل تسجيل الكمية بالصوت', 'bad');
+          return;
         }
+        void submit(() => recordScan({
+          id: globalThis.crypto.randomUUID(),
+          sessionId,
+          product,
+          source: 'voice',
+          transcript,
+        }));
       };
 
       listener.onerror = () => {
-        toast('تعذّر سماع العدد؛ اكتب العدد بالخانة يدويًا', 'bad');
-        setListening(false);
+        if (recognitionRef.current !== listener) return;
+        stopRecognition(true);
+        toastRef.current('تعذّر سماع العدد؛ اكتب العدد بالخانة يدويًا', 'bad');
       };
 
       listener.onend = () => {
-        setListening(false);
+        if (recognitionRef.current === listener) stopRecognition(false);
       };
 
+      setListening(true);
+      setHeard('');
       listener.start();
     } catch {
-      setListening(false);
+      stopRecognition(true);
+      toast('تعذّر بدء التسجيل الصوتي', 'bad');
     }
   };
 
@@ -232,6 +305,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                 className={cx('mic', listening && 'on')}
                 onClick={mic}
                 aria-label="الإدخال الصوتي"
+                disabled={listening || busy || !!pendingScan}
               >
                 <Icon n="mic" s={44} w={1.6} />
               </button>
@@ -269,6 +343,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                       onChange={(e) => setCode(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && submitCode()}
                       placeholder="امسح باركود الصنف"
+                      readOnly={busy || !!pendingScan}
                     />
                   </div>
                   <div className="input-group" style={{ width: 110 }}>
@@ -283,16 +358,29 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                       value={qty}
                       onChange={(e) => setQty(toAsciiNum(e.target.value, 4))}
                       aria-label="الكمية"
+                      readOnly={busy || !!pendingScan}
                     />
                   </div>
-                  <button className="btn btn-primary" style={{ height: 48 }} onClick={submitCode}>
-                    تسجيل
+                  <button
+                    className="btn btn-primary"
+                    style={{ height: 48 }}
+                    disabled={busy}
+                    onClick={pendingScan ? () => submit(() => recordScan(pendingScan)) : submitCode}
+                  >
+                    {pendingScan ? 'إعادة محاولة التسجيل' : 'تسجيل'}
                   </button>
                 </div>
-                <div className="row gap-2">
-                  <Api m="POST" path={`/pos/stocktakes/${session.id}/scan`} />
-                  <span className="fs-12 t-3 ltr mono">{'{ barcode, qty | qty_words }'}</span>
-                </div>
+                {pendingScan && (
+                  <p role="status" className="fs-12 t-2">
+                    تعذّر تأكيد تسجيل {pendingScan.product.name}. أعد المحاولة قبل تسجيل قطعة أخرى.
+                  </p>
+                )}
+                {import.meta.env.DEV && (
+                  <div className="row gap-2">
+                    <Api m="POST" path={`/pos/stocktakes/${session.id}/scan`} />
+                    <span className="fs-12 t-3 ltr mono">{'{ barcode, qty | qty_words }'}</span>
+                  </div>
+                )}
               </div>
             </div>
             {last && lp && (

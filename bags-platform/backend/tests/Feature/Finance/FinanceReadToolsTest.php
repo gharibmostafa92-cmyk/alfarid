@@ -506,7 +506,7 @@ class FinanceReadToolsTest extends TestCase
             'kind' => 'refund',
             'amount' => '50.00',
             'reason' => 'Refund for order '.$order->order_number,
-        ], $admin, null);
+        ], $admin, Str::uuid()->toString());
 
         $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), [
             'name' => 'explain_order_money', 'args' => ['order_id' => $order->id],

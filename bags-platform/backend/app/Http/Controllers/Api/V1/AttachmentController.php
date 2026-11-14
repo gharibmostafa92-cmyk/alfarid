@@ -162,7 +162,7 @@ class AttachmentController extends Controller
         try {
             // H2: probe with a tight budget and no SDK retries, so a degraded R2 cannot pin
             // FPM workers for ~140s. temporaryUrl() below is local signing (no network).
-            if (! $request->boolean('signed') && ! $this->probeDisk()->exists($path)) {
+            if ($request->boolean('verify') && ! $this->probeDisk()->exists($path)) {
                 abort(404);
             }
             $url = Storage::disk('r2')->temporaryUrl(

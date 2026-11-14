@@ -80,7 +80,7 @@ class DetectInventoryAnomalies extends Command
             ->where('s.status', 'approved')
             ->where('s.created_at', '>=', now()->subDays(90))
             ->whereNotNull('s.location_id')
-            ->whereRaw('(si.counted_qty - si.system_qty) < 0')
+            ->whereColumn('si.counted_qty', '<', 'si.system_qty')
             ->groupBy('s.location_id', 'loc.branch_id')
             ->havingRaw('COUNT(*) >= 3')
             ->orderByDesc('c')->limit(5)->get();
@@ -145,8 +145,12 @@ class DetectInventoryAnomalies extends Command
             try {
                 $scope = app(BranchAccess::class)->restrictedBranch($recipient);
             } catch (AuthorizationException) {
-                // Stopped branches stay scoped to their branch ID; unassigned users retain global view.
-                $scope = $recipient->branch_id !== null ? (int) $recipient->branch_id : null;
+                // A stopped branch remains scoped to that branch. An unassigned user
+                // without global inventory access is not a central recipient.
+                if ($recipient->branch_id === null) {
+                    continue;
+                }
+                $scope = (int) $recipient->branch_id;
             }
             if ($scope === null) {
                 $central->push($recipient);

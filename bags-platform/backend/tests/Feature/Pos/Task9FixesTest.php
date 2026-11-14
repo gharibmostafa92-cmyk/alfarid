@@ -217,16 +217,14 @@ class Task9FixesTest extends PosScenarioFixture
         ], $this->idem())->assertStatus(422);
     }
 
-    public function test_quote_subtotal_reconciles_with_line_total_for_fractional_cent_unit_prices(): void
+    public function test_quote_rejects_fractional_cent_unit_prices(): void
     {
         $token = $this->tokenFor($this->cashier, ['pos.override_price', 'pos.override_price_below_cost']);
 
         $this->as($token)->postJson('/api/v1/pos/sales/quote', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 3, 'unit_price' => 85.005]],
             'override_price' => true,
-        ])->assertOk()
-            ->assertJsonPath('data.grand_total', '255.02')
-            ->assertJsonPath('data.subtotal', '255.02');
+        ])->assertUnprocessable()->assertJsonValidationErrors('items.0.unit_price');
     }
 
     // ── HIGH-05: Batch Sale COGS lookup with StockMovementType::Sale + cost_price fallback ──
@@ -401,9 +399,9 @@ class Task9FixesTest extends PosScenarioFixture
             'resumed_by' => $this->cashier->id,
         ]);
 
-        // Concurrent second resume within the active lease fails with 409.
-        $this->as($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")
-            ->assertStatus(409);
+        // The lease owner can recover a parked cart again before the lease expires.
+        $this->as($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume", [], $this->idem())
+            ->assertOk();
 
         // Completing checkout atomically deletes the held row.
         $this->as($token)->postJson('/api/v1/pos/sales', [

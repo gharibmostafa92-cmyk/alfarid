@@ -20,12 +20,6 @@ use Illuminate\Support\Collection;
  */
 class BranchAccess
 {
-    /** @var array<int, User> Per-request memory cache to avoid reloading user instances on repeated checks. */
-    private array $usersById = [];
-
-    /** @var array<int, bool> Per-request cache of branch active statuses. */
-    private array $branchActive = [];
-
     /**
      * Determine branch scope restriction for the given user.
      *
@@ -50,8 +44,7 @@ class BranchAccess
         if ($user->branch_id !== null) {
             // Fail closed if the assigned branch is deactivated to prevent unauthorized operations.
             $branchId = (int) $user->branch_id;
-            $this->branchActive[$branchId] ??= (bool) (Branch::query()->find($branchId)?->is_active);
-            if (! $this->branchActive[$branchId]) {
+            if (! (bool) Branch::query()->whereKey($branchId)->value('is_active')) {
                 throw new AuthorizationException('الفرع المرتبط بحسابك متوقف حالياً.');
             }
 
@@ -72,7 +65,10 @@ class BranchAccess
      */
     public function assertBranch(int $userId, int ...$branchIds): void
     {
-        $branchId = $this->restrictedBranch($this->usersById[$userId] ??= User::findOrFail($userId));
+        // Re-read the assignment and role state on each authorization check. This
+        // service is request-scoped, but a long request or queue job can still mutate
+        // staff/branch state after its first check.
+        $branchId = $this->restrictedBranch(User::query()->findOrFail($userId));
         if ($branchId !== null && ! in_array($branchId, $branchIds, true)) {
             throw new AuthorizationException('لا تملك صلاحية الوصول إلى هذا الفرع.');
         }
@@ -152,7 +148,7 @@ class BranchAccess
     public function assertTreasury(int $userId, Treasury $treasury): void
     {
         if ($treasury->branch_id === null) {
-            $this->assertCentralAccess($this->usersById[$userId] ??= User::findOrFail($userId));
+            $this->assertCentralAccess(User::query()->findOrFail($userId));
         } else {
             $this->assertBranch($userId, (int) $treasury->branch_id);
         }

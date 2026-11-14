@@ -322,6 +322,14 @@ export class PosMockService {
     };
   }
 
+  public async recordExpense(amount: number, category: string, notes?: string): Promise<any> {
+    await delay(200);
+    if (!this.currentShift) throw new Error('لا توجد وردية مفتوحة');
+    this.currentShift.cash_expenses_total = (this.currentShift.cash_expenses_total ?? 0) + amount;
+    this.notify();
+    return { id: Date.now(), amount, category, notes };
+  }
+
   // Catalog & Products
   public async getCategories(): Promise<ProductCategory[]> {
     await delay(60);

@@ -39,7 +39,7 @@ class TransferController extends Controller implements HasMiddleware
             new Middleware('can:transfers.approve', only: ['approve']),
             new Middleware('can:transfers.ship', only: ['ship']),
             new Middleware('can:transfers.receive', only: ['receive']),
-            new Middleware('can:transfers.update', only: ['cancel']),
+            new Middleware('permission:transfers.update|transfers.approve', only: ['cancel']),
         ];
     }
 
@@ -53,6 +53,12 @@ class TransferController extends Controller implements HasMiddleware
         ]);
 
         $filters['staff_branch_id'] = $this->branchAccess->restrictedBranch($request->user());
+        if ($filters['staff_branch_id'] !== null
+            && isset($filters['from_branch_id'], $filters['to_branch_id'])
+            && (int) $filters['from_branch_id'] !== $filters['staff_branch_id']
+            && (int) $filters['to_branch_id'] !== $filters['staff_branch_id']) {
+            abort(403);
+        }
 
         return StockTransferResource::collection($this->transfers->paginate($filters));
     }

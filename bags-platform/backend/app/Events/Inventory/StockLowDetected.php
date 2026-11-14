@@ -16,10 +16,15 @@ class StockLowDetected implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
 
+    public ?int $locationId = null;
+
     public function __construct(
         public int $productVariantId,
         public int $branchId,
         public float $available,
         public float $reorderLevel,
-    ) {}
+        ?int $locationId = null,
+    ) {
+        $this->locationId = $locationId;
+    }
 }

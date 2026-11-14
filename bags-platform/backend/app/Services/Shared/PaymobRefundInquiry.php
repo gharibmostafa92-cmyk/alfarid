@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Shared;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -90,21 +91,33 @@ final class PaymobRefundInquiry
         if (is_string($cached) && $cached !== '' && $cached !== $rejected) {
             return $cached;
         }
+        if (Cache::has($cacheKey.':backoff')) {
+            return null;
+        }
 
-        $token = Cache::lock($cacheKey.':lock', 10)->get(function () use ($client, $host, $key, $cacheKey, $rejected): ?string {
-            $cached = Cache::get($cacheKey);
-            if (is_string($cached) && $cached !== '' && $cached !== $rejected) {
-                return $cached;
-            }
-            $token = $this->fetchToken($client, $host, $key);
-            if ($token !== null) {
-                Cache::put($cacheKey, $token, now()->addMinutes(self::TOKEN_TTL_MINUTES));
-            }
+        try {
+            $token = Cache::lock($cacheKey.':lock', 10)->block(4, function () use ($client, $host, $key, $cacheKey, $rejected): ?string {
+                $cached = Cache::get($cacheKey);
+                if (is_string($cached) && $cached !== '' && $cached !== $rejected) {
+                    return $cached;
+                }
+                if (Cache::has($cacheKey.':backoff')) {
+                    return null;
+                }
+                $token = $this->fetchToken($client, $host, $key);
+                if ($token !== null) {
+                    Cache::put($cacheKey, $token, now()->addMinutes(self::TOKEN_TTL_MINUTES));
+                } else {
+                    Cache::put($cacheKey.':backoff', 1, 15);
+                }
 
-            return $token;
-        });
+                return $token;
+            });
+        } catch (LockTimeoutException) {
+            $token = Cache::get($cacheKey);
+        }
 
-        return is_string($token) ? $token : null;
+        return is_string($token) && $token !== $rejected ? $token : null;
     }
 
     private function fetchToken(PendingRequest $client, string $host, string $key): ?string

@@ -53,16 +53,22 @@ class PrunePrivateAttachments extends Command
         }
         $cutoff = now()->subHours($hours)->timestamp;
         $candidates = [];
-        $references = array_values(self::REFERENCES);
-        $collect = function (array $batch) use (&$candidates, $references, $max): void {
-            foreach ($this->unreferenced($batch, $references) as $path) {
+        $budgetReached = false;
+        $collect = function (array $batch, array $prefixRefs) use (&$candidates, &$budgetReached, $max): void {
+            foreach ($this->unreferenced($batch, $prefixRefs) as $path) {
                 if (count($candidates) >= $max) {
-                    throw new \OverflowException('Deletion budget of '.$max.' exceeded; no files were deleted.');
+                    $budgetReached = true;
+
+                    return;
                 }
                 $candidates[] = $path;
             }
         };
-        foreach (array_keys(self::REFERENCES) as $prefix) {
+        foreach (self::REFERENCES as $prefix => $ref) {
+            if ($budgetReached) {
+                break;
+            }
+            $prefixRefs = [$ref];
             try {
                 $batch = [];
                 foreach ($disk->getDriver()->listContents($prefix, true) as $entry) {
@@ -73,18 +79,17 @@ class PrunePrivateAttachments extends Command
                     if ($entry->isFile() && ($entry->lastModified() ?? PHP_INT_MAX) < $cutoff) {
                         $batch[] = $entry->path();
                         if (count($batch) === 500) {
-                            $collect($batch);
+                            $collect($batch, $prefixRefs);
                             $batch = [];
+                            if ($budgetReached) {
+                                break;
+                            }
                         }
                     }
                 }
-                if ($batch !== []) {
-                    $collect($batch);
+                if ($batch !== [] && ! $budgetReached) {
+                    $collect($batch, $prefixRefs);
                 }
-            } catch (\OverflowException $exception) {
-                $this->error($exception->getMessage());
-
-                return self::FAILURE;
             } catch (Throwable $exception) {
                 report($exception);
                 $this->error('Private attachment cleanup failed for '.$prefix);
@@ -92,12 +97,16 @@ class PrunePrivateAttachments extends Command
                 return self::FAILURE;
             }
         }
+        if ($budgetReached) {
+            $this->warn('Deletion budget of '.$max.' reached; pruning collected batch.');
+        }
 
         $failures = 0;
+        $allReferences = array_values(self::REFERENCES);
         foreach (array_chunk($candidates, 500) as $batch) {
             try {
                 // Protect references written while the rest of the disk was scanned.
-                $failures += $this->prune($disk, $this->unreferenced($batch, $references));
+                $failures += $this->prune($disk, $this->unreferenced($batch, $allReferences));
             } catch (Throwable $exception) {
                 report($exception);
                 $this->error('Could not recheck attachment references.');
@@ -111,12 +120,28 @@ class PrunePrivateAttachments extends Command
 
     private function prune(FilesystemAdapter $disk, array $paths): int
     {
+        if ($paths === []) {
+            return 0;
+        }
+        if ($this->option('dry-run')) {
+            foreach ($paths as $path) {
+                $this->line('[dry-run] '.$path);
+            }
+
+            return 0;
+        }
+        try {
+            if ($disk->delete($paths)) {
+                return 0;
+            }
+        } catch (Throwable) {
+            // Fall back to per-file deletion to isolate failures.
+        }
+
         $failures = 0;
         foreach ($paths as $path) {
             try {
-                if ($this->option('dry-run')) {
-                    $this->line('[dry-run] '.$path);
-                } elseif (! $disk->delete($path)) {
+                if (! $disk->delete($path)) {
                     throw new \RuntimeException('Storage did not confirm attachment deletion.');
                 }
             } catch (Throwable $exception) {

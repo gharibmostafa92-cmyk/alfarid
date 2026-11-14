@@ -95,7 +95,7 @@ class CExecutionReviewTest extends TestCase
 
     private function posApi(): static
     {
-        $this->permit('pos.access');
+        $this->permit('pos.access', 'pos.sales.create');
         Auth::forgetGuards();
 
         return $this->withToken($this->cashier->createToken('pos', ['pos'])->plainTextToken);
@@ -110,7 +110,7 @@ class CExecutionReviewTest extends TestCase
         $queries = collect(DB::getQueryLog());
         DB::disableQueryLog();
         $this->assertNotEmpty($sale->order_number);
-        $this->assertTrue($queries->contains(fn ($query) => str_contains($query['query'], 'document_next_number') && in_array('order', $query['bindings'], true)));
+        $this->assertTrue($queries->contains(fn ($query) => str_contains($query['query'], 'document_next_number') && in_array('pos_invoice', $query['bindings'], true)));
         $this->assertFalse($queries->contains(fn ($query) => str_contains($query['query'], '"settings"') && str_contains(strtolower($query['query']), 'for update')));
     }
 
@@ -164,18 +164,26 @@ class CExecutionReviewTest extends TestCase
         app(PosService::class)->processReturn($this->shift, $sale, [['product_variant_id' => $this->variant->id, 'qty' => 1]]);
     }
 
-    public function test_pos_sells_located_stock_and_receives_damaged_returns_at_receiving_location(): void
+    public function test_pos_returns_restore_multiple_original_locations_once_including_damage(): void
     {
-        $shelf = Location::factory()->create(['branch_id' => $this->branch->id]);
-        $receiving = Location::factory()->create(['branch_id' => $this->branch->id, 'type' => 'receiving']);
-        $this->stock(5, $shelf->id);
+        $shelfA = Location::factory()->create(['branch_id' => $this->branch->id]);
+        $shelfB = Location::factory()->create(['branch_id' => $this->branch->id]);
+        $this->stock(1, $shelfA->id);
+        $this->stock(1, $shelfB->id);
         $sale = app(PosService::class)->createSale($this->shift, $this->payload(2));
-        app(PosService::class)->processReturn($this->shift, $sale, [['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'damaged']]);
-        $level = StockLevel::where('location_id', $receiving->id)->firstOrFail();
-        $this->assertSame('1.0000', $level->on_hand);
-        $this->assertSame('1.0000', $level->damaged);
-        $this->assertSame(0.0, $level->available);
-        $this->assertSame('3.0000', StockLevel::where('location_id', $shelf->id)->first()->on_hand);
+
+        foreach (['on_hand', 'damaged'] as $destination) {
+            app(PosService::class)->processReturn($this->shift, $sale, [[
+                'product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => $destination,
+            ]]);
+        }
+
+        $levels = StockLevel::query()->whereIn('location_id', [$shelfA->id, $shelfB->id])->get();
+        $this->assertCount(2, $levels);
+        $this->assertSame(['1.0000', '1.0000'], $levels->pluck('on_hand')->all());
+        $this->assertSame(1.0, (float) $levels->sum('damaged'));
+        $this->assertSame(1.0, (float) $levels->sum('available'));
+        $this->assertSame('2.0000', $sale->items()->firstOrFail()->returned_qty);
     }
 
     public function test_sale_retries_reuse_one_order_and_changed_payload_conflicts(): void

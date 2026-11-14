@@ -139,6 +139,9 @@ class OrderAllocationService
                             $this->reserveItemFromBranch($order, $item, $branchId, $performedBy, $levels);
                             $item->update(['allocated_branch_id' => $branchId]);
                         }
+                        if (count(array_unique($plan)) === 1) {
+                            $order->update(['allocated_branch_id' => (int) reset($plan)]);
+                        }
 
                         return $order->fresh(['items']);
                     });

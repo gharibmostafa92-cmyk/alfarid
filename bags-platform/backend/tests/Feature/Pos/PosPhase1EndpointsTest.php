@@ -88,7 +88,7 @@ class PosPhase1EndpointsTest extends TestCase
 
         $role = Role::findOrCreate('cashier', 'staff');
         $this->cashier->assignRole($role);
-        foreach (['pos.access', 'pos.sales.refund', 'pos.discount'] as $permission) {
+        foreach (['pos.access', 'pos.sales.create', 'pos.sales.refund', 'pos.discount'] as $permission) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
         }
 
@@ -735,7 +735,7 @@ class PosPhase1EndpointsTest extends TestCase
             'branch_id' => $otherBranch->id,
             'is_active' => true,
         ]);
-        foreach (['pos.access', 'pos.sales.refund'] as $perm) {
+        foreach (['pos.access', 'pos.sales.create', 'pos.sales.refund'] as $perm) {
             $otherCashier->givePermissionTo(Permission::findOrCreate($perm, 'staff'));
         }
         $otherToken = $otherCashier->createToken('pos', ['pos'])->plainTextToken;
@@ -799,6 +799,7 @@ class PosPhase1EndpointsTest extends TestCase
             'is_active' => true,
         ]);
         $otherCashier->givePermissionTo(Permission::findOrCreate('pos.access', 'staff'));
+        $otherCashier->givePermissionTo(Permission::findOrCreate('pos.sales.create', 'staff'));
         $otherToken = $otherCashier->createToken('pos', ['pos'])->plainTextToken;
         Auth::forgetGuards();
         $this->withToken($otherToken)->postJson('/api/v1/pos/shifts/open', [
@@ -813,8 +814,7 @@ class PosPhase1EndpointsTest extends TestCase
         // Switch back to main cashier
         Auth::forgetGuards();
 
-        // Resume acquires a non-destructive lease (resumed_by/resumed_at) so another resume
-        // conflicts (409), while the parked cart survives until checkout consumes it atomically.
+        // The owner can renew the lease while the parked cart survives until checkout.
         $resumeRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume");
         $resumeRes->assertOk()
             ->assertJsonPath('data.held_sale_id', $heldId1)
@@ -823,7 +823,7 @@ class PosPhase1EndpointsTest extends TestCase
             ->assertJsonPath('data.items_payload.0.product_variant_id', $this->variant->id)
             ->assertJsonPath('data.items_payload.0.qty', 2);
 
-        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(409);
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertOk();
         $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId1, 'resumed_by' => $this->cashier->id]);
 
         // Completing the sale consumes and deletes held_sale_id atomically.

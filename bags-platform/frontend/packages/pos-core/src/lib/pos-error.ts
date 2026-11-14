@@ -31,5 +31,9 @@ export function normalizeError(e: any): PosApiError {
       : 1000;
     return new PosApiError(r.status, msg, r.data?.code, r.data?.errors, true, retryAfterMs);
   }
-  return new PosApiError(r.status, msg, r.data?.code, r.data?.errors, r.status === 409 && !/مفتاح عدم التكرار/.test(msg));
+  const isRetryable409 = r.status === 409 && (
+    r.data?.code === 'retryable_conflict' ||
+    /^(?:العملية مشغولة|المخزون مشغول)/.test(msg)
+  );
+  return new PosApiError(r.status, msg, r.data?.code, r.data?.errors, isRetryable409);
 }

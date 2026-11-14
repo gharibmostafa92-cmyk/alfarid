@@ -37,11 +37,13 @@ class PosProductController extends Controller
         $cursor = $request->query('cursor');
         if (is_string($cursor) && $cursor !== '') {
             $expectedVersion = $request->query('catalog_version');
-            if ($expectedVersion !== null && $expectedVersion !== $this->pos->computeCatalogVersion($branchId)) {
+            if ($expectedVersion !== null && $expectedVersion !== $this->pos->computeCatalogVersion($branchId, structureOnly: true)
+                && $expectedVersion !== $this->pos->computeCatalogVersion($branchId)) {
                 return response()->json(['message' => 'تغيّر الكتالوج؛ أعد تحميله.'], 412);
             }
-            $payload = $this->pos->getBranchCatalog($branchId, '', $cursor);
-            if ($expectedVersion !== null && $expectedVersion !== $this->pos->computeCatalogVersion($branchId)) {
+            $payload = $this->pos->getBranchCatalog($branchId, $this->pos->computeCatalogVersion($branchId, structureOnly: true), $cursor);
+            if ($expectedVersion !== null && $expectedVersion !== $this->pos->computeCatalogVersion($branchId, structureOnly: true)
+                && $expectedVersion !== $this->pos->computeCatalogVersion($branchId)) {
                 return response()->json(['message' => 'تغيّر الكتالوج؛ أعد تحميله.'], 412);
             }
 
@@ -59,8 +61,10 @@ class PosProductController extends Controller
             }
         }
 
+        $structureVersion = $this->pos->computeCatalogVersion($branchId, structureOnly: true);
         $payload = $this->pos->getBranchCatalog($branchId, $catalogVersion);
-        if ($catalogVersion !== $this->pos->computeCatalogVersion($branchId)) {
+        $payload['meta']['pagination_version'] = $structureVersion;
+        if ($structureVersion !== $this->pos->computeCatalogVersion($branchId, structureOnly: true)) {
             return response()->json(['message' => 'تغيّر الكتالوج؛ أعد تحميله.'], 412);
         }
 

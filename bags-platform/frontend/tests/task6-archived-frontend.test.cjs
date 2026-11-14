@@ -371,7 +371,7 @@ describe('F-16/F-17 receipt archive isolation', () => {
     archive.pushReceipt(receipt(1), { cashierId: 1 }, storage);
     assert.equal(archive.getLastReceipt(2, storage), null);
     assert.equal(archive.getLastReceipt(1, storage).invoiceNumber, 'INV-1');
-    assert.equal(archive.getLastReceipt(undefined, storage).invoiceNumber, 'INV-1');
+    assert.equal(archive.getLastReceipt(undefined, storage), null);
   });
 
   test('clearing is scoped; logout clears everything', () => {

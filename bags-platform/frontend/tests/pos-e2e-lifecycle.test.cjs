@@ -107,6 +107,8 @@ describe('POS End-to-End Cashier Lifecycle', () => {
     );
     assert.ok(saleResult.invoiceNumber, 'Sale created with invoice number');
 
+    const cashier = await posMockService.getCashier();
+    const receiptScope = { cashierId: cashier.id, shiftId: shift.id };
     // Archive receipt for reprint
     clearReceiptArchive();
     pushReceipt({
@@ -122,8 +124,8 @@ describe('POS End-to-End Cashier Lifecycle', () => {
       discount: 20,
       notes: 'كارت ****4821',
       timestamp: Date.now(),
-    });
-    const lastRec = getLastReceipt();
+    }, receiptScope);
+    const lastRec = getLastReceipt(receiptScope);
     assert.equal(lastRec.invoiceNumber, saleResult.invoiceNumber);
 
     // 5. Return flow

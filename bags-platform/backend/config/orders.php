@@ -14,6 +14,7 @@ return [
      */
     // 90 minutes provides a safe window for 3DS authentication and wallet callbacks before cancellation
     'pending_online_expire_minutes' => (int) env('ORDER_PENDING_ONLINE_EXPIRE_MINUTES', 90),
+    'pending_bank_transfer_expire_hours' => (int) env('ORDER_PENDING_BANK_TRANSFER_EXPIRE_HOURS', 48),
     'pending_cod_expire_hours' => (int) env('ORDER_PENDING_COD_EXPIRE_HOURS', 72),
     // Guest COD orders expire faster (12h) to prevent unverified carts from tying up inventory
     'pending_guest_cod_expire_hours' => (int) env('ORDER_PENDING_GUEST_COD_EXPIRE_HOURS', 12),

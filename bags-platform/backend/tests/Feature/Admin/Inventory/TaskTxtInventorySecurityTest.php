@@ -11,6 +11,8 @@ use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\Treasury;
 use App\Models\User;
+use App\Services\Inventory\BranchAccess;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 
@@ -116,6 +118,13 @@ class TaskTxtInventorySecurityTest extends TaskTxtInventoryCase
         foreach ($listed as $row) {
             $this->assertTrue($row['from_branch']['id'] === $a->id || $row['to_branch']['id'] === $a->id);
         }
+
+        // A branch-only counterpart filter may legitimately select an inbound or
+        // outbound transfer. A pair wholly outside the user's branch is forbidden.
+        $this->requestWithToken($token, 'GET', "/api/v1/admin/transfers?from_branch_id={$b->id}")->assertOk();
+        $this->requestWithToken($token, 'GET', "/api/v1/admin/transfers?to_branch_id={$b->id}")->assertOk();
+        $this->requestWithToken($token, 'GET', "/api/v1/admin/transfers?from_branch_id={$b->id}&to_branch_id={$c->id}")->assertForbidden();
+        $this->requestWithToken($token, 'GET', "/api/v1/admin/inventory/movements?branch_id={$b->id}")->assertForbidden();
     }
 
     public function test_stopped_branch_user_is_denied_everywhere(): void
@@ -135,6 +144,32 @@ class TaskTxtInventorySecurityTest extends TaskTxtInventoryCase
             'branch_id' => $branch->id,
             'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'increase', 'quantity' => 1]],
         ])->assertForbidden();
+    }
+
+    public function test_branch_access_rechecks_activity_and_assignment_within_same_service_scope(): void
+    {
+        $first = Branch::factory()->create(['is_active' => true]);
+        $second = Branch::factory()->create(['is_active' => true]);
+        $user = $this->staffWithPermissions(['inventory.view'], $first->id);
+        $access = app(BranchAccess::class);
+
+        $access->assertBranch($user->id, $first->id);
+        $user->update(['branch_id' => $second->id]);
+        try {
+            $access->assertBranch($user->id, $first->id);
+            $this->fail('A cached user assignment must not retain access to the former branch.');
+        } catch (AuthorizationException) {
+            $this->addToAssertionCount(1);
+        }
+
+        $access->assertBranch($user->id, $second->id);
+        $second->update(['is_active' => false]);
+        try {
+            $access->assertBranch($user->id, $second->id);
+            $this->fail('A cached branch-active value must not survive deactivation.');
+        } catch (AuthorizationException) {
+            $this->addToAssertionCount(1);
+        }
     }
 
     public function test_branchless_user_without_global_privilege_is_denied(): void
@@ -224,7 +259,7 @@ class TaskTxtInventorySecurityTest extends TaskTxtInventoryCase
                 'expected_version' => $rs['version'],
                 'items' => [['id' => $itemId, 'received_qty' => 2]],
             ], 'transfers.receive', $other->id],
-            ['POST', "/api/v1/admin/transfers/{$tApprove['id']}/cancel", [], 'transfers.update'],
+            ['POST', "/api/v1/admin/transfers/{$tApprove['id']}/cancel", [], 'transfers.approve'],
             ['DELETE', "/api/v1/admin/transfers/{$tDelete['id']}", [], 'transfers.delete'],
             ['GET', '/api/v1/admin/stocktakes', [], 'stocktakes.view'],
             ['POST', '/api/v1/admin/stocktakes', [
@@ -325,6 +360,7 @@ class TaskTxtInventorySecurityTest extends TaskTxtInventoryCase
         $adminToken = $this->tokenFor($admin);
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['barcode' => '6220000000011']);
+        $variant->product()->update(['status' => 'published']);
         $this->seedStock($adminToken, $branch, $variant, 10);
 
         $take = $this->requestWithToken($adminToken, 'POST', '/api/v1/admin/stocktakes', [

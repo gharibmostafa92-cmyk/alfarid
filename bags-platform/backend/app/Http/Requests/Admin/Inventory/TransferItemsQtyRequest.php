@@ -43,14 +43,14 @@ class TransferItemsQtyRequest extends FormRequest
     /**
      * Map of [item_id => quantity] formatted for service execution.
      *
-     * @return array<int, float>
+     * @return array<int, float|int|string>
      */
     public function quantitiesByItemId(): array
     {
         $map = [];
 
         foreach ($this->validated('items', []) ?? [] as $item) {
-            $map[(int) $item['id']] = (float) $item[$this->qtyField];
+            $map[(int) $item['id']] = $item[$this->qtyField];
         }
 
         return $map;

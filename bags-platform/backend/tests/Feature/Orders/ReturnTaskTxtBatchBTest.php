@@ -270,15 +270,17 @@ class ReturnTaskTxtBatchBTest extends TestCase
         $this->backdateDelivery($order, now()->subDays(100));
         $this->storeCreateReturn($customer, $order, $itemId, 1)->assertCreated();
 
-        // الحد بدقة الثانية: deliveredAt + النافذة يجب أن يكون في المستقبل.
-        // +ثانية (13 يومًا و23:59:59) مقبول، و−ثانية (14 يومًا وثانية) مرفوض.
+        // الحد بنهاية اليوم في منطقة المتجر: اليوم الـ 14 مقبول، واليوم الـ 15 مرفوض.
+        $tz = is_string(config('app.business_timezone')) && config('app.business_timezone') !== ''
+            ? config('app.business_timezone')
+            : 'UTC';
         $this->setReturnWindowDays(14);
         [$customer, $order, $itemId] = $makeDelivered();
-        $this->backdateDelivery($order, now()->subDays(14)->addSecond());
+        $this->backdateDelivery($order, now()->timezone($tz)->subDays(14)->startOfDay()->utc());
         $this->storeCreateReturn($customer, $order, $itemId, 1)->assertCreated();
 
         [$customer, $order, $itemId] = $makeDelivered();
-        $this->backdateDelivery($order, now()->subDays(14)->subSecond());
+        $this->backdateDelivery($order, now()->timezone($tz)->subDays(15)->endOfDay()->utc());
         $this->storeCreateReturn($customer, $order, $itemId, 1)
             ->assertUnprocessable()
             ->assertJsonFragment(['message' => 'انتهت فترة الاسترجاع المسموحة (14 يومًا من التسليم) لهذا الطلب.']);
@@ -670,9 +672,9 @@ class ReturnTaskTxtBatchBTest extends TestCase
         // خارج المدى.
         $asCustomer($url(9))->assertNotFound();
 
-        // ملف مفقود من القرص: 404 بلا توقيع، وJSON مع التوقيع.
+        // ملف مفقود من القرص: 404 مع ?verify=1، وJSON مع التوقيع.
         Storage::disk('r2')->delete($path);
-        $asCustomer($url(0))->assertNotFound();
+        $asCustomer($url(0).'?verify=1')->assertNotFound();
         $asCustomer($url(0, true))->assertOk()->assertJsonStructure(['url']);
 
         // التوقيع يحمل Cache-Control خاصًا وينتهي خلال دقيقتين.

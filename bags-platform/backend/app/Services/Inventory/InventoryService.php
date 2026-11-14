@@ -169,6 +169,7 @@ class InventoryService
                         (int) $stock->branch_id,
                         $availableAfterQty,
                         $rowLevel,
+                        $stock->location_id === null ? null : (int) $stock->location_id,
                     );
                 }
             }
@@ -427,7 +428,7 @@ class InventoryService
                 DB::table('stock_levels')->insertOrIgnore($chunk->all());
             }
 
-            $levels = StockLevel::query()->with(['variant:id,product_id,is_active,deleted_at,reorder_level', 'location:id,is_active'])->where(function ($query) use ($keys): void {
+            $levels = StockLevel::query()->with(['variant:id,product_id,is_active,deleted_at,reorder_level'])->where(function ($query) use ($keys): void {
                 foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
                     $identity = $group->first();
                     $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
@@ -450,7 +451,16 @@ class InventoryService
             // Inactive locations are not rejected here: only new inbound stock is blocked (see recordMovement),
             // so outbound, release and transit movements can still liquidate balances left on a disabled location.
             if ($locationIds->isNotEmpty()) {
-                Location::query()->whereIn('id', $locationIds->all())->orderBy('id')->sharedLock()->pluck('id');
+                // Refresh activity state from the same locking read. The earlier eager
+                // load happened before this lock and could otherwise authorize an inbound
+                // movement using a stale active=true value after concurrent deactivation.
+                $locations = Location::query()->whereIn('id', $locationIds->all())
+                    ->orderBy('id')->sharedLock()->get(['id', 'is_active'])->keyBy('id');
+                foreach ($levels as $level) {
+                    if ($level->location_id !== null) {
+                        $level->setRelation('location', $locations->get((int) $level->location_id));
+                    }
+                }
             }
         } catch (QueryException $e) {
             // Map 55P03 lock timeouts to RetryableConflict so background queues and HTTP callers retry safely.
@@ -460,6 +470,10 @@ class InventoryService
 
             throw $e;
         } catch (\Throwable $e) {
+            // QueryException failures leave through the catch above without issuing
+            // more SQL in an aborted PostgreSQL transaction. For application errors,
+            // restore the caller's setting because its surrounding transaction may
+            // deliberately catch the exception and continue.
             DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
             throw $e;
         }

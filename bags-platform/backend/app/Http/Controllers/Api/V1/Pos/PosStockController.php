@@ -208,7 +208,7 @@ class PosStockController extends Controller
         ]);
 
         // Voice count input: parse spoken Arabic quantities while keeping system_qty hidden from non-approvers.
-        $qty = isset($data['qty']) ? (float) $data['qty'] : 1;
+        $qty = $data['qty'] ?? 1;
         if (! isset($data['qty']) && isset($data['qty_words'])) {
             $spoken = \App\Services\Shared\SpokenQuantity::parse($data['qty_words']);
             if ($spoken === null || $spoken < 1) {
@@ -220,6 +220,8 @@ class PosStockController extends Controller
         $variant = ProductVariant::query()
             ->where('barcode', $data['barcode'])
             ->where('is_active', true)
+            ->whereHas('product', fn ($q) => $q->where('is_active', true)->whereNull('deleted_at'))
+            ->with('product')
             ->first();
 
         if ($variant === null) {
@@ -229,11 +231,11 @@ class PosStockController extends Controller
             ], 404);
         }
 
-        $before = $stocktake->items->firstWhere('product_variant_id', $variant->id)?->counted_qty;
+        $before = $stocktake->items()->where('product_variant_id', $variant->id)->value('counted_qty');
 
         $stocktake = $this->stocktakes->incrementItemCount($stocktake, $variant->id, $qty, $user->id, $data['scan_id'] ?? null);
 
-        $item = $stocktake->items->firstWhere('product_variant_id', $variant->id);
+        $item = $stocktake->items()->where('product_variant_id', $variant->id)->first();
 
         // F-14: the client log panel needs display material straight from the
         // scan response (it works on the real API, not just the mock).
@@ -245,7 +247,9 @@ class PosStockController extends Controller
             'product_name' => $variant->product?->name_ar ?? $variant->product?->name_en,
             'counted_qty' => $item?->counted_qty,
         ];
-        if (($data['scan_id'] ?? null) !== null && (float) ($item?->counted_qty ?? 0) === (float) ($before ?? 0)) {
+        if (($data['scan_id'] ?? null) !== null
+            && \Brick\Math\BigDecimal::of((string) ($item?->counted_qty ?? '0'))
+                ->compareTo((string) ($before ?? '0')) === 0) {
             $response['duplicate'] = true;
         }
         if ($user->can('stocktakes.approve')) {

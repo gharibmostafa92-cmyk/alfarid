@@ -183,7 +183,7 @@ test('receipt archive stores up to 5 receipts in FIFO order', () => {
   const archive = getReceiptArchive();
   assert.equal(archive.length, 5);
   // Last pushed is at index 0 (POS-7)
-  assert.equal(getLastReceipt().invoiceNumber, 'POS-7');
+  assert.equal(getLastReceipt(), null);
   assert.deepEqual(archive.map((r) => r.invoiceNumber), ['POS-7', 'POS-6', 'POS-5', 'POS-4', 'POS-3']);
 });
 

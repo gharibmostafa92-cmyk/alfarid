@@ -57,11 +57,15 @@ class OperationIdempotencyService
         $hash = IdempotencyFingerprint::hash($payload);
 
         return DB::transaction(function () use ($scope, $hash, $execute): Model {
-            // Bound lock wait time to quickly fail concurrent duplicates instead of exhausting connection pool.
-            $previousTimeout = DB::selectOne(
-                "WITH prior AS MATERIALIZED (SELECT current_setting('lock_timeout') AS value)
-                SELECT value, set_config('lock_timeout', '3s', true) FROM prior",
-            )->value;
+            $isPgsql = DB::getDriverName() === 'pgsql';
+            $previousTimeout = '0';
+            if ($isPgsql) {
+                // Bound lock wait time to quickly fail concurrent duplicates instead of exhausting connection pool.
+                $previousTimeout = DB::selectOne(
+                    "WITH prior AS MATERIALIZED (SELECT current_setting('lock_timeout') AS value)
+                    SELECT value, set_config('lock_timeout', '5s', true) FROM prior",
+                )->value;
+            }
             try {
                 $inserted = DB::table('operation_idempotency_keys')->insertOrIgnore([
                     ...$scope, 'request_hash' => $hash, 'created_at' => now(),
@@ -74,23 +78,27 @@ class OperationIdempotencyService
                 }
                 throw $e;
             }
-            // A failed query is rolled back to the surrounding transaction or savepoint.
-            // Restore explicitly on success before running the operation callback.
-            DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
+
             if ($record === null) {
-                throw new BusinessException('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', [], 409);
+                throw new RetryableConflict('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.');
             }
-            if (! $inserted) {
-                if (! hash_equals($record->request_hash, $hash)) {
-                    throw new BusinessException('مفتاح عدم التكرار مستخدم مع بيانات مختلفة.', [], 409);
-                }
-                $result = self::findResult($record->result_type ?? null, $record->result_id ?? null);
+            if (! $inserted && ! hash_equals($record->request_hash, $hash)) {
+                throw new BusinessException('مفتاح عدم التكرار مستخدم مع بيانات مختلفة.', [], 409);
+            }
+            if ($record->result_id !== null || $record->result_type !== null) {
+                $result = self::findResult($record->result_type, $record->result_id);
                 if ($result === null) {
                     throw new BusinessException('العملية سبق تنفيذها ثم أزيل مستندها؛ استخدم عملية جديدة.', [], 409);
                 }
 
+                if ($isPgsql) {
+                    DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
+                }
+
                 return $result;
             }
+            // The key row is locked. A legacy row without a result marker
+            // can be completed by this transaction with the original payload.
             try {
                 $result = $execute();
             } catch (DeadlockException $e) {
@@ -116,6 +124,10 @@ class OperationIdempotencyService
                 // Store morph aliases instead of FQCNs to prevent model namespace refactoring from breaking historical replays.
                 'result_type' => array_search($result::class, self::RESULT_TYPES, true) ?: $result->getMorphClass(), 'result_id' => $result->getKey(),
             ]);
+
+            if ($isPgsql) {
+                DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
+            }
 
             return $result;
             // Limit to 1 attempt to avoid repeating non-transactional side effects (e.g., file storage, notifications).

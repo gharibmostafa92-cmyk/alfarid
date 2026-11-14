@@ -33,6 +33,7 @@ export const API_ENDPOINTS = {
     SALES_LOOKUP: '/api/v1/pos/sales/lookup',
     SALES_HOLD: '/api/v1/pos/sales/hold',
     SALES_HELD: '/api/v1/pos/sales/held',
+    SALES_EXPENSES: '/api/v1/pos/sales/expenses',
     SALE_HELD_RESUME: (id: number | string) => `/api/v1/pos/sales/held/${id}/resume`,
     SALE_HELD_DELETE: (id: number | string) => `/api/v1/pos/sales/held/${id}`,
     SALE_RETURN: (id: number | string) => `/api/v1/pos/sales/${id}/return`,

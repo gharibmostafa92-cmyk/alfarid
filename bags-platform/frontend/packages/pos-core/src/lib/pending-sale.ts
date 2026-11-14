@@ -23,6 +23,17 @@ const defaultUuid = () => globalThis.crypto.randomUUID();
 const LEGACY_KEY = 'pos-pending-sale';
 const SCOPED_PREFIX = 'pos-pending-sale:';
 
+let storageGeneration = 0;
+
+export function clearPendingSaleStorage(): void {
+  storageGeneration++;
+  try {
+    if (typeof window === 'undefined') return;
+    const storage = window.localStorage;
+    for (const key of storageKeys(storage)) storage.removeItem(key);
+  } catch { /* Storage access may be blocked. */ }
+}
+
 const scopedKey = (owner?: string): string => (owner ? `${SCOPED_PREFIX}${owner}` : LEGACY_KEY);
 
 function storageKeys(storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): string[] {
@@ -65,6 +76,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
   try {
     storage ??= typeof window !== 'undefined' ? window.localStorage : undefined;
   } catch { /* Storage access may be blocked. */ }
+  const generation = storageGeneration;
   const keyName = opts.storageKey ?? scopedKey(opts.owner);
   const delays = opts.retryDelays ?? [1000, 3000, 6000];
   const sleep = opts.sleep ?? defaultSleep;
@@ -77,6 +89,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
     try { storage?.removeItem(key); } catch { /* The current manager still clears its in-memory draft. */ }
   };
   const save = (draft: PendingSaleDraft) => {
+    if (!opts.storage && generation !== storageGeneration) return;
     try {
       storage?.setItem(keyName, JSON.stringify(draft));
       memoryDraft = storage ? null : draft;
@@ -86,6 +99,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
   };
 
   const getSaved = (): PendingSaleDraft | null => {
+    if (!opts.storage && generation !== storageGeneration) return null;
     if (memoryDraft) return memoryDraft;
     // F-05: drafts are namespaced per shift owner so one terminal can serve
     // consecutive shifts without a stale draft bricking the next cashier.
@@ -105,7 +119,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
 
   const clear = (): void => {
     memoryDraft = null;
-    remove(keyName);
+    if (opts.storage || generation === storageGeneration) remove(keyName);
   };
 
   /** F-05: every draft on this terminal (own scope + stale owners + legacy) for the review banner. */

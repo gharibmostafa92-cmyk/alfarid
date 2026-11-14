@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Console\Commands\Orders;
 
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Order;
 use App\Services\Orders\OrderService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -31,6 +33,7 @@ class ExpirePendingOrders extends Command
     public function handle(OrderService $orders): int
     {
         $onlineBefore = now()->subMinutes(max(1, (int) config('orders.pending_online_expire_minutes', 90)));
+        $bankTransferBefore = now()->subHours(max(1, (int) config('orders.pending_bank_transfer_expire_hours', 48)));
         $codBefore = now()->subHours(max(1, (int) config('orders.pending_cod_expire_hours', 72)));
         // Guest COD orders have shorter TTLs to avoid stock locking by uncommitted buyers.
         $guestCodBefore = now()->subHours(max(1, (int) config('orders.pending_guest_cod_expire_hours', 12)));
@@ -39,11 +42,21 @@ class ExpirePendingOrders extends Command
             ->where('status', OrderStatus::Pending)
             // On-account (credit) terms are pre-approved deferred debt, not awaiting gateway payment.
             ->whereNotIn('payment_method', ['credit'])
+            ->whereNotExists(function ($sub): void {
+                $sub->selectRaw('1')
+                    ->from('wholesale_payment_notices')
+                    ->whereColumn('wholesale_payment_notices.order_id', 'orders.id')
+                    ->where('wholesale_payment_notices.status', WholesalePaymentNoticeStatus::PendingReview->value);
+            })
             ->where(fn ($q) => $q
                 ->where(fn ($online) => $online
-                    ->where('payment_method', '!=', 'cod')
+                    ->whereNotIn('payment_method', ['cod', 'bank_transfer'])
                     ->where('payment_status', 'unpaid')
                     ->where('created_at', '<', $onlineBefore))
+                ->orWhere(fn ($bank) => $bank
+                    ->where('payment_method', 'bank_transfer')
+                    ->where('payment_status', 'unpaid')
+                    ->where('created_at', '<', $bankTransferBefore))
                 ->orWhere(fn ($cod) => $cod
                     ->where('payment_method', 'cod')
                     ->whereNull('customer_id')

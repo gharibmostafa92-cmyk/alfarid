@@ -62,11 +62,19 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
   useEsc(dismiss, open);
   if (!open || !shift) return null;
 
-  const expectedCents = toCents(shift.opening_cash) + toCents(stats.cashSales) - toCents(stats.returns) - toCents(stats.expenses);
-  const expected = closedResult ? (closedResult.expected_closing_cash ?? fromCents(expectedCents)) : fromCents(expectedCents);
+  const canViewExpected = statsReady && stats.expected_closing_cash != null;
+
+  const expectedCents = canViewExpected ? toCents(stats.expected_closing_cash) : 0;
+  const expected = closedResult
+    ? (closedResult.expected_closing_cash ?? fromCents(expectedCents))
+    : fromCents(expectedCents);
   const has = actual !== '';
-  const diff = closedResult ? (closedResult.cash_difference ?? 0) : fromCents(toCents(actual) - expectedCents);
-  const state: 'idle' | 'ok' | 'over' | 'short' = !has
+  const diff = closedResult
+    ? (closedResult.cash_difference ?? 0)
+    : canViewExpected
+    ? fromCents(toCents(actual) - expectedCents)
+    : 0;
+  const state: 'idle' | 'ok' | 'over' | 'short' = (!canViewExpected || !has)
     ? 'idle'
     : Math.abs(diff) < 0.01
     ? 'ok'
@@ -74,8 +82,8 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
     ? 'over'
     : 'short';
 
-  const needNote = false;
-  const canSubmit = statsReady && has && Number.isFinite(Number(actual)) && !busy;
+  const needNote = canViewExpected && has && Math.abs(diff) >= 0.01;
+  const canSubmit = statsReady && has && Number.isFinite(Number(actual)) && !busy && (!needNote || notes.trim().length > 0);
 
   const diffLabel = {
     idle: 'أدخل النقد الفعلي لحساب الفرق',
@@ -269,58 +277,59 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
           </div>
           {error && <div className="banner b-bad" role="alert">{error}</div>}
 
-          <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
-            <div
-              style={{
-                padding: '18px 22px',
-                borderInlineEnd: '1px solid var(--line)',
-                background: 'var(--bg-sunken)',
-                display: 'none',
-              }}
-            >
-              <div className="section-label" style={{ marginBottom: 6 }}>
-                ملخص حركة النقدية
-              </div>
-              <div className="ledger">
-                <div className="lr">
-                  <span className="op base">·</span>
-                  العهدة الافتتاحية
-                  <span className="amt">{egp(shift.opening_cash)}</span>
-                </div>
-                <div className="lr">
-                  <span className="op plus">+</span>
-                  مبيعات نقدية <span className="t-3 fs-12">({fmt(stats.invoices)} فاتورة)</span>
-                  <span className="amt">{egp(stats.cashSales)}</span>
-                </div>
-                <div className="lr">
-                  <span className="op minus">−</span>
-                  مرتجعات نقدية
-                  <span className="amt">{egp(stats.returns)}</span>
-                </div>
-                <div className="lr">
-                  <span className="op minus">−</span>
-                  مصروفات نثرية
-                  <span className="amt">{egp(stats.expenses)}</span>
-                </div>
-                <div className="lr" style={{ paddingTop: 14 }}>
-                  <span className="op eq">=</span>
-                  <b>النقد المتوقع بالدرج</b>
-                  <span className="amt fs-20 fw-6">{egp(expected)}</span>
-                </div>
-              </div>
+          <div className="grid" style={{ gridTemplateColumns: canViewExpected ? '1fr 1fr' : '1fr' }}>
+            {canViewExpected && (
               <div
-                className="row gap-2 fs-12 t-3"
                 style={{
-                  marginTop: 10,
-                  padding: '10px 12px',
-                  borderRadius: 12,
-                  border: '1px dashed var(--line-strong)',
+                  padding: '18px 22px',
+                  borderInlineEnd: '1px solid var(--line)',
+                  background: 'var(--bg-sunken)',
                 }}
               >
-                <Icon n="card" s={15} />
-                مبيعات البطاقة <b className="num t-1">{egp(stats.cardSales)}</b> ج — لا تدخل في جرد الدرج
+                <div className="section-label" style={{ marginBottom: 6 }}>
+                  ملخص حركة النقدية
+                </div>
+                <div className="ledger">
+                  <div className="lr">
+                    <span className="op base">·</span>
+                    العهدة الافتتاحية
+                    <span className="amt">{egp(shift.opening_cash)}</span>
+                  </div>
+                  <div className="lr">
+                    <span className="op plus">+</span>
+                    مبيعات نقدية <span className="t-3 fs-12">({fmt(stats.invoices)} فاتورة)</span>
+                    <span className="amt">{egp(stats.cashSales)}</span>
+                  </div>
+                  <div className="lr">
+                    <span className="op minus">−</span>
+                    مرتجعات نقدية
+                    <span className="amt">{egp(stats.returns)}</span>
+                  </div>
+                  <div className="lr">
+                    <span className="op minus">−</span>
+                    مصروفات نثرية
+                    <span className="amt">{egp(stats.expenses)}</span>
+                  </div>
+                  <div className="lr" style={{ paddingTop: 14 }}>
+                    <span className="op eq">=</span>
+                    <b>النقد المتوقع بالدرج</b>
+                    <span className="amt fs-20 fw-6">{egp(expected)}</span>
+                  </div>
+                </div>
+                <div
+                  className="row gap-2 fs-12 t-3"
+                  style={{
+                    marginTop: 10,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: '1px dashed var(--line-strong)',
+                  }}
+                >
+                  <Icon n="card" s={15} />
+                  مبيعات البطاقة <b className="num t-1">{egp(stats.cardSales)}</b> ج — لا تدخل في جرد الدرج
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="col gap-1 fs-13">
@@ -341,28 +350,30 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
                   autoFocus
                   placeholder="0.00"
                 />
-                <div className="row gap-2">
-                  <button className="note-chip" style={{ display: 'none' }} onClick={() => setActual(String(expected))}>
-                    مطابق للمتوقع
-                  </button>
-                </div>
+                {canViewExpected && (
+                  <div className="row gap-2">
+                    <button className="note-chip" onClick={() => setActual(String(expected))}>
+                      مطابق للمتوقع
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className={cx('diff', state)} style={{ display: 'none' }}>
-                <span className="diff-ic">
-                  <Icon n={diffIcon} s={18} w={2} />
-                </span>
-                <div className="col">
-                  <span className="fs-12" style={{ opacity: 0.8 }}>
-                    الفرق
+              {canViewExpected && has && (
+                <div className={cx('diff', state)}>
+                  <span className="diff-ic">
+                    <Icon n={diffIcon} s={18} w={2} />
                   </span>
-                  <b className="fs-13">{diffLabel}</b>
+                  <div className="col">
+                    <span className="fs-12" style={{ opacity: 0.8 }}>
+                      الفرق
+                    </span>
+                    <b className="fs-13">{diffLabel}</b>
+                  </div>
+                  <span className="v">
+                    {(diff > 0 ? '+' : diff < 0 ? '−' : '') + egp(Math.abs(diff))}
+                  </span>
                 </div>
-                <span className="v">
-                  {has
-                    ? (diff > 0 ? '+' : diff < 0 ? '−' : '') + egp(Math.abs(diff))
-                    : '—'}
-                </span>
-              </div>
+              )}
               <Field
                 label={
                   <>
@@ -381,7 +392,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={
-                    state === 'short'
+                    canViewExpected && state === 'short'
                       ? `مثال: عجز ${egp(Math.abs(diff))} جنيه فرق فكة مع عميل`
                       : 'أي ملاحظات على الوردية…'
                   }

@@ -15,6 +15,7 @@ use App\Models\Order;
 use App\Services\Orders\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Handles storefront customer order tracking, history listing, and self-service cancellation.
@@ -34,22 +35,32 @@ class OrderController extends Controller
     {
         $request->validate(['phone' => ['required', 'string', 'max:50']]);
 
+        $orderRateKey = 'order-track-order:'.sha1($number);
+        if (RateLimiter::tooManyAttempts($orderRateKey, 5)) {
+            abort(429, 'محاولات كثيرة لتتبع هذا الطلب؛ حاول لاحقًا.');
+        }
+
         $order = Order::query()
             ->leftJoin('customers as tracking_customer', 'tracking_customer.id', '=', 'orders.customer_id')
             ->where('orders.order_number', $number)
             ->select('orders.*', 'tracking_customer.phone as tracking_phone')
             ->first();
 
-        // Return generic 404 on phone mismatch to prevent phone/order enumeration.
+        // Constant-length HMAC comparison prevents timing/length side-channels even when $order is null.
         $phone = Customer::normalizePhone((string) $request->input('phone'));
+        $hmacKey = (string) config('app.key');
+        $phoneHmac = hash_hmac('sha256', $phone, $hmacKey);
         $match = false;
         foreach ([$order?->guest_phone_normalized, $order?->guest_phone, $order?->tracking_phone] as $candidate) {
-            $matches = hash_equals(Customer::normalizePhone((string) $candidate), $phone);
+            $candNorm = Customer::normalizePhone((string) $candidate);
+            $matches = hash_equals(hash_hmac('sha256', $candNorm, $hmacKey), $phoneHmac);
             $match = $match || ($candidate !== null && $matches);
         }
         if ($order === null || $phone === '' || ! $match) {
+            RateLimiter::hit($orderRateKey, 900);
             abort(404);
         }
+        RateLimiter::clear($orderRateKey);
 
         // Only hydrate line items and history after the caller proves phone ownership.
         $order->loadMissing(['items', 'statusHistories']);

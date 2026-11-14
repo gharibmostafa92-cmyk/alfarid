@@ -33,6 +33,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         foreach (self::TARGETS as [$table, $column]) {
             $index = $table.'_'.$column.'_docnum_unique';
             $exists = DB::selectOne(
@@ -62,6 +66,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         foreach (self::TARGETS as [$table, $column]) {
             $index = $table.'_'.$column.'_docnum_unique';
             $owner = DB::scalar("SELECT obj_description(to_regclass(?), 'pg_class')", [$index], false);

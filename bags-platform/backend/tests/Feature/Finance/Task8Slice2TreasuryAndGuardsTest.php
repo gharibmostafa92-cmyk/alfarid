@@ -94,12 +94,22 @@ class Task8Slice2TreasuryAndGuardsTest extends TestCase
 
         $safeA = $this->makeTreasury($branchA, TreasuryType::MainSafe->value, '50000.00', 'Central-A');
         $safeB = $this->makeTreasury($branchB, TreasuryType::MainSafe->value, '1000.00', 'Safe-B');
+        $safeB2 = $this->makeTreasury($branchB, TreasuryType::MainSafe->value, '2000.00', 'Safe-B2');
 
         $transfer = TreasuryTransfer::create([
             'transfer_number' => 'TT-XBR-1',
             'from_treasury_id' => $safeA->id,
             'to_treasury_id' => $safeB->id,
             'amount' => '500.00',
+            'status' => TreasuryTransferStatus::Pending,
+            'created_by' => $centralAdmin->id,
+        ]);
+
+        $sameBranchTransfer = TreasuryTransfer::create([
+            'transfer_number' => 'TT-XBR-2',
+            'from_treasury_id' => $safeB->id,
+            'to_treasury_id' => $safeB2->id,
+            'amount' => '100.00',
             'status' => TreasuryTransferStatus::Pending,
             'created_by' => $centralAdmin->id,
         ]);
@@ -120,8 +130,14 @@ class Task8Slice2TreasuryAndGuardsTest extends TestCase
         $this->assertArrayNotHasKey('current_balance', $row['to_treasury'] ?? []);
         $this->assertArrayNotHasKey('email', $row['creator'] ?? []);
 
-        $showRes = $this->withToken($branchBToken)
+        Auth::forgetGuards();
+        $this->withToken($branchBToken)
             ->getJson("/api/v1/admin/treasury-transfers/{$transfer->id}")
+            ->assertForbidden();
+
+        Auth::forgetGuards();
+        $showRes = $this->withToken($branchBToken)
+            ->getJson("/api/v1/admin/treasury-transfers/{$sameBranchTransfer->id}")
             ->assertOk();
         $this->assertArrayNotHasKey('current_balance', $showRes->json('data.from_treasury') ?? []);
         $this->assertArrayNotHasKey('current_balance', $showRes->json('data.to_treasury') ?? []);

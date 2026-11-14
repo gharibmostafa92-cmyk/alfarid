@@ -237,10 +237,11 @@ class FinanceWalletTest extends TestCase
 
     public function test_backfill_repairs_null_wallet_types(): void
     {
+        DB::statement('ALTER TABLE customer_wallet_transactions DISABLE TRIGGER ALL');
         $customer = Customer::factory()->create();
         $order = Order::factory()->create(['customer_id' => $customer->id]);
         CustomerWalletTransaction::query()->create(['customer_id' => $customer->id, 'type' => '',
-            'amount' => 50, 'balance_after' => 50, 'reference_type' => 'manual', 'reference_id' => $customer->id, 'created_at' => now()]);
+            'amount' => 50, 'balance_after' => 50, 'reference_type' => 'customer', 'reference_id' => $customer->id, 'created_at' => now()]);
         CustomerWalletTransaction::query()->create(['customer_id' => $customer->id, 'type' => '',
             'amount' => -20, 'balance_after' => 30, 'reference_type' => 'order', 'reference_id' => $order->id, 'created_at' => now()]);
 
@@ -248,6 +249,6 @@ class FinanceWalletTest extends TestCase
         $migration->up();
 
         $this->assertSame('checkout_payment', CustomerWalletTransaction::query()->where('reference_type', 'order')->value('type'));
-        $this->assertSame('opening', CustomerWalletTransaction::query()->where('reference_type', 'manual')->value('type'));
+        $this->assertSame('opening', CustomerWalletTransaction::query()->where('reference_type', 'customer')->value('type'));
     }
 }

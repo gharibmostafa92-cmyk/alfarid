@@ -76,12 +76,13 @@ class PrivateAttachmentSweepTest extends TestCase
             touch($disk->path($path), now()->subDays(2)->timestamp);
         }
 
-        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 2]));
-        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 2]));
+        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 0]));
         foreach ($paths as $path) {
             $disk->assertExists($path);
         }
-        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 0]));
+        $this->assertSame(0, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 2]));
+        $remaining = array_values(array_filter($paths, fn (string $path): bool => $disk->exists($path)));
+        $this->assertCount(1, $remaining);
         $this->assertSame(0, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 3]));
         foreach ($paths as $path) {
             $disk->assertMissing($path);

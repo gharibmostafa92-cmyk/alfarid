@@ -8,6 +8,7 @@ use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
+use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Services\Inventory\TransferService;
@@ -506,5 +507,151 @@ class TaskTxtInventoryTransfersTest extends TaskTxtInventoryCase
         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/transfers/{$transfer['id']}")
             ->assertUnprocessable()
             ->assertJsonPath('message', 'لا يمكن حذف تحويل له حركات مخزون مسجلة في الدفتر؛ إلغاؤه يحفظ أثر التدقيق.');
+    }
+
+    public function test_default_receiving_location_is_persisted_before_approval_and_duplicate_lines_are_rejected(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $receiving = Location::factory()->create([
+            'branch_id' => $to->id,
+            'type' => 'receiving',
+        ]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $from, $variant, 10);
+
+        $response = $this->requestWithToken($token, 'POST', '/api/v1/admin/transfers', [
+            'from_branch_id' => $from->id,
+            'to_branch_id' => $to->id,
+            'items' => [
+                ['product_variant_id' => $variant->id, 'requested_qty' => 2],
+                ['product_variant_id' => $variant->id, 'to_location_id' => $receiving->id, 'requested_qty' => 3],
+            ],
+        ]);
+
+        $response->assertUnprocessable();
+        $this->assertSame(0, \App\Models\StockTransfer::query()->count());
+        $this->assertSame('0.0000', $this->level($variant->id, $from->id)->reserved);
+    }
+
+    public function test_receiving_legacy_branch_level_transit_rewrites_item_location_to_match_ledger(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $from, $variant, 10);
+
+        $transfer = $this->makeTransfer($token, $from, $to, $variant, 4);
+        $itemId = $transfer['items'][0]['id'];
+        $approved = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $transfer['version'],
+        ])->assertOk()->json('data');
+        $shipped = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/ship", [
+            'expected_version' => $approved['version'],
+        ])->assertOk()->json('data');
+
+        $receiving = Location::factory()->create(['branch_id' => $to->id, 'type' => 'receiving']);
+        $received = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/receive", [
+            'expected_version' => $shipped['version'],
+        ])->assertOk()->json('data');
+
+        $this->assertSame($receiving->id, $received['items'][0]['received_location_id']);
+        $this->assertSame('0.0000', $this->level($variant->id, $to->id)->in_transit);
+        $this->assertDatabaseHas('stock_levels', [
+            'branch_id' => $to->id,
+            'location_id' => $receiving->id,
+            'product_variant_id' => $variant->id,
+            'on_hand' => '4.0000',
+        ]);
+    }
+
+    public function test_canceling_approved_transfer_requires_approval_permission(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $adminToken = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($adminToken, $from, $variant, 10);
+        $transfer = $this->makeTransfer($adminToken, $from, $to, $variant, 4);
+        $this->requestWithToken($adminToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $transfer['version'],
+        ])->assertOk();
+
+        $updater = $this->staffWithPermissions(['transfers.update'], $from->id);
+        $this->requestWithToken($this->tokenFor($updater), 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel", [])
+            ->assertForbidden();
+
+        $approver = $this->staffWithPermissions(['transfers.approve'], $from->id);
+        $this->requestWithToken($this->tokenFor($approver), 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel", [])
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+    }
+
+    public function test_destination_creator_can_delete_cancelled_draft_without_ledger_history(): void
+    {
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $creator = $this->staffWithPermissions(['transfers.create', 'transfers.update', 'transfers.delete'], $to->id);
+        $token = $this->tokenFor($creator);
+        $transfer = $this->requestWithToken($token, 'POST', '/api/v1/admin/transfers', [
+            'from_branch_id' => $from->id,
+            'to_branch_id' => $to->id,
+            'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 1]],
+        ])->assertCreated()->json('data');
+
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel", [])->assertOk();
+        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/transfers/{$transfer['id']}")->assertOk();
+    }
+
+    public function test_replaying_partial_approval_without_quantities_conflicts_with_default_full_request(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $one = ProductVariant::factory()->create();
+        $two = ProductVariant::factory()->create();
+        $this->seedStock($token, $from, $one, 10);
+        $this->seedStock($token, $from, $two, 10);
+        $transfer = $this->requestWithToken($token, 'POST', '/api/v1/admin/transfers', [
+            'from_branch_id' => $from->id,
+            'to_branch_id' => $to->id,
+            'items' => [
+                ['product_variant_id' => $one->id, 'requested_qty' => 5],
+                ['product_variant_id' => $two->id, 'requested_qty' => 4],
+            ],
+        ])->assertCreated()->json('data');
+        $firstId = $transfer['items'][0]['id'];
+        $approved = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $transfer['version'],
+            'items' => [['id' => $firstId, 'approved_qty' => 3]],
+        ])->assertOk()->json('data');
+
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $approved['version'],
+        ])->assertConflict();
+    }
+
+    public function test_update_transfer_request_reports_same_branch_on_the_changed_field(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $transfer = $this->makeTransfer($token, $from, $to, $variant, 1);
+
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/transfers/{$transfer['id']}", [
+            'to_branch_id' => $from->id,
+        ])->assertUnprocessable()->assertJsonValidationErrors('to_branch_id');
+
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/transfers/{$transfer['id']}", [
+            'from_branch_id' => $to->id,
+        ])->assertUnprocessable()->assertJsonValidationErrors('from_branch_id');
     }
 }

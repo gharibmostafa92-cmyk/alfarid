@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockTransferItem extends Model
 {
     protected $fillable = [
-        'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id',
+        'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'received_location_id',
         'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty',
     ];
 
@@ -42,5 +42,10 @@ class StockTransferItem extends Model
     public function toLocation(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'to_location_id');
+    }
+
+    public function receivedLocation(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'received_location_id');
     }
 }

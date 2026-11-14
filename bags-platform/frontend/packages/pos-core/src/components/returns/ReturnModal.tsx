@@ -189,14 +189,10 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
             ? { cashAmount: fromCents(mixedCents), cardAmount: fromCents(netCents - mixedCents) }
             : {}),
         };
-        const exchangePayload = repl.map((r) => {
-          const ql = replQuoteLines.find((l) => l.id === r.id);
-          return {
-            id: r.id,
-            qty: r.qty,
-            ...(ql?.unit_price != null ? { unit_price: ql.unit_price } : {}),
-          };
-        });
+        const exchangePayload = repl.map((r) => ({
+          id: r.id,
+          qty: r.qty,
+        }));
         const res = await pos.processExchange(
           sale.id,
           returnPayload,

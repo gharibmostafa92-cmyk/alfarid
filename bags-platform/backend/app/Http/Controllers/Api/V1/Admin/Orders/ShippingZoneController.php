@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ShippingZoneRequest;
 use App\Http\Resources\Admin\Orders\ShippingZoneResource;
@@ -84,6 +85,10 @@ class ShippingZoneController extends Controller implements HasMiddleware
      */
     public function destroy(ShippingZone $shippingZone): JsonResponse
     {
+        if ($shippingZone->rates()->exists()) {
+            throw new BusinessException('لا يمكن حذف منطقة شحن مرتبطة بأسعار شحن؛ عطّلها أو احذف الأسعار أولًا.');
+        }
+
         $shippingZone->delete();
 
         return response()->json(['message' => 'تم حذف منطقة الشحن']);

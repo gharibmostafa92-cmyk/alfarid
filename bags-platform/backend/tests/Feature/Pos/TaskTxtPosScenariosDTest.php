@@ -306,7 +306,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
     public function test_19_transfer_approve_ship_cancel_and_version_conflict(): void
     {
         $this->stockIn($this->branchB->id, $this->variant, 10, $this->cashierB->id);
-        $hq = $this->makeCashier('hq-v@example.com', null, ['inventory.all_branches']);
+        $hq = $this->makeCashier('hq-v@example.com', null, ['inventory.all_branches', 'transfers.approve']);
         $svc = app(TransferService::class);
 
         // Approve reserves at source; cancel after approval releases it; cancel after ship is rejected.

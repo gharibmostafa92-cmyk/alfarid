@@ -110,7 +110,7 @@ class CatalogRetailPriceObserver
     private function refresh(Model $model, bool $force = false): void
     {
         if ($model instanceof StockLevel) {
-            PosService::invalidateCatalogVersionCache((int) $model->branch_id);
+            PosService::invalidateCatalogVersionCache((int) $model->branch_id, stockOnly: false);
         } else {
             PosService::invalidateCatalogVersionCache(null);
         }

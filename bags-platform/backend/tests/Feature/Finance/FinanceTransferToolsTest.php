@@ -123,7 +123,7 @@ class FinanceTransferToolsTest extends TestCase
         $this->withToken($this->token($admin))
             ->postJson("/api/v1/admin/ai/actions/{$action->id}/undo")->assertOk();
         $this->assertSame('rejected', $transfer->fresh()->status->value);
-        $this->assertSame('تراجع من المساعد', $transfer->fresh()->rejection_reason);
+        $this->assertSame('ألغى المنشئ طلب التحويل قبل الاعتماد.', $transfer->fresh()->rejection_reason);
         $this->assertDatabaseCount('treasury_transactions', 0);
     }
 

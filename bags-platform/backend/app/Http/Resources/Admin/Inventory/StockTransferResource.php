@@ -54,6 +54,7 @@ class StockTransferResource extends JsonResource
                 'to_location' => $item->relationLoaded('toLocation') && $item->toLocation ? [
                     'id' => $item->toLocation->id, 'name' => $item->toLocation->name,
                 ] : null,
+                'received_location_id' => $item->received_location_id,
                 'requested_qty' => $item->requested_qty,
                 'approved_qty' => $item->approved_qty,
                 'shipped_qty' => $item->shipped_qty,

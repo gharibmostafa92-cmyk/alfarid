@@ -56,7 +56,9 @@ export function StockPage({ branch }: StockPageProps) {
             <h1>مخزون الفرع</h1>
             <p>أرصدة {branch?.name || 'الفرع'} لحظيًا — بدون مغادرة نقطة البيع.</p>
           </div>
-          <Api path={`/pos/stock?q=${q || '…'}&low_stock=${low}&per_page=20`} />
+          {import.meta.env.DEV && (
+            <Api path={`/pos/stock?q=${q || '…'}&low_stock=${low}&per_page=20`} />
+          )}
         </div>
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="toolbar">

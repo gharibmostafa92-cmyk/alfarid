@@ -37,7 +37,7 @@ const SCOPE_PREFIX = 'pos-receipts:';
 const archive: (ArchivedReceipt & { _scope?: string })[] = [];
 
 /** A bare id is shorthand for { cashierId: id }. */
-export type ReceiptScopeInput = ReceiptScope | number | string | undefined;
+export type ReceiptScopeInput = ReceiptScope | number | string | null | undefined;
 
 const normalizeScope = (scope: ReceiptScopeInput): ReceiptScope | undefined => {
   if (scope == null) return undefined;
@@ -111,14 +111,63 @@ export function pushReceipt(receipt: ArchivedReceipt, scope?: ReceiptScopeInput,
 
 export function getLastReceipt(scope?: ReceiptScopeInput, storage?: ReceiptStorage): ArchivedReceipt | null {
   const normalized = normalizeScope(scope);
-  if (normalized?.cashierId == null && normalized?.shiftId == null) return archive[0] ?? null;
-  const key = scopeOf({} as ArchivedReceipt, scope);
-  const mem = archive.find((r) => (r._scope ?? scopeOf(r)) === key);
+  if (normalized?.cashierId == null && normalized?.shiftId == null) return null;
+
+  const prefix = normalized.cashierId != null ? `${normalized.cashierId}:` : undefined;
+  const exactKey = normalized.shiftId != null ? `${normalized.cashierId ?? 'anon'}:${normalized.shiftId}` : undefined;
+
+  const mem = archive.find((r) => {
+    const s = r._scope ?? scopeOf(r);
+    if (exactKey) return s === exactKey;
+    if (prefix) return s.startsWith(prefix);
+    return false;
+  });
   if (mem) return mem;
-  const stored = loadScope(key, storage);
-  if (stored.length > 0) {
-    archive.unshift({ ...stored[0], _scope: key });
-    return archive[0];
+
+  if (exactKey) {
+    const stored = loadScope(exactKey, storage);
+    if (stored.length > 0) {
+      archive.unshift({ ...stored[0], _scope: exactKey });
+      return archive[0];
+    }
+  } else if (prefix) {
+    const store = storage ?? defaultStorage();
+    if (store) {
+      try {
+        if (typeof (store as ReceiptStorage).keys === 'function') {
+          for (const k of (store as ReceiptStorage).keys!()) {
+            if (k.startsWith(`${SCOPE_PREFIX}${prefix}`)) {
+              const raw = store.getItem(k);
+              if (raw) {
+                const rows = JSON.parse(raw);
+                if (Array.isArray(rows) && rows[0]) {
+                  const s = k.replace(SCOPE_PREFIX, '');
+                  archive.unshift({ ...rows[0], _scope: s });
+                  return archive[0];
+                }
+              }
+            }
+          }
+        } else if (typeof store.length === 'number' && typeof store.key === 'function') {
+          for (let i = 0; i < store.length; i++) {
+            const k = store.key(i);
+            if (k && k.startsWith(`${SCOPE_PREFIX}${prefix}`)) {
+              const raw = store.getItem(k);
+              if (raw) {
+                const rows = JSON.parse(raw);
+                if (Array.isArray(rows) && rows[0]) {
+                  const s = k.replace(SCOPE_PREFIX, '');
+                  archive.unshift({ ...rows[0], _scope: s });
+                  return archive[0];
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        /* best effort */
+      }
+    }
   }
   return null;
 }
@@ -152,13 +201,33 @@ export function clearReceiptArchive(scope?: ReceiptScopeInput, storage?: Receipt
     }
     return;
   }
-  const key = scopeOf({} as ArchivedReceipt, scope);
+  const prefix = normalized.cashierId != null ? `${normalized.cashierId}:` : undefined;
+  const exactKey = normalized.shiftId != null ? `${normalized.cashierId ?? 'anon'}:${normalized.shiftId}` : undefined;
+
   for (let i = archive.length - 1; i >= 0; i--) {
-    if ((archive[i]._scope ?? scopeOf(archive[i])) === key) archive.splice(i, 1);
+    const s = archive[i]._scope ?? scopeOf(archive[i]);
+    if (exactKey ? s === exactKey : (prefix ? s.startsWith(prefix) : false)) {
+      archive.splice(i, 1);
+    }
   }
   const store = storage ?? defaultStorage();
   try {
-    store?.removeItem(scopeKey(key));
+    if (exactKey) {
+      store?.removeItem(scopeKey(exactKey));
+    } else if (prefix && store) {
+      if (typeof (store as ReceiptStorage).keys === 'function') {
+        for (const k of (store as ReceiptStorage).keys!()) {
+          if (k.startsWith(`${SCOPE_PREFIX}${prefix}`)) store.removeItem(k);
+        }
+      } else if (typeof store.length === 'number' && typeof store.key === 'function') {
+        const doomed: string[] = [];
+        for (let i = 0; i < store.length; i++) {
+          const k = store.key(i);
+          if (k && k.startsWith(`${SCOPE_PREFIX}${prefix}`)) doomed.push(k);
+        }
+        doomed.forEach((k) => store.removeItem(k));
+      }
+    }
   } catch {
     /* best effort */
   }

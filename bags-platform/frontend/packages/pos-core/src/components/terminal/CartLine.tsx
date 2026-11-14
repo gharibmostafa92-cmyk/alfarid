@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, cx, toAsciiNum } from '../ui/SharedUI';
 import { fromCents, parsePositivePrice, toCents } from '../../lib/money';
@@ -20,6 +20,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
   const stock = l.stock ?? p?.stock;
   const visual = p ?? { cat: l.cat ?? 'hand', h: l.h ?? 240 };
   const [edit, setEdit] = useState(false);
+  const invalidPrice = useRef(false);
   const [val, setVal] = useState(String(l.price));
   // F-16: keep the edit field in sync when the line reprices (resume/quote),
   // otherwise the field shows a stale price after the cart updates.
@@ -39,14 +40,21 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
               className="price-input"
               autoFocus
               value={val}
-              onChange={(e) => setVal(toAsciiNum(e.target.value))}
+              onChange={(e) => {
+                const clean = toAsciiNum(e.target.value);
+                invalidPrice.current = clean.replace('.', '').length > 9 || Number(clean) > 9999999.99;
+                if (!invalidPrice.current) setVal(clean);
+              }}
               onBlur={() => {
-                onPrice(parsePositivePrice(val, l.price));
+                const parsed = parsePositivePrice(val, l.price);
+                if (!invalidPrice.current) onPrice(parsed);
+                invalidPrice.current = false;
                 setEdit(false);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                 if (e.key === 'Escape') {
+                  invalidPrice.current = true;
                   setVal(String(l.price));
                   setEdit(false);
                 }
@@ -57,6 +65,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
               className={cx('num', canOverride && 'price-edit')}
               onClick={() => {
                 if (canOverride) {
+                  invalidPrice.current = true;
                   setVal(String(l.price));
                   setEdit(true);
                 }

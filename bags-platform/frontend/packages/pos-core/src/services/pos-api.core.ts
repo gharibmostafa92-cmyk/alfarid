@@ -20,6 +20,9 @@ import type {
   Treasury,
   TransferSource,
 } from '../types/pos.types';
+import { clearReceiptArchive } from '../lib/receipt-archive';
+import { clearPendingSaleStorage } from '../lib/pending-sale';
+import { clearPersistedCarts } from '../stores/pos-cart.core';
 import { normAr } from '../lib/arabic';
 import { normalizeError, PosApiError } from '../lib/pos-error';
 import { toApi, toCents, spreadDiscount } from '../lib/money';
@@ -35,6 +38,7 @@ import {
 } from './pos-mappers';
 
 const EP = API_ENDPOINTS.POS;
+const DEFAULT_TIMEOUT_MS = 15000;
 const CATALOG_STALE_MS = 60_000;
 const LOCK_RETRY_DELAYS = [300, 900];
 const MAX_503_RETRIES = 3;
@@ -157,12 +161,22 @@ export class PosApiService {
     return draft.key;
   }
 
+  private withTimeout(config: any = {}): any {
+    return { timeout: DEFAULT_TIMEOUT_MS, ...config };
+  }
+
   // ---- bootstrap / actor ----
   public syncActor(actor?: ActorInput | null): void {
     if (!actor || !actor.name) return;
     const actorBranchId = actor.branch?.id || actor.branch_id || 0;
     const isNewUser = this.cashier && actor.id != null && this.cashier.id !== actor.id;
     const isNewBranch = this.branch && actorBranchId > 0 && this.branch.id !== actorBranchId;
+
+    if (isNewUser) {
+      clearReceiptArchive();
+      clearPendingSaleStorage();
+      clearPersistedCarts();
+    }
 
     if (isNewUser || isNewBranch) {
       this.currentShift = null;
@@ -208,7 +222,7 @@ export class PosApiService {
   }
 
   private async fetchBootstrap(): Promise<void> {
-    const r = await this.call(() => this.http.get(EP.BOOTSTRAP));
+    const r = await this.call(() => this.http.get(EP.BOOTSTRAP, this.withTimeout()));
     const d = r.data.data;
     this.syncActor({ ...d.user, branch: d.branch });
     this.branch = { id: d.branch.id, name: d.branch.name, code: d.branch.code, is_active: true };
@@ -255,7 +269,7 @@ export class PosApiService {
 
   public async getTreasuries(): Promise<Treasury[]> {
     if (!this.drawers) {
-      const r = await this.call(() => this.http.get(EP.TREASURIES_AVAILABLE));
+      const r = await this.call(() => this.http.get(EP.TREASURIES_AVAILABLE, this.withTimeout()));
       this.drawers = this.mapDrawers(r.data.data);
     }
     return this.drawers.map((t) => ({ ...t }));
@@ -263,7 +277,7 @@ export class PosApiService {
 
   public async getCurrentShift(): Promise<PosShift | null> {
     if (!this.shiftLoaded) {
-      const r = await this.call(() => this.http.get(EP.SHIFTS_CURRENT));
+      const r = await this.call(() => this.http.get(EP.SHIFTS_CURRENT, this.withTimeout()));
       this.currentShift = r.data.data ? mapShift(r.data.data) : null;
       this.shiftLoaded = true;
     }
@@ -274,7 +288,7 @@ export class PosApiService {
     // F-10: stable key per payload so a retried open replays the same shift.
     const body = { treasury_id: treasuryId, opening_cash: openingCash };
     const key = this.idemKey('shift-open', body);
-    const r = await this.call(() => this.http.post(EP.SHIFTS_OPEN, body, { headers: { 'Idempotency-Key': key } }));
+    const r = await this.call(() => this.http.post(EP.SHIFTS_OPEN, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })));
     this.idemDrafts.delete('shift-open');
     this.currentShift = mapShift(r.data.data);
     this.shiftLoaded = true;
@@ -291,7 +305,7 @@ export class PosApiService {
     const body = { actual_closing_cash: actualClosingCash, notes: notes || null };
     const key = this.idemKey('shift-close', body);
     const r = await this.call(() =>
-      this.http.post(EP.SHIFTS_CLOSE, body, { headers: { 'Idempotency-Key': key } }),
+      this.http.post(EP.SHIFTS_CLOSE, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
     );
     this.idemDrafts.delete('shift-close');
     const closed = mapShift(r.data.data);
@@ -302,17 +316,39 @@ export class PosApiService {
     return closed;
   }
 
+  public async recordExpense(amount: number, category: string, notes?: string, idempotencyKey?: string): Promise<any> {
+    const body = {
+      amount,
+      category,
+      notes: notes || null,
+    };
+    const key = idempotencyKey || this.idemKey('expense', body);
+    const r = await this.call(() =>
+      this.http.post(
+        EP.SALES_EXPENSES,
+        body,
+        this.withTimeout({ headers: { 'Idempotency-Key': key } }),
+      ),
+    );
+    this.idemDrafts.delete('expense');
+    await this.refreshShift();
+    return r.data;
+  }
+
   public async getShiftStats(): Promise<ShiftStats> {
-    const r = await this.call(() => this.http.get(EP.SHIFT_SUMMARY));
+    const r = await this.call(() => this.http.get(EP.SHIFT_SUMMARY, this.withTimeout()));
     const s = r.data.data;
     if (this.currentShift) this.currentShift = mapShift(s);
     // Blind cashiers get no cash fields from the server: default to 0, never NaN.
+    const canViewExpected = s.expected_closing_cash != null;
     return {
       cashSales: Number(s.cash_sales_total ?? 0),
       cardSales: Number(s.card_sales_total ?? 0),
       returns: Number(s.cash_returns_total ?? 0),
       expenses: Number(s.cash_expenses_total ?? 0),
       invoices: Number(s.invoices_count ?? 0),
+      expected_closing_cash: canViewExpected ? Number(s.expected_closing_cash) : undefined,
+      canViewExpected,
     };
   }
 
@@ -352,13 +388,16 @@ export class PosApiService {
 
   private async fetchCatalog(): Promise<void> {
     const generation = this.catalogActorGeneration;
-    try {
-      await this.fetchCatalogPages(generation);
-    } catch (error) {
-      if (generation !== this.catalogActorGeneration) return;
-      if (normalizeError(error).status !== 412) throw error;
-      this.catalogEtag = null;
-      await this.fetchCatalogPages(generation);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.fetchCatalogPages(generation);
+        return;
+      } catch (error) {
+        if (generation !== this.catalogActorGeneration) return;
+        if (normalizeError(error).status !== 412 || attempt === 3) throw error;
+        this.catalogEtag = null;
+        await this.sleep(100 + Math.random() * 150);
+      }
     }
   }
 
@@ -366,7 +405,7 @@ export class PosApiService {
     const headers: Record<string, string> = {};
     if (this.catalogEtag) headers['If-None-Match'] = this.catalogEtag;
     const first = await this.call(() =>
-      this.http.get(EP.CATALOG, { headers, validateStatus: (s: number) => (s >= 200 && s < 300) || s === 304 }),
+      this.http.get(EP.CATALOG, this.withTimeout({ headers, validateStatus: (s: number) => (s >= 200 && s < 300) || s === 304 })),
     );
     if (generation !== this.catalogActorGeneration) return;
     if (first.status === 304) {
@@ -375,9 +414,10 @@ export class PosApiService {
     }
     const items: any[] = [...first.data.data];
     const version = first.data.meta?.catalog_version;
+    const paginationVersion = first.data.meta?.pagination_version ?? version;
     let cursor: string | null = first.data.meta?.next_cursor ?? null;
     while (cursor) {
-      const next = await this.call(() => this.http.get(EP.CATALOG, { params: { cursor, catalog_version: version } }));
+      const next = await this.call(() => this.http.get(EP.CATALOG, this.withTimeout({ params: { cursor, catalog_version: paginationVersion } })));
       if (generation !== this.catalogActorGeneration) return;
       items.push(...next.data.data);
       cursor = next.data.meta?.next_cursor ?? null;
@@ -394,9 +434,9 @@ export class PosApiService {
   }
 
   public async getStockPage(query: string, low: boolean, page: number): Promise<{ rows: PosStockRow[]; lastPage: number }> {
-    const response = await this.call(() => this.http.get(EP.STOCK, {
+    const response = await this.call(() => this.http.get(EP.STOCK, this.withTimeout({
       params: { q: query || undefined, low_stock: low ? 1 : 0, page, per_page: 20 },
-    }));
+    })));
     return { rows: response.data.data, lastPage: response.data.meta.last_page };
   }
 
@@ -419,7 +459,7 @@ export class PosApiService {
     if (!key) return null;
     const local = this.byCode.get(key);
     if (local) return local;
-    const r = await this.call(() => this.http.get(EP.PRODUCTS_LOOKUP, { params: { barcode: key } }));
+    const r = await this.call(() => this.http.get(EP.PRODUCTS_LOOKUP, this.withTimeout({ params: { barcode: key } })));
     const hit = r.data.data?.[0];
     if (!hit) return null;
     const p = mapProduct(hit);
@@ -429,12 +469,12 @@ export class PosApiService {
 
   // ---- customers ----
   public async getCustomers(query = '', signal?: AbortSignal): Promise<Customer[]> {
-    const r = await this.call(() => this.http.get(EP.CUSTOMERS, { params: { q: query.trim() }, signal }));
+    const r = await this.call(() => this.http.get(EP.CUSTOMERS, this.withTimeout({ params: { q: query.trim() }, signal })));
     return r.data.data.map(mapCustomer);
   }
 
   public async createQuickCustomer(data: { name: string; phone: string; tier: 'retail' | 'wholesale' }): Promise<Customer> {
-    const r = await this.call(() => this.http.post(EP.CUSTOMERS, { name: data.name, phone: data.phone, type: data.tier }));
+    const r = await this.call(() => this.http.post(EP.CUSTOMERS, { name: data.name, phone: data.phone, type: data.tier }, this.withTimeout()));
     this.notify();
     return mapCustomer(r.data.data);
   }
@@ -451,7 +491,7 @@ export class PosApiService {
       customer_id: req.customer_id ?? null,
       ...(req.override_price ? { override_price: true } : {}),
     };
-    const r = await this.call(() => this.http.post(EP.SALES_QUOTE, body, { signal }));
+    const r = await this.call(() => this.http.post(EP.SALES_QUOTE, body, this.withTimeout({ signal })));
     return mapQuote(r.data.data);
   }
 
@@ -517,7 +557,7 @@ export class PosApiService {
 
   // ---- held sales ----
   public async getHeldSales(): Promise<PosHeldSale[]> {
-    const r = await this.call(() => this.http.get(EP.SALES_HELD));
+    const r = await this.call(() => this.http.get(EP.SALES_HELD, this.withTimeout()));
     this.held = r.data.data.map(mapHeld);
     this.heldCount = this.held.length;
     return [...this.held];
@@ -553,7 +593,7 @@ export class PosApiService {
     };
     const key = this.idemKey('hold', body);
     const r = await this.call(() =>
-      this.http.post(EP.SALES_HOLD, body, { headers: { 'Idempotency-Key': key } }),
+      this.http.post(EP.SALES_HOLD, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
     );
     this.idemDrafts.delete('hold');
     const h = mapHeld(r.data.data);
@@ -568,7 +608,7 @@ export class PosApiService {
     const id = this.heldId(ref);
     const key = this.idemKey(`resume:${id}`, { id });
     const r = await this.call(() =>
-      this.http.post(EP.SALE_HELD_RESUME(id), undefined, { headers: { 'Idempotency-Key': key } }),
+      this.http.post(EP.SALE_HELD_RESUME(id), undefined, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
     );
     this.idemDrafts.delete(`resume:${id}`);
     // F-04: keep the row in the local drawer while the 5-minute server lease
@@ -593,7 +633,7 @@ export class PosApiService {
 
   public async deleteHeldSale(ref: string): Promise<void> {
     const id = this.heldId(ref);
-    await this.call(() => this.http.delete(EP.SALE_HELD_DELETE(id)));
+    await this.call(() => this.http.delete(EP.SALE_HELD_DELETE(id), this.withTimeout()));
     this.held = this.held.filter((h) => h.ref !== ref);
     this.heldCount = this.held.length;
     this.notify();
@@ -602,7 +642,7 @@ export class PosApiService {
   // ---- returns & exchange ----
   public async getPastSale(num: string): Promise<PastSale | null> {
     try {
-      const r = await this.call(() => this.http.get(EP.SALES_LOOKUP, { params: { number: num.trim() } }));
+      const r = await this.call(() => this.http.get(EP.SALES_LOOKUP, this.withTimeout({ params: { number: num.trim() } })));
       return mapPastSale(r.data.data);
     } catch (e) {
       if (e instanceof PosApiError && e.status === 404) return null;
@@ -635,7 +675,7 @@ export class PosApiService {
     const body = { items: this.groupReturnLines(items) };
     const key = this.idemKey(`return:${saleId}`, body);
     const r = await this.call(() =>
-      this.http.post(EP.SALE_RETURN(saleId), body, { headers: { 'Idempotency-Key': key } }),
+      this.http.post(EP.SALE_RETURN(saleId), body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
     );
     this.idemDrafts.delete(`return:${saleId}`);
     this.restock(items);
@@ -687,7 +727,7 @@ export class PosApiService {
     };
     const key = this.idemKey(`exchange:${saleId}`, body);
     const r = await this.call(() =>
-      this.http.post(EP.SALE_EXCHANGE(saleId), body, { headers: { 'Idempotency-Key': key } }),
+      this.http.post(EP.SALE_EXCHANGE(saleId), body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
     );
     this.idemDrafts.delete(`exchange:${saleId}`);
     this.restock(returnItems);
@@ -702,7 +742,7 @@ export class PosApiService {
 
   // ---- transfers ----
   public async getTransfersIn(): Promise<StockTransfer[]> {
-    const r = await this.call(() => this.http.get(EP.TRANSFERS_INCOMING));
+    const r = await this.call(() => this.http.get(EP.TRANSFERS_INCOMING, this.withTimeout()));
     this.transfersIn = r.data.data.map(mapTransfer);
     return this.transfersIn.map((t) => ({ ...t }));
   }
@@ -715,7 +755,7 @@ export class PosApiService {
     const body = { items, expected_version: t.version };
     const key = this.idemKey(`receive:${transferId}`, body);
     await this.call(() =>
-      this.http.post(EP.TRANSFER_RECEIVE(transferId), body, { headers: { 'Idempotency-Key': key } }),
+      this.http.post(EP.TRANSFER_RECEIVE(transferId), body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
     );
     this.idemDrafts.delete(`receive:${transferId}`);
     this.transfersIn = this.transfersIn.filter((x) => x.id !== transferId);
@@ -724,7 +764,7 @@ export class PosApiService {
   }
 
   public async getTransferSources(): Promise<TransferSource[]> {
-    const r = await this.call(() => this.http.get(EP.TRANSFER_SOURCES));
+    const r = await this.call(() => this.http.get(EP.TRANSFER_SOURCES, this.withTimeout()));
     return r.data.data.map(mapTransferSource);
   }
 
@@ -735,7 +775,7 @@ export class PosApiService {
       notes: notes ?? null,
     };
     const key = this.idemKey('transfer', body);
-    const r = await this.call(() => this.http.post(EP.TRANSFER_REQUESTS, body, { headers: { 'Idempotency-Key': key } }));
+    const r = await this.call(() => this.http.post(EP.TRANSFER_REQUESTS, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })));
     this.idemDrafts.delete('transfer');
     this.notify();
     return r.data.data?.transfer_number ?? '';
@@ -744,7 +784,7 @@ export class PosApiService {
   // ---- stocktake ----
   /** No open session is reported as `session.id === 0` (screens render "لا توجد جلسة جرد مفتوحة"). */
   public async getStocktakeSession(): Promise<{ session: StocktakeSession; scope: PosProduct[] }> {
-    const r = await this.call(() => this.http.get(EP.STOCKTAKES_CURRENT));
+    const r = await this.call(() => this.http.get(EP.STOCKTAKES_CURRENT, this.withTimeout()));
     const d = r.data.data;
     if (!d) {
       this.stocktakeId = null;
@@ -825,7 +865,7 @@ export class PosApiService {
         barcode,
         scan_id: scanId,
         ...(via === 'voice' && words ? { qty_words: words } : { qty }),
-      }),
+      }, this.withTimeout()),
     );
     const payload = r.data?.data ?? r.data ?? {};
     const duplicate = Boolean(r.data?.duplicate ?? r.data?.data?.duplicate);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt } from '../ui/SharedUI';
 import { ReceiveTab } from './ReceiveTab';
@@ -12,25 +12,59 @@ interface TransfersPageProps {
   branch?: Branch | null;
 }
 
+// Responses update a service cache shared by all mounts of this page.
+let incomingLoad = Promise.resolve();
+
 export function TransfersPage({ toast, branch }: TransfersPageProps) {
   const [tab, setTab] = useState<'receive' | 'request'>('receive');
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const toastRef = useRef(toast);
+  const receivedIds = useRef(new Set<number>());
 
-  const loadTransfers = () => {
-    pos.getTransfersIn()
-      .then(setTransfers)
-      .catch((err) => {
-        if (!isCancel(err)) {
-          toast(normalizeError(err).message, 'bad');
-        }
-      });
-  };
+  useEffect(() => { toastRef.current = toast; }, [toast]);
 
   useEffect(() => {
-    loadTransfers();
-    const unsub = pos.subscribe(loadTransfers);
-    return unsub;
-  }, []);
+    let active = true;
+    let loading = false;
+    let refreshQueued = false;
+
+    const loadTransfers = async () => {
+      if (loading) {
+        refreshQueued = true;
+        return;
+      }
+      loading = true;
+      do {
+        refreshQueued = false;
+        try {
+          const pending = incomingLoad.then(() => active ? pos.getTransfersIn() : undefined);
+          incomingLoad = pending.then(() => undefined, () => undefined);
+          const list = await pending;
+          if (list && active && !refreshQueued) {
+            setTransfers(list.filter((transfer) => !receivedIds.current.has(transfer.id)));
+          }
+        } catch (err) {
+          if (active && !refreshQueued && !isCancel(err)) {
+            toastRef.current(normalizeError(err).message, 'bad');
+          }
+        }
+      } while (active && refreshQueued);
+      loading = false;
+    };
+
+    setTransfers([]);
+    void loadTransfers();
+    const unsubscribe = pos.subscribe(loadTransfers);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [branch?.id]);
+
+  const removeReceived = (id: number) => {
+    receivedIds.current.add(id);
+    setTransfers((list) => list.filter((transfer) => transfer.id !== id));
+  };
 
   return (
     <div className="page" data-screen-label="09 Transfers">
@@ -62,9 +96,9 @@ export function TransfersPage({ toast, branch }: TransfersPageProps) {
           </button>
         </div>
         {tab === 'receive' ? (
-          <ReceiveTab toast={toast} />
+          <ReceiveTab key={branch?.id} toast={toast} list={transfers} onReceived={removeReceived} />
         ) : (
-          <RequestTab toast={toast} branch={branch} />
+          <RequestTab key={branch?.id} toast={toast} branch={branch} />
         )}
       </div>
     </div>

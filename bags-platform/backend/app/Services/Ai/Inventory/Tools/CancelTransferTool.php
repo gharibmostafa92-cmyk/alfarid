@@ -33,7 +33,7 @@ final class CancelTransferTool extends TransferToolBase implements AgentTool, Wr
 
     public function permissions(): array
     {
-        return ['transfers.update'];
+        return ['transfers.update', 'transfers.approve'];
     }
 
     public function declaration(): array
@@ -74,6 +74,12 @@ final class CancelTransferTool extends TransferToolBase implements AgentTool, Wr
                 "التحويل {$transfer->transfer_number} مش قابل للإلغاء في حالته الحالية ({$transfer->status->value}).",
                 auditable: false,
             );
+        }
+        if ($transfer->status === TransferStatus::Draft && ! $actor->can('transfers.update')) {
+            return ToolOutcome::denied('إلغاء تحويل المسودة يتطلب صلاحية تعديل التحويلات.', auditable: false);
+        }
+        if ($transfer->status === TransferStatus::Approved && ! $actor->can('transfers.approve')) {
+            return ToolOutcome::denied('إلغاء التحويل المعتمد وفك الحجز يتطلب صلاحية اعتماد التحويلات.', auditable: false);
         }
 
         return $this->proposals->make(

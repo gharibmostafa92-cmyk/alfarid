@@ -84,7 +84,7 @@ class FinanceBriefingTest extends TestCase
         ]);
         app(ExpenseService::class)->create([
             'branch_id' => $branch->id, 'treasury_id' => $safe->id, 'category' => 'كهرباء',
-            'amount' => '150.00', 'expense_date' => now()->toDateString(),
+            'amount' => '150.00', 'expense_date' => now(config('app.business_timezone'))->toDateString(),
         ], $admin, 'brief-1-'.Str::uuid()->toString());
         app(TreasuryService::class)->createTransfer([
             'from_treasury_id' => $drawer->id, 'to_treasury_id' => $safe->id, 'amount' => '500.00',

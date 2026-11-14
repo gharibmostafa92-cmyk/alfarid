@@ -306,10 +306,11 @@ class OrderService
                 'grand_total' => $grandTotal,
             ]);
 
-            // Distribute tax and coupon discounts across line items using the largest remainder method.
+            // Distribute tax and effective coupon discounts across line items using the largest remainder method.
+            $effectiveCouponDiscount = max(0.0, round($discountAmount - $pricingDiscount, 2));
             $weights = array_map(fn (array $line): float => (float) $line['line_total'], $lines);
             $taxShares = ProportionalDistribution::distribute($taxAmount, $weights);
-            $couponShares = ProportionalDistribution::distribute($couponDiscount, $weights);
+            $couponShares = ProportionalDistribution::distribute($effectiveCouponDiscount, $weights);
             foreach ($lines as $i => $line) {
                 $order->items()->create([
                     'product_variant_id' => $line['variant']->id,
@@ -470,8 +471,15 @@ class OrderService
 
     private function expectedTotalChanged(array $data, float $actualTotal): bool
     {
-        return isset($data['expected_total']) && is_numeric($data['expected_total'])
-            && round((float) $data['expected_total'], 2) !== $actualTotal;
+        if (! isset($data['expected_total']) || ! is_numeric($data['expected_total'])) {
+            return false;
+        }
+        $expected = (float) $data['expected_total'];
+        if (! is_finite($expected)) {
+            return true;
+        }
+
+        return (int) round($expected * 100) !== (int) round($actualTotal * 100);
     }
 
     /**
@@ -558,6 +566,7 @@ class OrderService
                 $payment = CustomerWalletTransaction::query()->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id)
                     ->where('type', 'checkout_payment')->first();
                 if ($payment !== null) {
+                    Customer::query()->whereKey($payment->customer_id)->lockForUpdate()->first();
                     // Historical order credits predate the order_reversal type.
                     $alreadyRefunded = BigDecimal::of((string) CustomerWalletTransaction::query()
                         ->where('customer_id', $payment->customer_id)
@@ -685,8 +694,21 @@ class OrderService
             ], $level);
         }
 
+        $order->loadMissing('items');
+        $productByVariant = ProductVariant::withTrashed()
+            ->whereIn('id', $order->items->pluck('product_variant_id')->unique()->all())
+            ->pluck('product_id', 'id');
+        $salesByProduct = [];
         foreach ($order->items as $item) {
-            $item->variant?->product?->increment('sales_count', (int) round((float) $item->qty));
+            $productId = $productByVariant->get($item->product_variant_id);
+            $qty = (int) round((float) $item->qty);
+            if ($productId !== null && $qty > 0) {
+                $salesByProduct[(int) $productId] = ($salesByProduct[(int) $productId] ?? 0) + $qty;
+            }
+        }
+        ksort($salesByProduct);
+        foreach ($salesByProduct as $productId => $qty) {
+            Product::query()->whereKey($productId)->increment('sales_count', $qty);
         }
     }
 

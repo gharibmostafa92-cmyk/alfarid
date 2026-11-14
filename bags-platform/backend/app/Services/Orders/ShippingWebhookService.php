@@ -347,7 +347,7 @@ class ShippingWebhookService
     private function alreadyProcessed(string $provider, WebhookLog $current): bool
     {
         return WebhookLog::query()
-            ->whereRaw('lower(provider) = ?', [$provider])
+            ->where('provider', $provider)
             ->where('event_id', $current->event_id)
             ->where('id', '!=', $current->id)
             ->where('status', 'processed')

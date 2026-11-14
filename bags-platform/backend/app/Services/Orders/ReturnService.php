@@ -28,7 +28,10 @@ use App\Services\Inventory\InventoryService;
 use App\Services\Pos\TreasuryService;
 use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\PrivateAttachments;
+use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Support\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
@@ -68,6 +71,10 @@ class ReturnService
         if ($data['items'] === []) {
             throw new BusinessException('طلب الإرجاع يجب أن يتضمن بندًا واحدًا على الأقل.');
         }
+        // Lightweight pre-flight check before uploading attachments to R2.
+        $preflightOrder = Order::query()->findOrFail($order->id);
+        $this->assertOrderEligibleForReturn($preflightOrder, $customer);
+
         $uploads = [];
         foreach ($data['items'] as $item) {
             foreach ($item['attachments'] ?? [] as $file) {
@@ -78,18 +85,7 @@ class ReturnService
             // Lock order row to serialize concurrent return requests against line item quantities.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
-            if ($customer !== null && (int) $order->customer_id !== (int) $customer->id) {
-                throw new BusinessException('هذا الطلب لا يخص حسابك.', [], 403);
-            }
-
-            if ($order->status !== OrderStatus::Delivered) {
-                throw new BusinessException('لا يمكن إنشاء طلب إرجاع إلا لطلب تم تسليمه فعليًا.');
-            }
-            if ($order->channel === 'pos') {
-                throw new BusinessException('مرتجعات نقطة البيع تُنفَّذ من مسار POS لمنع تكرار الرد بين مسارين.');
-            }
-
-            $this->assertWithinReturnWindow($order);
+            $this->assertOrderEligibleForReturn($order, $customer);
 
             // Aggregate duplicate return lines for the same order item before validating ceilings.
             $lines = [];
@@ -323,9 +319,10 @@ class ReturnService
                 $netCents = $this->netLineRefundCents($orderItem);
                 $cumulativeQty = $previousQty + $receivedTotal;
                 $orderItem->update(['returned_qty' => $cumulativeQty]);
-                $targetCents = $cumulativeQty >= (float) $orderItem->qty
+                $orderQty = (float) $orderItem->qty;
+                $targetCents = ($orderQty <= 0 || $cumulativeQty >= $orderQty)
                     ? $netCents
-                    : min($netCents, (int) round($cumulativeQty * (float) $item->unit_refund_price * 100));
+                    : min($netCents, (int) round($netCents * ($cumulativeQty / $orderQty)));
                 $refundAmount = max(0, $targetCents - (int) round($previousRefunded * 100)) / 100;
                 $item->update([
                     'refund_amount' => $refundAmount,
@@ -379,14 +376,15 @@ class ReturnService
             if ($method === RefundMethod::OriginalPayment->value && $order->payment_method === 'cod') {
                 throw new BusinessException('طلب الدفع عند الاستلام لا يُرد إلى بوابة الدفع.');
             }
+            $confirmed = (int) round((float) $order->gateway_refunded_amount * 100);
+            $used = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)
+                ->where('refund_method', RefundMethod::OriginalPayment)->sum('total_refund_amount') * 100);
+            $unallocatedGatewayCents = max(0, $confirmed - $used);
             if ($method === RefundMethod::OriginalPayment->value) {
-                $confirmed = (int) round((float) $order->gateway_refunded_amount * 100);
-                $used = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)
-                    ->where('refund_method', RefundMethod::OriginalPayment)->sum('total_refund_amount') * 100);
-                if ($confirmed <= 0 || $confirmed - $used < (int) round((float) $return->total_refund_amount * 100)) {
+                if ($confirmed <= 0 || $unallocatedGatewayCents < (int) round((float) $return->total_refund_amount * 100)) {
                     throw new BusinessException('سجّل الاسترداد في بوابة الدفع وانتظر تأكيدها قبل إقفال المرتجع.');
                 }
-            } elseif ((float) $order->gateway_refunded_amount > 0) {
+            } elseif ($unallocatedGatewayCents > 0) {
                 throw new BusinessException('يوجد استرداد مؤكد في بوابة الدفع؛ اختر طريقة الدفع الأصلية لتوثيقه.');
             }
             $reference = $reference !== null ? trim((string) $reference) : $reference;
@@ -458,6 +456,7 @@ class ReturnService
     public function delete(ReturnRequest $return): void
     {
         DB::transaction(function () use ($return): void {
+            Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Pending) {
                 throw new BusinessException('يمكن حذف المرتجعات قيد المراجعة فقط؛ استخدم الإلغاء للحالات الأخرى.');
@@ -480,6 +479,7 @@ class ReturnService
     public function reject(ReturnRequest $return, User $admin, ?string $notes = null): ReturnRequest
     {
         return DB::transaction(function () use ($return, $admin, $notes): ReturnRequest {
+            Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Pending) {
                 throw new BusinessException('لا يمكن رفض طلب مرتجع إلا وهو قيد المراجعة.');
@@ -501,6 +501,7 @@ class ReturnService
     public function cancel(ReturnRequest $return, ?string $notes = null, ?User $admin = null): ReturnRequest
     {
         return DB::transaction(function () use ($return, $notes, $admin): ReturnRequest {
+            Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if (! in_array($return->status, [ReturnStatus::Pending, ReturnStatus::Approved], true)) {
                 throw new BusinessException('لا يمكن إلغاء مرتجع بعد استلامه.');
@@ -535,6 +536,7 @@ class ReturnService
         }
 
         return DB::transaction(function () use ($return, $data): ReturnRequest {
+            Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if (! in_array($return->status, [ReturnStatus::Pending, ReturnStatus::Approved, ReturnStatus::Received], true)
                 && array_key_exists('refund_method', $data)) {
@@ -554,6 +556,22 @@ class ReturnService
 
             return $return->fresh(['items']);
         });
+    }
+
+    private function assertOrderEligibleForReturn(Order $order, ?Customer $customer): void
+    {
+        if ($customer !== null && (int) $order->customer_id !== (int) $customer->id) {
+            throw new BusinessException('هذا الطلب لا يخص حسابك.', [], 403);
+        }
+
+        if ($order->status !== OrderStatus::Delivered) {
+            throw new BusinessException('لا يمكن إنشاء طلب إرجاع إلا لطلب تم تسليمه فعليًا.');
+        }
+        if ($order->channel === 'pos') {
+            throw new BusinessException('مرتجعات نقطة البيع تُنفَّذ من مسار POS لمنع تكرار الرد بين مسارين.');
+        }
+
+        $this->assertWithinReturnWindow($order);
     }
 
     /**
@@ -577,7 +595,9 @@ class ReturnService
             throw new BusinessException('لا يوجد سجل تسليم موثوق لحساب فترة الاسترجاع.');
         }
 
-        if (Carbon::parse($deliveredAt)->addDays($windowDays)->isPast()) {
+        $timezone = config('app.business_timezone');
+        $tz = is_string($timezone) && $timezone !== '' ? $timezone : 'UTC';
+        if (Carbon::parse($deliveredAt)->timezone($tz)->addDays($windowDays)->endOfDay()->isPast()) {
             throw new BusinessException("انتهت فترة الاسترجاع المسموحة ({$windowDays} يومًا من التسليم) لهذا الطلب.");
         }
     }
@@ -601,16 +621,51 @@ class ReturnService
     private function netLineRefundCents(OrderItem $orderItem): int
     {
         if ($orderItem->coupon_discount_amount !== null) {
-            $net = (float) $orderItem->line_total
-                - (float) $orderItem->coupon_discount_amount
-                + (float) $orderItem->tax_amount;
-        } else {
-            $net = (float) $orderItem->unit_price * (float) $orderItem->qty
-                - (float) $orderItem->discount_amount
-                + (float) $orderItem->tax_amount;
+            $net = BigDecimal::of((string) $orderItem->line_total)
+                ->minus((string) $orderItem->coupon_discount_amount)
+                ->plus((string) $orderItem->tax_amount);
+            $cents = $net->multipliedBy('100')->toScale(0, RoundingMode::HalfUp)->toInt();
+
+            return max(0, $cents);
         }
 
-        return (int) round(max(0.0, $net) * 100);
+        $order = $orderItem->order;
+        $usesUnitPriceAsEffective = abs((float) $orderItem->line_total - ((float) $orderItem->unit_price * (float) $orderItem->qty)) < 0.01;
+        $itemMerchandise = $usesUnitPriceAsEffective
+            ? BigDecimal::of((string) $orderItem->line_total)
+            : BigDecimal::of((string) $orderItem->unit_price)
+                ->multipliedBy((string) $orderItem->qty)
+                ->minus((string) $orderItem->discount_amount);
+
+        if ($order !== null && (float) $order->discount_amount > 0) {
+            $orderItems = $order->items()->orderBy('id')->get();
+            if ($orderItems->isNotEmpty()) {
+                $pricingDiscountSum = $orderItems->sum(
+                    fn (OrderItem $i): float => abs((float) $i->line_total - ((float) $i->unit_price * (float) $i->qty)) < 0.01
+                        ? (float) $i->discount_amount
+                        : 0.0
+                );
+                $couponToDistribute = max(0.0, round((float) $order->discount_amount - $pricingDiscountSum, 2));
+                if ($couponToDistribute > 0) {
+                    $weights = $orderItems->map(
+                        fn (OrderItem $i): float => max(0.0, (float) $i->line_total)
+                    )->all();
+                    $discountShares = ProportionalDistribution::distribute(
+                        min($couponToDistribute, array_sum($weights)),
+                        $weights
+                    );
+                    $index = $orderItems->search(fn (OrderItem $i): bool => (int) $i->id === (int) $orderItem->id);
+                    if ($index !== false) {
+                        $itemMerchandise = $itemMerchandise->minus((string) $discountShares[$index]);
+                    }
+                }
+            }
+        }
+
+        $net = $itemMerchandise->plus((string) $orderItem->tax_amount);
+        $cents = $net->multipliedBy('100')->toScale(0, RoundingMode::HalfUp)->toInt();
+
+        return max(0, $cents);
     }
 
     /**
@@ -618,15 +673,23 @@ class ReturnService
      */
     private function syncOrderPaymentStatusAfterRefund(Order $order): void
     {
-        if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)
-            || (float) $order->gateway_refunded_amount > 0) {
+        if (! in_array($order->payment_status, ['paid', 'partially_refunded'], true)) {
             return;
         }
-        $refundedCents = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)->sum('total_refund_amount') * 100);
+        $confirmedGatewayCents = (int) round((float) $order->gateway_refunded_amount * 100);
+        $usedGatewayCents = (int) round((float) $order->returnRequests()
+            ->where('status', ReturnStatus::Refunded)
+            ->where('refund_method', RefundMethod::OriginalPayment)
+            ->sum('total_refund_amount') * 100);
+        $unallocatedGatewayCents = max(0, $confirmedGatewayCents - $usedGatewayCents);
+        $refundedReturnsCents = (int) round((float) $order->returnRequests()
+            ->where('status', ReturnStatus::Refunded)
+            ->sum('total_refund_amount') * 100);
+        $totalRefundedCents = $unallocatedGatewayCents + $refundedReturnsCents;
         $refundableCents = (int) $order->items()->get()->sum(fn (OrderItem $item): int => $this->netLineRefundCents($item));
-        if ($refundableCents > 0 && $refundedCents >= $refundableCents) {
+        if ($refundableCents > 0 && $totalRefundedCents >= $refundableCents) {
             $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
-        } elseif ($refundedCents > 0) {
+        } elseif ($totalRefundedCents > 0) {
             $order->update(['payment_status' => 'partially_refunded']);
         }
     }

@@ -242,12 +242,22 @@ class Task6BackendFixesTest extends PosScenarioFixture
             ->assertOk()
             ->assertJsonPath('data.hold_reference', $held['hold_reference']);
 
-        // Active lease protects against concurrent duplicate resume (409) without losing the parked row.
+        // Active lease protects against concurrent duplicate resume (409) from another cashier without losing the parked row.
         $this->assertDatabaseHas('pos_held_sales', [
             'id' => $held['id'],
             'resumed_by' => $this->cashier->id,
         ]);
-        $this->as($token)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [])
+        $drawer2 = Treasury::create([
+            'name' => 'Drawer 2',
+            'code' => 'DRW-02-'.\Illuminate\Support\Str::random(4),
+            'branch_id' => $this->branch->id,
+            'type' => TreasuryType::PosDrawer,
+            'current_balance' => 0,
+            'is_active' => true,
+        ]);
+        $otherCashier = $this->makeCashier('other-held@example.com', $this->branch->id, ['pos.access', 'pos.sales.create', 'pos.held.view_all']);
+        $otherToken = $this->openShift($otherCashier, $drawer2, 0.0);
+        $this->as($otherToken)->postJson("/api/v1/pos/sales/held/{$held['id']}/resume", [])
             ->assertStatus(409);
 
         // Checking out with held_sale_id deletes the held row atomically.
@@ -470,7 +480,7 @@ class Task6BackendFixesTest extends PosScenarioFixture
             ->assertOk();
     }
 
-    public function test_f6_catalog_version_stable_sensitive_and_cursor_pages_skip_compute(): void
+    public function test_f6_catalog_etag_tracks_stock_but_pagination_version_stays_stable(): void
     {
         $pos = app(PosService::class);
         $v1 = $pos->computeCatalogVersion($this->branch->id);
@@ -481,7 +491,7 @@ class Task6BackendFixesTest extends PosScenarioFixture
         $this->stockIn($this->branch->id, $this->variant, 1);
         $this->assertNotSame($v1, $pos->computeCatalogVersion($this->branch->id));
 
-        // First page carries the version + ETag; cursor pages skip the compute.
+        // The ETag includes stock, while the cursor version remains stable across sales.
         $token = $this->tokenFor($this->cashier);
         $first = $this->withToken($token)->getJson('/api/v1/pos/catalog')->assertOk();
         $this->assertNotEmpty($first->json('meta.catalog_version'));
@@ -491,8 +501,14 @@ class Task6BackendFixesTest extends PosScenarioFixture
         $cursor = ProductVariant::query()->orderBy('id')->cursorPaginate(1)->nextCursor()?->encode();
         $this->assertNotNull($cursor);
         $page = $this->withToken($token)->getJson('/api/v1/pos/catalog?cursor='.urlencode($cursor))->assertOk();
-        $this->assertSame('', $page->json('meta.catalog_version'));
+        $this->assertNotEmpty($page->json('meta.catalog_version'));
         $this->assertFalse($page->headers->has('ETag'));
+        $latest = $this->withToken($token)->getJson('/api/v1/pos/catalog')->assertOk();
+        $this->stockIn($this->branch->id, $this->variant, 1);
+        $this->withToken($token)->getJson('/api/v1/pos/catalog?'.http_build_query([
+            'cursor' => $cursor,
+            'catalog_version' => $latest->json('meta.pagination_version'),
+        ]))->assertOk();
         $this->stockIn($this->branch->id, $this->variant, 1);
         $this->withToken($token)->getJson('/api/v1/pos/catalog?'.http_build_query([
             'cursor' => $cursor,

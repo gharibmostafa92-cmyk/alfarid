@@ -69,7 +69,7 @@ class PosCriticalFixesTest extends TestCase
 
         $role = Role::findOrCreate('cashier', 'staff');
         $this->cashier->assignRole($role);
-        foreach (['pos.access', 'pos.sales.refund'] as $permission) {
+        foreach (['pos.access', 'pos.sales.create', 'pos.sales.refund'] as $permission) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
         }
 

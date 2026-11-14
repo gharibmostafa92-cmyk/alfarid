@@ -241,11 +241,8 @@ class TreasuryService
     public function record(array $data): TreasuryTransaction
     {
         return DB::transaction(function () use ($data): TreasuryTransaction {
-            /** @var Treasury $treasury */
-            $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
-            if ($treasury->branch_id !== null) {
-                $this->branchAccess->lockActiveBranch((int) $treasury->branch_id);
-            }
+            $treasury = $this->lockTreasuries([(int) $data['treasury_id']])->get((int) $data['treasury_id'])
+                ?? throw (new \Illuminate\Database\Eloquent\ModelNotFoundException)->setModel(Treasury::class, [$data['treasury_id']]);
 
             $type = $data['type'] instanceof TreasuryTransactionType
                 ? $data['type']
@@ -324,7 +321,6 @@ class TreasuryService
                 throw new BusinessException('يجب أن يعتمد تحويل الخزينة موظف آخر غير منشئه.');
             }
             $treasuries = $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
-            $this->branchAccess->lockActiveBranches($treasuries->pluck('branch_id')->filter());
             // A drawer bound to an open/pending shift must not receive or emit ad-hoc
             // transfers, otherwise drawer reconciliation would be silently corrupted.
             foreach ([$transfer->from_treasury_id, $transfer->to_treasury_id] as $treasuryId) {
@@ -370,6 +366,7 @@ class TreasuryService
     public function settleShiftToMainSafe(PosShift $shift, int $approverId): void
     {
         DB::transaction(function () use ($shift, $approverId): void {
+            $this->branchAccess->lockActiveBranch((int) $shift->branch_id);
             // The caller's model is stale by definition; re-read under lock so two
             // concurrent approvals cannot both settle the same drawer.
             $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
@@ -421,7 +418,6 @@ class TreasuryService
             if ($lockedSafe === null || ! $lockedSafe->is_active) {
                 throw new BusinessException('يلزم وجود خزنة رئيسية نشطة لاعتماد الوردية وتسوية رصيد الدرج.');
             }
-            $this->branchAccess->lockActiveBranches($locked->pluck('branch_id')->filter());
             // Settlement must not mix with a newer shift reusing the same drawer.
             $otherActiveShift = PosShift::query()
                 ->where('treasury_id', $shift->treasury_id)
@@ -519,7 +515,6 @@ class TreasuryService
                     ->isGreaterThan(self::MAX_TREASURY_BALANCE)) {
                 throw new BusinessException('رصيد الخزينة بعد اعتماد التحويلات المعلقة يتجاوز الحد المسموح.');
             }
-            $this->branchAccess->lockActiveBranches($treasuries->pluck('branch_id')->filter());
 
             $number = $this->settings->generateNextNumber('treasury_transfer');
 
@@ -607,10 +602,10 @@ class TreasuryService
             return;
         }
 
+        // The caller holds the treasury lock, which also guards new drawer bindings.
         $active = PosShift::query()
             ->where('treasury_id', $treasury->id)
             ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
-            ->lockForUpdate()
             ->exists();
 
         if ($active) {
@@ -653,7 +648,12 @@ class TreasuryService
      */
     public function lockTreasuries(array $ids, ?int $userId = null): Collection
     {
+        $branchIds = Treasury::query()->whereIn('id', $ids)->whereNotNull('branch_id')->pluck('branch_id')->unique();
+        $this->branchAccess->lockActiveBranches($branchIds);
         $treasuries = Treasury::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        if ($treasuries->pluck('branch_id')->filter()->diff($branchIds)->isNotEmpty()) {
+            throw new BusinessException('تغيّر فرع إحدى الخزائن؛ أعد المحاولة.', status: 409);
+        }
         if ($userId !== null) {
             foreach ($treasuries as $treasury) {
                 $this->branchAccess->assertTreasury($userId, $treasury);

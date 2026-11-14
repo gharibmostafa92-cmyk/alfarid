@@ -15,6 +15,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         $index = DB::selectOne("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('pos_shifts_single_open_unique') AND indrelid = 'pos_shifts'::regclass");
         if ($index?->indisvalid) {
             return;
@@ -30,6 +34,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS pos_shifts_single_open_unique');
     }
 };

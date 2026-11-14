@@ -27,6 +27,10 @@ class FinancialDatabaseIntegrityTest extends TestCase
         $treasury = Treasury::create(['name' => 'Bank', 'code' => 'BANK-LEDGER', 'type' => 'bank_account', 'is_active' => true]);
         $staff = User::factory()->create();
 
+        app(TreasuryService::class)->record([
+            'treasury_id' => $treasury->id, 'type' => TreasuryTransactionType::OpeningBalance,
+            'amount' => '100.00', 'created_by' => $staff->id,
+        ]);
         app(WalletService::class)->record($customer->id, 100, 'adjustment', 'test', 1);
         app(WalletService::class)->record($customer->id, -30, 'adjustment', 'test', 2);
         app(TreasuryService::class)->record([
@@ -48,11 +52,8 @@ class FinancialDatabaseIntegrityTest extends TestCase
             $customer->newQuery()->whereKey($customer->id)->update(['wallet_balance' => 80]);
         });
 
-        $this->assertCheckViolation('Stored treasury balance differs', function () use ($treasury, $staff): void {
-            DB::table('treasury_transactions')->insert([
-                'treasury_id' => $treasury->id, 'type' => 'customer_receipt',
-                'amount' => 5, 'balance_after' => -15, 'created_by' => $staff->id,
-            ]);
+        $this->assertCheckViolation('Stored treasury balance differs', function () use ($treasury): void {
+            DB::table('treasuries')->where('id', $treasury->id)->update(['current_balance' => 999]);
         });
     }
 

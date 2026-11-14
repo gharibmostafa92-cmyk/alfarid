@@ -113,9 +113,13 @@ final class DailyCloseBriefingTool implements AgentTool
 
         $transferQuery = fn () => TreasuryTransfer::query()
             ->where('created_at', '>=', $startUtc)->where('created_at', '<', $endUtc)
-            ->when($branchId !== null, fn ($q) => $q->where(fn ($w) => $w
-                ->whereHas('fromTreasury', fn ($t) => $t->where('branch_id', $branchId))
-                ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $branchId))));
+            ->when($branchId !== null, function ($q) use ($branchId) {
+                $branchTreasuryIds = Treasury::query()->where('branch_id', $branchId)->pluck('id');
+
+                return $q->where(fn ($w) => $w
+                    ->whereIn('from_treasury_id', $branchTreasuryIds)
+                    ->orWhereIn('to_treasury_id', $branchTreasuryIds));
+            });
         $transferCounts = $transferQuery()
             ->selectRaw('status, COUNT(*) AS c')
             ->groupBy('status')

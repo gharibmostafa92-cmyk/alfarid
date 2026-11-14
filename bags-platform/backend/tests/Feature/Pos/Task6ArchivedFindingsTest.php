@@ -159,7 +159,7 @@ class Task6ArchivedFindingsTest extends PosScenarioFixture
      */
     public function test_f03_hold_persists_manual_price_flag(): void
     {
-        $token = $this->tokenFor($this->cashier, ['pos.held.view_all']);
+        $token = $this->tokenFor($this->cashier, ['pos.held.view_all', 'pos.override_price']);
         $held = $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1, 'unit_price' => 620, 'manual_price' => true]],
         ], $this->idem())->assertCreated()->json('data');
@@ -175,7 +175,7 @@ class Task6ArchivedFindingsTest extends PosScenarioFixture
      */
     public function test_f10_open_shift_replay_returns_same_shift(): void
     {
-        $cashier = $this->makeCashier('replay-open@example.com', $this->branch->id, ['pos.access']);
+        $cashier = $this->makeCashier('replay-open@example.com', $this->branch->id, ['pos.access', 'pos.sales.create']);
         $token = $this->tokenFor($cashier);
         $drawer = \App\Models\Treasury::create([
             'name' => 'Replay Drawer', 'code' => 'DRW-RPL-'.\Illuminate\Support\Str::random(4),
@@ -289,11 +289,17 @@ class Task6ArchivedFindingsTest extends PosScenarioFixture
             ->assertOk()->json('data');
         $this->assertSame('closed_pending_approval', $first['status']);
 
-        // The shift is now closed: an identical retry must replay the summary.
-        $second = $this->withToken($token)->postJson('/api/v1/pos/shifts/close', $payload, $key)
-            ->assertOk()->json('data');
+        $supervisor = $this->makeCashier('approve-close-replay@example.com', $this->branch->id);
+        app(\App\Services\Pos\PosService::class)->approveShift(
+            \App\Models\PosShift::findOrFail($first['id']),
+            $supervisor,
+        );
+
+        $second = $this->withToken($token)->postJson('/api/v1/pos/shifts/close', [
+            'actual_closing_cash' => '0.00',
+        ], $key)->assertOk()->json('data');
         $this->assertSame($first['id'], $second['id']);
-        $this->assertSame('closed_pending_approval', $second['status']);
+        $this->assertSame('approved', $second['status']);
     }
 
     /**

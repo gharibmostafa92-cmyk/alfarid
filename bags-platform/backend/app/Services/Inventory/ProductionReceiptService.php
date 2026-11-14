@@ -13,6 +13,8 @@ use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\IdempotencyFingerprint;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -60,7 +62,6 @@ class ProductionReceiptService
                 // does not block foreign-key checks against these hot variant rows from other branches.
                 $variants = ProductVariant::whereIn('id', array_column($data['items'], 'product_variant_id'))
                     ->with('product:id,name_ar')->orderBy('id')->lock('for no key update')->get()->keyBy('id');
-                app(BranchAccess::class)->lockActiveBranch($branchId);
                 $locationId = $data['location_id'] ?? $this->inventory->receivingLocation($branchId);
 
                 $sortedItems = collect($data['items'])->sortBy('product_variant_id')->values()->all();
@@ -77,11 +78,6 @@ class ProductionReceiptService
                     ];
                 }
 
-                $receipt = ProductionReceipt::create([
-                    ...$data, 'location_id' => $locationId, 'items' => $itemsWithLabels, 'created_by' => $userId,
-                    'idempotency_key' => $key, 'request_hash' => $hash,
-                ]);
-
                 // Lock every receipt key once in global order and reuse the locked rows, so per-item
                 // movements do not open a nested transaction (SAVEPOINT) each.
                 $levels = $this->inventory->lockLevels(collect($sortedItems)->map(fn ($item) => [
@@ -90,15 +86,26 @@ class ProductionReceiptService
                     'location_id' => $locationId,
                 ])->all());
 
+                // Create the FK-bearing document only after stock rows and their branch/location
+                // scope are locked. This keeps the receipt path aligned with DeleteBranch and
+                // LocationController lock ordering.
+                $receipt = ProductionReceipt::create([
+                    ...$data, 'location_id' => $locationId, 'items' => $itemsWithLabels, 'created_by' => $userId,
+                    'idempotency_key' => $key, 'request_hash' => $hash,
+                ]);
+
                 foreach ($sortedItems as $item) {
                     $variant = $variants->get($item['product_variant_id']);
                     $quantity = (int) $item['quantity'];
-                    $unitCost = bcadd((string) $item['unit_cost'], '0', 4);
-                    // Use bcmath to prevent IEEE-754 precision loss and bias on high-value stock totals.
-                    // Lock variant stock levels to freeze company-wide balances during weighted cost calculation.
-                    $lockedLevelIds = StockLevel::where('product_variant_id', $variant->id)->orderBy('id')->lockForUpdate()->pluck('id');
-                    // Include in-transit stock in company inventory to avoid skewing average cost during pending transfers.
-                    $onHandStr = (string) StockLevel::whereIn('id', $lockedLevelIds)
+                    $unitCost = (string) BigDecimal::of((string) $item['unit_cost'])
+                        ->toScale(4, RoundingMode::HalfUp);
+                    // This transaction already holds FOR NO KEY UPDATE on the variant.
+                    // Every ledger writer takes FOR SHARE on that same row before a stock
+                    // level lock, so the company-wide balance is stable without taking a
+                    // second, differently ordered lock over every branch's stock rows.
+                    // Include in-transit stock in the WAC denominator and inventory value.
+                    $onHandStr = (string) StockLevel::query()
+                        ->where('product_variant_id', $variant->id)
                         ->sum(DB::raw('on_hand + in_transit'));
                     $average = InventoryService::calculateWeightedAverageCost($onHandStr, (string) $variant->cost_price, $quantity, $unitCost);
                     $variant->update(['cost_price' => $average, 'last_cost_price' => $unitCost]);
@@ -126,7 +133,8 @@ class ProductionReceiptService
             if ($existing) {
                 return $this->replay($existing, $hash);
             }
-            if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower($data['batch_number'])])->exists()) {
+            if (str_contains($exception->getMessage(), 'production_receipts_batch_lower_unique')
+                || str_contains($exception->getMessage(), 'production_receipts_batch_number_unique')) {
                 throw new BusinessException('رقم دفعة الإنتاج مسجل بالفعل؛ راجع سجل الاستلام.', [], 409);
             }
             throw $exception;

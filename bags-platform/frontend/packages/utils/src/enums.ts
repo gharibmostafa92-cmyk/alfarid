@@ -53,12 +53,14 @@ export const PaymentStatusLabelsAr: Record<string, string> = {
 export enum ShiftStatus {
   Open = 'open',
   Closed = 'closed',
+  ClosedPendingApproval = 'closed_pending_approval',
   Approved = 'approved',
 }
 
 export const ShiftStatusLabelsAr: Record<ShiftStatus, string> = {
   [ShiftStatus.Open]: 'مفتوحة',
   [ShiftStatus.Closed]: 'مغلقة',
+  [ShiftStatus.ClosedPendingApproval]: 'بانتظار الاعتماد',
   [ShiftStatus.Approved]: 'معتمدة',
 };
 

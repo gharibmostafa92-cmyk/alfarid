@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\RetryableConflict;
 use App\Http\Controllers\HealthReadyController;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureCustomerAuthenticated;
@@ -142,7 +143,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 // Carrier webhooks are idempotent and must be retried. A 409 would be treated as a final client error.
                 $status = $request->isMethodSafe() || $request->is('api/v1/webhooks/*') ? 503 : 409;
 
-                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], $status)->header('Retry-After', '1');
+                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.', 'code' => 'retryable_conflict'], $status)->header('Retry-After', '1');
             }
 
             // Return 409 instead of 500 when foreign key delete restrictions (23503) are violated by related records.
@@ -168,6 +169,16 @@ return Application::configure(basePath: dirname(__DIR__))
             if (($request->is('api/*') || $request->expectsJson())
                 && ! $e instanceof UniqueConstraintViolationException) {
                 return response()->json(['message' => 'تعذر حفظ البيانات بسبب خطأ داخلي؛ أعد المحاولة، وإذا استمرت المشكلة تواصل مع الدعم.'], 500);
+            }
+
+            return null;
+        });
+        $exceptions->render(function (RetryableConflict $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => $e->getMessage(),
+                    'code' => 'retryable_conflict',
+                ], $e->getStatusCode(), $e->getHeaders());
             }
 
             return null;

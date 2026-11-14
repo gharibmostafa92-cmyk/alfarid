@@ -81,7 +81,7 @@ class TaskTxtPosScenariosTest extends TestCase
 
         $role = Role::findOrCreate('cashier', 'staff');
         $this->cashier->assignRole($role);
-        foreach (['pos.access', 'pos.sales.refund', 'pos.discount'] as $permission) {
+        foreach (['pos.access', 'pos.sales.create', 'pos.sales.refund', 'pos.discount'] as $permission) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
         }
 
@@ -275,6 +275,7 @@ class TaskTxtPosScenariosTest extends TestCase
         ]);
         $noDiscount->assignRole(Role::findOrCreate('cashier', 'staff'));
         $noDiscount->givePermissionTo(Permission::findOrCreate('pos.access', 'staff'));
+        $noDiscount->givePermissionTo(Permission::findOrCreate('pos.sales.create', 'staff'));
         $noDiscountToken = $noDiscount->createToken('pos', ['pos'])->plainTextToken;
         \Illuminate\Support\Facades\Auth::forgetGuards();
         $this->withToken($noDiscountToken)->postJson('/api/v1/pos/shifts/open', [

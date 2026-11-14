@@ -100,7 +100,18 @@
                     "bags-platform/backend/database/migrations/2026_11_13_000001_remove_numbering_subtransactions.php",
                     "bags-platform/backend/database/migrations/2026_11_13_000002_sync_branch_city_names.php",
                     "bags-platform/backend/database/migrations/2026_11_13_000003_guard_production_receipt_location.php",
-                    "docs/TASKS_EXECUTION_CLOSEOUT.md"
+                    "docs/TASKS_EXECUTION_CLOSEOUT.md",
+                    "bags-platform/backend/app/Listeners/Inventory/SuggestTransferRedistribution.php",
+                    "bags-platform/backend/database/migrations/2026_10_26_000002_add_location_branch_composite_fks.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000003_pos_shifts_single_open_unique.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000061_guard_pos_tender_total.php",
+                    "docs/TASK_DEPLOYMENT_STATUS.md",
+                    "bags-platform/backend/database/migrations/2026_11_12_000097_align_orders_money_columns_precision.php",
+                    "bags-platform/backend/database/migrations/2026_11_14_000001_add_orders_pending_expiry_index.php",
+                    "bags-platform/backend/database/migrations/2026_11_14_000002_add_transfer_received_location.php",
+                    "docs/TASK3_INVENTORY_DEPLOYMENT_STATUS.md",
+                    "docs/TASK6_DEPLOYMENT_STATUS.md",
+                    "docs/architecture/**"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -225,7 +225,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 3. Orders, Returns & Refunds
-    if ($p -match 'returnservice|refund|returnrequest|/orders/|orderservice|paymob|orderitem|orderstatus|/models/order\.php|/models/orderitem\.php|operations/orders\.ts|checkoutreservation|tasktxtroadmapreturns') {
+    if ($p -match 'returnservice|refund|returnrequest|/orders/|orderservice|paymob|orderitem|orderstatus|/models/order\.php|/models/orderitem\.php|operations/orders\.ts|checkoutreservation|tasktxtroadmapreturns|attachment') {
         if ($configs.ContainsKey('repomix.orders-returns.json')) { [void]$matchedConfigs.Add('repomix.orders-returns.json') }
         if ($configs.ContainsKey('repomix.subsystem-02-orders-returns.json')) { [void]$matchedConfigs.Add('repomix.subsystem-02-orders-returns.json') }
     }
@@ -238,13 +238,13 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 5. POS Terminal
-    if ($p -match 'apps/pos/|packages/pos-core/|pos-core/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt' -and $p -notmatch 'productionreceipt') {
+    if ($p -match 'apps/pos/|packages/pos-core/|pos-core/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt|packages/utils/' -and $p -notmatch 'productionreceipt') {
         if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         if ($configs.ContainsKey('repomix.pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.pos-terminal.json') }
     }
 
     # 6. Inventory & Ledger
-    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|production_receipt|inventory.*seeder|/branches/|/locations/|actions/branch|actions/location|inventoryanomalies|detectinventoryanomalies') {
+    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|production_receipt|inventory.*seeder|/branches/|/locations/|actions/branch|actions/location|inventoryanomalies|detectinventoryanomalies|stocklevel|stocktransfer|/models/stock') {
         if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
         if ($configs.ContainsKey('repomix.inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.inventory-ledger.json') }
     }

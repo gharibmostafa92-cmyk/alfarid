@@ -5,6 +5,61 @@ Live Cloud Run revisions and the current audit are in [Task execution audit](TAS
 Last deployed commit: `25ee590` (see `docs/.last-deployed`)
 Date: 2026-11-10
 
+# Deployed vs. Pending Deployment
+
+### A. Already Deployed on Server
+- Commit `25ee590` (`2026-11-10`, per `docs/.last-deployed`).
+- None of the `_archive_unused/tasks_execution/task2.txt` (20-item Orders/Returns/Webhooks/Attachments) fixes are deployed to production yet (live server state unverified from local workspace).
+
+### B. Ready / Pending Server Deployment
+All 20 items from `_archive_unused/tasks_execution/task2.txt` are verified/implemented locally and pending commit, migration, and Cloud Run deployment:
+- **Already present in codebase & verified**:
+  - `CRITICAL-01`: `orders_payment_status_check` includes `partially_refunded` and `refund_pending` (`2026_10_24_000009`).
+  - `CRITICAL-03`: `ReturnService::receive()` damaged stock intake (`SaleReturn` -> `OnHand`, `Damage` -> `Damaged`) preserves `available = on_hand - reserved - damaged`.
+  - `HIGH-01`: `return_requests_refund_reference_unique` partial unique index (`2026_10_19_120001`).
+  - `LOW-01`: `OrderService::assertMatchingIdempotentReplay()` live cart check preserves `OrderSpecCoverageTest` conflict semantics.
+- **New backend changes (pending deploy)**:
+  - `CRITICAL-02`: `OrderService::createFromCart` caps distributed coupon discount; `ReturnService::netLineRefundCents` & `receive()` use `BigDecimal` and proportional cents for legacy/partial refunds.
+  - `CRITICAL-04`: `OrderAllocationService::allocate` sets `allocated_branch_id` on single-branch fallback; `Admin\Orders\OrderController::allocate` guards allocated split orders.
+  - `HIGH-02`: `Order::casts()` adds `gateway_refunded_amount`; `ReturnService::refund` & `syncOrderPaymentStatusAfterRefund` support split refunds across gateway and wallet/cash.
+  - `HIGH-03`: `ReturnService` (`delete`, `reject`, `cancel`, `updateDetails`) and `OrderService::changeStatus` enforce `Order -> ReturnRequest / Customer` lock ordering.
+  - `HIGH-04`: `PaymobRefundInquiry::token()` uses `->block(4, ...)` with `LockTimeoutException` fallback and 15s auth-failure backoff.
+  - `HIGH-05`: `Store\Orders\OrderController::track()` adds per-order rate limit (5/15m) and constant-length HMAC-SHA256 phone comparison.
+  - `MEDIUM-01`: `ReturnService::createReturnRequest()` runs lightweight order eligibility pre-flight check before uploading to R2.
+  - `MEDIUM-02`: `PrunePrivateAttachments` gracefully prunes up to `--max-deletions`, scopes table checks per prefix, and uses batch `$disk->delete($paths)`.
+  - `MEDIUM-03`: `Admin\Orders\OrderController::updatePayment` blocks manual `refunded` for `wallet`/`credit`/`pos` and adds `refund_pending`.
+  - `MEDIUM-04`: `ShippingZoneController::destroy()` returns 422 `BusinessException` when shipping rates exist.
+  - `MEDIUM-05`: `ReturnService::assertWithinReturnWindow()` uses `endOfDay()` in `business_timezone`; `OrderService::expectedTotalChanged` compares integer cents; `CheckoutRequest` adds `max:9999999999.99`.
+  - `MEDIUM-06`: `AttachmentController::download()` skips network `exists()` probe by default (opt-in via `?verify=1`).
+  - `MEDIUM-07`: `ExpirePendingOrders` adds `pending_bank_transfer_expire_hours` (48h) and excludes orders with `pending_review` `WholesalePaymentNotice`.
+  - `MEDIUM-08`: `IdempotencyFingerprint::canonicalize()` normalizes quantity fields as exact decimals and rejects non-finite numeric strings.
+  - `LOW-02`: `ShippingWebhookService::alreadyProcessed()` uses indexed `where('provider', $provider)`.
+  - `LOW-03`: `OrderService::shipOrder()` aggregates `sales_count` updates per product in ascending `product_id` order.
+- **Pending migration**:
+  - `bags-platform/backend/database/migrations/2026_11_14_000001_add_orders_pending_expiry_index.php` (`CREATE INDEX CONCURRENTLY orders_pending_expiry_idx`).
+- **Environment / Config**:
+  - Optional: `ORDER_PENDING_BANK_TRANSFER_EXPIRE_HOURS=48` (defaults to `48` in `config/orders.php`).
+- **Required deployment commands**:
+  1. `php artisan migrate --force`
+  2. `php artisan config:cache && php artisan route:cache`
+
+## 2026-11-14 — task2 audit roadmap re-verification (root `task2.txt`)
+
+Branch `fixes/task-audit-roadmap`, working tree changes. **Not deployed.**
+
+- Re-verified all 17 items in root `task2.txt` (CRITICAL-01..02, HIGH-01..06, MEDIUM-01..07, LOW-01..02) against the current code and migrations.
+- Gaps closed during verification:
+  - `DailyCloseBriefingTool` transfer branch filter replaced correlated `whereHas`/`orWhereHas` with grouped `whereIn`/`orWhereIn` over branch treasury ids (MEDIUM-03, second location).
+  - Test fixtures aligned with current guards: treasury balances set via `forceFill`, expense date uses `app.business_timezone`, wallet adjustments pass an idempotency key, cross-branch treasury-transfer `show` expects 403 (two-sided least privilege), wallet backfill test disables deferred triggers, treasury ledger test seeds an opening entry.
+- Verification run on 2026-11-14:
+  - `php artisan migrate:fresh --env=testing --force` (after flaky first attempts).
+  - `tests/Feature/Finance`: 210 passed, 1,453 assertions.
+  - `tests/Feature/Maintenance`: 18 passed, 41 assertions.
+  - `tests/Feature/Ai`: 293/294 passed; one pre-existing catalog bulk-undo failure (`AiCatalogConcurrencyGuardTest`) is unrelated to task2.
+- Full `php artisan test` was attempted but exceeded the environment's execution window (no output captured); targeted Finance/Task2/Task5/Task8/Maintenance suites cover every changed area. Run the full suite in chunked directory batches on CI before deploy.
+- No new migrations in this pass. `2026_11_12_000093` (task2 schema hardening) and `2026_11_12_000070` (precision alignment) verified in the testing database only.
+- Deployment remains pending: commit, push, run migrations on staging, then deploy.
+
 ## 2026-11-12 — task2 audit roadmap closeout (F1–F18)
 Branch `fixes/task-audit-roadmap`, uncommitted working tree. **Not deployed.**
 

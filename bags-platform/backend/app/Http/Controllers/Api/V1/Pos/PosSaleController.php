@@ -44,15 +44,15 @@ class PosSaleController extends Controller
             'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
             'items.*.qty' => ['required', 'integer', 'min:1', 'max:9999'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
-            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
             'items.*.override_reason' => ['nullable', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer', 'min:1', Rule::exists('customers', 'id')
                 ->whereNull('deleted_at')
                 ->whereNotIn('status', [CustomerStatus::Suspended->value, CustomerStatus::Rejected->value])],
             'payment_method' => ['nullable', 'string', 'in:cash,card,mixed'],
-            'cash_amount' => ['nullable', 'numeric', 'min:0'],
-            'card_amount' => ['nullable', 'numeric', 'min:0'],
+            'cash_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'card_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
             'override_price' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:500'],
@@ -102,9 +102,9 @@ class PosSaleController extends Controller
         $data = $request->validate([
             'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
-            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'items.*.qty' => ['required', 'integer', 'min:1', 'max:9999'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
             // F-03: explicit manual flag round-trips through items_payload.
             'items.*.manual_price' => ['nullable', 'boolean'],
             // F-04: hold-time customer gate mirrors store() — suspended,
@@ -119,6 +119,20 @@ class PosSaleController extends Controller
         $shift = $request->attributes->get('pos_shift');
         /** @var User $user */
         $user = $request->user('staff');
+
+        $hasManualPrice = collect($data['items'])->some(
+            fn (array $item): bool => ! empty($item['manual_price'])
+        );
+        if ($hasManualPrice && ! $user->can('pos.override_price')) {
+            throw new AuthorizationException('لا تملك صلاحية تجاوز سعر البيع.');
+        }
+
+        $hasDiscount = collect($data['items'])->some(
+            fn (array $item): bool => (float) ($item['discount_amount'] ?? 0) > 0
+        );
+        if ($hasDiscount && ! $user->can('pos.discount')) {
+            throw new AuthorizationException('لا تملك صلاحية تطبيق خصم يدوي.');
+        }
 
         $idempotencyKey = $this->idempotencyKey($request);
         $held = $idempotencyKey !== null
@@ -188,8 +202,8 @@ class PosSaleController extends Controller
             'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.product_variant_id' => ['required', 'integer', 'distinct'],
             'items.*.qty' => ['required', 'numeric', 'gt:0', 'max:9999'],
-            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
             'items.*.override_reason' => ['nullable', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')
                 ->whereNull('deleted_at')
@@ -381,6 +395,8 @@ class PosSaleController extends Controller
         $refundedByVariant = DB::table('order_items as ri')
             ->join('orders as ro', 'ro.id', '=', 'ri.order_id')
             ->where('ro.return_of_order_id', $order->id)
+            ->whereNull('ro.deleted_at')
+            ->where('ro.status', OrderStatus::Returned)
             ->selectRaw('ri.product_variant_id, SUM(ri.qty) AS qty, SUM(ri.line_total) AS amount')
             ->groupBy('ri.product_variant_id')->get()->keyBy('product_variant_id');
 
@@ -460,8 +476,10 @@ class PosSaleController extends Controller
                 abort(403, 'لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
             }
 
-            if ($heldSale->resumed_at !== null && $heldSale->resumed_at->gt(now()->subMinutes(5))) {
-                throw new BusinessException('الفاتورة المعلقة قيد الاستئناف حالياً.', [], 409);
+            if ($heldSale->resumed_at !== null
+                && $heldSale->resumed_at->gt(now()->subMinutes(5))
+                && (int) $heldSale->resumed_by !== (int) $user->id) {
+                throw new BusinessException('الفاتورة المعلقة قيد الاستئناف حالياً من قبل مستخدم آخر.', [], 409);
             }
 
             $heldSale->update([
@@ -610,15 +628,16 @@ class PosSaleController extends Controller
         $data = $request->validate([
             'returned_items' => ['required', 'array', 'min:1', 'max:100'],
             'returned_items.*.product_variant_id' => ['required', 'integer', 'min:1'],
-            'returned_items.*.qty' => ['required', 'integer', 'min:1'],
+            'returned_items.*.qty' => ['required', 'integer', 'min:1', 'max:9999'],
             'returned_items.*.return_to' => ['nullable', 'string', 'in:on_hand,damaged'],
             'exchange_items' => ['required', 'array', 'min:1', 'max:100'],
             'exchange_items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
-            'exchange_items.*.qty' => ['required', 'integer', 'min:1'],
-            'exchange_items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
-            'exchange_items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'cash_amount' => ['nullable', 'numeric', 'min:0'],
-            'card_amount' => ['nullable', 'numeric', 'min:0'],
+            'exchange_items.*.qty' => ['required', 'integer', 'min:1', 'max:9999'],
+            'exchange_items.*.unit_price' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'exchange_items.*.discount_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'cash_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'card_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
+            'override_price' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -630,11 +649,12 @@ class PosSaleController extends Controller
         $hasDiscounts = collect($data['exchange_items'])->some(
             fn (array $item): bool => isset($item['discount_amount']) && (float) $item['discount_amount'] > 0
         );
+
         if ($hasDiscounts && ! $user->can('pos.discount')) {
             throw new AuthorizationException('لا تملك صلاحية تطبيق خصم على أصناف الاستبدال.');
         }
 
-        $hasOverrides = collect($data['exchange_items'])->some(
+        $hasOverrides = $data['override_price'] ?? collect($data['exchange_items'])->some(
             fn (array $item): bool => isset($item['unit_price'])
         );
         if ($hasOverrides && ! $user->can('pos.override_price')) {
@@ -684,7 +704,7 @@ class PosSaleController extends Controller
         $expense = app(OperationIdempotencyService::class)->run(
             'pos_expense',
             $user,
-            $this->idempotencyKey($request),
+            $this->requiredIdempotencyKey($request),
             ['shift_id' => $shift->id, ...$data],
             fn (): Expense => $this->pos->recordExpense($shift, $data, (int) $user->id),
         );

@@ -23,8 +23,13 @@ class SendLowStockAlert implements ShouldQueue
      */
     public function handle(StockLowDetected $event): void
     {
-        // Debounce alerts to once per 6 hours per variant/branch to prevent notification fatigue from threshold oscillations.
-        if (! Cache::add("low-stock:{$event->productVariantId}:{$event->branchId}", 1, now()->addHours(6))) {
+        // Keep location crossings independent while retaining the branch-wide cooldown
+        // for aggregate variant thresholds.
+        $key = "low-stock:{$event->productVariantId}:{$event->branchId}";
+        if ($event->locationId !== null) {
+            $key .= ':location:'.$event->locationId;
+        }
+        if (! Cache::add($key, 1, now()->addHours(6))) {
             return;
         }
 
@@ -44,6 +49,7 @@ class SendLowStockAlert implements ShouldQueue
             $event->branchId,
             $event->available,
             $event->reorderLevel,
+            $event->locationId,
         ), ['database']));
     }
 }

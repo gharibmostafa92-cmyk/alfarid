@@ -1,41 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, Empty, Status, toAsciiNum, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
-import { normalizeError } from '../../lib/pos-error';
+import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { StockTransfer } from '../../types/pos.types';
 
 interface ReceiveTabProps {
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
+  list: StockTransfer[];
+  onReceived: (id: number) => void;
 }
 
-export function ReceiveTab({ toast }: ReceiveTabProps) {
-  const [list, setList] = useState<StockTransfer[]>([]);
+export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
   const [cur, setCur] = useState<number | null>(null);
-  const [rec, setRec] = useState<Record<number, string>>({});
+  const [edits, setEdits] = useState<{ id: number; quantities: Record<number, string> } | null>(null);
   const [busy, setBusy] = useState(false);
   const submittingRef = useRef(false);
 
-  useEffect(() => {
-    pos.getTransfersIn()
-      .then((transfers) => {
-        setList(transfers);
-        if (transfers.length > 0) {
-          setCur(transfers[0].id);
-        }
-      })
-      .catch((err) => {
-        toast(normalizeError(err).message, 'bad');
-      });
-  }, [toast]);
-
-  const t = list.find((x) => x.id === cur);
-
-  useEffect(() => {
-    if (t) {
-      setRec(Object.fromEntries(t.items.map((i) => [i.transferItemId ?? i.id, String(i.qty)])));
-    }
-  }, [cur, t]);
+  const t = list.find((x) => x.id === cur) ?? list[0];
 
   if (!t) {
     return (
@@ -49,6 +31,11 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
     );
   }
 
+  const quantitiesEdited = edits?.id === t.id ? edits.quantities : {};
+  const rec = Object.fromEntries(t.items.map((item) => {
+    const lineId = item.transferItemId ?? item.id;
+    return [lineId, quantitiesEdited[lineId] ?? String(item.qty)];
+  }));
   const shipped = t.items.reduce((s, i) => s + i.qty, 0);
   const got = t.items.reduce((s, i) => s + Number(rec[i.transferItemId ?? i.id] || 0), 0);
   const diffs = t.items.filter((i) => Number(rec[i.transferItemId ?? i.id] || 0) !== i.qty).length;
@@ -81,12 +68,10 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
         quantities[Number(id)] = Number(val);
       }
       await pos.receiveTransfer(t.id, quantities);
+      onReceived(t.id);
       toast(`تم استلام ${t.number} ورفع رصيد الفرع`, 'ok');
-      const rest = list.filter((x) => x.id !== t.id);
-      setList(rest);
-      setCur(rest[0]?.id || null);
     } catch (err) {
-      toast(normalizeError(err).message, 'bad');
+      if (!isCancel(err)) toast(normalizeError(err).message, 'bad');
     } finally {
       submittingRef.current = false;
       setBusy(false);
@@ -107,8 +92,11 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
           <button
             key={x.id}
             className="tr-item"
-            aria-pressed={x.id === cur}
-            onClick={() => setCur(x.id)}
+            aria-pressed={x.id === t.id}
+            onClick={() => {
+              if (x.id !== t.id) setEdits(null);
+              setCur(x.id);
+            }}
           >
             <div className="row between">
               <b className="mono" style={{ fontSize: 12.5 }}>
@@ -148,9 +136,7 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
           </div>
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() =>
-              setRec(Object.fromEntries(t.items.map((i) => [i.transferItemId ?? i.id, String(i.qty)])))
-            }
+            onClick={() => setEdits(null)}
           >
             <Icon n="check" s={14} />
             الكل مطابق
@@ -192,7 +178,7 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
                       className={cx('qty-input', d !== 0 && 'bad')}
                       value={rec[lineId] ?? ''}
                       onChange={(e) =>
-                        setRec({ ...rec, [lineId]: toAsciiNum(e.target.value, 4) })
+                        setEdits({ id: t.id, quantities: { ...quantitiesEdited, [lineId]: toAsciiNum(e.target.value, 4) } })
                       }
                     />
                   </td>
@@ -235,13 +221,15 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
                 </span>
               )}
             </div>
-            <div className="row gap-2">
-              <Api m="POST" path={`/pos/transfers/${t.id}/receive`} />
-              <span className="perm">
-                <Icon n="shield" s={11} />
-                transfers.receive
-              </span>
-            </div>
+            {import.meta.env.DEV && (
+              <div className="row gap-2">
+                <Api m="POST" path={`/pos/transfers/${t.id}/receive`} />
+                <span className="perm">
+                  <Icon n="shield" s={11} />
+                  transfers.receive
+                </span>
+              </div>
+            )}
           </div>
           <button className="btn btn-accent btn-lg" onClick={handleReceive} disabled={busy}>
             <Icon n="check" s={16} w={2.4} />

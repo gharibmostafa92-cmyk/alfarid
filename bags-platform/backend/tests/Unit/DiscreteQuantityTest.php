@@ -85,7 +85,7 @@ class DiscreteQuantityTest extends TestCase
         DiscreteQuantity::assertWhole(100.0);
         DiscreteQuantity::assertWhole(0, allowZero: true);
 
-        foreach ([0, -1, 1.5, '2.3', NAN, INF, 'xyz'] as $bad) {
+        foreach ([0, -1, 1.5, '2.3', '10.0000000000000001', NAN, INF, 'xyz'] as $bad) {
             try {
                 DiscreteQuantity::assertWhole($bad);
                 $this->fail('Expected rejection for '.var_export($bad, true));

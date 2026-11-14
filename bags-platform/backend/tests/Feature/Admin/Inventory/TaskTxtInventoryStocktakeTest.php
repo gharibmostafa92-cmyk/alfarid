@@ -9,6 +9,7 @@ use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\Stocktake;
+use App\Services\Inventory\StocktakeService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -17,11 +18,84 @@ use Illuminate\Support\Facades\DB;
  */
 class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
 {
+    private function activateVariantProduct(ProductVariant $variant): void
+    {
+        $variant->product()->update(['status' => 'published']);
+    }
+
     private function makeTake(string $token, Branch $branch, array $items): array
     {
         return $this->requestWithToken($token, 'POST', '/api/v1/admin/stocktakes', [
             'branch_id' => $branch->id, 'items' => $items,
         ])->assertCreated()->json('data');
+    }
+
+    public function test_snapshot_movement_cursor_is_scoped_to_the_counted_stock_key(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $countedBranch = Branch::factory()->create(['is_active' => true]);
+        $otherBranch = Branch::factory()->create(['is_active' => true]);
+        $countedVariant = ProductVariant::factory()->create();
+        $otherVariant = ProductVariant::factory()->create();
+        $this->seedStock($token, $countedBranch, $countedVariant, 8);
+        $take = $this->makeTake($token, $countedBranch, [['product_variant_id' => $countedVariant->id]]);
+        $snapshotId = (int) \App\Models\StocktakeItem::query()
+            ->where('stocktake_id', $take['id'])
+            ->where('product_variant_id', $countedVariant->id)
+            ->value('snapshot_movement_id');
+        $this->seedStock($token, $otherBranch, $otherVariant, 9);
+        $countedMovementId = (int) StockMovement::query()
+            ->where('branch_id', $countedBranch->id)
+            ->whereNull('location_id')
+            ->where('product_variant_id', $countedVariant->id)
+            ->max('id');
+        $otherMovementId = (int) StockMovement::query()
+            ->where('product_variant_id', $otherVariant->id)
+            ->max('id');
+
+        $this->assertSame($countedMovementId, $snapshotId);
+        $this->assertGreaterThan($snapshotId, $otherMovementId);
+    }
+
+    public function test_increment_scan_locks_stock_level_before_checking_for_intervening_movements(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $branch, $variant, 5);
+        $take = $this->makeTake($token, $branch, [[
+            'product_variant_id' => $variant->id,
+            'counted_qty' => 2,
+        ]]);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        app(StocktakeService::class)->incrementItemCount(
+            Stocktake::query()->findOrFail($take['id']),
+            $variant->id,
+            1,
+            $admin->id,
+        );
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $levelLock = null;
+        $movementCheck = null;
+        foreach ($queries as $index => $query) {
+            $sql = strtolower($query['query']);
+            if ($levelLock === null && str_contains($sql, 'stock_levels') && str_contains($sql, 'for update')) {
+                $levelLock = $index;
+            }
+            if ($movementCheck === null && str_contains($sql, 'stock_movements') && str_contains($sql, 'exists')) {
+                $movementCheck = $index;
+            }
+        }
+
+        $this->assertNotNull($levelLock, 'The stock level row must be locked during a repeat scan.');
+        $this->assertNotNull($movementCheck, 'The scan must check for intervening stock movements.');
+        $this->assertLessThan($movementCheck, $levelLock);
     }
 
     // ---------- §14a: loss / gain / zero-diff ----------
@@ -170,6 +244,49 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
         $this->assertSame('8.0000', $this->level($variant->id, $branch->id)->on_hand);
     }
 
+    public function test_apply_difference_policy_rejects_a_damage_write_off_after_the_count(): void
+    {
+        config(['inventory.stocktake_stale_policy' => 'apply_difference']);
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $branch, $variant, 10);
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
+            'branch_id' => $branch->id,
+            'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'mark_damaged', 'quantity' => 1]],
+        ])->assertCreated();
+
+        $take = $this->makeTake($token, $branch, [['product_variant_id' => $variant->id, 'counted_qty' => 9]]);
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
+            'branch_id' => $branch->id,
+            'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'write_off_damaged', 'quantity' => 1]],
+        ])->assertCreated();
+
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/stocktakes/{$take['id']}/approve", [])
+            ->assertUnprocessable();
+        $this->assertSame('9.0000', $this->level($variant->id, $branch->id)->on_hand);
+    }
+
+    public function test_cancelling_a_stocktake_cannot_move_its_branch_or_location_scope(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $other = Branch::factory()->create(['is_active' => true]);
+        $take = $this->makeTake($token, $branch, []);
+
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/stocktakes/{$take['id']}", [
+            'branch_id' => $other->id,
+            'status' => 'cancelled',
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('stocktakes', [
+            'id' => $take['id'],
+            'branch_id' => $branch->id,
+            'status' => 'draft',
+        ]);
+    }
+
     // ---------- §14g: locked sessions ----------
 
     public function test_locked_stocktake_cannot_be_approved_again(): void
@@ -205,6 +322,7 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
     {
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['barcode' => '6220000016101', 'is_active' => true]);
+        $this->activateVariantProduct($variant);
         [$take, $token] = $this->scanSetup($branch, $variant);
         $scanId = (string) \Illuminate\Support\Str::uuid();
 
@@ -227,6 +345,7 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
     {
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['barcode' => '6220000016201', 'is_active' => true]);
+        $this->activateVariantProduct($variant);
         [$take, $token] = $this->scanSetup($branch, $variant);
 
         $this->posWithToken($token)->postJson("/api/v1/pos/stocktakes/{$take['id']}/scan", [
@@ -244,6 +363,7 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
     {
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['barcode' => '6220000016301', 'is_active' => true]);
+        $this->activateVariantProduct($variant);
         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
         $adminToken = $this->tokenFor($admin);
         $take = $this->makeTake($adminToken, $branch, [['product_variant_id' => $variant->id, 'counted_qty' => 0]]);
@@ -287,6 +407,7 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
         $adminToken = $this->tokenFor($admin);
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['barcode' => '6220000016401', 'is_active' => true]);
+        $this->activateVariantProduct($variant);
         $this->seedStock($adminToken, $branch, $variant, 10);
 
         $take = $this->makeTake($adminToken, $branch, [['product_variant_id' => $variant->id, 'counted_qty' => 3]]);
@@ -324,6 +445,7 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
         $adminToken = $this->tokenFor($admin);
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['barcode' => '6220000016501', 'is_active' => true]);
+        $this->activateVariantProduct($variant);
 
         $take = $this->makeTake($adminToken, $branch, [['product_variant_id' => $variant->id, 'counted_qty' => 0]]);
         [, $token] = $this->posCashierWithShift($branch, ['stocktakes.update']);

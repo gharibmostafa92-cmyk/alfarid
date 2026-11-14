@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Inventory;
 
 use Illuminate\Validation\Rule;
+use App\Models\StockTransfer;
 
 class UpdateTransferRequest extends StoreTransferRequest
 {
@@ -13,12 +14,18 @@ class UpdateTransferRequest extends StoreTransferRequest
      */
     public function rules(): array
     {
-        $fromBranchId = filter_var($this->input('from_branch_id', $this->route('transfer')?->from_branch_id), FILTER_VALIDATE_INT) ?: 0;
-        $toBranchId = filter_var($this->input('to_branch_id', $this->route('transfer')?->to_branch_id), FILTER_VALIDATE_INT) ?: 0;
+        $routeTransfer = $this->route('transfer');
+        if (! $routeTransfer instanceof StockTransfer && filter_var($routeTransfer, FILTER_VALIDATE_INT)) {
+            $routeTransfer = StockTransfer::query()->find((int) $routeTransfer);
+        }
+        $currentFrom = $routeTransfer instanceof StockTransfer ? $routeTransfer->from_branch_id : null;
+        $currentTo = $routeTransfer instanceof StockTransfer ? $routeTransfer->to_branch_id : null;
+        $fromBranchId = filter_var($this->input('from_branch_id', $currentFrom), FILTER_VALIDATE_INT) ?: 0;
+        $toBranchId = filter_var($this->input('to_branch_id', $currentTo), FILTER_VALIDATE_INT) ?: 0;
 
         return [
-            'from_branch_id' => ['sometimes', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
-            'to_branch_id' => ['sometimes', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
+            'from_branch_id' => ['sometimes', 'bail', 'integer', 'min:1', Rule::notIn($toBranchId > 0 ? [$toBranchId] : []), Rule::exists('branches', 'id')->where('is_active', true)],
+            'to_branch_id' => ['sometimes', 'bail', 'integer', 'min:1', Rule::notIn($fromBranchId > 0 ? [$fromBranchId] : []), Rule::exists('branches', 'id')->where('is_active', true)],
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'items' => ['sometimes', 'array', 'min:1', 'max:100'],
             'items.*.product_variant_id' => ['required_with:items', 'bail', 'integer', 'min:1'],

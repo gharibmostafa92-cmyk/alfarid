@@ -1,7 +1,18 @@
 export const toCents = (v: string | number | null | undefined): number => {
   if (v == null || v === '') return 0;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return 0;
+    if (Math.abs(v) < 0.0001) return 0;
+    if (Math.abs(v) >= 1e12) return Math.round(v * 100);
+    v = v.toFixed(4);
+  }
   const s = String(v).trim();
   if (!s || s === 'NaN') return 0;
+  if (/[eE]/.test(s)) {
+    const num = Number(s);
+    if (!Number.isFinite(num) || Math.abs(num) < 0.0001) return 0;
+    return Math.round(num * 100);
+  }
   const neg = s.startsWith('-');
   const clean = neg ? s.slice(1) : s;
   const parts = clean.split('.');

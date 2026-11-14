@@ -39,6 +39,17 @@ export interface CartState {
 
 const keyOf = (userId: number | string, shiftId: number | string) => `pos-cart:${userId}:${shiftId}`;
 
+export function clearPersistedCarts(): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const storage = window.localStorage;
+    for (let index = storage.length - 1; index >= 0; index--) {
+      const key = storage.key(index);
+      if (key?.startsWith('pos-cart:')) storage.removeItem(key);
+    }
+  } catch { /* Storage access may be blocked. */ }
+}
+
 export function createPosCartStore(deps: CartDeps) {
   const debounceMs = deps.debounceMs ?? 250;
   const undoMs = deps.undoMs ?? 5000;

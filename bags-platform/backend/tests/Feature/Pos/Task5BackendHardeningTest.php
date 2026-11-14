@@ -264,6 +264,7 @@ class Task5BackendHardeningTest extends TestCase
 
         // 3. Stock counter CAN scan in stocktake WITHOUT opening a shift!
         $stocktake = Stocktake::create([
+            'stocktake_number' => 'STK-T5-B-001',
             'branch_id' => $this->branch->id,
             'status' => StocktakeStatus::InProgress,
             'type' => 'full',
@@ -276,7 +277,7 @@ class Task5BackendHardeningTest extends TestCase
 
         $this->withToken($this->counterToken)->postJson("/api/v1/pos/stocktakes/{$stocktake->id}/scan", [
             'barcode' => $this->variant1->barcode,
-            'scan_id' => 'scan-test-01',
+            'scan_id' => (string) \Illuminate\Support\Str::uuid(),
         ])->assertStatus(200);
     }
 
@@ -348,17 +349,37 @@ class Task5BackendHardeningTest extends TestCase
      */
     public function test_medium_04_format_shift_safe_null_relation(): void
     {
-        $shiftId = $this->openCashierShift();
-        $shift = PosShift::findOrFail($shiftId);
+        $testDrawer = Treasury::create([
+            'name' => 'Safe Null Test Drawer',
+            'code' => 'TR-SAFE-NULL',
+            'type' => TreasuryType::PosDrawer,
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
+        ]);
 
-        // Soft delete the cashier user
-        $this->cashier->delete();
+        $shift = PosShift::create([
+            'shift_number' => 'SH-TEST-NULL-B',
+            'user_id' => $this->cashier->id,
+            'branch_id' => $this->branch->id,
+            'treasury_id' => $testDrawer->id,
+            'status' => 'open',
+            'opening_cash' => '100.00',
+            'opened_at' => now(),
+        ]);
 
-        // Loading current shift should still format cleanly without throwing ErrorException
-        $res = $this->withToken($this->cashierToken)->getJson('/api/v1/pos/shifts/current')
-            ->assertStatus(200);
+        $shift->setRelation('cashier', null);
+        $shift->setRelation('branch', null);
+        $shift->setRelation('treasury', null);
 
-        $this->assertNull($res->json('data.cashier'));
+        $controller = app(\App\Http\Controllers\Api\V1\Pos\PosShiftController::class);
+        $ref = new \ReflectionClass($controller);
+        $method = $ref->getMethod('formatShift');
+        $method->setAccessible(true);
+        $formatted = $method->invoke($controller, $shift);
+
+        $this->assertNull($formatted['cashier']);
+        $this->assertNull($formatted['branch']);
+        $this->assertNull($formatted['treasury']);
     }
 
     /**

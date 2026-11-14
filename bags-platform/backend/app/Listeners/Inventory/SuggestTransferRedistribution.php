@@ -26,18 +26,19 @@ class SuggestTransferRedistribution implements ShouldQueue
             return;
         }
 
-        $lowCoverage = InventoryCoverage::coverageDays($event->productVariantId, $event->branchId);
+        $targetMetrics = InventoryCoverage::metricsByBranch($event->productVariantId, [$event->branchId])[$event->branchId];
+        $lowCoverage = $targetMetrics['coverage_days'];
         // Only trigger when target branch coverage is critically low (<= 7 days or zero stock).
         if ($lowCoverage !== null && $lowCoverage > 7) {
             return;
         }
-        $daily = InventoryCoverage::avgDailySale($event->productVariantId, $event->branchId);
+        $daily = $targetMetrics['avg_daily_sale'];
         if ($daily <= 0) {
             return;
         }
 
         // Identify donor branch holding surplus stock (> 60 days coverage).
-        $donor = DB::table('stock_levels')
+        $donors = DB::table('stock_levels')
             ->selectRaw('branch_id, SUM(on_hand - reserved - damaged) AS available')
             ->where('product_variant_id', $event->productVariantId)
             ->where('branch_id', '!=', $event->branchId)
@@ -45,18 +46,22 @@ class SuggestTransferRedistribution implements ShouldQueue
             ->havingRaw('SUM(on_hand - reserved - damaged) > 0')
             ->orderByDesc('available')
             ->limit(10)->get()
-            ->map(fn ($l) => ['branch_id' => (int) $l->branch_id, 'available' => (float) $l->available])
-            ->first(function ($c) use ($event): bool {
-                $cov = InventoryCoverage::coverageDays($event->productVariantId, $c['branch_id']);
+            ->map(fn ($l) => ['branch_id' => (int) $l->branch_id, 'available' => (float) $l->available]);
+        $donorMetrics = InventoryCoverage::metricsByBranch(
+            $event->productVariantId,
+            $donors->pluck('branch_id')->all(),
+        );
+        $donor = $donors->first(function ($candidate) use ($donorMetrics): bool {
+            $coverage = $donorMetrics[$candidate['branch_id']]['coverage_days'] ?? null;
 
-                return $cov === null || $cov > 60;
-            });
+            return $coverage === null || $coverage > 60;
+        });
         if ($donor === null) {
             return;
         }
 
-        $need = max(1.0, round($daily * 30 - InventoryCoverage::available($event->productVariantId, $event->branchId), 0));
-        $donorDaily = InventoryCoverage::avgDailySale($event->productVariantId, $donor['branch_id']);
+        $need = max(1.0, round($daily * 30 - $targetMetrics['available'], 0));
+        $donorDaily = $donorMetrics[$donor['branch_id']]['avg_daily_sale'];
         $surplus = $donorDaily > 0
             ? max(0.0, $donor['available'] - $donorDaily * 60)
             : $donor['available'];
@@ -79,7 +84,7 @@ class SuggestTransferRedistribution implements ShouldQueue
 
         DB::transaction(fn () => Notification::sendNow($recipients, new TransferSuggestionNotification(
             $event->productVariantId, $sku, $donor['branch_id'], $event->branchId,
-            $qty, $lowCoverage, InventoryCoverage::coverageDays($event->productVariantId, $donor['branch_id']), $prompt,
+            $qty, $lowCoverage, $donorMetrics[$donor['branch_id']]['coverage_days'], $prompt,
         ), ['database']));
     }
 }

@@ -31,7 +31,7 @@ class CheckoutRequest extends FormRequest
             'shipping_address_line' => ['required', 'string', 'max:500'],
             'shipping_notes' => ['nullable', 'string', 'max:500'],
             // Compare expected_total against live checkout calculation to prevent silent price changes.
-            'expected_total' => ['nullable', 'numeric', 'min:0'],
+            'expected_total' => ['nullable', 'numeric', 'min:0', 'max:9999999999.99'],
             // Constrain payment methods to active configured gateways via StorePaymentPolicy.
             'payment_method' => ['required', Rule::in($this->allowedPaymentMethods())],
         ];

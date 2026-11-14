@@ -361,7 +361,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         ], $this->idemHeaders())->assertStatus(422);
 
         // Second cashier on the same drawer rejected.
-        $cashier2 = $this->makeCashier('second@example.com', $this->branch->id, ['pos.access']);
+        $cashier2 = $this->makeCashier('second@example.com', $this->branch->id, ['pos.access', 'pos.sales.create']);
         $token2 = $this->tokenFor($cashier2);
         $this->withToken($token2)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $this->drawer->id, 'opening_cash' => 0,
@@ -373,7 +373,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
             'branch_id' => $this->branch->id, 'type' => TreasuryType::PosDrawer,
             'is_active' => true,
         ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 300])->save());
-        $cashier3 = $this->makeCashier('third@example.com', $this->branch->id, ['pos.access']);
+        $cashier3 = $this->makeCashier('third@example.com', $this->branch->id, ['pos.access', 'pos.sales.create']);
         $token3 = $this->tokenFor($cashier3);
         $mismatch = $this->withToken($token3)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $drawer3->id, 'opening_cash' => 500,
@@ -399,7 +399,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
 
         // Foreign-branch, inactive, and main-safe drawers rejected.
         $cashierB = $this->cashierB;
-        $tokenB = $this->tokenFor($cashierB);
+        $tokenB = $this->tokenFor($cashierB, ['pos.sales.create']);
         $this->withToken($tokenB)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $this->drawer->id, 'opening_cash' => 0,
         ])->assertStatus(404);
@@ -409,7 +409,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
             'branch_id' => $this->branch->id, 'type' => TreasuryType::PosDrawer,
             'current_balance' => 0, 'is_active' => false,
         ]);
-        $cashier4 = $this->makeCashier('fourth@example.com', $this->branch->id, ['pos.access']);
+        $cashier4 = $this->makeCashier('fourth@example.com', $this->branch->id, ['pos.access', 'pos.sales.create']);
         $this->withToken($this->tokenFor($cashier4))->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $inactive->id, 'opening_cash' => 0,
         ])->assertStatus(404);
@@ -527,12 +527,23 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $hold->assertStatus(201);
         $heldId = $hold->json('data.id');
 
-        // Resume leases the parked cart atomically: a second resume within lease 409s, row stays recoverable.
+        // Resume leases the parked cart atomically: a second resume from another cashier 409s, row stays recoverable.
         $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertOk();
-        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertStatus(409);
+        $drawerOther = Treasury::create([
+            'name' => 'Drawer Other',
+            'code' => 'DRW-OTH-'.\Illuminate\Support\Str::random(4),
+            'branch_id' => $this->branch->id,
+            'type' => TreasuryType::PosDrawer,
+            'current_balance' => 0,
+            'is_active' => true,
+        ]);
+        $otherCashier = $this->makeCashier('other-held-b@example.com', $this->branch->id, ['pos.access', 'pos.sales.create', 'pos.held.view_all']);
+        $otherToken = $this->openFundedShift($otherCashier, $drawerOther, 0.0);
+        $this->withToken($otherToken)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertStatus(409);
         $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
 
         // The follow-up sale consumes and deletes the leased hold atomically.
+        \Illuminate\Support\Facades\Auth::forgetGuards();
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'cash_amount' => 100.00,
@@ -548,5 +559,55 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $held2Id = $hold2->json('data.id');
         $this->withToken($token)->deleteJson("/api/v1/pos/sales/held/{$held2Id}")->assertOk();
         $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$held2Id}/resume")->assertStatus(404);
+    }
+
+    public function test_16_lock_refund_chain_locks_all_chain_orders_in_ascending_id_order(): void
+    {
+        $token = $this->refundToken();
+        $variantB = $this->makeVariant(100);
+        $this->stockIn($this->branch->id, $this->variant, 5);
+        $this->stockIn($this->branch->id, $variantB, 5);
+
+        $saleId = $this->withToken($token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
+            'cash_amount' => 200,
+            'card_amount' => 0,
+        ], $this->idem())->assertCreated()->json('data.id');
+
+        $exchange = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/exchange", [
+            'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'exchange_items' => [['product_variant_id' => $variantB->id, 'qty' => 1]],
+            'cash_amount' => 0,
+            'card_amount' => 0,
+        ], $this->idem())->assertOk()->json('data');
+
+        $replacementId = $exchange['exchange_order_id'];
+        $returnOrderId = Order::query()->where('return_of_order_id', $saleId)->value('id');
+        $expectedIds = [$saleId, $returnOrderId, $replacementId];
+        sort($expectedIds);
+
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+
+        $this->withToken($token)->postJson("/api/v1/pos/sales/{$replacementId}/return", [
+            'items' => [['product_variant_id' => $variantB->id, 'qty' => 1]],
+        ], $this->idemHeaders())->assertOk();
+
+        $queries = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $chainLockQuery = collect($queries)->first(function (array $entry): bool {
+            $sql = strtolower($entry['query'] ?? '');
+
+            return str_contains($sql, 'from "orders"')
+                && str_contains($sql, 'for update')
+                && str_contains($sql, 'order by "id" asc');
+        });
+
+        $this->assertNotNull($chainLockQuery, 'lockRefundChain must lock all chain orders ordered by id asc');
+        $sql = $chainLockQuery['query'] ?? '';
+        $boundIds = array_map('intval', $chainLockQuery['bindings'] ?? []);
+        $inlined = str_contains($sql, implode(', ', $expectedIds));
+        $this->assertTrue($boundIds === $expectedIds || $inlined, "Expected chain IDs locked in ascending order, got SQL: {$sql}");
     }
 }

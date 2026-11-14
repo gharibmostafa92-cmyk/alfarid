@@ -373,6 +373,7 @@ class InventoryExecutionReviewTest extends TestCase
     {
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();
+        $variant->product()->update(['status' => 'published']);
         $this->movement($variant, $branch, 5);
         $count = app(StocktakeService::class)->create(['branch_id' => $branch->id], $this->staff->id);
         $counter = $this->branchStaff($branch, ['stocktakes.update']);

@@ -39,9 +39,9 @@ class Task2Slice1SchemaTest extends TestCase
             'name' => 'Bank Test Treasury',
             'type' => 'bank_account',
             'branch_id' => $branch->id,
-            'current_balance' => '1000.00',
             'is_active' => true,
         ]);
+        $treasury->forceFill(['current_balance' => '1000.00'])->save();
 
         $user = \App\Models\User::query()->firstOrCreate(
             ['email' => 't2_treasury_test@example.com'],

@@ -118,6 +118,7 @@ WITH levels AS (
         AND l.product_variant_id = m.product_variant_id AND COALESCE(l.location_id, 0) = COALESCE(m.location_id, 0)
     WHERE m.recency = 1 AND l.id IS NULL
 )
+/*incremental-cleanup*/
 SELECT (SELECT COUNT(*) FROM levels) AS checked, (SELECT COUNT(*) FROM problems) AS problem_count,
     COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples
 SQL;
@@ -129,7 +130,7 @@ SQL;
             $sql = str_replace('WITH levels AS (', "WITH chosen AS MATERIALIZED (SELECT * FROM inventory_reconcile_work WHERE (?::bigint IS NULL OR branch_id = ?::bigint) ORDER BY checked_at NULLS FIRST, key LIMIT {$limit}), levels AS (", $sql);
             $sql = str_replace('SELECT * FROM stock_levels WHERE', 'SELECT * FROM stock_levels WHERE '.$matches('stock_levels').' AND', $sql);
             $sql = str_replace('FROM stock_movements WHERE', 'FROM stock_movements WHERE '.$matches('stock_movements').' AND', $sql);
-            $sql = str_replace("\nSELECT (SELECT COUNT(*) FROM levels)", <<<'SQL'
+            $sql = str_replace('/*incremental-cleanup*/', <<<'SQL'
 , locked AS MATERIALIZED (
     SELECT w.key, EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
         AND p.product_variant_id = c.product_variant_id AND COALESCE(p.location_id, 0) = COALESCE(c.location_id, 0)) AS has_problem
@@ -145,7 +146,6 @@ SQL;
     WHERE w.key = l.key AND l.has_problem
     RETURNING w.key
 )
-SELECT (SELECT COUNT(*) FROM levels)
 SQL, $sql);
         }
         $bindings = array_fill(0, $incremental ? 6 : 4, $branch);

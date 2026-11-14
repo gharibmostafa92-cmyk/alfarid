@@ -10,7 +10,7 @@ interface OpenShiftGateProps {
 }
 
 export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
-  const [treasury, setTreasury] = useState<number>(1);
+  const [treasury, setTreasury] = useState<number | null>(null);
   const [cash, setCash] = useState<string>('500');
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -19,7 +19,9 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const [cashier, setCashier] = useState<CashierUser | null>(null);
 
   useEffect(() => {
+    let active = true;
     pos.getTreasuries().then((list) => {
+      if (!active) return;
       setTreasuries(list);
       const free = list.find((t) => t.state === 'free');
       if (free) {
@@ -27,10 +29,23 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
         if ((free.balance ?? 0) > 0) {
           setCash(String(free.balance));
         }
+      } else {
+        setTreasury(null);
       }
+    }).catch((err) => {
+      if (active) setError(normalizeError(err).message);
     });
-    pos.getBranch().then(setBranch);
-    pos.getCashier().then(setCashier);
+    pos.getBranch().then((b) => {
+      if (active) setBranch(b);
+    }).catch((err) => {
+      if (active) setError(normalizeError(err).message);
+    });
+    pos.getCashier().then((c) => {
+      if (active) setCashier(c);
+    }).catch((err) => {
+      if (active) setError(normalizeError(err).message);
+    });
+    return () => { active = false; };
   }, []);
 
   const selectedDrawer = treasuries.find((t) => t.id === treasury);
@@ -113,6 +128,12 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
                 {treasuries.filter((t) => t.state === 'free').length} متاح في الفرع
               </span>
             </div>
+            {treasuries.length > 0 && !treasuries.some((t) => t.state === 'free') && (
+              <div className="banner b-warn" style={{ borderRadius: 10, padding: '8px 12px', fontSize: 12 }}>
+                <Icon n="alert" s={14} />
+                <span>جميع أدراج النقدية في الفرع مشغولة حالياً</span>
+              </div>
+            )}
             <div className="tres" role="radiogroup">
               {treasuries.map((t) => (
                 <button

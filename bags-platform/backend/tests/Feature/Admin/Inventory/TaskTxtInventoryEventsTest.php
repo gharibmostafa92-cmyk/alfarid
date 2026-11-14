@@ -18,6 +18,7 @@ use App\Services\Inventory\InventoryService;
 use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -67,6 +68,79 @@ class TaskTxtInventoryEventsTest extends TaskTxtInventoryCase
         // A further drop below the threshold is not a new crossing.
         $this->decrease($token, $branch, $variant, 1);
         Event::assertDispatchedTimes(StockLowDetected::class, 1);
+    }
+
+    public function test_location_threshold_crossings_emit_independent_location_scoped_events(): void
+    {
+        Event::fake([StockLowDetected::class]);
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create(['reorder_level' => 0]);
+        $locations = [
+            Location::factory()->create(['branch_id' => $branch->id, 'code' => 'F08-A']),
+            Location::factory()->create(['branch_id' => $branch->id, 'code' => 'F08-B']),
+        ];
+        $service = app(InventoryService::class);
+
+        foreach ($locations as $location) {
+            $service->recordMovement([
+                'product_variant_id' => $variant->id,
+                'branch_id' => $branch->id,
+                'location_id' => $location->id,
+                'type' => 'adjustment_in',
+                'affected_bucket' => 'on_hand',
+                'quantity' => 6,
+                'created_by' => $admin->id,
+            ]);
+            \App\Models\StockLevel::query()->where('branch_id', $branch->id)
+                ->where('location_id', $location->id)->where('product_variant_id', $variant->id)
+                ->update(['reorder_level' => 5]);
+        }
+
+        DB::transaction(function () use ($service, $locations, $branch, $variant, $admin): void {
+            foreach ($locations as $location) {
+                $service->recordMovement([
+                    'product_variant_id' => $variant->id,
+                    'branch_id' => $branch->id,
+                    'location_id' => $location->id,
+                    'type' => 'adjustment_out',
+                    'affected_bucket' => 'on_hand',
+                    'quantity' => -2,
+                    'created_by' => $admin->id,
+                ]);
+            }
+        });
+
+        Event::assertDispatchedTimes(StockLowDetected::class, 2);
+        foreach ($locations as $location) {
+            Event::assertDispatched(StockLowDetected::class, fn (StockLowDetected $event) =>
+                $event->branchId === $branch->id
+                && $event->productVariantId === $variant->id
+                && $event->locationId === $location->id
+            );
+        }
+    }
+
+    public function test_low_stock_cooldown_keys_distinguish_location_from_legacy_branch_scope(): void
+    {
+        $keys = [];
+        Cache::shouldReceive('add')->times(3)->andReturnUsing(function (string $key) use (&$keys): bool {
+            $keys[] = $key;
+
+            return false;
+        });
+        $listener = app(SendLowStockAlert::class);
+        $listener->handle(new StockLowDetected(71, 12, 2.0, 3.0));
+        $listener->handle(new StockLowDetected(71, 12, 2.0, 3.0, 4));
+        $listener->handle(new StockLowDetected(71, 12, 2.0, 3.0, 5));
+
+        $this->assertSame([
+            'low-stock:71:12',
+            'low-stock:71:12:location:4',
+            'low-stock:71:12:location:5',
+        ], $keys);
+        $legacyEvent = (new \ReflectionClass(StockLowDetected::class))->newInstanceWithoutConstructor();
+        $this->assertNull($legacyEvent->locationId);
     }
 
     // ---------- §21c: variant-level aggregate across locations ----------

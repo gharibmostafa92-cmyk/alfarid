@@ -43,6 +43,7 @@ class OrderController extends Controller implements HasMiddleware
         'failed' => ['paid', 'unpaid'],
         'paid' => ['refunded'],
         'partially_refunded' => ['refunded'],
+        'refund_pending' => [],
         'refunded' => [],
     ];
 
@@ -229,6 +230,9 @@ class OrderController extends Controller implements HasMiddleware
             $requiresRefund = $to === 'paid'
                 && in_array($order->status, [OrderStatus::Cancelled, OrderStatus::Returned], true);
             if ($to === 'refunded') {
+                if (in_array($order->payment_method, ['wallet', 'credit'], true) || $order->channel === 'pos') {
+                    throw new BusinessException('استرداد طلبات المحفظة أو الآجل أو نقطة البيع يتم عبر مسار الإلغاء أو المرتجعات لتسجيل القيد المحاسبي.');
+                }
                 if (empty($data['refund_reference'])) {
                     throw new BusinessException('الانتقال إلى مسترد يتطلب مرجع استرداد (refund_reference).');
                 }
@@ -298,7 +302,7 @@ class OrderController extends Controller implements HasMiddleware
      */
     public function allocate(AllocateOrderRequest $request, Order $order): AdminOrderResource
     {
-        if ($order->allocated_branch_id !== null) {
+        if ($order->allocated_branch_id !== null || $this->allocation->isAllocated($order)) {
             $this->authorizeOrder($request, $order);
         } else {
             $this->branchAccess->assertCentralAccess($request->user());

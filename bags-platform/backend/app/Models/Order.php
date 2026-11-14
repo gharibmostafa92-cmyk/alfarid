@@ -76,6 +76,7 @@ class Order extends Model
             'cash_amount' => 'decimal:2',
             'card_amount' => 'decimal:2',
             'exchange_credit' => 'decimal:2',
+            'gateway_refunded_amount' => 'decimal:2',
             'requires_refund' => 'boolean',
             'needs_attention' => 'boolean',
             'due_at' => 'datetime',

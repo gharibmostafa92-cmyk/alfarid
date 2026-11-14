@@ -80,8 +80,8 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
     public function test_parallel_shift_opens_fund_the_drawer_once(): void
     {
         $drawer = $this->secondDrawer();
-        $cashierA = $this->makeCashier('opening-a@example.test', $this->branch->id, ['pos.access']);
-        $cashierB = $this->makeCashier('opening-b@example.test', $this->branch->id, ['pos.access']);
+        $cashierA = $this->makeCashier('opening-a@example.test', $this->branch->id, ['pos.access', 'pos.sales.create']);
+        $cashierB = $this->makeCashier('opening-b@example.test', $this->branch->id, ['pos.access', 'pos.sales.create']);
         $payload = ['treasury_id' => $drawer->id, 'opening_cash' => 100];
 
         $results = $this->concurrentJobs([
@@ -105,14 +105,20 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
         $heldId = $held->json('data.id');
         $url = "/api/v1/pos/sales/held/{$heldId}/resume";
 
+        $cashierB = $this->makeCashier('resume-b@example.test', $this->branch->id, ['pos.access', 'pos.sales.create', 'pos.held.view_all']);
+        $drawerB = $this->secondDrawer();
+        $tokenB = $this->openShift($cashierB, $drawerB, 0);
+
         $results = $this->concurrentJobs([
             $this->httpJob($this->token, 'POST', $url),
-            $this->httpJob($this->token, 'POST', $url),
+            $this->httpJob($tokenB, 'POST', $url),
         ]);
 
         // Exactly one resume wins the row lock and acquires the lease; the loser 409s.
         $this->assertEqualsCanonicalizing([200, 409], array_column($results, 'status'));
-        $winner = $results[0]['status'] === 200 ? $results[0] : $results[1];
+        $winnerIndex = $results[0]['status'] === 200 ? 0 : 1;
+        $winner = $results[$winnerIndex];
+        $winnerToken = [$this->token, $tokenB][$winnerIndex];
         $this->assertSame($this->variant->id, $winner['body']['data']['items_payload'][0]['product_variant_id']);
         $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
 
@@ -123,10 +129,10 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
             'cash_amount' => 100.00,
             'held_sale_id' => $heldId,
         ];
-        $sharedKey = $this->idemHeaders();
+        $sharedKey = ['HTTP_IDEMPOTENCY_KEY' => 'parallel-sale-hold'];
         $sales = $this->concurrentJobs([
-            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $sharedKey),
-            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $sharedKey),
+            $this->httpJob($winnerToken, 'POST', '/api/v1/pos/sales', $salePayload, $sharedKey),
+            $this->httpJob($winnerToken, 'POST', '/api/v1/pos/sales', $salePayload, $sharedKey),
         ]);
 
         $this->assertSame([201, 201], array_column($sales, 'status'));

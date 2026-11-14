@@ -55,7 +55,7 @@ class StocktakeScanIdempotencyTest extends TestCase
             'password' => Hash::make('secret123'), 'branch_id' => $this->branch->id, 'is_active' => true,
         ]);
         $this->cashier->assignRole(Role::findOrCreate('cashier', 'staff'));
-        foreach (['pos.access', 'stocktakes.update', 'stocktakes.create'] as $name) {
+        foreach (['pos.access', 'pos.sales.create', 'stocktakes.update', 'stocktakes.create'] as $name) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($name, 'staff'));
         }
         $this->drawer = Treasury::create([

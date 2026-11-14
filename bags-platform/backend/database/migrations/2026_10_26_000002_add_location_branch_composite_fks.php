@@ -15,6 +15,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // Execute idempotently outside transactions so retries after partial failure succeed without error.
         DB::statement('DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = \'locations_id_branch_id_unique\') THEN
@@ -44,6 +48,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('ALTER TABLE stock_movements DROP CONSTRAINT IF EXISTS stock_movements_location_branch_fk');
         DB::statement('ALTER TABLE stock_levels DROP CONSTRAINT IF EXISTS stock_levels_location_branch_fk');
         DB::statement('ALTER TABLE locations DROP CONSTRAINT IF EXISTS locations_id_branch_id_unique');

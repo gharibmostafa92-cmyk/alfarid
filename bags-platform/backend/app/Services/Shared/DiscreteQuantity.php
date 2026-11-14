@@ -80,11 +80,18 @@ final class DiscreteQuantity
         if (! is_numeric($qty) || ! is_finite((float) $qty)) {
             throw new BusinessException($customMessage ?? 'الكمية يجب أن تكون عددًا صحيحًا من القطع.');
         }
-        $value = (float) $qty;
+        try {
+            $decimal = BigDecimal::of((string) $qty)->strippedOfTrailingZeros();
+        } catch (MathException) {
+            throw new BusinessException($customMessage ?? 'الكمية يجب أن تكون عددًا صحيحًا من القطع.');
+        }
         // Discrete piece counts cannot be subdivided into fractional merchandise units.
         // M2: cap at MAX_DECIMAL so huge values fail here with 422 instead of
         // overflowing decimal(12,4) with a 500 after partial business logic ran.
-        if (floor($value) !== $value || $value < ($allowZero ? 0 : 1) || $value > self::MAX_DECIMAL) {
+        if ($decimal->getScale() > 0
+            || $decimal->isNegative()
+            || (! $allowZero && $decimal->isZero())
+            || $decimal->compareTo(BigDecimal::of((string) self::MAX_DECIMAL)) > 0) {
             throw new BusinessException($customMessage ?? 'الكمية يجب أن تكون عددًا صحيحًا من القطع.');
         }
     }

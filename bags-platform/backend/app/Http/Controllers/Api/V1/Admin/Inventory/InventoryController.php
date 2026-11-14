@@ -88,8 +88,13 @@ class InventoryController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
+        $restrictedBranch = $this->branchAccess->restrictedBranch($request->user());
+        abort_if($restrictedBranch !== null
+            && isset($filters['branch_id'])
+            && (int) $filters['branch_id'] !== $restrictedBranch, 403);
+
         $movements = StockMovement::query()
-            ->when($this->branchAccess->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('branch_id', $branch))
+            ->when($restrictedBranch, fn ($q, $branch) => $q->where('branch_id', $branch))
             ->with(['variant', 'branch', 'location', 'creator'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('location_id', $v))

@@ -137,7 +137,7 @@ export function CheckoutModal({
   const press = (k: string) => {
     const set = method === 'mixed' ? setCashPart : setReceived;
     const cur = method === 'mixed' ? cashPart : received;
-    if (k === '⌫') set(cur.slice(0, -1));
+    if (k === '⌫' || k === '\u232B' || k === 'Backspace') set(cur.slice(0, -1));
     else if (k === '.') {
       if (!cur.includes('.')) set((cur || '0') + '.');
     } else set(cur + k);

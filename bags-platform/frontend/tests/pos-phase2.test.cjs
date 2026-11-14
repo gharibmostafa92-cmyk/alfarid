@@ -48,7 +48,7 @@ test('normalizeError maps network, 403 code, 409 and 422', () => {
   const ns = normalizeError({ response: { status: 403, data: { code: 'no_open_shift', message: 'م' } } });
   assert.equal(ns.code, 'no_open_shift');
 
-  assert.equal(normalizeError({ response: { status: 409, data: { message: 'قفل' } } }).retryable, true);
+  assert.equal(normalizeError({ response: { status: 409, data: { message: 'العملية مشغولة' } } }).retryable, true);
   assert.equal(
     normalizeError({ response: { status: 409, data: { message: 'مفتاح عدم التكرار مستخدم' } } }).retryable,
     false,
@@ -212,7 +212,7 @@ test('409 lock conflicts retry twice (300ms, 900ms) then succeed', async () => {
   const delays = [];
   const http = fakeHttp({
     [`POST ${API}/sales/hold`]: (n) => (n < 3
-      ? { __throw: { response: { status: 409, data: { message: 'تعارض' } } } }
+      ? { __throw: { response: { status: 409, data: { message: 'تعارض', code: 'retryable_conflict' } } } }
       : { status: 201, data: { data: { id: 4, hold_reference: 'H-4', created_at: new Date().toISOString(), items_payload: [{ product_variant_id: 1, qty: 1 }] } } }),
   });
   const svc = new PosApiService(http, { sleep: async (ms) => { delays.push(ms); } });

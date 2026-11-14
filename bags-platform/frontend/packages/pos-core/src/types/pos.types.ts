@@ -75,6 +75,8 @@ export interface ShiftStats {
   returns: number;
   expenses: number;
   invoices: number;
+  expected_closing_cash?: number;
+  canViewExpected?: boolean;
 }
 
 export interface PosShift {

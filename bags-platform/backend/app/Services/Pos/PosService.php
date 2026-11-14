@@ -19,10 +19,12 @@ use App\Enums\Inventory\StockMovementType;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
+use App\Exceptions\RetryableConflict;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Expense;
+use App\Models\Location;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderStatusHistory;
@@ -60,12 +62,15 @@ class PosService
         private readonly SettingService $settings,
     ) {}
 
-    public static function invalidateCatalogVersionCache(?int $branchId = null): void
+    public static function invalidateCatalogVersionCache(?int $branchId = null, bool $stockOnly = true): void
     {
-        $invalidate = static function () use ($branchId): void {
+        $invalidate = static function () use ($branchId, $stockOnly): void {
             if ($branchId !== null) {
                 $epoch = (int) Cache::get(self::CATALOG_VERSION_EPOCH_KEY, 0);
                 Cache::forget("pos:catalog_version:{$branchId}:{$epoch}");
+                if (! $stockOnly) {
+                    Cache::forget("pos:catalog_version:{$branchId}:{$epoch}:structure");
+                }
 
                 return;
             }
@@ -115,7 +120,6 @@ class PosService
             $existingUserShift = PosShift::query()
                 ->where('user_id', $user->id)
                 ->where('status', PosShiftStatus::Open)
-                ->lockForUpdate()
                 ->exists();
 
             if ($existingUserShift) {
@@ -134,7 +138,6 @@ class PosService
             $existingDrawerShift = PosShift::query()
                 ->where('treasury_id', $treasuryId)
                 ->where('status', PosShiftStatus::Open)
-                ->lockForUpdate()
                 ->exists();
 
             if ($existingDrawerShift) {
@@ -305,10 +308,10 @@ class PosService
      * @param  int  $branchId  Target branch ID
      * @return string 32-character MD5 hex string
      */
-    public function computeCatalogVersion(int $branchId): string
+    public function computeCatalogVersion(int $branchId, bool $structureOnly = false): string
     {
         $epoch = (int) Cache::get(self::CATALOG_VERSION_EPOCH_KEY, 0);
-        $cacheKey = "pos:catalog_version:{$branchId}:{$epoch}";
+        $cacheKey = "pos:catalog_version:{$branchId}:{$epoch}".($structureOnly ? ":structure" : "");
         $now = now();
         $cached = Cache::get($cacheKey);
         if (is_array($cached)
@@ -317,32 +320,60 @@ class PosService
             return (string) $cached['version'];
         }
 
-        $variantMax = (string) (ProductVariant::query()->max('updated_at') ?? '');
-        $categories = Category::query()
-            ->whereNull('deleted_at')
-            ->toBase()
-            ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, name_ar, name_en, is_active), 0)), 0) AS h")
-            ->first();
+        $isPgsql = DB::getDriverName() === 'pgsql';
 
-        // Catalog contents can change more than once in the same second, so
-        // row counts and content hashes join the timestamp in the version.
-        $stock = $this->catalogStockLevels($branchId)->toBase()->selectRaw(
-            "COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, product_variant_id, on_hand, available, reorder_level), 0)), 0) AS h"
-        )->first();
-        $products = Product::query()
-            ->where('is_active', true)
-            ->whereNotNull('published_at')
-            ->whereNull('deleted_at')
-            ->toBase()
-            ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, category_id, name_ar, name_en, is_active), 0)), 0) AS h")
-            ->first();
-        // Use the eligible prices so schedule boundaries also change the tag.
-        $pricing = $this->catalogPriceItems($branchId)->toBase()->selectRaw(
-            "COUNT(*) AS c, MAX(price_list_items.updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', price_list_items.id, price_list_items.product_variant_id, price_list_items.min_qty, price_list_items.price), 0)), 0) AS h"
-        )->first();
+        if ($isPgsql) {
+            $variants = ProductVariant::query()
+                ->whereNull('deleted_at')
+                ->toBase()
+                ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, retail_price, wholesale_price, barcode, sku, is_active), 0)), 0) AS h")
+                ->first();
+            $categories = Category::query()
+                ->whereNull('deleted_at')
+                ->toBase()
+                ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, name_ar, name_en, is_active), 0)), 0) AS h")
+                ->first();
+            $stock = $structureOnly ? null : $this->catalogStockLevels($branchId)->toBase()->selectRaw(
+                "COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, product_variant_id, on_hand, available, reorder_level), 0)), 0) AS h"
+            )->first();
+            $products = Product::query()
+                ->where('is_active', true)
+                ->whereNotNull('published_at')
+                ->whereNull('deleted_at')
+                ->toBase()
+                ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, category_id, name_ar, name_en, is_active), 0)), 0) AS h")
+                ->first();
+            $pricing = $this->catalogPriceItems($branchId)->toBase()->selectRaw(
+                "COUNT(*) AS c, MAX(price_list_items.updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', price_list_items.id, price_list_items.product_variant_id, price_list_items.min_qty, price_list_items.price), 0)), 0) AS h"
+            )->first();
+        } else {
+            $variants = ProductVariant::query()
+                ->whereNull('deleted_at')
+                ->toBase()
+                ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, 0 AS h")
+                ->first();
+            $categories = Category::query()
+                ->whereNull('deleted_at')
+                ->toBase()
+                ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, 0 AS h")
+                ->first();
+            $stock = $structureOnly ? null : $this->catalogStockLevels($branchId)->toBase()->selectRaw(
+                "COUNT(*) AS c, MAX(updated_at) AS m, 0 AS h"
+            )->first();
+            $products = Product::query()
+                ->where('is_active', true)
+                ->whereNotNull('published_at')
+                ->whereNull('deleted_at')
+                ->toBase()
+                ->selectRaw("COUNT(*) AS c, MAX(updated_at) AS m, 0 AS h")
+                ->first();
+            $pricing = $this->catalogPriceItems($branchId)->toBase()->selectRaw(
+                "COUNT(*) AS c, MAX(price_list_items.updated_at) AS m, 0 AS h"
+            )->first();
+        }
 
         $version = md5(implode('|', [
-            $variantMax,
+            $variants->c ?? 0, (string) ($variants->m ?? ''), (string) ($variants->h ?? 0),
             $categories->c ?? 0, (string) ($categories->m ?? ''), (string) ($categories->h ?? 0),
             $stock->c ?? 0, (string) ($stock->m ?? ''), (string) ($stock->h ?? 0),
             $products->c ?? 0, (string) ($products->m ?? ''), (string) ($products->h ?? 0),
@@ -424,7 +455,6 @@ class PosService
 
         return DB::transaction(function () use ($shift, $actualCash, $notes): PosShift {
             $shift = $this->lockOpenShift($shift);
-            app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
             if (! is_finite($actualCash) || $actualCash < 0) {
                 throw new BusinessException('النقدية الفعلية غير صالحة.');
             }
@@ -479,9 +509,9 @@ class PosService
         }
 
         return DB::transaction(function () use ($shift, $approver, $notes): PosShift {
-            $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
             app(BranchAccess::class)->assertBranch($approver->id, $shift->branch_id);
             app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
+            $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
             if ($shift->status !== PosShiftStatus::ClosedPendingApproval) {
                 throw new BusinessException('الوردية ليست في انتظار الاعتماد.');
             }
@@ -555,9 +585,13 @@ class PosService
         }
 
         return DB::transaction(function () use ($shift, $approver, $reason): PosShift {
-            $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
             app(BranchAccess::class)->assertBranch($approver->id, $shift->branch_id);
+            // Strict lock hierarchy: branches -> users -> pos_shifts -> treasuries
             app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
+            User::query()->whereKey($shift->user_id)->lockForUpdate()->firstOrFail();
+            $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
+            Treasury::query()->whereKey($shift->treasury_id)->lockForUpdate()->firstOrFail();
+
             if ($shift->status !== PosShiftStatus::ClosedPendingApproval) {
                 throw new BusinessException('الوردية ليست في انتظار الاعتماد.');
             }
@@ -567,16 +601,11 @@ class PosService
                 throw new BusinessException('لا يمكن إعادة فتح وردية فتحتها بنفسك؛ يلزم مشرف آخر.');
             }
 
-            // Lock User and Treasury to prevent race conditions with concurrent openShift
-            User::query()->whereKey($shift->user_id)->lockForUpdate()->firstOrFail();
-            Treasury::query()->whereKey($shift->treasury_id)->lockForUpdate()->firstOrFail();
-
             // Invariant 1: Cashier must NOT have another Open shift
             $hasOtherOpenShift = PosShift::query()
                 ->where('user_id', $shift->user_id)
                 ->where('id', '!=', $shift->id)
                 ->where('status', PosShiftStatus::Open)
-                ->lockForUpdate()
                 ->exists();
 
             if ($hasOtherOpenShift) {
@@ -588,7 +617,6 @@ class PosService
                 ->where('treasury_id', $shift->treasury_id)
                 ->where('id', '!=', $shift->id)
                 ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
-                ->lockForUpdate()
                 ->exists();
 
             if ($hasOtherDrawerShift) {
@@ -727,6 +755,7 @@ class PosService
 
         return DB::transaction(function () use ($shift, $payload): Order {
             $shift = $this->lockOpenShift($shift);
+            $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
             $actor = User::findOrFail($shift->user_id);
 
             // A hold already consumed by resumeHeld leaves no row behind; the
@@ -864,8 +893,10 @@ class PosService
                 'exchange_credit' => number_format($creditCents / 100, 2, '.', ''),
             ]);
 
+            $orderItemRows = [];
+            $now = now();
             foreach ($items as $item) {
-                OrderItem::create([
+                $orderItemRows[] = [
                     'order_id' => $order->id,
                     'product_variant_id' => $item['product_variant_id'],
                     'product_name_snapshot' => $item['product_name_snapshot'],
@@ -875,8 +906,13 @@ class PosService
                     'unit_price' => $item['unit_price'],
                     'discount_amount' => $item['discount_amount'],
                     'line_total' => $item['line_total'],
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            OrderItem::insert($orderItemRows);
 
+            foreach ($items as $item) {
                 $remaining = (int) round((float) $item['qty'] * 10000);
                 foreach ($levels->where('product_variant_id', $item['product_variant_id']) as $level) {
                     $take = min($remaining, (int) round($level->available * 10000));
@@ -959,7 +995,8 @@ class PosService
 
         return DB::transaction(function () use ($shift, $originalOrder, $returnedItems, $exchangeItems, $exchangeCredit): array {
             $shift = $this->lockOpenShift($shift);
-            // Lock original order row to serialize concurrent refund requests against the same receipt.
+            $this->lockRefundChain($originalOrder);
+            $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
             /** @var Order $originalOrder */
             $originalOrder = Order::query()->lockForUpdate()->findOrFail($originalOrder->id);
             $originalOrder->load('items');
@@ -1014,6 +1051,8 @@ class PosService
                     ->selectRaw('product_variant_id, SUM(quantity) AS qty')->groupBy('product_variant_id')->pluck('qty', 'product_variant_id');
                 $previousRefunds = DB::table('order_items as ri')->join('orders as ro', 'ro.id', '=', 'ri.order_id')
                     ->where('ro.return_of_order_id', $originalOrder->id)
+                    ->whereNull('ro.deleted_at')
+                    ->where('ro.status', OrderStatus::Returned)
                     ->selectRaw('ri.product_variant_id, SUM(ri.qty) AS qty, SUM(ri.line_total) AS amount')
                     ->groupBy('ri.product_variant_id')->get()->keyBy('product_variant_id');
                 foreach ($previousQuantities as $variantId => $quantity) {
@@ -1061,45 +1100,16 @@ class PosService
                 }
 
                 // Cash refund cannot exceed the net physical cash paid on the original order.
-                $previousCashRefunded = (float) Order::withTrashed()
-                    ->where('return_of_order_id', $originalOrder->id)
-                    ->sum('cash_amount');
-                $previousCardRefunded = (float) Order::withTrashed()
-                    ->where('return_of_order_id', $originalOrder->id)
-                    ->sum('card_amount');
-                $maxCashRefund = round((float) $originalOrder->cash_amount - $previousCashRefunded, 2);
-                $maxCardRefund = round((float) $originalOrder->card_amount - $previousCardRefunded, 2);
+                $creditCents = min(max(0, $this->minor($exchangeCredit)), $this->minor($returnValue));
+                $credit = $creditCents / 100;
+                $netCents = $this->minor($returnValue) - $creditCents;
 
-                // Exchange netting: the portion of the refund consumed as credit
-                // against the replacement sale never touches the drawer. Card balance
-                // is consumed first so the shop does not pay cash out of the drawer
-                // while non-cash credit could cover the replacement.
-                $credit = min(max(0.0, $exchangeCredit), $returnValue);
-                $netRefund = round($returnValue - $credit, 2);
-
-                // F-01: chain-wide tender caps. An exchange order carries credit
-                // funded by a prior return; that credit inherits the funding
-                // chain's tender mix (exchange_order_id -> funding return ->
-                // return_of_order_id -> source tender). Caps are computed over
-                // the whole chain so card-originated credit can never drain
-                // drawer cash, while cash-originated credit restores exactly the
-                // cash physically paid in the chain.
-                [$chainCashPaid, $chainCardPaid, $chainCashRefunded, $chainCardRefunded] =
-                    $this->chainTenderCaps($originalOrder, $previousCashRefunded, $previousCardRefunded);
-                $cashCap = max(0.0, round($chainCashPaid - $chainCashRefunded, 2));
-                $cardCap = max(0.0, round($chainCardPaid - $chainCardRefunded, 2));
-
-                $cardCovered = min($cardCap, $credit);
-                $cardRefund = round(min(max(0.0, $cardCap - $cardCovered), $netRefund), 2);
-                $cashRefund = round(min(max(0.0, $cashCap), $netRefund - $cardRefund), 2);
-                // Fail closed: value fitting neither cap routes to card
-                // (admin-reviewed refund) instead of leaving the drawer as cash.
-                $cardRefund = round($cardRefund + max(0.0, $netRefund - $cardRefund - $cashRefund), 2);
-
-                $locationId = $this->inventory->receivingLocation((int) $shift->branch_id);
-                $levels = $this->inventory->lockLevels(array_map(fn ($variantId) => [
-                    'product_variant_id' => $variantId, 'branch_id' => $shift->branch_id, 'location_id' => $locationId,
-                ], array_keys($lines)));
+                [$cashCap, $cardCap] = $this->chainTenderCaps($originalOrder);
+                $cardCents = min(max(0, $cardCap - $creditCents), $netCents);
+                $cashCents = min($cashCap, $netCents - $cardCents);
+                // Unfunded remainder stays out of the cash drawer for review.
+                $cashRefund = $cashCents / 100;
+                $cardRefund = ($netCents - $cashCents) / 100;
 
                 $variantIds = array_keys($lines);
                 $saleMovementsByVariant = StockMovement::query()
@@ -1107,20 +1117,61 @@ class PosService
                     ->where('reference_id', $originalOrder->id)
                     ->whereIn('product_variant_id', $variantIds)
                     ->where('type', StockMovementType::Sale)
-                    ->get(['product_variant_id', 'quantity', 'unit_cost'])
+                    ->orderBy('id')
+                    ->get(['product_variant_id', 'quantity', 'unit_cost', 'location_id', 'branch_id'])
                     ->groupBy('product_variant_id');
                 $variantCostFallbacks = ProductVariant::withTrashed()
                     ->whereIn('id', $variantIds)
                     ->pluck('cost_price', 'id');
 
+                $returnedByLocation = StockMovement::query()
+                    ->whereIn('reference_type', array_unique([$originalOrder->getMorphClass(), Order::class]))
+                    ->where('reference_id', $originalOrder->id)
+                    ->where('type', StockMovementType::SaleReturn)
+                    ->where('branch_id', $shift->branch_id)
+                    ->whereIn('product_variant_id', $variantIds)
+                    ->get(['product_variant_id', 'location_id', 'quantity'])
+                    ->groupBy('product_variant_id');
+
+                $activeLocations = Location::query()->where('branch_id', $shift->branch_id)->where('is_active', true)
+                    ->whereIn('id', $saleMovementsByVariant->flatten(1)->pluck('location_id')->filter()->unique())
+                    ->pluck('id')->flip();
+                $destinations = [];
                 foreach ($lines as $variantId => $line) {
+                    $remaining = (int) $line['qty'];
+                    $soldByLocation = $saleMovementsByVariant->get($variantId, collect())
+                        ->where('branch_id', $shift->branch_id)
+                        ->filter(fn (StockMovement $movement) => $movement->location_id === null || $activeLocations->has($movement->location_id))
+                        ->groupBy('location_id');
+                    $alreadyReturned = $returnedByLocation->get($variantId, collect())->groupBy('location_id');
+                    foreach ($soldByLocation as $locationId => $movements) {
+                        $capacity = -$movements->sum('quantity') - ($alreadyReturned->get($locationId)?->sum('quantity') ?? 0);
+                        $quantity = min($remaining, max(0, (int) $capacity));
+                        if ($quantity > 0) {
+                            $destinations[] = [$variantId, $locationId === '' ? null : (int) $locationId, $quantity];
+                            $remaining -= $quantity;
+                        }
+                    }
+                    if ($remaining > 0) {
+                        $destinations[] = [$variantId, $this->inventory->receivingLocation((int) $shift->branch_id), $remaining];
+                    }
+                }
+
+                $levels = $this->inventory->lockLevels(array_map(fn ($destination) => [
+                    'product_variant_id' => $destination[0],
+                    'branch_id' => $shift->branch_id,
+                    'location_id' => $destination[1],
+                ], $destinations));
+
+                foreach ($destinations as [$variantId, $targetLocationId, $quantity]) {
+                    $line = $lines[$variantId];
                     $base = [
                         'product_variant_id' => $variantId,
                         'branch_id' => $shift->branch_id,
-                        'location_id' => $locationId,
+                        'location_id' => $targetLocationId,
                         'type' => StockMovementType::SaleReturn,
                         'affected_bucket' => StockBucket::OnHand,
-                        'quantity' => $line['qty'],
+                        'quantity' => $quantity,
                         'reference_type' => Order::class,
                         'reference_id' => $originalOrder->id,
                         'created_by' => $shift->user_id,
@@ -1164,8 +1215,10 @@ class PosService
                 $returnAttrs['payment_status'] = $returnAttrs['card_amount'] > 0 ? 'refund_pending' : 'refunded';
                 $returnOrder = Order::create($returnAttrs);
 
+                $orderItemRows = [];
+                $now = now();
                 foreach ($lines as $variantId => $line) {
-                    OrderItem::create([
+                    $orderItemRows[] = [
                         'order_id' => $returnOrder->id,
                         'product_variant_id' => $variantId,
                         'product_name_snapshot' => $line['product_name_snapshot'],
@@ -1175,14 +1228,14 @@ class PosService
                         'unit_price' => round($line['net_unit'], 2),
                         'discount_amount' => 0,
                         'line_total' => $line['line_refund'],
-                    ]);
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
                 }
+                OrderItem::insert($orderItemRows);
 
                 foreach ($grouped as $variantId => $g) {
-                    $remaining = (float) StockMovement::query()
-                        ->whereIn('reference_type', array_unique([$originalOrder->getMorphClass(), Order::class]))
-                        ->where('reference_id', $originalOrder->id)->where('type', StockMovementType::SaleReturn)
-                        ->where('product_variant_id', $variantId)->sum('quantity');
+                    $remaining = (float) $previousQuantities->get($variantId, 0) + $g['qty'];
                     foreach ($originalOrder->items->where('product_variant_id', $variantId)->sortBy('id') as $item) {
                         $take = min($remaining, (float) $item->qty);
                         $item->update(['returned_qty' => $take]);
@@ -1244,6 +1297,8 @@ class PosService
 
         return DB::transaction(function () use ($shift, $originalOrder, $actor, $data): Order {
             $shift = $this->lockOpenShift($shift);
+            $this->lockRefundChain($originalOrder);
+            $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
             /** @var Order $lockedOriginal */
             $lockedOriginal = Order::query()->lockForUpdate()->with('items')->findOrFail($originalOrder->id);
             app(BranchAccess::class)->assertBranch($actor->id, (int) $lockedOriginal->allocated_branch_id);
@@ -1260,9 +1315,14 @@ class PosService
                 }
             }
 
-            $hasOverrides = collect($data['exchange_items'])->some(
+            // Legacy callers omitted the flag when sending an override.
+            $hasOverrides = $data['override_price'] ?? collect($data['exchange_items'])->some(
                 fn (array $item): bool => isset($item['unit_price'])
             );
+
+            if ($hasOverrides && trim((string) ($data['override_reason'] ?? '')) === '') {
+                throw new BusinessException('سبب تجاوز السعر مطلوب.');
+            }
 
             $quote = $this->quote(
                 (int) $shift->branch_id,
@@ -1294,7 +1354,7 @@ class PosService
                 'card_amount' => $cardAmount,
                 'exchange_credit' => $credit,
                 'override_price' => $hasOverrides,
-                'override_reason' => $data['override_reason'] ?? ($hasOverrides ? 'تجاوز سعر في استبدال' : null),
+                'override_reason' => $hasOverrides ? ($data['override_reason'] ?? null) : null,
             ];
 
             $saleFirst = $replacementTotal >= $returnEstimate;
@@ -1370,6 +1430,8 @@ class PosService
         $previousRefunds = DB::table('order_items as ri')
             ->join('orders as ro', 'ro.id', '=', 'ri.order_id')
             ->where('ro.return_of_order_id', $order->id)
+            ->whereNull('ro.deleted_at')
+            ->where('ro.status', OrderStatus::Returned)
             ->selectRaw('ri.product_variant_id, SUM(ri.qty) AS qty, SUM(ri.line_total) AS amount')
             ->groupBy('ri.product_variant_id')->get()->keyBy('product_variant_id');
 
@@ -1392,81 +1454,78 @@ class PosService
     }
 
     /**
-     * F-01: chain-wide tender totals for refund caps.
+     * Find the connected exchange chain in batches. Each replacement is
+     * created after its original sale, so the lowest sale ID is stable.
      *
-     * Walks funding returns (exchange_order_id) and return_of_order_id to build the complete
-     * connected component of the exchange-funding tree, locking all involved orders in deterministic
-     * id order. Sums actual cash/card physical tender paid across all sales and all cash/card refunds
-     * recorded across all return orders in the tree to prevent double/concurrent refunding.
-     *
-     * @return array{0: float, 1: float, 2: float, 3: float} [cashPaid, cardPaid, cashRefunded, cardRefunded]
+     * @return Collection<int, Order>
      */
-    private function chainTenderCaps(Order $originalOrder, float $previousCashRefunded, float $previousCardRefunded): array
+    private function refundChain(Order $originalOrder): Collection
     {
-        $visited = [$originalOrder->id => true];
-        $queue = [$originalOrder->id];
+        $orders = new Collection;
+        $frontier = [$originalOrder->id];
 
-        while ($queue !== []) {
-            $currentId = array_shift($queue);
-
-            $related = Order::withTrashed()
-                ->where(function ($q) use ($currentId): void {
-                    $q->where('return_of_order_id', $currentId)
-                        ->orWhere('exchange_order_id', $currentId);
-                })
-                ->get(['id', 'return_of_order_id', 'exchange_order_id']);
-
-            foreach ($related as $rel) {
-                if (! isset($visited[$rel->id])) {
-                    $visited[$rel->id] = true;
-                    $queue[] = $rel->id;
-                }
-                if ($rel->return_of_order_id !== null && ! isset($visited[$rel->return_of_order_id])) {
-                    $visited[$rel->return_of_order_id] = true;
-                    $queue[] = $rel->return_of_order_id;
-                }
-                if ($rel->exchange_order_id !== null && ! isset($visited[$rel->exchange_order_id])) {
-                    $visited[$rel->exchange_order_id] = true;
-                    $queue[] = $rel->exchange_order_id;
-                }
-            }
-
-            $currentOrder = Order::withTrashed()->find($currentId, ['id', 'return_of_order_id', 'exchange_order_id']);
-            if ($currentOrder !== null) {
-                if ($currentOrder->return_of_order_id !== null && ! isset($visited[$currentOrder->return_of_order_id])) {
-                    $visited[$currentOrder->return_of_order_id] = true;
-                    $queue[] = $currentOrder->return_of_order_id;
-                }
-                if ($currentOrder->exchange_order_id !== null && ! isset($visited[$currentOrder->exchange_order_id])) {
-                    $visited[$currentOrder->exchange_order_id] = true;
-                    $queue[] = $currentOrder->exchange_order_id;
-                }
-            }
+        while ($frontier !== []) {
+            $batch = Order::withTrashed()
+                ->whereNotIn('id', $orders->keys()->all())
+                ->where(fn ($query) => $query->whereIn('id', $frontier)
+                    ->orWhereIn('return_of_order_id', $frontier)
+                    ->orWhereIn('exchange_order_id', $frontier))
+                ->get();
+            $orders = $orders->union($batch->keyBy('id'));
+            $frontier = $batch->flatMap(fn (Order $order) => [
+                $order->id, $order->return_of_order_id, $order->exchange_order_id,
+            ])->filter()->unique()->values()->all();
         }
 
-        // Lock all discovered orders in deterministic order to prevent race conditions
-        $allOrders = Order::withTrashed()
-            ->whereIn('id', array_keys($visited))
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
+        return $orders;
+    }
 
-        $cashPaid = 0.0;
-        $cardPaid = 0.0;
-        $cashRefunded = 0.0;
-        $cardRefunded = 0.0;
+    private function lockRefundChain(Order $originalOrder): void
+    {
+        $lockedIds = [];
 
-        foreach ($allOrders as $order) {
-            if ($order->return_of_order_id === null) {
-                $cashPaid += (float) $order->cash_amount;
-                $cardPaid += (float) $order->card_amount;
-            } else {
-                $cashRefunded += (float) $order->cash_amount;
-                $cardRefunded += (float) $order->card_amount;
+        for (;;) {
+            $chainIds = $this->refundChain($originalOrder)
+                ->keys()
+                ->map(fn ($id): int => (int) $id)
+                ->sort()
+                ->values()
+                ->all();
+
+            if ($chainIds === [] || $chainIds === $lockedIds) {
+                return;
             }
+
+            Order::withTrashed()
+                ->whereKey($chainIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id']);
+
+            $lockedIds = $chainIds;
+        }
+    }
+
+    /** @return array{int, int} Remaining cash and card tender in cents. */
+    private function chainTenderCaps(Order $originalOrder): array
+    {
+        $cash = 0;
+        $card = 0;
+
+        foreach ($this->refundChain($originalOrder) as $order) {
+            $sale = $order->return_of_order_id === null;
+            if ($order->trashed() || $order->status !== ($sale ? OrderStatus::Delivered : OrderStatus::Returned)) {
+                continue;
+            }
+
+            // Exchange credit is internal funding. Count only actual tender
+            // collected or actually refunded so that credit is never counted twice.
+            $direction = $sale ? 1 : -1;
+            $cash += $direction * $this->minor($order->cash_amount);
+            $card += $direction * $this->minor($order->card_amount);
         }
 
-        return [$cashPaid, $cardPaid, $cashRefunded, $cardRefunded];
+        return [max(0, $cash), max(0, $card)];
     }
 
     /**
@@ -1478,15 +1537,43 @@ class PosService
      */
     public function holdSale(PosShift $shift, array $payload): PosHeldSale
     {
-        return PosHeldSale::create([
-            'hold_reference' => 'HOLD-'.strtoupper(Str::random(8)),
-            'branch_id' => $shift->branch_id,
-            'user_id' => $shift->user_id,
-            'customer_id' => $payload['customer_id'] ?? null,
-            'items_payload' => $payload['items'],
-            'notes' => $payload['notes'] ?? null,
-            'created_at' => now(),
-        ]);
+        return DB::transaction(function () use ($shift, $payload): PosHeldSale {
+            $shift = $this->lockOpenShift($shift);
+            // A plain parked snapshot may outlive its catalog entry. Only
+            // carts carrying price adjustments need a live pricing check here.
+            if (collect($payload['items'])->contains(fn (array $item): bool =>
+                ! empty($item['manual_price']) || (float) ($item['discount_amount'] ?? 0) > 0
+            )) {
+                $actor = User::query()->findOrFail($shift->user_id);
+                $customer = isset($payload['customer_id']) ? Customer::query()->find($payload['customer_id']) : null;
+                $items = array_map(static function (array $item): array {
+                    if (empty($item['manual_price'])) {
+                        unset($item['unit_price']);
+                    }
+
+                    return $item;
+                }, $payload['items']);
+                $this->resolveItems((int) $shift->branch_id, $items, $customer, true, false, $actor);
+            }
+
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    return DB::transaction(fn () => PosHeldSale::create([
+                        'hold_reference' => 'HOLD-'.strtoupper(Str::random(8)),
+                        'branch_id' => $shift->branch_id,
+                        'user_id' => $shift->user_id,
+                        'customer_id' => $payload['customer_id'] ?? null,
+                        'items_payload' => $payload['items'],
+                        'notes' => $payload['notes'] ?? null,
+                        'created_at' => now(),
+                    ]));
+                } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                    if ($attempt === 5) {
+                        throw new RetryableConflict('تعذر إنشاء رقم فريد للفاتورة المعلقة؛ أعد المحاولة.', $e);
+                    }
+                }
+            }
+        });
     }
 
     /**
@@ -1618,8 +1705,9 @@ class PosService
 
         $stockByVariant = $this->catalogStockLevels($branchId)
             ->whereIn('product_variant_id', $variantIds)
-            ->get()
-            ->groupBy('product_variant_id');
+            ->selectRaw('product_variant_id, SUM(on_hand) AS on_hand, SUM(available) AS available, MAX(reorder_level) AS reorder_level')
+            ->groupBy('product_variant_id')
+            ->toBase()->get()->keyBy('product_variant_id');
 
         $priceListItemsByVariant = $this->catalogPriceItems($branchId)
             ->select('price_list_items.*', 'price_lists.type as pricing_type', 'price_lists.branch_id as pricing_branch_id', 'price_lists.priority as pricing_priority')
@@ -1635,11 +1723,11 @@ class PosService
         $data = [];
         foreach ($variants as $variant) {
             /** @var ProductVariant $variant */
-            $stock = $stockByVariant->get($variant->id, collect());
-            $onHand = (float) $stock->sum('on_hand');
-            $available = (float) $stock->sum('available');
+            $stock = $stockByVariant->get($variant->id);
+            $onHand = (float) ($stock->on_hand ?? 0);
+            $available = (float) ($stock->available ?? 0);
 
-            $rowReorderMax = (float) $stock->max('reorder_level');
+            $rowReorderMax = (float) ($stock->reorder_level ?? 0);
             $reorderPoint = $rowReorderMax > 0 ? $rowReorderMax : (float) ($variant->reorder_level ?? 0);
 
             $candidates = $priceListItemsByVariant->get($variant->id, collect());
@@ -1867,6 +1955,7 @@ class PosService
                 $error = "الكمية المطلوبة غير متوفرة في المخزون (المتاح: {$availableFormatted})";
             }
 
+            $catalogPrice = (float) $this->pricing->resolve($variant, $customer, $qty, $branchId, $pricingContext)['unit_price'];
             if ($overridePrice && isset($item['unit_price'])) {
                 $unitPrice = (float) $item['unit_price'];
                 if ($enforceStock && trim((string) ($item['override_reason'] ?? '')) === '') {
@@ -1877,8 +1966,7 @@ class PosService
                     throw new BusinessException("سعر بيع الصنف [{$variant->sku}] أقل من التكلفة؛ يلزم اعتماد مدير.");
                 }
             } else {
-                $priceData = $this->pricing->resolve($variant, $customer, $qty, $branchId, $pricingContext);
-                $unitPrice = (float) $priceData['unit_price'];
+                $unitPrice = $catalogPrice;
             }
 
             if (! is_finite($unitPrice) || $unitPrice < 0) {
@@ -1886,7 +1974,9 @@ class PosService
             }
 
             $discount = (float) ($item['discount_amount'] ?? 0);
-            if ($discount > round($unitPrice * $qty * $maxDiscount / 100, 2)) {
+            $priceReduction = max(0, $this->minor($catalogPrice) - $this->minor($unitPrice)) * (int) $qty;
+            $discountLimit = (int) round($this->minor($catalogPrice) * $qty * $maxDiscount / 100);
+            if ($discount > 0 && $priceReduction + $this->minor($discount) > $discountLimit) {
                 throw new BusinessException('الخصم يتجاوز النسبة القصوى المسموحة.');
             }
             if (! is_finite($discount) || $discount < 0) {
@@ -2007,6 +2097,7 @@ class PosService
         // M5: re-check the open status under the row lock inside the sale
         // transaction — a supervisor close racing the sale must abort it
         // instead of posting to a closed drawer.
+        app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
         $locked = PosShift::query()->whereKey($shift->id)->where('status', PosShiftStatus::Open)->lockForUpdate()->first();
         if ($locked === null) {
             throw new BusinessException('الوردية غير مفتوحة.');

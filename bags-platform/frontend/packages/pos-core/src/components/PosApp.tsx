@@ -17,12 +17,13 @@ import { StocktakePage } from './inventory/StocktakePage';
 import { Icon } from './ui/Icons';
 import { useToast } from './ui/SharedUI';
 import { pos } from '../services/pos-data-source';
-import { usePosCart, posCartStore } from '../stores/pos-cart.store';
+import { usePosCart, posCartStore, clearPosCartStorage } from '../stores/pos-cart.store';
 import { createScanDetector, isRapidScannerKey } from '../lib/barcode-scanner';
 import { beepError, beepSuccess } from '../lib/sound';
-import { createPendingSaleManager, type PendingSaleDraft } from '../lib/pending-sale';
+import { createPendingSaleManager, clearPendingSaleStorage, type PendingSaleDraft } from '../lib/pending-sale';
 import { createTabCoordinator } from '../lib/tab-coordinator';
-import { getLastReceipt, clearReceiptArchive, type ArchivedReceipt } from '../lib/receipt-archive';
+import { getLastReceipt, clearReceiptArchive, scopeFromOwner, type ArchivedReceipt } from '../lib/receipt-archive';
+import { toCents, fromCents } from '../lib/money';
 import { isCancel, normalizeError } from '../lib/pos-error';
 import type {
   AppScreen,
@@ -86,6 +87,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const [isHeldOpen, setIsHeldOpen] = useState<boolean>(false);
   const [isReturnOpen, setIsReturnOpen] = useState<boolean>(false);
   const [printReceipt, setPrintReceipt] = useState<ArchivedReceipt | null>(null);
+  const resumingRef = useRef(false);
   const holdingRef = useRef(false);
   const deletingHeldRef = useRef(false);
 
@@ -119,10 +121,26 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     checkPendingSale();
   }, [checkPendingSale]);
 
+  const reclaimTab = async () => {
+    setHasTabConflict(true);
+    coordinatorRef.current?.claim();
+    try {
+      await pos.bootstrap();
+      const [shift, actor] = await Promise.all([pos.getCurrentShift(), pos.getCashier()]);
+      posCartStore.getState().bindContext(actor.id, shift?.id ?? null);
+      setCurrentShift(shift);
+      setCashier(actor);
+      setHasTabConflict(false);
+    } catch (error) {
+      toast(normalizeError(error).message, 'bad');
+    }
+  };
+
   // Multi-tab broadcast channel coordination
   useEffect(() => {
     const coordinator = createTabCoordinator({
       onDuplicate: () => setHasTabConflict(true),
+      onAvailable: () => void reclaimTab(),
     });
     coordinatorRef.current = coordinator;
     coordinator.start();
@@ -134,7 +152,10 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   // Window online/offline listener
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      void pos.bootstrap().catch(() => undefined);
+    };
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -327,7 +348,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         // F-17: reprints are scoped to the current cashier's own receipts.
-        const lastRc = getLastReceipt(cashier?.id);
+        const lastRc = pendingOwner ? getLastReceipt(scopeFromOwner(pendingOwner)) : null;
         if (lastRc) {
           setPrintReceipt(lastRc);
           requestAnimationFrame(() => {
@@ -400,6 +421,13 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   // Handle resuming held sale: merge with quantity-dedupe so the same variant
   // never appears twice (no duplicate React keys, no distinct violations).
   const handleResumeHeld = async (heldItem: PosHeldSale) => {
+    if (resumingRef.current) return;
+    if (heldItem.serverId && posCartStore.getState().heldSaleIds.includes(heldItem.serverId)) {
+      toast('الفاتورة مسترجعة بالفعل في السلة الحالية', 'bad');
+      setIsHeldOpen(false);
+      return;
+    }
+    resumingRef.current = true;
     try {
       const resumed = await pos.resumeHeldSale(heldItem.ref);
       // F-03: catalog first so system prices resolve; the stored manual flag
@@ -407,7 +435,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
       await pos.loadCatalog().catch(() => undefined);
       const newLines = resumed.items.map((i) => {
         const p = pos.getProductById(i.id);
-        const unit = i.unit_price ?? p?.price ?? 0;
+        const unit = i.manual_price ? (i.unit_price ?? p?.price ?? 0) : (p?.price ?? i.unit_price ?? 0);
         return {
           id: i.id,
           qty: i.qty,
@@ -442,9 +470,9 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         posCartStore.getState().addHeldSaleId(resumed.serverId);
       }
       setResumedHeldId(resumed.serverId ?? null);
-      const resumedDiscount = (resumed.items ?? []).reduce((sum, item) => sum + (Number(item.discount_amount) || 0), 0);
-      if (resumedDiscount > 0) {
-        setDiscount((prev) => prev + resumedDiscount);
+      const resumedDiscountCents = resumed.items.reduce((sum, item) => sum + toCents(item.discount_amount), 0);
+      if (resumedDiscountCents > 0) {
+        setDiscount((prev) => fromCents(toCents(prev) + resumedDiscountCents));
       }
       // F-04: only an id-keyed customer object is ever adopted. Name-based
       // fallback matching was removed: duplicate names rebound wholesale
@@ -462,6 +490,8 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
       if (!isCancel(err)) {
         toast(normalizeError(err).message, 'bad');
       }
+    } finally {
+      resumingRef.current = false;
     }
   };
 
@@ -510,6 +540,8 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   // so the next cashier on this terminal cannot reprint them.
   const handleLogout = useCallback(() => {
     clearReceiptArchive();
+    clearPendingSaleStorage();
+    clearPosCartStorage();
     onLogout?.();
   }, [onLogout]);
 
@@ -544,10 +576,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             <button
               className="btn btn-primary btn-lg"
               style={{ marginTop: 20 }}
-              onClick={() => {
-                coordinatorRef.current?.claim();
-                setHasTabConflict(false);
-              }}
+              onClick={() => void reclaimTab()}
             >
               الاستمرار في هذه النافذة
             </button>

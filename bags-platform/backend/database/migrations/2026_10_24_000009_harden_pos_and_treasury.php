@@ -24,7 +24,8 @@ return new class extends Migration
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '3s'");
             DB::statement('ALTER TABLE treasury_transfers DROP CONSTRAINT IF EXISTS treasury_transfers_separate_approver');
-            DB::statement("ALTER TABLE treasury_transfers ADD CONSTRAINT treasury_transfers_separate_approver CHECK (status <> 'approved' OR approved_by <> created_by) NOT VALID");
+            DB::statement("ALTER TABLE treasury_transfers ADD CONSTRAINT treasury_transfers_separate_approver CHECK (status <> 'approved' OR (approved_by IS NOT NULL AND approved_by <> created_by)) NOT VALID");
+            DB::statement('ALTER TABLE treasury_transfers VALIDATE CONSTRAINT treasury_transfers_separate_approver');
             DB::unprepared(<<<'SQL'
 CREATE OR REPLACE FUNCTION prevent_treasury_type_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
