@@ -28,9 +28,9 @@ export const initialState = {
   showCardNumber: false,
   cards: [{
     last4: '6782',
-    full: '5412 7534 8910 6782',
+    full: '•••• •••• •••• 6782',
     exp: '09/29',
-    cvv: '611',
+    cvv: '•••',
     frozen: false,
     bg: 'linear-gradient(145deg, #221f26 0%, #151318 100%)',
     controls: {
@@ -43,9 +43,9 @@ export const initialState = {
     spent: 1210.38
   }, {
     last4: '4356',
-    full: '5289 4102 3398 4356',
+    full: '•••• •••• •••• 4356',
     exp: '11/28',
-    cvv: '842',
+    cvv: '•••',
     frozen: false,
     bg: 'radial-gradient(circle at 25% 25%, #f48668 0%, #e0491f 60%, #b9330e 100%)',
     controls: {

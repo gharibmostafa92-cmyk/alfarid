@@ -7,9 +7,11 @@ namespace App\Http\Controllers\Api\V1\Admin\Customer;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
+use App\Models\User;
 use App\Models\WalletAdjustment;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Finance\WalletAdjustmentService;
+use Brick\Math\BigDecimal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -62,22 +64,29 @@ class CustomerWalletController extends Controller implements HasMiddleware
         $totals = CustomerWalletTransaction::query()->where('customer_id', $customer->id)
             ->selectRaw('type, SUM(amount) AS total, COUNT(*) AS cnt')
             ->groupBy('type')->get();
-        $bucket = ['topups' => 0.0, 'refunds' => 0.0, 'payments' => 0.0, 'adjustments' => 0.0];
+        $bucket = [
+            'topups' => BigDecimal::zero(),
+            'refunds' => BigDecimal::zero(),
+            'payments' => BigDecimal::zero(),
+            'adjustments' => BigDecimal::zero(),
+        ];
         foreach ($totals as $row) {
-            $total = (float) $row->total;
+            $total = BigDecimal::of((string) ($row->total ?? '0'));
             match ((string) $row->type) {
-                'topup', 'opening' => $bucket['topups'] += $total,
-                'return_refund', 'refund', 'refund_reversal', 'checkout_refund', 'order_reversal' => $bucket['refunds'] += $total,
-                'checkout_payment' => $bucket['payments'] += $total,
-                default => $bucket['adjustments'] += $total,
+                'topup', 'opening' => $bucket['topups'] = $bucket['topups']->plus($total),
+                'return_refund', 'refund', 'refund_reversal', 'checkout_refund', 'order_reversal' => $bucket['refunds'] = $bucket['refunds']->plus($total),
+                'checkout_payment' => $bucket['payments'] = $bucket['payments']->plus($total),
+                default => $bucket['adjustments'] = $bucket['adjustments']->plus($total),
             };
         }
+        $formattedBucket = array_map(fn (BigDecimal $v) => (string) $v->toScale(2), $bucket);
+
         $adjustments = WalletAdjustment::query()->where('customer_id', $customer->id)
             ->with('creator:id,name')->latest('id')->limit(20)->get();
 
         return response()->json([
             'balance' => $customer->wallet_balance,
-            'breakdown' => $bucket,
+            'breakdown' => $formattedBucket,
             'adjustments' => $adjustments,
         ]);
     }
@@ -95,14 +104,17 @@ class CustomerWalletController extends Controller implements HasMiddleware
     {
         $data = $request->validate([
             'kind' => ['required', 'string', 'in:disbursement,refund,adjustment'],
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999', 'decimal:0,2'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:9999999999.99', 'decimal:0,2'],
             'direction' => ['nullable', 'string', 'in:credit,debit'],
             'reason' => ['required', 'string', 'max:500'],
         ]);
 
+        /** @var User $actor */
+        $actor = $request->user('staff') ?? $request->user();
+
         $adjustment = $this->adjustments->adjust(
             ['customer_id' => $customer->id, ...$data, 'source' => 'admin'],
-            $request->user(),
+            $actor,
             $request->header('Idempotency-Key')
         );
 
@@ -111,7 +123,19 @@ class CustomerWalletController extends Controller implements HasMiddleware
 
     public function reverseAdjustment(Request $request, WalletAdjustment $adjustment): JsonResponse
     {
-        $reversal = $this->adjustments->reverse($adjustment, $request->user(), $request->header('Idempotency-Key'));
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $idempotencyKey = $request->header('Idempotency-Key');
+        if ($idempotencyKey === null || trim($idempotencyKey) === '') {
+            return response()->json(['message' => 'مفتاح عدم التكرار مطلوب لعكس التعديل.'], 422);
+        }
+
+        /** @var User $actor */
+        $actor = $request->user('staff') ?? $request->user();
+
+        $reversal = $this->adjustments->reverse($adjustment, $actor, $idempotencyKey, $data['reason'] ?? null);
 
         return response()->json(['message' => 'تم عكس التعديل بقيد مقابل.', 'data' => $reversal->load('creator')], 201);
     }

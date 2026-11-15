@@ -195,7 +195,7 @@ final class DailyCloseBriefingTool implements AgentTool
         ], array_merge($this->presenter->table(['البند', 'القيمة'], $table), ['quick_actions' => $quickActions]));
     }
 
-    /** @return list<array{from_treasury_id:int,to_treasury_id:int,amount:float}> */
+    /** @return list<array{from_treasury_id:int,to_treasury_id:int,amount:string}> */
     public function surplusTransfers(User $actor, ?int $branchId): array
     {
         $restricted = $this->branches->restrictedBranch($actor);
@@ -226,7 +226,7 @@ final class DailyCloseBriefingTool implements AgentTool
                 ->toScale(2, RoundingMode::HalfUp);
             $excess = $available->minus(self::DRAWER_FLOAT_KEEP);
             if ($excess->isPositive()) {
-                $out[] = ['from_treasury_id' => $drawer->id, 'to_treasury_id' => $safes[$drawer->branch_id], 'amount' => $excess->toFloat()];
+                $out[] = ['from_treasury_id' => $drawer->id, 'to_treasury_id' => $safes[$drawer->branch_id], 'amount' => (string) $excess->toScale(2, RoundingMode::HalfUp)];
             }
         }
 

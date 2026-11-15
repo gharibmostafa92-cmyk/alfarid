@@ -65,11 +65,11 @@ class Task2Slice2SecurityTest extends TestCase
         // Record for customer 1
         $wallet->record($customer1->id, '-100.00', 'checkout_payment', 'order', $order->id);
 
-        // Record for customer 2 on same order should be converted to 409 BusinessException instead of 500 QueryException
+        // Record duplicate for same customer on same order with conflicting amount triggers 409
         $this->expectException(BusinessException::class);
         $this->expectExceptionCode(409);
 
-        $wallet->record($customer2->id, '-100.00', 'checkout_payment', 'order', $order->id);
+        $wallet->record($customer1->id, '-50.00', 'checkout_payment', 'order', $order->id);
     }
 
     public function test_high_06_wallet_service_record_rejects_zero_checkout_payment(): void

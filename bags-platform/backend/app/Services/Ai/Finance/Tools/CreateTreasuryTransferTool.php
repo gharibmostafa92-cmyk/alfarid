@@ -129,7 +129,7 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
         }
         $fromType = $fromTreasury->type instanceof \BackedEnum ? $fromTreasury->type->value : (string) $fromTreasury->type;
         $warnings = ['لن تتمكن من اعتماد هذا التحويل لأنك منشئه؛ الاعتماد يحتاج موظفًا آخر.'];
-        if ($fromType !== 'bank_account' && (float) $fromTreasury->current_balance < (float) $amount) {
+        if ($fromType !== 'bank_account' && bccomp((string) $fromTreasury->current_balance, $amount, 2) < 0) {
             $warnings[] = 'رصيد المصدر الحالي لا يكفي المبلغ — الاعتماد سيفشل ما لم يتغذَّ الرصيد.';
         }
         if (TreasuryTransfer::query()->where('from_treasury_id', $fromTreasury->id)->where('to_treasury_id', $toTreasury->id)
@@ -177,13 +177,16 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $a = $action->args;
-        $from = Treasury::query()->lockForUpdate()->findOrFail((int) $a['from_treasury_id']);
-        $to = Treasury::query()->lockForUpdate()->findOrFail((int) $a['to_treasury_id']);
-        $this->branches->assertTreasury($actor->id, $from);
-        $this->branches->assertTreasury($actor->id, $to);
-        if ((int) $from->id === (int) $to->id) {
+        $fromId = (int) $a['from_treasury_id'];
+        $toId = (int) $a['to_treasury_id'];
+        if ($fromId === $toId) {
             throw new BusinessException('لا يمكن التحويل من خزينة إلى نفسها.');
         }
+        $locked = $this->treasury->lockTreasuries([$fromId, $toId], $actor->id);
+        $from = $locked->get($fromId) ?? throw new BusinessException('خزينة المصدر غير موجودة.');
+        $to = $locked->get($toId) ?? throw new BusinessException('خزينة الوجهة غير موجودة.');
+        $this->branches->assertTreasury($actor->id, $from);
+        $this->branches->assertTreasury($actor->id, $to);
         foreach ([$from, $to] as $treasury) {
             if (($action->expected_versions['treasury:'.$treasury->id] ?? null) !== FinanceWriteGuards::ledgerVersion($treasury)) {
                 throw new BusinessException('البيانات اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
@@ -202,7 +205,7 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
         ];
         $transfer = $this->idempotency->run('treasury_transfer', $actor, 'ai:'.$action->id, $data,
             fn () => $this->treasury->createTransfer($data, $actor->id));
-        $action->forceFill(['expected_versions' => $action->expected_versions + ['created_transfer_id' => $transfer->id]])->save();
+        $action->forceFill(['result' => ($action->result ?? []) + ['transfer_id' => $transfer->id]])->save();
 
         return ToolOutcome::result(true, "اتعمل تحويل معلق {$transfer->transfer_number}.", [
             'transfer_id' => $transfer->id,
@@ -238,7 +241,7 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
 
     private function createdTransferId(AiPendingAction $action): ?int
     {
-        $id = $action->expected_versions['created_transfer_id'] ?? null;
+        $id = $action->result['transfer_id'] ?? $action->expected_versions['created_transfer_id'] ?? null;
 
         return $id === null ? null : (int) $id;
     }

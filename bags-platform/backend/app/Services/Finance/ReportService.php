@@ -39,95 +39,97 @@ class ReportService
      */
     public function dashboard(?int $branchId = null): array
     {
-        $businessNow = CarbonImmutable::now(config('app.business_timezone', 'Africa/Cairo'));
-        [$todayStart, $todayEnd] = $this->periodBounds($businessNow->toDateString(), $businessNow->toDateString());
-        $monthStart = $businessNow->startOfMonth()->utc()->toDateTimeString();
+        return StatementBudget::run(10000, function () use ($branchId): array {
+            $businessNow = CarbonImmutable::now(config('app.business_timezone', 'Africa/Cairo'));
+            [$todayStart, $todayEnd] = $this->periodBounds($businessNow->toDateString(), $businessNow->toDateString());
+            $monthStart = $businessNow->startOfMonth()->utc()->toDateTimeString();
 
-        $salesByChannel = function (callable $scope) use ($branchId): array {
-            $rows = $this->salesEntries($branchId)
-                ->selectRaw('channel, SUM(grand_total) AS total, COALESCE(SUM(sale_count), 0) AS orders_count')
-                ->tap($scope)
-                ->groupBy('channel')
-                ->get();
+            $salesByChannel = function (string $start, string $end) use ($branchId): array {
+                $rows = $this->salesEntries($branchId, 'entries', $start, $end)
+                    ->selectRaw('channel, SUM(grand_total) AS total, COALESCE(SUM(sale_count), 0) AS orders_count')
+                    ->groupBy('channel')
+                    ->get();
 
-            $byChannel = ['store' => 0.0, 'wholesale' => 0.0, 'pos' => 0.0];
-            $total = BigDecimal::zero();
-            foreach ($rows as $row) {
-                $amount = BigDecimal::of((string) ($row->total ?? '0'));
-                $byChannel[$row->channel] = $this->moneyFloat($amount);
-                $total = $total->plus($amount);
-            }
+                $byChannel = ['store' => 0.0, 'wholesale' => 0.0, 'pos' => 0.0];
+                $total = BigDecimal::zero();
+                foreach ($rows as $row) {
+                    $amount = BigDecimal::of((string) ($row->total ?? '0'));
+                    $byChannel[$row->channel] = $this->moneyFloat($amount);
+                    $total = $total->plus($amount);
+                }
 
-            return ['total' => $this->moneyFloat($total), 'by_channel' => $byChannel];
-        };
+                return ['total' => $this->moneyFloat($total), 'by_channel' => $byChannel];
+            };
 
-        $todaySales = $salesByChannel(fn ($q) => $q->where('created_at', '>=', $todayStart)->where('created_at', '<', $todayEnd));
-        $monthSales = $salesByChannel(fn ($q) => $q->where('created_at', '>=', $monthStart));
+            $todaySales = $salesByChannel($todayStart, $todayEnd);
+            $monthSales = $salesByChannel($monthStart, $todayEnd);
 
-        $newOrdersCount = (int) DB::table('orders')->whereNull('return_of_order_id')->when($branchId !== null, fn ($q) => $q->where('allocated_branch_id', $branchId))
-            ->where('created_at', '>=', $todayStart)->where('created_at', '<', $todayEnd)->count();
+            $newOrdersCount = (int) DB::table('orders')->whereNull('return_of_order_id')->when($branchId !== null, fn ($q) => $q->where('allocated_branch_id', $branchId))
+                ->where('created_at', '>=', $todayStart)->where('created_at', '<', $todayEnd)->count();
 
-        $lowStockCount = (int) DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
-            ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
-            ->whereRaw('COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0) > 0')
-            ->whereRaw('sl.available <= COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0)')
-            ->count();
+            $lowStockCount = (int) DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
+                ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
+                ->whereRaw('COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0) > 0')
+                ->whereRaw('sl.available <= COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0)')
+                ->count();
 
-        $pendingWholesale = $branchId !== null ? 0 : (int) DB::table('customers')
-            ->whereIn('type', CustomerType::commercialValues())
-            ->where('status', 'pending')
-            ->count();
+            $pendingWholesale = $branchId !== null ? 0 : (int) DB::table('customers')
+                ->whereIn('type', CustomerType::commercialValues())
+                ->where('status', 'pending')
+                ->count();
 
-        $topProducts = DB::table('order_items as oi')->when($branchId !== null, fn ($q) => $q->where('oi.allocated_branch_id', $branchId))
-            ->join('orders as o', 'o.id', '=', 'oi.order_id')
-            ->leftJoin('product_variants as pv', 'pv.id', '=', 'oi.product_variant_id')
-            ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
-            ->selectRaw('oi.product_variant_id, pv.sku, p.name_ar AS product_name, SUM(oi.qty) AS qty_sold, SUM(oi.line_total) AS revenue')
-            ->whereIn('o.status', self::SALES_STATUSES)
-            ->where('o.created_at', '>=', $monthStart)
-            ->groupBy('oi.product_variant_id', 'pv.sku', 'p.name_ar')
-            ->orderByDesc('revenue')
-            ->limit(5)
-            ->get()
-            ->map(fn ($row): array => [
-                'product_variant_id' => (int) $row->product_variant_id,
-                'sku' => $row->sku,
-                'product_name' => $row->product_name,
-                'qty_sold' => (float) $row->qty_sold,
-                'revenue' => $this->moneyFloat((string) ($row->revenue ?? '0')),
-            ])->all();
+            $topProducts = DB::table('order_items as oi')->when($branchId !== null, fn ($q) => $q->where('oi.allocated_branch_id', $branchId))
+                ->join('orders as o', 'o.id', '=', 'oi.order_id')
+                ->leftJoin('product_variants as pv', 'pv.id', '=', 'oi.product_variant_id')
+                ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
+                ->selectRaw('oi.product_variant_id, pv.sku, p.name_ar AS product_name, SUM(oi.qty - COALESCE(oi.returned_qty, 0)) AS qty_sold, SUM(oi.line_total) AS revenue')
+                ->whereIn('o.status', self::SALES_STATUSES)
+                ->whereNull('o.return_of_order_id')
+                ->where('o.created_at', '>=', $monthStart)
+                ->where('o.created_at', '<', $todayEnd)
+                ->groupBy('oi.product_variant_id', 'pv.sku', 'p.name_ar')
+                ->orderByDesc('revenue')
+                ->limit(5)
+                ->get()
+                ->map(fn ($row): array => [
+                    'product_variant_id' => (int) $row->product_variant_id,
+                    'sku' => $row->sku,
+                    'product_name' => $row->product_name,
+                    'qty_sold' => (float) $row->qty_sold,
+                    'revenue' => $this->moneyFloat((string) ($row->revenue ?? '0')),
+                ])->all();
 
-        $topBranches = $this->salesEntries($branchId, 'o')
-            ->leftJoin('branches as b', 'b.id', '=', 'o.allocated_branch_id')
-            ->selectRaw('o.allocated_branch_id, b.name AS branch_name, COALESCE(SUM(sale_count), 0) AS orders_count, SUM(o.grand_total) AS revenue')
-            ->where('o.created_at', '>=', $monthStart)
-            ->whereNotNull('o.allocated_branch_id')
-            ->groupBy('o.allocated_branch_id', 'b.name')
-            ->orderByDesc('revenue')
-            ->limit(5)
-            ->get()
-            ->map(fn ($row): array => [
-                'branch_id' => (int) $row->allocated_branch_id,
-                'branch_name' => $row->branch_name,
-                'orders_count' => (int) $row->orders_count,
-                'revenue' => $this->moneyFloat((string) ($row->revenue ?? '0')),
-            ])->all();
+            $topBranches = $this->salesEntries($branchId, 'o', $monthStart, $todayEnd)
+                ->leftJoin('branches as b', 'b.id', '=', 'o.allocated_branch_id')
+                ->selectRaw('o.allocated_branch_id, b.name AS branch_name, COALESCE(SUM(sale_count), 0) AS orders_count, SUM(o.grand_total) AS revenue')
+                ->whereNotNull('o.allocated_branch_id')
+                ->groupBy('o.allocated_branch_id', 'b.name')
+                ->orderByDesc('revenue')
+                ->limit(5)
+                ->get()
+                ->map(fn ($row): array => [
+                    'branch_id' => (int) $row->allocated_branch_id,
+                    'branch_name' => $row->branch_name,
+                    'orders_count' => (int) $row->orders_count,
+                    'revenue' => $this->moneyFloat((string) ($row->revenue ?? '0')),
+                ])->all();
 
-        return [
-            'today' => [
-                'sales_total' => $todaySales['total'],
-                'sales_by_channel' => $todaySales['by_channel'],
-                'new_orders_count' => $newOrdersCount,
-            ],
-            'month' => [
-                'sales_total' => $monthSales['total'],
-                'sales_by_channel' => $monthSales['by_channel'],
-            ],
-            'low_stock_count' => $lowStockCount,
-            'pending_wholesale_applications' => $pendingWholesale,
-            'top_products' => $topProducts,
-            'top_branches' => $topBranches,
-        ];
+            return [
+                'today' => [
+                    'sales_total' => $todaySales['total'],
+                    'sales_by_channel' => $todaySales['by_channel'],
+                    'new_orders_count' => $newOrdersCount,
+                ],
+                'month' => [
+                    'sales_total' => $monthSales['total'],
+                    'sales_by_channel' => $monthSales['by_channel'],
+                ],
+                'low_stock_count' => $lowStockCount,
+                'pending_wholesale_applications' => $pendingWholesale,
+                'top_products' => $topProducts,
+                'top_branches' => $topBranches,
+            ];
+        }, readOnly: true);
     }
 
     /**
@@ -502,9 +504,19 @@ class ReportService
 
         $gross = $revenue->minus($cogs);
         $net = $gross->minus($expenses);
-        $missingCosts = DB::table('stock_movements')->whereIn('type', ['sale', 'sale_return'])
-            ->whereNull('unit_cost')->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
-            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))->count();
+        $missingCosts = DB::table('stock_movements as sm')->whereIn('sm.type', ['sale', 'sale_return'])
+            ->whereNull('sm.unit_cost')->where('sm.created_at', '>=', $periodStart)->where('sm.created_at', '<', $periodEnd)
+            ->when($branchId !== null, function ($q) use ($branchId, $orderReferences): void {
+                $q->leftJoin('orders as o', function ($join) use ($orderReferences): void {
+                    $join->on('o.id', '=', 'sm.reference_id')->whereIn('sm.reference_type', $orderReferences);
+                })->where(function ($w) use ($branchId, $orderReferences): void {
+                    $w->where(function ($w2) use ($branchId, $orderReferences): void {
+                        $w2->whereIn('sm.reference_type', $orderReferences)->where('o.allocated_branch_id', $branchId);
+                    })->orWhere(function ($w2) use ($branchId, $orderReferences): void {
+                        $w2->whereNotIn('sm.reference_type', $orderReferences)->where('sm.branch_id', $branchId);
+                    });
+                });
+            })->count();
 
         return [
             'net_sales_revenue' => $this->moneyFloat($revenue),

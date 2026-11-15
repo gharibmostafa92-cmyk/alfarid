@@ -155,8 +155,8 @@ class FinanceWalletTest extends TestCase
         $show->assertJsonPath('transactions.data.0.type_label', 'دفع طلب');
 
         $summary = $this->withToken($this->token($viewer))->getJson("/api/v1/admin/customers/{$customer->id}/wallet/summary")->assertOk();
-        $summary->assertJsonPath('breakdown.topups', 150);
-        $summary->assertJsonPath('breakdown.payments', -100);
+        $summary->assertJsonPath('breakdown.topups', '150.00');
+        $summary->assertJsonPath('breakdown.payments', '-100.00');
 
         $noperm = $this->staff(['ai_agent.use']);
         $this->withToken($this->token($noperm))->getJson("/api/v1/admin/customers/{$customer->id}/wallet")->assertForbidden();

@@ -52,6 +52,17 @@ class VerifyDatabaseSchema extends Command
         'orders_pos_tender_total',
         'treasury_transactions_type_sign_check',
         'treasury_transfers_approver_required',
+        'treasuries_nonnegative_cash',
+    ];
+
+    /** @var list<string> */
+    private const EXPECTED_INDEXES = [
+        'wallet_transactions_reference_alias_unique',
+        'treasury_transactions_reference_unique',
+        'treasury_transactions_opening_balance_unique',
+        'wallet_adjustments_one_reversal_idx',
+        'pos_shifts_one_open_user',
+        'pos_shifts_one_unsettled_drawer',
     ];
 
     public function handle(): int
@@ -142,6 +153,17 @@ class VerifyDatabaseSchema extends Command
         foreach (self::EXPECTED_CONSTRAINTS as $constraint) {
             if (! in_array($constraint, $existingConstraints, true)) {
                 $missing[] = (object) ['issue' => 'Missing guard constraint', 'table_name' => '-', 'object_name' => $constraint];
+            }
+        }
+
+        $existingIndexes = collect($connection->select(<<<'SQL'
+            SELECT c.relname AS index_name FROM pg_catalog.pg_class AS c
+            JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'i' AND n.nspname = current_schema()
+            SQL))->map(fn ($row) => $row->index_name)->all();
+        foreach (self::EXPECTED_INDEXES as $index) {
+            if (! in_array($index, $existingIndexes, true)) {
+                $missing[] = (object) ['issue' => 'Missing guard index', 'table_name' => '-', 'object_name' => $index];
             }
         }
 

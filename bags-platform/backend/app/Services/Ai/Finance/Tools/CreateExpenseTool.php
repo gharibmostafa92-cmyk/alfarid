@@ -171,15 +171,16 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
             ->where('created_at', '>=', now()->subHours(48))->exists()) {
             $warnings[] = 'فيه مصروف مشابه بنفس المبلغ والخزينة خلال آخر ٤٨ ساعة.';
         }
-        $average = (float) (clone $similar)->where('expense_date', '>=', $now->copy()->subMonthsNoOverflow(6)->toDateString())->avg('amount');
-        if ($average > 0 && (float) $amount > 3 * $average) {
+        $average = (string) ((clone $similar)->where('expense_date', '>=', $now->copy()->subMonthsNoOverflow(6)->toDateString())->avg('amount') ?? '0');
+        $averageDec = BigDecimal::of($average);
+        $amountDec = BigDecimal::of((string) $amount)->toScale(2, RoundingMode::HalfUp);
+        if ($averageDec->isGreaterThan(0) && $amountDec->isGreaterThan($averageDec->multipliedBy(3))) {
             $warnings[] = 'المبلغ أكبر من ٣ أضعاف متوسط الفئة.';
         }
         if ($date > $now->toDateString() || $date < $now->copy()->subDays(30)->toDateString()) {
             $warnings[] = 'تاريخ المصروف في المستقبل أو أقدم من ٣٠ يوم.';
         }
-        $threshold = (float) $this->settings->get('ai_finance_high_risk_amount', 20000);
-        $amountDec = BigDecimal::of((string) $amount)->toScale(2, RoundingMode::HalfUp);
+        $threshold = BigDecimal::of((string) $this->settings->get('ai_finance_high_risk_amount', 20000));
         $treasuryBalanceDec = BigDecimal::of((string) $treasury->current_balance)->toScale(2, RoundingMode::HalfUp);
         if ($amountDec->isGreaterThan($treasuryBalanceDec) && $type !== 'bank_account') {
             $shortfall = (string) $amountDec->minus($treasuryBalanceDec)->toScale(2, RoundingMode::HalfUp);
@@ -187,7 +188,7 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
             $warnings[] = 'المبلغ أكبر من رصيد الخزينة الحالي — التسجيل سيفشل ما لم يتغذَّ الرصيد.'
                 .($topUp === null ? '' : " {$topUp['name']} فيها {$topUp['balance']} — قل «{$topUp['prompt']}» لتغطية العجز بضغطة.");
         }
-        $risk = (float) $amount > $threshold ? 'high' : $this->risk();
+        $risk = $amountDec->isGreaterThan($threshold) ? 'high' : $this->risk();
 
         return $this->proposals->make(
             $actor,
@@ -231,18 +232,20 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
         $copied = false;
 
         try {
-            return DB::transaction(function () use ($actor, $action, $disk, $source, $receiptPath, &$copied): ToolOutcome {
+            if ($action->status !== 'confirmed') {
+                throw new BusinessException('الإجراء لم يعد متاحًا. اطلب اقتراحًا جديدًا.', [], 409);
+            }
+
+            if (! $disk->copy($source, $receiptPath)) {
+                throw new \League\Flysystem\UnableToCopyFile('Receipt copy failed.');
+            }
+            $copied = true;
+
+            return DB::transaction(function () use ($actor, $action, $receiptPath): ToolOutcome {
                 $claimed = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
                 if ($claimed->status !== 'confirmed') {
                     throw new BusinessException('الإجراء لم يعد متاحًا. اطلب اقتراحًا جديدًا.', [], 409);
                 }
-
-                // Unique per attempt: a concurrent failed attempt can never
-                // delete a receipt written by the winning attempt.
-                if (! $disk->copy($source, $receiptPath)) {
-                    throw new \League\Flysystem\UnableToCopyFile('Receipt copy failed.');
-                }
-                $copied = true;
 
                 return $this->recordExpense($actor, $claimed, $receiptPath);
             });

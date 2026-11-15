@@ -7,30 +7,49 @@ namespace App\Http\Controllers\Api\V1\Store\Customer;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
+use App\Services\Ai\Finance\FinancePresenter;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class WalletController extends Controller
 {
-    public function index(Request $request, \App\Services\Ai\Finance\FinancePresenter $presenter): JsonResponse
+    public function index(Request $request, FinancePresenter $presenter): JsonResponse
     {
+        $validated = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1'],
+            'direction' => ['nullable', 'string', 'in:credit,debit'],
+            'type' => ['nullable', 'string', 'max:50'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
         $customerId = $request->user()->id;
         $query = CustomerWalletTransaction::query()->where('customer_id', $customerId);
-        if ((int) $request->query('page', 1) <= 1) {
+        if (($validated['page'] ?? 1) <= 1) {
             $query->useWritePdo();
         }
-        if (in_array($request->query('direction'), ['credit', 'debit'], true)) {
-            $query->where('amount', $request->query('direction') === 'credit' ? '>' : '<', 0);
+        if (isset($validated['direction'])) {
+            $query->where('amount', $validated['direction'] === 'credit' ? '>' : '<', 0);
         }
-        if (is_string($request->query('type')) && $request->query('type') !== '') {
-            $query->where('type', $request->query('type'));
+        if (isset($validated['type']) && $validated['type'] !== '') {
+            $query->where('type', $validated['type']);
         }
-        foreach (['from' => '>=', 'to' => '<='] as $param => $op) {
-            $value = $request->query($param);
-            if (is_string($value) && preg_match('/\A\d{4}-\d{2}-\d{2}\z/', $value) === 1) {
-                $query->whereDate('created_at', $op, $value);
+
+        $businessTz = (string) config('app.business_timezone', 'Africa/Cairo');
+        if (! empty($validated['from'])) {
+            $fromUtc = CarbonImmutable::createFromFormat('!Y-m-d', $validated['from'], $businessTz)?->startOfDay()->utc()->toDateTimeString();
+            if ($fromUtc !== null) {
+                $query->where('created_at', '>=', $fromUtc);
             }
         }
+        if (! empty($validated['to'])) {
+            $toUtc = CarbonImmutable::createFromFormat('!Y-m-d', $validated['to'], $businessTz)?->addDay()->startOfDay()->utc()->toDateTimeString();
+            if ($toUtc !== null) {
+                $query->where('created_at', '<', $toUtc);
+            }
+        }
+
         $entries = $query->latest('id')->paginate(20, ['id', 'type', 'amount', 'balance_after', 'reference_type', 'reference_id', 'created_at']);
         $entries->getCollection()->transform(fn (CustomerWalletTransaction $tx) => [
             'id' => $tx->id,

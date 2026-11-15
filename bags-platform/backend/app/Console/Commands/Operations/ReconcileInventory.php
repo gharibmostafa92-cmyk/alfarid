@@ -49,7 +49,7 @@ class ReconcileInventory extends Command
             $failures = 0;
             foreach (Branch::query()->where('is_active', true)->orderBy('id')->pluck('id') as $branchId) {
                 $this->info("فحص الفرع {$branchId}...");
-                if (StatementBudget::run(300000, fn (): int => $this->reconcile((int) $branchId), readOnly: false) !== self::SUCCESS) {
+                if ($this->reconcile((int) $branchId) !== self::SUCCESS) {
                     $failures++;
                 }
             }
@@ -62,7 +62,7 @@ class ReconcileInventory extends Command
             return self::SUCCESS;
         }
 
-        return StatementBudget::run(300000, fn (): int => $this->reconcile($branch === null ? null : (int) $branch), readOnly: false);
+        return $this->reconcile($branch === null ? null : (int) $branch);
     }
 
     /**
@@ -121,6 +121,7 @@ WITH levels AS (
 /*incremental-cleanup*/
 SELECT (SELECT COUNT(*) FROM levels) AS checked, (SELECT COUNT(*) FROM problems) AS problem_count,
     COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples
+    /*incremental-select*/
 SQL;
         if ($incremental) {
             // Revision comparison survives concurrent commits. A simple MAX(id) cursor
@@ -131,25 +132,38 @@ SQL;
             $sql = str_replace('SELECT * FROM stock_levels WHERE', 'SELECT * FROM stock_levels WHERE '.$matches('stock_levels').' AND', $sql);
             $sql = str_replace('FROM stock_movements WHERE', 'FROM stock_movements WHERE '.$matches('stock_movements').' AND', $sql);
             $sql = str_replace('/*incremental-cleanup*/', <<<'SQL'
-, locked AS MATERIALIZED (
-    SELECT w.key, EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
-        AND p.product_variant_id = c.product_variant_id AND COALESCE(p.location_id, 0) = COALESCE(c.location_id, 0)) AS has_problem
-    FROM inventory_reconcile_work w JOIN chosen c USING (key)
-    WHERE w.revision = c.revision
-    ORDER BY w.key FOR UPDATE OF w SKIP LOCKED
-), cleaned AS (
-    DELETE FROM inventory_reconcile_work w USING locked l
-    WHERE w.key = l.key AND NOT l.has_problem
-    RETURNING w.key
-), checked AS (
-    UPDATE inventory_reconcile_work w SET checked_at = CURRENT_TIMESTAMP FROM locked l
-    WHERE w.key = l.key AND l.has_problem
-    RETURNING w.key
+, work_summary AS (
+    SELECT COALESCE(json_agg(json_build_object(
+        'key', c.key,
+        'has_problem', EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
+            AND p.product_variant_id = c.product_variant_id AND COALESCE(p.location_id, 0) = COALESCE(c.location_id, 0))
+    )), '[]'::json) AS work_items
+    FROM chosen c
 )
 SQL, $sql);
+            $sql = str_replace('/*incremental-select*/', ', (SELECT work_items FROM work_summary) AS work_items', $sql);
         }
         $bindings = array_fill(0, $incremental ? 6 : 4, $branch);
-        $result = DB::selectOne($sql, $bindings, false);
+        $result = StatementBudget::run(300000, fn () => DB::selectOne($sql, $bindings, false), readOnly: true);
+
+        if ($incremental && isset($result->work_items)) {
+            $items = json_decode((string) $result->work_items, true) ?? [];
+            $cleanKeys = [];
+            $dirtyKeys = [];
+            foreach ($items as $item) {
+                if (! empty($item['has_problem'])) {
+                    $dirtyKeys[] = $item['key'];
+                } else {
+                    $cleanKeys[] = $item['key'];
+                }
+            }
+            if ($cleanKeys !== []) {
+                DB::table('inventory_reconcile_work')->whereIn('key', $cleanKeys)->delete();
+            }
+            if ($dirtyKeys !== []) {
+                DB::table('inventory_reconcile_work')->whereIn('key', $dirtyKeys)->update(['checked_at' => now()]);
+            }
+        }
 
         // Persist latest run outcome for the inventory_health assistant tool to avoid expensive real-time audits.
         InventoryReconcileRun::query()->create([

@@ -32,11 +32,12 @@ final class StatementBudget
             $previous = $nested ? DB::scalar("SELECT current_setting('statement_timeout')") : null;
             DB::select("SELECT set_config('statement_timeout', ?, true)", [max(1, $milliseconds).'ms']);
 
-            // A failed callback rolls back the savepoint and its settings. On
-            // success releasing a savepoint keeps settings in the outer transaction.
+            // A failed callback rolls back the savepoint and its settings automatically.
+            // On success, releasing a savepoint keeps settings in the outer transaction,
+            // so we explicitly restore the previous timeout.
             $result = $callback();
             if ($previous !== null) {
-                DB::select("SELECT set_config('statement_timeout', ?, true)", [$previous]);
+                DB::select("SELECT set_config('statement_timeout', ?, true)", [(string) $previous]);
             }
 
             return $result;

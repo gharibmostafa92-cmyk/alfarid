@@ -125,7 +125,7 @@ class FinanceBriefingTest extends TestCase
         $this->assertCount(1, $suggested);
         $this->assertSame($drawer->id, $suggested[0]['from_treasury_id']);
         $this->assertSame($safe->id, $suggested[0]['to_treasury_id']);
-        $this->assertSame(1000.0, $suggested[0]['amount']);
+        $this->assertSame('1000.00', $suggested[0]['amount']);
 
         $prompts = array_column($data['quick_actions'], 'prompt');
         $this->assertContains('اعتمد الورديات اللي مستنية التسوية', $prompts);

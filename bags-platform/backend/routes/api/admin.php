@@ -71,8 +71,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
     ->name('admin.')
     ->group(function (): void {
         Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
-        Route::get('dashboard', [DashboardController::class, 'index'])->middleware('permission:reports.view')->name('dashboard');
-        Route::prefix('reports')->name('reports.')->middleware(['permission:reports.view', 'throttle:admin-reports'])->group(function (): void {
+        Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+        Route::prefix('reports')->name('reports.')->middleware(['throttle:admin-reports'])->group(function (): void {
             Route::get('sales', [ReportController::class, 'sales'])->name('sales');
             Route::get('inventory', [ReportController::class, 'inventory'])->name('inventory');
             Route::get('profit', [ReportController::class, 'profit'])->name('profit');

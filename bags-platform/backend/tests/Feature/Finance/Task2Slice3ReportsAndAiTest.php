@@ -233,4 +233,212 @@ class Task2Slice3ReportsAndAiTest extends TestCase
         }
         $this->assertSame(0, $exitCode);
     }
+
+    public function test_critical_03_report_service_dashboard_pushes_time_bounds_and_excludes_returns_from_top_products(): void
+    {
+        $branch = Branch::query()->firstOrCreate(['code' => 'T2_DASH_B'], ['name' => 'Dash Branch', 'is_active' => true]);
+        $customer = \App\Models\Customer::factory()->create();
+
+        $category = \App\Models\Category::factory()->create();
+        $product = \App\Models\Product::query()->create([
+            'category_id' => $category->id,
+            'name_ar' => 'حقيبة اختبار',
+            'name_en' => 'Test Bag',
+            'slug' => 'test-bag-dash-'.uniqid(),
+            'is_active' => true,
+        ]);
+        $variant = \App\Models\ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'sku' => 'SKU-DASH-'.uniqid(),
+            'price' => '100.00',
+            'is_active' => true,
+        ]);
+
+        // 1. Regular completed order today
+        $order = \App\Models\Order::query()->create([
+            'order_number' => 'ORD-DASH-'.uniqid(),
+            'customer_id' => $customer->id,
+            'allocated_branch_id' => $branch->id,
+            'status' => 'delivered',
+            'payment_status' => 'paid',
+            'channel' => 'pos',
+            'subtotal' => '200.00',
+            'grand_total' => '200.00',
+            'total_paid' => '200.00',
+        ]);
+        \App\Models\OrderItem::query()->create([
+            'order_id' => $order->id,
+            'product_variant_id' => $variant->id,
+            'allocated_branch_id' => $branch->id,
+            'product_name_snapshot' => 'حقيبة اختبار',
+            'sku_snapshot' => $variant->sku,
+            'qty' => 2,
+            'unit_price' => '100.00',
+            'line_total' => '200.00',
+        ]);
+
+        // 2. Return order (return_of_order_id set)
+        $returnOrder = \App\Models\Order::query()->create([
+            'order_number' => 'ORD-RET-'.uniqid(),
+            'customer_id' => $customer->id,
+            'allocated_branch_id' => $branch->id,
+            'status' => 'delivered',
+            'payment_status' => 'paid',
+            'channel' => 'pos',
+            'subtotal' => '100.00',
+            'grand_total' => '100.00',
+            'total_paid' => '100.00',
+            'return_of_order_id' => $order->id,
+        ]);
+        \App\Models\OrderItem::query()->create([
+            'order_id' => $returnOrder->id,
+            'product_variant_id' => $variant->id,
+            'allocated_branch_id' => $branch->id,
+            'product_name_snapshot' => 'حقيبة اختبار',
+            'sku_snapshot' => $variant->sku,
+            'qty' => 1,
+            'unit_price' => '100.00',
+            'line_total' => '100.00',
+        ]);
+
+        $reportService = app(\App\Services\Finance\ReportService::class);
+        $dashboard = $reportService->dashboard($branch->id);
+
+        $this->assertIsArray($dashboard);
+        $this->assertArrayHasKey('top_products', $dashboard);
+        $top = collect($dashboard['top_products'])->firstWhere('product_variant_id', $variant->id);
+        $this->assertNotNull($top);
+        // The return order must be excluded from top_products, so qty_sold is 2 (not 2 + 1 = 3)!
+        $this->assertEquals(2.0, (float) $top['qty_sold']);
+    }
+
+    public function test_high_05_customer_wallet_controller_summary_returns_string_formatted_breakdown(): void
+    {
+        $this->seed([\Database\Seeders\SettingSeeder::class, \Database\Seeders\FinancialPermissionSeeder::class]);
+        $customer = \App\Models\Customer::factory()->create(['wallet_balance' => '50.00']);
+        $user = User::factory()->create();
+        $user->assignRole(\Spatie\Permission\Models\Role::findOrCreate(StaffRole::SuperAdmin->value, 'staff'));
+        $token = $user->createToken('test')->plainTextToken;
+
+        \App\Models\CustomerWalletTransaction::query()->create([
+            'customer_id' => $customer->id,
+            'type' => 'topup',
+            'amount' => '19.99',
+            'balance_after' => '19.99',
+            'reference_type' => 'manual',
+            'reference_id' => 101,
+        ]);
+        \App\Models\CustomerWalletTransaction::query()->create([
+            'customer_id' => $customer->id,
+            'type' => 'topup',
+            'amount' => '4.10',
+            'balance_after' => '24.09',
+            'reference_type' => 'manual',
+            'reference_id' => 102,
+        ]);
+
+        $response = $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson("/api/v1/admin/customers/{$customer->id}/wallet/summary");
+
+        $response->assertStatus(200);
+        $breakdown = $response->json('breakdown');
+        $this->assertIsArray($breakdown);
+        // High-05: Values must be strings formatted to 2 decimal places, not raw floats
+        $this->assertIsString($breakdown['topups']);
+        $this->assertSame('24.09', $breakdown['topups']);
+    }
+
+    public function test_medium_04_profit_report_aligns_missing_costs_branch_dimension(): void
+    {
+        $sellingBranch = Branch::query()->firstOrCreate(['code' => 'T2_SELL_B'], ['name' => 'Selling Branch', 'is_active' => true]);
+        $warehouseBranch = Branch::query()->firstOrCreate(['code' => 'T2_WH_B'], ['name' => 'Warehouse Branch', 'is_active' => true]);
+        $customer = \App\Models\Customer::factory()->create();
+
+        $order = \App\Models\Order::query()->create([
+            'order_number' => 'ORD-PROF-'.uniqid(),
+            'customer_id' => $customer->id,
+            'allocated_branch_id' => $sellingBranch->id,
+            'status' => 'delivered',
+            'payment_status' => 'paid',
+            'channel' => 'store',
+            'subtotal' => '500.00',
+            'grand_total' => '500.00',
+            'total_paid' => '500.00',
+        ]);
+
+        $category = \App\Models\Category::factory()->create();
+        $product = \App\Models\Product::query()->create([
+            'category_id' => $category->id,
+            'name_ar' => 'حقيبة تكلفة',
+            'name_en' => 'Cost Bag',
+            'slug' => 'cost-bag-'.uniqid(),
+            'is_active' => true,
+        ]);
+        $variant = \App\Models\ProductVariant::query()->create([
+            'product_id' => $product->id,
+            'sku' => 'SKU-COST-'.uniqid(),
+            'price' => '500.00',
+            'is_active' => true,
+        ]);
+
+        // Sale stock movement dispatched from warehouse branch, but allocated to selling branch
+        // unit_cost is NULL, so this is a missing cost movement!
+        $admin = User::first() ?? User::factory()->create();
+        \App\Models\StockMovement::query()->create([
+            'reference_number' => 'REF-PROF-001',
+            'branch_id' => $warehouseBranch->id,
+            'product_variant_id' => $variant->id,
+            'type' => 'sale',
+            'affected_bucket' => 'on_hand',
+            'quantity' => -1,
+            'unit_cost' => null,
+            'reference_type' => 'order',
+            'reference_id' => $order->id,
+            'balance_before' => 10,
+            'balance_after' => 9,
+            'created_by' => $admin->id,
+        ]);
+
+        $reportService = app(\App\Services\Finance\ReportService::class);
+        $profitReport = $reportService->profitReport(
+            now()->subDay()->toDateString(),
+            now()->addDay()->toDateString(),
+            $sellingBranch->id
+        );
+
+        // Selling branch must flag missing_cost_movements = 1 because the sale revenue is recognized on it!
+        $this->assertSame(1, $profitReport['missing_cost_movements']);
+    }
+
+    public function test_medium_07_store_wallet_controller_date_filter_uses_half_open_utc_bounds(): void
+    {
+        $customer = \App\Models\Customer::factory()->create([
+            'wallet_balance' => '100.00',
+            'status' => \App\Enums\Customer\CustomerStatus::Approved,
+        ]);
+        $token = $customer->createToken('store')->plainTextToken;
+
+        // Transaction at 01:00 AM Africa/Cairo (which is 23:00 UTC previous day)
+        // Cairo is UTC+2, so 2026-11-15 01:00:00 Cairo is 2026-11-14 23:00:00 UTC
+        $tx = \App\Models\CustomerWalletTransaction::query()->create([
+            'customer_id' => $customer->id,
+            'type' => 'topup',
+            'amount' => '50.00',
+            'balance_after' => '50.00',
+            'reference_type' => 'manual',
+            'reference_id' => 103,
+            'created_at' => '2026-11-14 23:30:00',
+        ]);
+
+        // Customer filters for 2026-11-15 in Cairo time
+        $response = $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/store/account/wallet?from=2026-11-15&to=2026-11-15');
+
+        if ($response->status() !== 200) {
+            dump($response->status(), $response->json());
+        }
+        $response->assertStatus(200);
+        $items = $response->json('transactions.data');
+        $this->assertCount(1, $items, '01:30 AM Cairo transaction must match Cairo date 2026-11-15.');
+    }
 }

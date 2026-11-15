@@ -85,4 +85,78 @@ class Task2Slice1SchemaTest extends TestCase
         $this->assertNotNull($walletIdx, 'customer_wallet_transactions_customer_id_id_idx should exist.');
         $this->assertTrue($walletIdx->indisvalid, 'customer_wallet_transactions_customer_id_id_idx should be valid.');
     }
+
+    public function test_critical_02_wallet_transactions_reference_alias_unique_includes_customer_id(): void
+    {
+        if (DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL only');
+        }
+
+        // Verify index definition includes customer_id
+        $indexDef = DB::selectOne("
+            SELECT pg_get_indexdef(i.indexrelid) as def
+            FROM pg_class c
+            JOIN pg_index i ON i.indexrelid = c.oid
+            WHERE c.relname = 'wallet_transactions_reference_alias_unique'
+        ");
+        $this->assertNotNull($indexDef, 'wallet_transactions_reference_alias_unique index must exist.');
+        $this->assertStringContainsString('customer_id', $indexDef->def, 'Index definition must include customer_id.');
+
+        // Test inserting two different customers for same order reference and type succeeds
+        $c1 = \App\Models\Customer::factory()->create(['wallet_balance' => '500.00']);
+        $c2 = \App\Models\Customer::factory()->create(['wallet_balance' => '500.00']);
+
+        $tx1 = \App\Models\CustomerWalletTransaction::query()->create([
+            'customer_id' => $c1->id,
+            'type' => 'checkout_payment',
+            'amount' => '-100.00',
+            'balance_after' => '400.00',
+            'reference_type' => 'order',
+            'reference_id' => 88888,
+        ]);
+        $this->assertNotNull($tx1);
+
+        $tx2 = \App\Models\CustomerWalletTransaction::query()->create([
+            'customer_id' => $c2->id,
+            'type' => 'checkout_payment',
+            'amount' => '-50.00',
+            'balance_after' => '450.00',
+            'reference_type' => 'order',
+            'reference_id' => 88888,
+        ]);
+        $this->assertNotNull($tx2);
+    }
+
+    public function test_high_04_verify_database_schema_and_constraints(): void
+    {
+        $reflection = new \ReflectionClass(\App\Console\Commands\Maintenance\VerifyDatabaseSchema::class);
+        $constants = $reflection->getConstants();
+
+        $this->assertArrayHasKey('EXPECTED_CONSTRAINTS', $constants);
+        $this->assertContains('treasuries_nonnegative_cash', $constants['EXPECTED_CONSTRAINTS']);
+
+        $this->assertArrayHasKey('EXPECTED_INDEXES', $constants);
+        $this->assertContains('wallet_transactions_reference_alias_unique', $constants['EXPECTED_INDEXES']);
+        $this->assertContains('treasury_transactions_reference_unique', $constants['EXPECTED_INDEXES']);
+        $this->assertContains('treasury_transactions_opening_balance_unique', $constants['EXPECTED_INDEXES']);
+        $this->assertContains('wallet_adjustments_one_reversal_idx', $constants['EXPECTED_INDEXES']);
+        $this->assertContains('pos_shifts_one_open_user', $constants['EXPECTED_INDEXES']);
+        $this->assertContains('pos_shifts_one_unsettled_drawer', $constants['EXPECTED_INDEXES']);
+    }
+
+    public function test_medium_05_finance_reconcile_runs_has_created_at_index(): void
+    {
+        if (DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL only');
+        }
+
+        $idx = DB::selectOne("
+            SELECT i.indisvalid
+            FROM pg_class c
+            JOIN pg_index i ON i.indexrelid = c.oid
+            WHERE c.relname = 'finance_reconcile_runs_created_at_idx'
+        ");
+        $this->assertNotNull($idx, 'finance_reconcile_runs_created_at_idx should exist.');
+        $this->assertTrue($idx->indisvalid, 'finance_reconcile_runs_created_at_idx should be valid.');
+    }
 }

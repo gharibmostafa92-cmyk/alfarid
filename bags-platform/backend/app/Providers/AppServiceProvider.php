@@ -219,6 +219,33 @@ class AppServiceProvider extends ServiceProvider
             && $user->is_active && ! $user->is_system
             && $user->hasRole(StaffRole::SuperAdmin->value, 'staff') ? true : null);
 
+        Gate::define('finance.reports.view', function ($user): bool {
+            if (! $user instanceof User) {
+                return false;
+            }
+            try {
+                return $user->checkPermissionTo('finance.reports.view', 'staff')
+                    || $user->checkPermissionTo('finance.reports.view', 'web')
+                    || $user->checkPermissionTo('reports.view', 'staff')
+                    || $user->checkPermissionTo('reports.view', 'web');
+            } catch (\Throwable) {
+                return false;
+            }
+        });
+        Gate::define('reports.view', function ($user): bool {
+            if (! $user instanceof User) {
+                return false;
+            }
+            try {
+                return $user->checkPermissionTo('finance.reports.view', 'staff')
+                    || $user->checkPermissionTo('finance.reports.view', 'web')
+                    || $user->checkPermissionTo('reports.view', 'staff')
+                    || $user->checkPermissionTo('reports.view', 'web');
+            } catch (\Throwable) {
+                return false;
+            }
+        });
+
         $proxies = config('app.trusted_proxies');
         TrustProxies::at(is_string($proxies) && trim($proxies) !== '' && $proxies !== 'none'
             ? array_map('trim', explode(',', $proxies)) : []);

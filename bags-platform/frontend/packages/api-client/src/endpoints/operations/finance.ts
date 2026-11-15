@@ -163,6 +163,18 @@ export const treasuryTransfersApi = {
         },
       )
       .then((r) => one<TreasuryTransfer>(r)),
+  cancel: (id: Id, idempotencyKey?: string) =>
+    api
+      .post(
+        `${TT}/${id}/cancel`,
+        {},
+        {
+          headers: {
+            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+          },
+        },
+      )
+      .then((r) => one<TreasuryTransfer>(r)),
 };
 
 export interface PosShift {

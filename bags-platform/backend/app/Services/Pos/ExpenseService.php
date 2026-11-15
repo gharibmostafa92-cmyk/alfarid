@@ -86,7 +86,11 @@ class ExpenseService
             $idempotencyKey,
             $payload,
             fn () => DB::transaction(function () use ($payload, $amount, $actor): Expense {
-                $lockedTreasury = Treasury::query()->lockForUpdate()->findOrFail($payload['treasury_id']);
+                $this->branchAccess->lockActiveBranch((int) $payload['branch_id']);
+                $lockedTreasury = $this->treasury->lockTreasuries([(int) $payload['treasury_id']], $actor->id)->get((int) $payload['treasury_id']);
+                if ($lockedTreasury === null) {
+                    throw new BusinessException('الخزينة غير موجودة.');
+                }
                 $this->branchAccess->assertTreasury($actor->id, $lockedTreasury);
                 if (! $lockedTreasury->is_active) {
                     throw new BusinessException('الخزينة غير نشطة.');

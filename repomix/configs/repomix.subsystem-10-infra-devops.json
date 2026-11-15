@@ -111,7 +111,9 @@
                     "bags-platform/backend/database/migrations/2026_11_14_000002_add_transfer_received_location.php",
                     "docs/TASK3_INVENTORY_DEPLOYMENT_STATUS.md",
                     "docs/TASK6_DEPLOYMENT_STATUS.md",
-                    "docs/architecture/**"
+                    "docs/architecture/**",
+                    "bags-platform/backend/database/migrations/2026_11_14_000003_rebuild_wallet_transactions_reference_alias_unique.php",
+                    "bags-platform/backend/database/migrations/2026_11_14_000004_index_finance_reconcile_runs_created_at.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

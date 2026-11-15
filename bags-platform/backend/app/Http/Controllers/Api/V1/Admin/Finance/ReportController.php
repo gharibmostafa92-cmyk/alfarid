@@ -11,13 +11,22 @@ use App\Services\Shared\CostAccess;
 use App\Services\Finance\ReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Carbon;
 
 /**
  * Admin controller serving aggregated sales, profit, inventory, supplier, and shift reports.
  */
-class ReportController extends Controller
+class ReportController extends Controller implements HasMiddleware
 {
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('can:finance.reports.view'),
+        ];
+    }
+
     public function __construct(private readonly ReportService $reports) {}
 
     /** @return array{0: string, 1: string} */

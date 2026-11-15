@@ -100,8 +100,8 @@ final class ApproveTreasuryTransferTool implements AgentTool, LocksTargets, Writ
             $warnings[] = 'رصيد المصدر الحالي لا يكفي — الاعتماد سيفشل ما لم يتغذَّ الرصيد قبل التأكيد.'
                 .($topUp === null ? '' : " {$topUp['name']} فيها {$topUp['balance']} — قل «{$topUp['prompt']}» لتغطية العجز بضغطة.");
         }
-        $threshold = (float) $this->settings->get('ai_finance_high_risk_amount', 20000);
-        $risk = (float) $transfer->amount > $threshold ? 'high' : $this->risk();
+        $threshold = BigDecimal::of((string) $this->settings->get('ai_finance_high_risk_amount', 20000));
+        $risk = $transferAmountDec->isGreaterThan($threshold) ? 'high' : $this->risk();
 
         return $this->proposals->make(
             $actor,

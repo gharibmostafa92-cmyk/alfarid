@@ -140,7 +140,7 @@ export function FinancialDashboard({ onLogout, categoriesPage, categoriesActive 
   const currency = state.currencies[state.currencyIndex];
   const chat = state.chats.find(item => item.id === state.activeChatId) || state.chats[0];
   const filteredActivities = state.activities.filter(row => [row.id, row.name, row.status].some(value => value.toLowerCase().includes(activityQuery.toLowerCase())));
-  const money = value => '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = value => (currency?.symbol ?? '$') + Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const update = callback => setState(previous => { const next = structuredClone(previous); callback(next); return next; });
 
   function showToast(message) {
@@ -185,8 +185,9 @@ export function FinancialDashboard({ onLogout, categoriesPage, categoriesActive 
   }
   function walletClick(wallet) {
     if (wallet !== 'GBP') { showToast(`${wallet} Wallet is active`); return; }
-    update(next => { next.gbpActive = !next.gbpActive; });
-    showToast(state.gbpActive ? 'GBP Wallet set to inactive' : 'GBP Wallet reactivated');
+    const nextActive = !state.gbpActive;
+    update(next => { next.gbpActive = nextActive; });
+    showToast(nextActive ? 'GBP Wallet reactivated' : 'GBP Wallet set to inactive');
   }
   function selectChatFilter(filter) {
     update(next => { next.chatFilter = filter; });
@@ -204,6 +205,7 @@ export function FinancialDashboard({ onLogout, categoriesPage, categoriesActive 
     if (!text) return;
     update(next => {
       const target = next.chats.find(item => item.id === next.activeChatId);
+      if (!target) return;
       target.messages.push({ sender: 'me', text, time: 'Just now' });
       target.time = 'Just now';
     });
