@@ -42,6 +42,7 @@ class TreasuryService
         TreasuryTransactionType::TransferIn,
         TreasuryTransactionType::CustomerReceipt,
         TreasuryTransactionType::CashOverage,
+        TreasuryTransactionType::SupplierPaymentReversal,
     ];
 
     /** Transaction types whose amount is always a debit (negative). */
@@ -248,7 +249,7 @@ class TreasuryService
                 ? $data['type']
                 : TreasuryTransactionType::from((string) $data['type']);
 
-            if (! $treasury->is_active && ! in_array($type, [TreasuryTransactionType::ExpenseReversal, TreasuryTransactionType::CustomerReceiptReversal], true)) {
+            if (! $treasury->is_active && ! in_array($type, [TreasuryTransactionType::ExpenseReversal, TreasuryTransactionType::CustomerReceiptReversal, TreasuryTransactionType::SupplierPaymentReversal], true)) {
                 throw new BusinessException('الخزينة غير نشطة.');
             }
 

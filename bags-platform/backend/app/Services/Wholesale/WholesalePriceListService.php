@@ -28,17 +28,18 @@ class WholesalePriceListService
      * @param  Customer  $customer  Target wholesale customer account.
      * @return list<array{sku: string, barcode: string|null, product_name: string|null, base_price: float|null, wholesale_price: float|null, tier_prices: list<array{min_qty: float, unit_price: float}>, available_qty: float}>
      */
-    public function rows(Customer $customer): array
+    public function rows(Customer $customer, ?int $limit = null): array
     {
-        return StatementBudget::run(150000, fn (): array => $this->calculateRows($customer));
+        return StatementBudget::run(150000, fn (): array => $this->calculateRows($customer, $limit));
     }
 
-    private function calculateRows(Customer $customer): array
+    private function calculateRows(Customer $customer, ?int $limit): array
     {
         $variants = ProductVariant::query()->with('product')
             ->where('is_active', true)
             ->whereHas('product', fn ($q) => $q->where('status', ProductStatus::Published->value))
             ->orderBy('sku')
+            ->when($limit !== null, fn ($query) => $query->limit($limit))
             ->get();
 
         $availability = StockLevel::query()

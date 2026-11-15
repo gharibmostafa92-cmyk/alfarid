@@ -25,7 +25,7 @@ class PurchaseRequestRequest extends FormRequest
             'branch_id' => ['required', 'integer', 'exists:branches,id'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['required', 'array', 'min:1', 'max:50'],
-            'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
+            'items.*.product_variant_id' => ['required', 'integer', 'distinct', 'exists:product_variants,id'],
             'items.*.requested_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
             'items.*.notes' => ['nullable', 'string', 'max:255'],
         ];

@@ -3,7 +3,7 @@ import { useApp } from './context';
 import { wholesaleEndpoints, cartEndpoints, checkoutEndpoints, accountEndpoints } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError, saveBlob, pageMeta, num, day, tierPrice } from './data/helpers';
+import { apiError, saveBlob, pageMeta, num, day, tierPrice, shouldRenewCheckoutKey } from './data/helpers';
 import { mapProduct, mapOrder, mapShippingOptions, mapQuickLookup } from './data/mappers';
 import { ORDER_STATUS, PAY_METHOD, PAY_STATUS, QUOTE_STATUS } from './data/constants';
 import { fmt, Money } from './data/format';
@@ -626,6 +626,9 @@ export const Checkout = () => {
       go('success', res.data.id);
     } catch (err) {
       const info = apiError(err);
+      if (shouldRenewCheckoutKey(info)) {
+        idemKey.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      }
       if (info.code === 'price_changed') {
         setPrevTotal(preview.grand_total);
         try {

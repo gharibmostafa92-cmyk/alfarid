@@ -13,4 +13,5 @@ enum RefundMethod: string
     case Wallet = 'wallet';
     case BankTransfer = 'bank_transfer';
     case Cash = 'cash';
+    case CreditNote = 'credit_note';
 }

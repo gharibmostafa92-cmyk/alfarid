@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Supplier;
 
+use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Supplier\RequestChangeRequest;
 use App\Http\Resources\Supplier\PurchaseOrderResource;
@@ -13,6 +14,7 @@ use App\Services\Procurement\ProcurementService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Validation\Rule;
 
 /**
  * Supplier portal purchase orders: strictly scoped to the authenticated supplier ID to prevent cross-tenant enumeration.
@@ -28,9 +30,12 @@ class PurchaseOrderController extends Controller
     {
         /** @var SupplierUser $user */
         $user = $request->user();
+        $filters = $request->validate([
+            'status' => ['nullable', Rule::enum(PurchaseOrderStatus::class)],
+        ]);
         $orders = $this->scoped($user)
             ->with(['branch:id,name', 'items.variant'])
-            ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->latest('id')
             ->paginate(20);
 

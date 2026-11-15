@@ -45,7 +45,20 @@
                     "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
                     "bags-platform/frontend/packages/pos-core/src/lib/wholesale.ts",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/QuotationController.php",
-                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/WholesalePaymentNoticeController.php"
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/WholesalePaymentNoticeController.php",
+                    "bags-platform/backend/app/Http/Requests/Wholesale/StorePaymentNoticeRequest.php",
+                    "bags-platform/backend/app/Http/Requests/Wholesale/WholesaleRegisterRequest.php",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/WholesalePortal.jsx",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/buy-screens.jsx",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/data/helpers.js",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/data/mappers.js",
+                    "bags-platform/backend/app/Rules/RejectExecutableSignature.php",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/account-statement/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/invoices/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/orders/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/products/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quick-order/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -291,7 +291,7 @@ class PricingService
                 $tieNote(PriceListType::CustomerSpecific, 'customer_id', $customer->id, $item);
                 $layers[] = ['layer' => 'customer_specific', 'status' => 'won', 'reason' => 'قائمة العميل الخاصة كسبت.', 'price_list_id' => (int) $item->price_list_id, 'price' => (float) $item->price, 'min_qty' => (float) $item->min_qty];
                 $skippedRest(['customer_group', 'channel', 'retail_fallback', 'base_price']);
-                $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'خصم المجموعة 10% ماتطبقش لأن السعر جه من قائمة المجموعة نفسها.'];
+                $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'خصم المجموعة ما اتطبقش لأن السعر جه من قائمة العميل الخاصة.'];
                 $final = $this->formatResponse($item->price, PriceListType::CustomerSpecific->value, (int) $item->price_list_id, $variant, $channel);
 
                 return ['final' => $final, 'layers' => $layers, 'notes' => $notes];
@@ -307,7 +307,7 @@ class PricingService
                 $tieNote(PriceListType::CustomerGroup, 'customer_group_id', $group->id, $item);
                 $layers[] = ['layer' => 'customer_group', 'status' => 'won', 'reason' => 'قائمة المجموعة كسبت.', 'price_list_id' => (int) $item->price_list_id, 'price' => (float) $item->price, 'min_qty' => (float) $item->min_qty];
                 $skippedRest(['channel', 'retail_fallback', 'base_price']);
-                $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'خصم المجموعة 10% ماتطبقش لأن السعر جه من قائمة المجموعة نفسها.'];
+                $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'خصم المجموعة ما اتطبقش مرتين لأن السعر جه من قائمة المجموعة نفسها.'];
                 $final = $this->formatResponse($item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
 
                 return ['final' => $final, 'layers' => $layers, 'notes' => $notes];

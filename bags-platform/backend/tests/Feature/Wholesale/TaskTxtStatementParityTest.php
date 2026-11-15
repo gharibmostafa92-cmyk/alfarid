@@ -6,6 +6,7 @@ namespace Tests\Feature\Wholesale;
 
 use App\Enums\Finance\TreasuryType;
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\RefundMethod;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ReturnRequest;
@@ -13,6 +14,7 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
+use App\Services\Orders\ReturnService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
@@ -138,9 +140,12 @@ class TaskTxtStatementParityTest extends TestCase
     public function test_refunded_return_appears_as_a_single_credit(): void
     {
         $service = app(WholesalePaymentNoticeService::class);
+        $order = $this->creditOrder(150);
         $return = ReturnRequest::factory()->create([
+            'order_id' => $order->id,
             'customer_id' => $this->customer->id,
             'status' => 'refunded',
+            'refund_method' => RefundMethod::CreditNote,
             'refunded_at' => now(),
             'total_refund_amount' => 150,
         ]);
@@ -153,9 +158,56 @@ class TaskTxtStatementParityTest extends TestCase
 
         $this->assertCount(1, $credits);
         $this->assertSame('0.00', $credits[0]['debit']);
-        // Note: refunds credit the statement ledger but do not feed the
-        // outstanding balance — owner decision pending on unifying them.
-        $this->assertSame(-150.0, $statement['closing_balance']);
+        $this->assertSame(0.0, $statement['closing_balance']);
         $this->assertSame('0.00', $service->balanceBreakdown($this->customer)['outstanding']);
+    }
+
+    public function test_credit_note_reduces_unpaid_order_debt_and_payment_settles_only_the_remainder(): void
+    {
+        $order = $this->creditOrder(1000);
+        $return = ReturnRequest::factory()->create([
+            'order_id' => $order->id,
+            'customer_id' => $this->customer->id,
+            'status' => 'received',
+            'total_refund_amount' => 300,
+        ]);
+
+        $refunded = app(ReturnService::class)->refund($return, $this->admin, [
+            'refund_method' => RefundMethod::CreditNote->value,
+        ]);
+
+        $this->assertSame(RefundMethod::CreditNote, $refunded->refund_method);
+        $this->assertSame('unpaid', $order->fresh()->payment_status);
+        $this->assertDatabaseCount('treasury_transactions', 0);
+        $this->assertDatabaseCount('customer_wallet_transactions', 0);
+
+        $service = app(WholesalePaymentNoticeService::class);
+        $this->assertSame('700.00', $service->balanceBreakdown($this->customer)['outstanding']);
+        $this->assertSame(700.0, $service->statement($this->customer)['closing_balance']);
+
+        $notice = WholesalePaymentNotice::factory()->create([
+            'customer_id' => $this->customer->id,
+            'order_id' => $order->id,
+            'amount' => 700,
+            'status' => 'pending_review',
+        ]);
+        $service->approve($notice, $this->admin->id, $this->bank->id);
+
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame('0.00', $service->balanceBreakdown($this->customer)['outstanding']);
+        $this->assertSame(0.0, $service->statement($this->customer)['closing_balance']);
+    }
+
+    public function test_full_credit_note_settles_order_without_cash_movement(): void
+    {
+        $order = $this->creditOrder(1000);
+        $return = ReturnRequest::factory()->create([
+            'order_id' => $order->id, 'customer_id' => $this->customer->id,
+            'status' => 'received', 'total_refund_amount' => 1000,
+        ]);
+        app(ReturnService::class)->refund($return, $this->admin, ['refund_method' => RefundMethod::CreditNote->value]);
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame('0.00', app(WholesalePaymentNoticeService::class)->balanceBreakdown($this->customer)['outstanding']);
+        $this->assertDatabaseCount('treasury_transactions', 0);
     }
 }

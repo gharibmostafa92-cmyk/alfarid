@@ -323,6 +323,7 @@ class TaskTxtPaymentNoticeSection3Test extends TestCase
     public function test_treasury_invariants_and_random_operations_property_test(): void
     {
         Storage::fake('r2');
+        config(['treasury.bank_overdraft_limit' => '200.00']);
         $treasuryService = app(TreasuryService::class);
         $noticeService = app(WholesalePaymentNoticeService::class);
 
@@ -379,7 +380,7 @@ class TaskTxtPaymentNoticeSection3Test extends TestCase
         // Reset bank balance back to 0.00 via deposit
         $treasuryService->record([
             'treasury_id' => $bankAccount->id,
-            'type' => TreasuryTransactionType::OpeningBalance,
+            'type' => TreasuryTransactionType::CustomerReceipt,
             'amount' => '200.00',
             'created_by' => $this->admin->id,
         ]);

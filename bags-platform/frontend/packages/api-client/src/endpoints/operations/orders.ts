@@ -112,7 +112,7 @@ export const adminOrdersApi = {
 
 /* ===== Returns ===== */
 export type ReturnStatus = 'pending' | 'approved' | 'rejected' | 'received' | 'refunded' | 'cancelled';
-export type RefundMethod = 'original_payment' | 'wallet' | 'bank_transfer' | 'cash';
+export type RefundMethod = 'original_payment' | 'wallet' | 'bank_transfer' | 'cash' | 'credit_note';
 
 export interface ReturnRequestItem {
   id: number;

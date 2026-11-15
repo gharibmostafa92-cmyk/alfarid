@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Supplier;
 
+use App\Enums\Procurement\SupplierDeliveryStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Supplier\StoreDeliveryRequest;
 use App\Http\Resources\Supplier\DeliveryResource;
@@ -14,6 +15,7 @@ use App\Services\Procurement\ProcurementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Validation\Rule;
 
 /**
  * Supplier advance shipping notices (ASN): register shipments against purchase orders for warehouse intake.
@@ -52,11 +54,15 @@ class DeliveryController extends Controller
     {
         /** @var SupplierUser $user */
         $user = $request->user();
+        $filters = $request->validate([
+            'purchase_order_id' => ['nullable', 'integer', 'min:1'],
+            'status' => ['nullable', Rule::enum(SupplierDeliveryStatus::class)],
+        ]);
         $deliveries = SupplierDelivery::query()
             ->where('supplier_id', $user->supplier_id)
             ->with(['items.variant'])
-            ->when($request->query('purchase_order_id'), fn ($q, $id) => $q->where('purchase_order_id', (int) $id))
-            ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['purchase_order_id'] ?? null, fn ($q, $id) => $q->where('purchase_order_id', (int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->latest('id')
             ->paginate(20);
 

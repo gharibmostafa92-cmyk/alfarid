@@ -44,7 +44,7 @@ class TaskTxtProcurementGapsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed(SettingSeeder::class);
+        $this->seed([SettingSeeder::class, RolePermissionSeeder::class]);
     }
 
     public function test_retired_procurement_routes_stay_410_while_sales_dashboard_and_payment_webhooks_do_not(): void
@@ -78,6 +78,8 @@ class TaskTxtProcurementGapsTest extends TestCase
     public function test_supplier_balance_follows_draft_post_pay_void_and_cancelled_invoice(): void
     {
         $actor = User::factory()->create();
+        $actor->assignRole('Super Admin');
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-SAFE', 'type' => 'main_safe', 'is_active' => true], $actor, '5000');
         $supplier = Supplier::factory()->create(['opening_balance' => 100, 'current_balance' => 100]);
         $service = app(SupplierFinanceService::class);
 
@@ -92,14 +94,14 @@ class TaskTxtProcurementGapsTest extends TestCase
         $this->assertSame('posted', $draft->fresh()->status->value);
 
         $first = $service->createPayment([
-            'supplier_id' => $supplier->id, 'supplier_invoice_id' => $draft->id,
+            'supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'supplier_invoice_id' => $draft->id,
             'amount' => 400, 'payment_method' => 'cash', 'payment_date' => '2026-03-02',
         ], $actor, 'walk-400');
         $this->assertSame('700.00', $supplier->fresh()->current_balance);
         $this->assertSame('partially_paid', $draft->fresh()->status->value);
 
         $service->createPayment([
-            'supplier_id' => $supplier->id, 'supplier_invoice_id' => $draft->id,
+            'supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'supplier_invoice_id' => $draft->id,
             'amount' => 600, 'payment_method' => 'cash', 'payment_date' => '2026-03-03',
         ], $actor, 'walk-600');
         $this->assertSame('100.00', $supplier->fresh()->current_balance);
@@ -128,10 +130,12 @@ class TaskTxtProcurementGapsTest extends TestCase
     {
         $this->travelTo('2026-06-01 12:00:00');
         $actor = User::factory()->create();
+        $actor->assignRole('Super Admin');
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-FUTURE', 'type' => 'main_safe', 'is_active' => true], $actor, '100');
         $supplier = Supplier::factory()->create(['opening_balance' => 80, 'current_balance' => 80]);
         $service = app(SupplierFinanceService::class);
         $service->createPayment([
-            'supplier_id' => $supplier->id, 'amount' => 30.50, 'payment_method' => 'cash', 'payment_date' => '2026-06-15',
+            'supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 30.50, 'payment_method' => 'cash', 'payment_date' => '2026-06-15',
         ], $actor, 'future-pay');
 
         $this->assertSame('49.50', $supplier->fresh()->current_balance);
@@ -145,6 +149,8 @@ class TaskTxtProcurementGapsTest extends TestCase
     public function test_random_supplier_ledger_sequences_keep_balance_paid_amount_and_statement_aligned(): void
     {
         $actor = User::factory()->create();
+        $actor->assignRole('Super Admin');
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-RANDOM', 'type' => 'main_safe', 'is_active' => true], $actor, '10000');
         $service = app(SupplierFinanceService::class);
         for ($sample = 0; $sample < 8; $sample++) {
             $opening = round(10 + ($sample * 1.37), 2);
@@ -166,6 +172,7 @@ class TaskTxtProcurementGapsTest extends TestCase
                         if ($remaining > 0) {
                             $service->createPayment([
                                 'supplier_id' => $supplier->id,
+                                'treasury_id' => $treasury->id,
                                 'supplier_invoice_id' => $openInvoice->id,
                                 'amount' => round($remaining / 2, 2) > 0 ? round($remaining / 2, 2) : $remaining,
                                 'payment_method' => 'cash',
@@ -182,7 +189,7 @@ class TaskTxtProcurementGapsTest extends TestCase
                         $openInvoice = null;
                     } else {
                         $free = $service->createPayment([
-                            'supplier_id' => $supplier->id, 'amount' => 1.25, 'payment_method' => 'cash', 'payment_date' => '2026-04-03',
+                            'supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 1.25, 'payment_method' => 'cash', 'payment_date' => '2026-04-03',
                         ], $actor, "free-{$sample}-{$step}");
                         if ($openInvoice !== null && in_array($openInvoice->fresh()->status->value, ['posted', 'partially_paid'], true)) {
                             $service->allocatePayment($free, $openInvoice->id);
@@ -196,24 +203,35 @@ class TaskTxtProcurementGapsTest extends TestCase
         }
     }
 
-    public function test_supplier_payment_without_an_idempotency_key_is_rejected_and_writes_nothing(): void
+    public function test_supplier_payments_without_an_idempotency_key_do_not_reuse_a_fake_unique_key(): void
     {
         $this->seed(RolePermissionSeeder::class);
         $admin = User::factory()->create();
         $admin->assignRole('Super Admin');
         $supplier = Supplier::factory()->create(['current_balance' => 40]);
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-API', 'type' => 'main_safe', 'is_active' => true], $admin, '100');
         $this->exerciseHistoricalResale();
 
-        $this->withToken($admin->createToken('pay')->plainTextToken)
-            ->postJson('/api/v1/admin/supplier-payments', [
+        $token = $admin->createToken('pay')->plainTextToken;
+        $payload = [
                 'supplier_id' => $supplier->id,
+                'treasury_id' => $treasury->id,
                 'amount' => 10,
                 'payment_method' => 'cash',
                 'payment_date' => '2026-04-01',
-            ])->assertUnprocessable();
+            ];
 
-        $this->assertDatabaseCount('supplier_payments', 0);
-        $this->assertSame('40.00', $supplier->fresh()->current_balance);
+        $first = $this->withToken($token)->postJson('/api/v1/admin/supplier-payments', $payload)->assertCreated();
+        $second = $this->withToken($token)->postJson('/api/v1/admin/supplier-payments', [
+            ...$payload,
+            'amount' => 15,
+        ])->assertCreated();
+
+        $this->assertNotSame($first->json('data.id'), $second->json('data.id'));
+        $this->assertDatabaseCount('supplier_payments', 2);
+        $this->assertDatabaseHas('supplier_payments', ['id' => $first->json('data.id'), 'idempotency_key' => null]);
+        $this->assertDatabaseHas('supplier_payments', ['id' => $second->json('data.id'), 'idempotency_key' => null]);
+        $this->assertSame('15.00', $supplier->fresh()->current_balance);
     }
 
     public function test_duplicate_receipt_lines_that_exceed_the_remainder_change_nothing(): void

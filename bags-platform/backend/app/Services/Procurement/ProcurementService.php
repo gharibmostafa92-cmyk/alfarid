@@ -13,6 +13,7 @@ use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Events\Procurement\PurchaseOrderSentToSupplier;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
+use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -219,12 +220,19 @@ class ProcurementService
      *
      * @throws BusinessException
      */
-    public function updatePurchaseOrder(PurchaseOrder $po, array $data): PurchaseOrder
+    public function updatePurchaseOrder(PurchaseOrder $po, array $data, User $editor): PurchaseOrder
     {
-        return DB::transaction(function () use ($po, $data): PurchaseOrder {
+        return DB::transaction(function () use ($po, $data, $editor): PurchaseOrder {
             $po = $this->lockOrder($po);
             if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
                 throw new BusinessException('لا يمكن تعديل أمر شراء إلا وهو مسودة أو بانتظار معالجة تعديلات المورد.');
+            }
+            // An empty payload must not overwrite last_modified_by and launder the
+            // separation-of-duties check in approvePurchaseOrder().
+            if (array_intersect([
+                'supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date',
+            ], array_keys($data)) === []) {
+                throw new BusinessException('لا يوجد تغيير صالح في أمر الشراء.');
             }
             if ($po->items()->where('received_qty', '>', 0)->exists()) {
                 throw new BusinessException('أمر شراء بدأ استلامه لا تُعدَّل بنوده.');
@@ -252,9 +260,7 @@ class ProcurementService
             $attributes = array_intersect_key($data, array_flip([
                 'supplier_id', 'branch_id', 'expected_delivery_date', 'discount_amount', 'approved_by',
             ]));
-            if (auth()->id() !== null) {
-                $attributes['last_modified_by'] = auth()->id();
-            }
+            $attributes['last_modified_by'] = $editor->id;
             $po->update($attributes);
             if (isset($data['items'])) {
                 $po->items()->delete();
@@ -379,10 +385,14 @@ class ProcurementService
     {
         $items = $po->items()->get();
         $subtotal = round((float) $items->sum(fn (PurchaseOrderItem $i): float => (float) $i->line_total), 2);
-        $tax = round((float) $items->sum(fn (PurchaseOrderItem $i): float => (float) $i->line_total * (float) $i->tax_rate / 100), 2);
         if ((float) $po->discount_amount > $subtotal) {
             throw new BusinessException('خصم أمر الشراء لا يمكن أن يتجاوز مجموع البنود.');
         }
+        // A commercial discount reduces the VAT taxable base proportionally per line.
+        $taxableFactor = $subtotal > 0 ? ($subtotal - (float) $po->discount_amount) / $subtotal : 0.0;
+        $tax = round((float) $items->sum(
+            fn (PurchaseOrderItem $i): float => (float) $i->line_total * $taxableFactor * (float) $i->tax_rate / 100
+        ), 2);
         $po->update([
             'subtotal' => $subtotal,
             'tax_amount' => $tax,
@@ -541,7 +551,25 @@ class ProcurementService
             if ($supplierDeliveryId === null && $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
                 throw new BusinessException('حدد إشعار التوريد المعلق عند الاستلام لمنع احتساب كمياته مرتين.');
             }
+            if ($locationId !== null) {
+                $locationBranch = Location::query()->whereKey($locationId)->value('branch_id');
+                if ($locationBranch === null || (int) $locationBranch !== (int) $po->branch_id) {
+                    throw new BusinessException('موقع الاستلام لا يتبع فرع أمر الشراء.');
+                }
+            }
             $poItems = $po->items()->orderBy('product_variant_id')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            // Collapse duplicate lines so one PO item cannot be received twice in
+            // the same request with inflated quantities or split stock movements.
+            $received = [];
+            foreach ($receivedItems as $itemData) {
+                DiscreteQuantity::assert($itemData['qty']);
+                $lineId = (int) $itemData['purchase_order_item_id'];
+                $received[$lineId] = ($received[$lineId] ?? 0.0) + (float) $itemData['qty'];
+            }
+            $receivedItems = [];
+            foreach ($received as $lineId => $qty) {
+                $receivedItems[] = ['purchase_order_item_id' => $lineId, 'qty' => $qty];
+            }
             usort($receivedItems, fn (array $a, array $b): int => [($poItems->get((int) $a['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $a['purchase_order_item_id']]
                 <=> [($poItems->get((int) $b['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $b['purchase_order_item_id']]);
             $variantIds = [];
@@ -555,6 +583,11 @@ class ProcurementService
                 throw new BusinessException('يجب استلام كمية موجبة من بند واحد على الأقل.');
             }
             $variants = ProductVariant::query()->whereIn('id', array_values(array_unique($variantIds)))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            // Lock every owned stock row for these variants before reading the WAC denominator.
+            StockLevel::query()
+                ->whereIn('product_variant_id', $variants->keys())
+                ->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
+                ->lockForUpdate()->get();
             $costFactor = bccomp((string) $po->subtotal, '0', 2) > 0
                 ? bcsub('1', bcdiv((string) $po->discount_amount, (string) $po->subtotal, 12), 12) : '1';
             if (bccomp($costFactor, '0', 12) < 0) {
@@ -609,7 +642,7 @@ class ProcurementService
                 // Owned inventory includes damaged and in-transit units in every branch.
                 $currentTotalOnHand = (string) StockLevel::query()
                     ->where('product_variant_id', $variant->id)
-                    ->sum(DB::raw('on_hand + in_transit'));
+                    ->sum(DB::raw('on_hand + in_transit + damaged'));
                 $oldCost = (string) $variant->cost_price;
                 $newUnitCost = bcadd(bcmul((string) $poItem->unit_cost, $costFactor, 5), '0.00005', 4);
                 $newAverageCost = InventoryService::calculateWeightedAverageCost($currentTotalOnHand, $oldCost, $qtyToReceive, $newUnitCost);
@@ -699,6 +732,13 @@ class ProcurementService
             if ($po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
                 throw new BusinessException('لا يمكن طلب تعديل وأمر الشراء له توريد بانتظار الاستلام.');
             }
+            if ($po->items()->where('received_qty', '>', 0)->exists()
+                || $po->deliveries()->whereHas('items', fn ($q) => $q->where('received_qty', '>', 0))->exists()) {
+                throw new BusinessException('لا يمكن طلب تعديل بعد بدء استلام البضاعة.');
+            }
+            if ($po->invoices()->where('status', '!=', SupplierInvoiceStatus::Cancelled)->exists()) {
+                throw new BusinessException('لا يمكن طلب تعديل وأمر الشراء عليه فواتير غير ملغاة.');
+            }
             $po->update([
                 'status' => PurchaseOrderStatus::ChangeRequested,
                 'supplier_change_notes' => $notes,
@@ -725,8 +765,18 @@ class ProcurementService
         }
         $this->assertOwnsOrder($fresh, $user);
 
+        // Hash the temp upload before PrivateAttachments moves it into its prepared path.
+        $invoiceHash = null;
+        if ($invoiceFile !== null) {
+            $path = $invoiceFile->getRealPath();
+            if (! is_string($path) || $path === '' || ! is_file($path)) {
+                throw new BusinessException('تعذر قراءة ملف فاتورة التوريد المرفق.');
+            }
+            $invoiceHash = hash_file('sha256', $path);
+        }
+
         return PrivateAttachments::transaction(fn (PrivateAttachments $files) => app(OperationIdempotencyService::class)->run('supplier_delivery', $user, $idempotencyKey,
-            ['purchase_order_id' => $po->id, ...$data, 'invoice_hash' => $invoiceFile ? hash_file('sha256', $invoiceFile->getRealPath()) : null],
+            ['purchase_order_id' => $po->id, ...$data, 'invoice_hash' => $invoiceHash],
             fn () => $this->executeSupplierDelivery($po, $user, $data, $invoiceFile, $files)), [[$invoiceFile, 'supplier_deliveries/pending']]);
     }
 
@@ -753,7 +803,7 @@ class ProcurementService
                 $lines[$itemId] = ($lines[$itemId] ?? 0.0) + (float) $line['shipped_qty'];
             }
 
-            $poItems = $po->items()->whereIn('id', array_keys($lines))->get()->keyBy('id');
+            $poItems = $po->items()->with('variant:id,sku')->whereIn('id', array_keys($lines))->get()->keyBy('id');
             if ($poItems->count() !== count($lines)) {
                 throw new BusinessException('أحد بنود التوريد لا يتبع أمر الشراء هذا.');
             }

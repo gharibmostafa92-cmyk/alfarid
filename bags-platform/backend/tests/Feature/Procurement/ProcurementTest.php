@@ -187,12 +187,11 @@ class ProcurementTest extends TestCase
                 'ordered_qty' => 10, 'unit_cost' => 50, 'tax_rate' => 14,
             ]],
         ])->assertCreated()->json('data');
-
-        // subtotal 500، ضريبة 70، خصم 30 → الإجمالي 540
+        // subtotal 500, discount 30 reduces the VAT base to 470 => tax 65.80, total 535.80
         $this->assertSame('500.0000', $po['items'][0]['line_total']);
         $this->assertSame('500.00', $po['subtotal']);
-        $this->assertSame('70.00', $po['tax_amount']);
-        $this->assertSame('540.00', $po['grand_total']);
+        $this->assertSame('65.80', $po['tax_amount']);
+        $this->assertSame('535.80', $po['grand_total']);
         $this->assertSame('draft', $po['status']);
     }
 
@@ -269,6 +268,8 @@ class ProcurementTest extends TestCase
 
     public function test_invoice_posting_and_payments_move_supplier_balance(): void
     {
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'PROC-SAFE', 'type' => 'main_safe', 'is_active' => true], $this->admin, '2000');
+        $bank = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Bank', 'code' => 'PROC-BANK', 'type' => 'bank_account', 'is_active' => true], $this->admin, '2000');
         $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id,
             'supplier_invoice_no' => 'PAPER-100',
@@ -287,6 +288,7 @@ class ProcurementTest extends TestCase
 
         $p1 = $this->auth()->postJson('/api/v1/admin/supplier-payments', [
             'supplier_id' => $this->supplier->id,
+            'treasury_id' => $bank->id,
             'supplier_invoice_id' => $invoice['id'],
             'amount' => 500, 'payment_method' => 'bank_transfer', 'reference_no' => 'BANK-500', 'payment_date' => '2026-10-05',
         ])->assertCreated()->json('data');
@@ -300,12 +302,14 @@ class ProcurementTest extends TestCase
         // دفع أكثر من المتبقي على الفاتورة مرفوض
         $this->auth()->postJson('/api/v1/admin/supplier-payments', [
             'supplier_id' => $this->supplier->id,
+            'treasury_id' => $treasury->id,
             'supplier_invoice_id' => $invoice['id'],
             'amount' => 641, 'payment_method' => 'cash', 'payment_date' => '2026-10-06',
         ])->assertUnprocessable();
 
         $this->auth()->postJson('/api/v1/admin/supplier-payments', [
             'supplier_id' => $this->supplier->id,
+            'treasury_id' => $treasury->id,
             'supplier_invoice_id' => $invoice['id'],
             'amount' => 640, 'payment_method' => 'cash', 'payment_date' => '2026-10-06',
         ])->assertCreated();

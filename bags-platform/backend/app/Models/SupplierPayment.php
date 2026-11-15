@@ -22,6 +22,7 @@ class SupplierPayment extends Model
         'payment_number',
         'idempotency_key',
         'supplier_id',
+        'treasury_id',
         'supplier_invoice_id',
         'amount',
         'payment_method',

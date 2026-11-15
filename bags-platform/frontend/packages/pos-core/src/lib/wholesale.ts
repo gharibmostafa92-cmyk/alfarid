@@ -4,7 +4,7 @@ import type { Customer } from '../types/pos.types';
 export function isWholesaleEligible(customer?: Customer | null): boolean {
   return Boolean(
     customer &&
-      customer.tier === 'wholesale' &&
+      (customer.tier === 'wholesale' || customer.tier === 'distributor') &&
       customer.status?.toLowerCase() === 'approved',
   );
 }

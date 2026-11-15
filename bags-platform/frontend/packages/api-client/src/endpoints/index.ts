@@ -4,4 +4,5 @@ export * from './operations';
 export * from './auth';
 export * from './store';
 export * from './wholesale';
+export * from './supplier';
 export * from './catalog';

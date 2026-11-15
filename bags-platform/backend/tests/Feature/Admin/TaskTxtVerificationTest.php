@@ -440,8 +440,7 @@ class TaskTxtVerificationTest extends TestCase
             ->assertStatus(422)->assertJsonPath('message', 'لا يمكن حذف الفرع وفيه أرصدة (متاح/محجوز/تالف/في الطريق)؛ صفّرها أولًا.');
         $this->assertDatabaseHas('branches', ['id' => $balanced->id]);
 
-        // (d) Linked purchase order / transfer / open shift block via FK (409);
-        // treasuries detach (nullOnDelete) and the branch deletes.
+        // (d) Financial references retain the branch and block deletion (409).
         $linked = Branch::factory()->create();
         $buyer = User::factory()->create();
         $supplier = \App\Models\Supplier::factory()->create();
@@ -450,8 +449,8 @@ class TaskTxtVerificationTest extends TestCase
 
         $treasuryBranch = Branch::factory()->create();
         $treasury = \App\Models\Treasury::create(['name' => 'T1', 'code' => 'T-DEL-1', 'branch_id' => $treasuryBranch->id, 'type' => 'main_safe']);
-        $this->req($token, 'DELETE', "/api/v1/admin/branches/{$treasuryBranch->id}")->assertNoContent();
-        $this->assertNull($treasury->fresh()->branch_id);
+        $this->req($token, 'DELETE', "/api/v1/admin/branches/{$treasuryBranch->id}")->assertStatus(409);
+        $this->assertSame($treasuryBranch->id, $treasury->fresh()->branch_id);
     }
 
     // Item 9: deactivation guards + post-deactivation access matrix.

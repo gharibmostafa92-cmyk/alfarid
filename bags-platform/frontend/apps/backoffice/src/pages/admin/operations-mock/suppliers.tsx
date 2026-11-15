@@ -1570,6 +1570,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [allocateId, setAllocateId] = useState('');
   const suppliers = useSupplierLookup();
+  const treasuries = useRemote(signal => allPages(page => supplierPaymentsApi.treasuries(page, signal)), []);
   const invoices = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: Number(form?.sup || view?.sup) || undefined }, signal)).then(r => r.filter(i => ['posted', 'partially_paid'].includes(i.status)).map(mapInvoice)), [form?.sup, view?.sup]);
   const list = useRemote(signal => supplierPaymentsApi.list({ page }, signal), [page], { mock: () => pageOf(mockPayments) });
   const rows = (list.data?.data ?? []).map(mapPayment);
@@ -1579,7 +1580,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
   const save = async () => {
     if (form.demo || list.usingMock || suppliers.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     const common = { payment_method: paymentMethod(method), reference_no: form.ref || null, notes: form.notes || null };
-    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, common) : supplierPaymentsApi.create({ ...common, supplier_id: Number(form.sup), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date }, idemKey), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
+    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, common) : supplierPaymentsApi.create({ ...common, supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date }, idemKey), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
     if (r) { setForm(null); list.reload(); invoices.reload(); suppliers.reload(); }
   };
   const voidPayment = async () => {
@@ -1780,10 +1781,11 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
         >
           <div className="space-y-4">
             <RemoteFeedback state={suppliers} /><RemoteFeedback state={invoices} />
+            {!form.id && <><RemoteFeedback state={treasuries} /><Field label="الخزينة أو الحساب البنكي" err={errors.treasury_id} req><select className="inp" value={form.treasury || ''} onChange={e => setForm({ ...form, treasury: e.target.value })}><option value="">اختر الخزينة</option>{(treasuries.data ?? []).filter(t => t.type === (method === 'cash' ? 'main_safe' : 'bank_account')).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field></>}
             {Object.keys(errors).length > 0 && <Note tone="red">{Object.values(errors).join(' · ')}</Note>}
             {form.id && (
               <Note icon="lock">
-                لا يمكن تعديل المبلغ أو المورد أو التاريخ — يمكن تعديل الوسيلة والمرجع والملاحظات فقط.
+                لا يمكن تعديل المبلغ أو المورد أو التاريخ أو وسيلة الدفع — يمكن تعديل المرجع والملاحظات فقط.
               </Note>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1825,11 +1827,11 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
               </Field>
             </div>
             <Field label="الوسيلة" err={errors.payment_method} req>
-              <Seg
+              {form.id ? <p>{SP_METHODS[method]}</p> : <Seg
                 value={method}
-                onChange={(v: any) => setMethod(v)}
+                onChange={(v: any) => { setMethod(v); if (!form.id) setForm({ ...form, treasury: '' }); }}
                 options={Object.entries(SP_METHODS).map(([v, l]) => ({ value: v, label: l }))}
-              />
+              />}
             </Field>
             <Field
               label="المرجع" err={errors.reference_no}

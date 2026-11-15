@@ -111,6 +111,14 @@ class PrivateAttachments
     }
 
     /**
+     * Delete one or more stored attachment paths on the configured private disk.
+     */
+    public function delete(string|array $paths): void
+    {
+        $this->deletePathsQuietly((array) $paths);
+    }
+
+    /**
      * Best-effort R2 cleanup that never throws: a failing delete must not
      * replace the original business exception (disk has throw => true).
      */

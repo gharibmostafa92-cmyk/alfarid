@@ -168,6 +168,8 @@ class QuotationService
                 throw new BusinessException('لا يمكن تسعير عرض السعر إلا بعد إرساله من التاجر.');
             }
 
+            $before = ['items' => $quotation->items()->get(['id', 'offered_unit_price', 'line_total'])->toArray(), 'discount_amount' => $quotation->discount_amount, 'tax_amount' => $quotation->tax_amount, 'grand_total' => $quotation->grand_total];
+
             foreach ($data['items'] ?? [] as $row) {
                 $item = $quotation->items()->whereKey($row['id'])->first();
 
@@ -198,6 +200,8 @@ class QuotationService
 
             $this->recalculate($quotation);
             $quotation = $quotation->load('items.variant.product');
+            $actor = isset($data['priced_by']) ? \App\Models\User::query()->find($data['priced_by']) : null;
+            if ($actor) \App\Services\Auth\StaffAdministration::audit($actor, 'quotation.priced', 'quotation', $quotation->id, ['items', 'discount_amount', 'tax_amount', 'grand_total'], $before, ['items' => $quotation->items->map->only(['id', 'offered_unit_price', 'line_total'])->all(), 'discount_amount' => $quotation->discount_amount, 'tax_amount' => $quotation->tax_amount, 'grand_total' => $quotation->grand_total], []);
             QuotationPriced::dispatch($quotation);
 
             return $quotation;

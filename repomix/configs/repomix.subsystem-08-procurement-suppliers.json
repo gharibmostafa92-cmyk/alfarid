@@ -42,7 +42,19 @@
                     "bags-platform/backend/database/migrations/*report*.php",
                     "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php",
                     "bags-platform/backend/app/Http/Resources/Supplier/PaymentResource.php",
-                    "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php"
+                    "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php",
+                    "bags-platform/backend/app/Http/Resources/Admin/Procurement/SupplierPaymentResource.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/operations-mock/suppliers.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/layout.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/page.tsx",
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/suppliers.ts",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/deliveries/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/invoices/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/payments/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/profile/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/purchase-orders/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/statement/page.tsx",
+                    "bags-platform/frontend/packages/api-client/src/endpoints/supplier.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

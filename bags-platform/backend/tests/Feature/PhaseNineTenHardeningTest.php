@@ -200,7 +200,12 @@ class PhaseNineTenHardeningTest extends TestCase
         $this->withToken($this->admin->createToken('review')->plainTextToken)->patchJson("/api/v1/admin/purchase-orders/{$po->id}", ['discount_amount' => 10])->assertOk();
         $this->assertNull($po->fresh()->approved_by);
         $this->api("purchase-orders/{$po->id}/send")->assertUnprocessable();
-        $this->api("purchase-orders/{$po->id}/approve")->assertOk();
+        // The editor cannot approve their own commercial change; a second admin must.
+        $approver = User::factory()->create();
+        $approver->assignRole('Super Admin');
+        Auth::forgetGuards();
+        $this->withToken($approver->createToken('approver')->plainTextToken)
+            ->postJson("/api/v1/admin/purchase-orders/{$po->id}/approve")->assertOk();
         $this->api("purchase-orders/{$po->id}/send")->assertOk();
     }
 
@@ -348,7 +353,7 @@ class PhaseNineTenHardeningTest extends TestCase
         $otherBranch = Branch::factory()->create();
         StockLevel::forceCreate(['branch_id' => $otherBranch->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 100, 'damaged' => 20]);
         $this->api("purchase-orders/{$po->id}/receive", ['items' => [['purchase_order_item_id' => $po->items->first()->id, 'qty' => 100]]], 'discount-cost')->assertOk();
-        $this->assertSame('102.0000', $this->variant->fresh()->cost_price);
+        $this->assertSame('101.8182', $this->variant->fresh()->cost_price);
         $this->assertSame('104.0000', $this->variant->fresh()->last_cost_price);
         $this->assertDatabaseHas('stock_movements', ['unit_cost' => 104, 'quantity' => 100]);
     }

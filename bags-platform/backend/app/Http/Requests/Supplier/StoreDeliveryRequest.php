@@ -22,12 +22,12 @@ class StoreDeliveryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'delivery_date' => ['required', 'date'],
+            'delivery_date' => ['required', 'date_format:Y-m-d'],
             'supplier_invoice_no' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'invoice_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
             'items' => ['required', 'array', 'min:1', 'max:50'],
-            'items.*.purchase_order_item_id' => ['required', 'integer'],
+            'items.*.purchase_order_item_id' => ['required', 'integer', 'distinct'],
             'items.*.shipped_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
         ];
     }

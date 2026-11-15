@@ -17,19 +17,34 @@ class TaskTxtSupplierVoidRaceTest extends TestCase
 {
     use DatabaseMigrations;
 
+    // This concurrency test needs committed fixtures. Recreate the test schema
+    // after it rather than rolling immutable financial history through old migrations.
+    public function runDatabaseMigrations(): void
+    {
+        $this->refreshTestDatabase();
+        $this->beforeApplicationDestroyed(function (): void {
+            $this->artisan('migrate:fresh');
+            \Illuminate\Foundation\Testing\RefreshDatabaseState::$migrated = false;
+        });
+    }
+
     public function test_concurrent_voids_restore_supplier_balance_once(): void
     {
         $this->seed(SettingSeeder::class);
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
         $actor = User::factory()->create();
+        $actor->assignRole('Super Admin');
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'RACE-SAFE', 'type' => 'main_safe', 'is_active' => true], $actor, '100');
         $supplier = Supplier::factory()->create(['opening_balance' => 0, 'current_balance' => 0]);
         $payment = app(SupplierFinanceService::class)->createPayment([
-            'supplier_id' => $supplier->id, 'amount' => 25.50, 'payment_method' => 'cash', 'payment_date' => '2026-04-01',
+            'supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 25.50, 'payment_method' => 'cash', 'payment_date' => '2026-04-01',
         ], $actor, 'void-once');
         $job = 'app(App\\Services\\Procurement\\SupplierFinanceService::class)->voidPayment(App\\Models\\SupplierPayment::findOrFail('
             .$payment->id.'), App\\Models\\User::findOrFail('.$actor->id.'), "race");';
         $this->race([$job, $job], ['OK', 'REJECTED']);
         $this->assertSame('0.00', $supplier->fresh()->current_balance);
         $this->assertSame(1, SupplierPayment::query()->whereNotNull('voided_at')->count());
+        $this->assertSame('100.00', $treasury->fresh()->current_balance);
     }
 
     /** @param  list<string>  $jobs */

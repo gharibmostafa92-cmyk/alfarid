@@ -285,6 +285,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::post('supplier-invoices/{supplier_invoice}/post', [SupplierInvoiceController::class, 'post'])->middleware('permission:supplier_invoices.post')->name('supplier-invoices.post');
         Route::post('supplier-invoices/{supplier_invoice}/cancel', [SupplierInvoiceController::class, 'cancel'])->middleware('permission:supplier_invoices.cancel')->name('supplier-invoices.cancel');
 
+        Route::get('supplier-payments/treasuries', [SupplierPaymentController::class, 'treasuries'])->name('supplier-payments.treasuries');
         Route::apiResource('supplier-payments', SupplierPaymentController::class)
             ->parameters(['supplier-payments' => 'supplier_payment']);
         Route::post('supplier-payments/{supplier_payment}/allocate', [SupplierPaymentController::class, 'allocate'])->middleware('permission:supplier_payments.update')->name('supplier-payments.allocate');

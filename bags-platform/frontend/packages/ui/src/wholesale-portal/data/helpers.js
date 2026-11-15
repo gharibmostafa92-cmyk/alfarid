@@ -1,6 +1,11 @@
 import { signedAttachmentUrl, allPages } from '@alfarid/api-client';
 
-export const num = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
+export const num = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const value = Number(v);
+  return Number.isFinite(value) ? value : null;
+};
+export const shouldRenewCheckoutKey = (info) => info.code === 'price_changed' || info.status === 422;
 const cairoCalendar = new Intl.DateTimeFormat('en', {
   timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
 });
@@ -43,6 +48,7 @@ export async function saveBlob(promise, fallbackName) {
   const res = await promise;
   const signedUrl = await signedAttachmentUrl(res);
   if (signedUrl) {
+    if (!/^https?:\/\//i.test(signedUrl) && !/^\/(?!\/)/.test(signedUrl)) throw new Error('رابط الملف غير صالح.');
     const link = document.createElement('a');
     link.href = signedUrl;
     link.rel = 'noreferrer';

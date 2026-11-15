@@ -41,6 +41,13 @@ class PhaseNineTenConcurrencyTest extends TestCase
 
     private ProductVariant $variant;
 
+    private function paymentTreasury(): Treasury
+    {
+        $this->seed(RolePermissionSeeder::class);
+        $this->staff->assignRole('Super Admin');
+        return app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'CONCURRENT-SAFE', 'type' => 'main_safe', 'is_active' => true], $this->staff, '1000');
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -84,7 +91,7 @@ class PhaseNineTenConcurrencyTest extends TestCase
 
     public function test_concurrent_identical_payments_debit_supplier_once(): void
     {
-        $data = ['supplier_id' => $this->supplier->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => '2026-10-19'];
+        $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => '2026-10-19'];
         $job = 'app(App\\Services\\SupplierFinanceService::class)->createPayment('.var_export($data, true).', App\\Models\\User::findOrFail('.$this->staff->id.'), "same-payment");';
         $this->race([$job, $job]);
         $this->assertDatabaseCount('supplier_payments', 1);
@@ -96,7 +103,7 @@ class PhaseNineTenConcurrencyTest extends TestCase
         $this->seed(RolePermissionSeeder::class);
         $this->staff->assignRole('Super Admin');
         $token = $this->staff->createToken('checklist-concurrency')->plainTextToken;
-        $data = ['supplier_id' => $this->supplier->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
+        $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
         $job = '$request = Illuminate\\Http\\Request::create("/api/v1/admin/supplier-payments", "POST", '.var_export($data, true).', [], [], '.var_export([
             'HTTP_ACCEPT' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer '.$token, 'HTTP_IDEMPOTENCY_KEY' => 'api-same-payment',
         ], true).');';
@@ -128,7 +135,7 @@ PHP;
         $this->withoutMiddleware(ManufacturingBusiness::class);
         $this->seed(RolePermissionSeeder::class);
         $this->staff->assignRole('Super Admin');
-        $data = ['supplier_id' => $this->supplier->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
+        $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
         app(SupplierFinanceService::class)->createPayment($data, $this->staff, 'locked-payment');
         config(['database.connections.checklist_locker' => config('database.connections.pgsql')]);
         $locker = DB::connection('checklist_locker');
@@ -170,7 +177,7 @@ PHP;
     {
         $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'RACE-1', 'issue_date' => '2026-10-19', 'subtotal' => 100]);
         app(SupplierFinanceService::class)->postInvoice($invoice);
-        $data = ['supplier_id' => $this->supplier->id, 'supplier_invoice_id' => $invoice->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => '2026-10-19'];
+        $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'supplier_invoice_id' => $invoice->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => '2026-10-19'];
         $cancel = 'app(App\\Services\\SupplierFinanceService::class)->cancelInvoice(App\\Models\\SupplierInvoice::findOrFail('.$invoice->id.'));';
         $pay = 'app(App\\Services\\SupplierFinanceService::class)->createPayment('.var_export($data, true).', App\\Models\\User::findOrFail('.$this->staff->id.'), "race-payment");';
         $this->race([$cancel, $pay], ['OK', 'REJECTED']);
@@ -272,7 +279,7 @@ PHP;
         $service = app(SupplierFinanceService::class);
         $invoice = $service->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'CAPACITY', 'issue_date' => now()->toDateString(), 'subtotal' => 100]);
         $service->postInvoice($invoice);
-        $data = ['supplier_id' => $this->supplier->id, 'supplier_invoice_id' => $invoice->id, 'amount' => 80, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
+        $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'supplier_invoice_id' => $invoice->id, 'amount' => 80, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
         $jobs = [];
         foreach (['capacity-a', 'capacity-b'] as $key) {
             $jobs[] = 'app(App\\Services\\SupplierFinanceService::class)->createPayment('.var_export($data, true).', App\\Models\\User::findOrFail('.$this->staff->id.'), '.var_export($key, true).');';

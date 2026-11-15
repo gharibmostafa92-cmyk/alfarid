@@ -25,7 +25,7 @@ class ReceivePurchaseOrderRequest extends FormRequest
             'location_id' => ['nullable', 'integer', 'exists:locations,id'],
             'supplier_delivery_id' => ['nullable', 'integer', 'exists:supplier_deliveries,id'],
             'items' => ['required', 'array', 'min:1', 'max:50'],
-            'items.*.purchase_order_item_id' => ['required', 'integer'],
+            'items.*.purchase_order_item_id' => ['required', 'integer', 'distinct'],
             'items.*.qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
         ];
     }

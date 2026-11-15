@@ -53,6 +53,28 @@ class TaskTxtWholesaleRegistrationTest extends TestCase
         ];
     }
 
+    public function test_document_reupload_rejects_executable_content(): void
+    {
+        $customer = Customer::factory()->create(['type' => 'wholesale', 'status' => 'pending']);
+        $token = $customer->createToken('documents')->plainTextToken;
+        $file = UploadedFile::fake()->createWithContent('document.pdf', "MZ\x90\x00\x03\x00");
+        $this->withToken($token)->postJson('/api/v1/wholesale/auth/documents', ['document' => $file])
+            ->assertUnprocessable()->assertJsonValidationErrors('document');
+        $this->assertSame(0, $customer->documents()->count());
+    }
+
+    public function test_document_reupload_enforces_per_customer_limit(): void
+    {
+        $customer = Customer::factory()->create(['type' => 'wholesale', 'status' => 'pending']);
+        foreach (range(1, 20) as $number) {
+            $customer->documents()->create(['document_type' => 'other', 'file_path' => "documents/{$number}.png", 'original_name' => "{$number}.png", 'mime_type' => 'image/png', 'status' => 'pending']);
+        }
+        $this->withToken($customer->createToken('documents')->plainTextToken)
+            ->postJson('/api/v1/wholesale/auth/documents', ['document' => UploadedFile::fake()->image('extra.png')])
+            ->assertUnprocessable();
+        $this->assertSame(20, $customer->documents()->count());
+    }
+
     public function test_successful_registration_creates_pending_customer_documents_token_and_dispatches_event(): void
     {
         Event::fake([WholesaleApplicationSubmitted::class]);

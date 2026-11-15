@@ -120,7 +120,7 @@ class PhaseNineTenAuditCompletionTest extends TestCase
     {
         $exists = DB::table('pg_indexes')
             ->where('tablename', 'supplier_payments')
-            ->where('indexname', 'supplier_payments_supplier_date_index')
+            ->where('indexname', 'supplier_payments_supplier_id_payment_date_index')
             ->exists();
 
         $this->assertTrue($exists, 'فهرس كشف الحساب (supplier_id, payment_date) مفقود.');

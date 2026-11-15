@@ -26,13 +26,23 @@ class DashboardController extends Controller
         /** @var SupplierUser $user */
         $user = $request->user();
         $supplier = $user->supplier()->firstOrFail();
-        $orders = PurchaseOrder::query()->where('supplier_id', $user->supplier_id);
+        $counts = PurchaseOrder::query()
+            ->where('supplier_id', $user->supplier_id)
+            ->selectRaw(
+                'SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS new_orders_count,
+                 SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END) AS in_progress_count',
+                [
+                    PurchaseOrderStatus::SentToSupplier->value,
+                    PurchaseOrderStatus::SupplierAccepted->value,
+                    PurchaseOrderStatus::PartiallyReceived->value,
+                ],
+            )
+            ->toBase()
+            ->first();
 
         return response()->json(['data' => [
-            'new_orders_count' => (clone $orders)->where('status', PurchaseOrderStatus::SentToSupplier)->count(),
-            'in_progress_count' => (clone $orders)->whereIn('status', [
-                PurchaseOrderStatus::SupplierAccepted, PurchaseOrderStatus::PartiallyReceived,
-            ])->count(),
+            'new_orders_count' => (int) ($counts->new_orders_count ?? 0),
+            'in_progress_count' => (int) ($counts->in_progress_count ?? 0),
             'current_balance' => $supplier->current_balance,
             'last_payments' => PaymentResource::collection(
                 SupplierPayment::query()

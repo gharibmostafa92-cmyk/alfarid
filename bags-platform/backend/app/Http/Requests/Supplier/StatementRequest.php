@@ -7,7 +7,7 @@ namespace App\Http\Requests\Supplier;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Supplier statement inquiry with optional date range (defaults to account inception to present).
+ * Supplier statement inquiry with optional date range (defaults to the last 365 days, max 366).
  */
 class StatementRequest extends FormRequest
 {
@@ -22,8 +22,8 @@ class StatementRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'from_date' => ['nullable', 'date'],
-            'to_date' => ['nullable', 'date', 'after_or_equal:from_date'],
+            'from_date' => ['nullable', 'date_format:Y-m-d'],
+            'to_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from_date'],
         ];
     }
 }

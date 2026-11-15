@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 
+use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseOrderRequest;
 use App\Http\Requests\Admin\Procurement\ReceivePurchaseOrderRequest;
@@ -18,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Validation\Rule;
 
 /**
  * Supplier purchase order lifecycle: drafting, approval, transmission, cancellation, and receipt with cost revaluation.
@@ -43,12 +45,18 @@ class PurchaseOrderController extends Controller implements HasMiddleware
      */
     public function index(Request $request): AnonymousResourceCollection
     {
-        $search = trim((string) $request->query('search', ''));
+        $filters = $request->validate([
+            'status' => ['nullable', Rule::enum(PurchaseOrderStatus::class)],
+            'supplier_id' => ['nullable', 'integer', 'min:1'],
+            'branch_id' => ['nullable', 'integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:100'],
+        ]);
+        $search = trim((string) ($filters['search'] ?? ''));
         $orders = PurchaseOrder::query()
             ->with(['supplier:id,code,name', 'branch:id,name'])
-            ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
-            ->when($request->query('supplier_id'), fn ($q, $id) => $q->where('supplier_id', (int) $id))
-            ->when($request->query('branch_id'), fn ($q, $id) => $q->where('branch_id', (int) $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', (int) $id))
+            ->when($filters['branch_id'] ?? null, fn ($q, $id) => $q->where('branch_id', (int) $id))
             ->when($search !== '', fn ($q) => $q->where('po_number', 'ilike', SearchTerm::pattern($search)))
             ->latest('id')
             ->paginate(20);
@@ -81,7 +89,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
      */
     public function update(PurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
-        $po = $this->procurement->updatePurchaseOrder($purchaseOrder, $request->validated());
+        $po = $this->procurement->updatePurchaseOrder($purchaseOrder, $request->validated(), $request->user());
 
         return $this->orderResource($po);
     }

@@ -46,7 +46,7 @@ export interface Customer {
   id: number;
   name: string;
   phone: string;
-  tier: 'retail' | 'wholesale';
+    tier: 'retail' | 'wholesale' | 'distributor';
   points: number;
   /** Account review state: wholesale prices apply only when Approved. */
   status?: string | null;

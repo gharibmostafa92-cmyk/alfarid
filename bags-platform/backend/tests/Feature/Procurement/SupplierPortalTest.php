@@ -271,6 +271,7 @@ class SupplierPortalTest extends TestCase
         $admin = User::factory()->create();
         $admin->assignRole('Super Admin');
         $adminToken = $admin->createToken('t')->plainTextToken;
+        $bank = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Bank', 'code' => 'STMT-BANK', 'type' => 'bank_account', 'is_active' => true], $admin, '500');
 
         $invoice = $this->withToken($adminToken)->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $supplier->id,
@@ -282,6 +283,7 @@ class SupplierPortalTest extends TestCase
             ->postJson("/api/v1/admin/supplier-invoices/{$invoice['id']}/post")->assertOk();
         $this->withToken($adminToken)->postJson('/api/v1/admin/supplier-payments', [
             'supplier_id' => $supplier->id,
+            'treasury_id' => $bank->id,
             'amount' => 200, 'payment_method' => 'bank_transfer', 'reference_no' => 'BANK-200', 'payment_date' => '2026-10-05',
         ])->assertCreated();
 

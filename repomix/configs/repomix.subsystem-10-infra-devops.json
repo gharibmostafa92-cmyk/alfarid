@@ -113,7 +113,12 @@
                     "docs/TASK6_DEPLOYMENT_STATUS.md",
                     "docs/architecture/**",
                     "bags-platform/backend/database/migrations/2026_11_14_000003_rebuild_wallet_transactions_reference_alias_unique.php",
-                    "bags-platform/backend/database/migrations/2026_11_14_000004_index_finance_reconcile_runs_created_at.php"
+                    "bags-platform/backend/database/migrations/2026_11_14_000004_index_finance_reconcile_runs_created_at.php",
+                    "bags-platform/backend/CLAUDE.md",
+                    "bags-platform/frontend/packages/api-client/src/endpoints/index.ts",
+                    "bags-platform/backend/database/migrations/2026_11_15_000001_canonicalize_procurement_indexes.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000002_add_credit_note_refund_method.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000003_link_supplier_payments_to_treasury.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

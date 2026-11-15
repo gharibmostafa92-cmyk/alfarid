@@ -55,9 +55,10 @@ class SupplierService
             }
             $supplier->update($data);
             if (array_key_exists('is_active', $data) && $data['is_active'] === false && $supplier->wasChanged('is_active')) {
-                $supplier->users()->each(function (SupplierUser $user): void {
-                    $user->tokens()->delete();
-                });
+                DB::table('personal_access_tokens')
+                    ->where('tokenable_type', (new SupplierUser)->getMorphClass())
+                    ->whereIn('tokenable_id', $supplier->users()->select('id'))
+                    ->delete();
             }
 
             return $supplier->fresh();

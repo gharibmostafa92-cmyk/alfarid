@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 
+use App\Enums\Procurement\PurchaseRequestStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseRequestRequest;
 use App\Http\Resources\Admin\Procurement\PurchaseRequestResource;
@@ -15,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Validation\Rule;
 
 /**
  * Internal branch purchase requisitions: submission, approval, and downstream conversion into purchase orders.
@@ -39,10 +41,14 @@ class PurchaseRequestController extends Controller implements HasMiddleware
      */
     public function index(Request $request): AnonymousResourceCollection
     {
+        $filters = $request->validate([
+            'status' => ['nullable', Rule::enum(PurchaseRequestStatus::class)],
+            'branch_id' => ['nullable', 'integer', 'min:1'],
+        ]);
         $requests = PurchaseRequest::query()
             ->with(['branch:id,name', 'items.variant'])
-            ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
-            ->when($request->query('branch_id'), fn ($q, $branchId) => $q->where('branch_id', (int) $branchId))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['branch_id'] ?? null, fn ($q, $branchId) => $q->where('branch_id', (int) $branchId))
             ->latest('id')
             ->paginate(20);
 

@@ -25,6 +25,7 @@ class SupplierPaymentRequest extends FormRequest
     {
         return [
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+            'treasury_id' => ['required', 'integer', 'exists:treasuries,id'],
             'supplier_invoice_id' => ['nullable', 'integer', 'exists:supplier_invoices,id'],
             'amount' => ['required', 'numeric', 'gt:0', 'max:9999999999.99', 'decimal:0,2'],
             'payment_method' => ['required', Rule::enum(SupplierPaymentMethod::class)],

@@ -367,7 +367,13 @@ class ReturnService
                 throw new BusinessException('مرجع التحويل أو بوابة الدفع مطلوب لإتمام الاسترداد.');
             }
 
-            if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
+            $isCreditNote = $method === RefundMethod::CreditNote->value;
+            if ($isCreditNote) {
+                if ($order->payment_method !== 'credit' || $order->payment_status !== 'unpaid') {
+                    throw new BusinessException('الإشعار الدائن مخصص للطلبات الآجلة غير المسددة فقط.');
+                }
+                app(\App\Services\Wholesale\WholesalePaymentNoticeService::class)->assertCreditNoteCapacity($order, (string) $return->total_refund_amount);
+            } elseif (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
                 throw new BusinessException('لا يمكن رد مبلغ نقدي أو إلى المحفظة لطلب غير مدفوع. يُقيَّد المرتجع كتخفيض للمستحق حتى يُبنى مسار إشعار دائن.');
             }
             if ($order->payment_method === 'wallet' && $method !== RefundMethod::Wallet->value) {
@@ -384,7 +390,7 @@ class ReturnService
                 if ($confirmed <= 0 || $unallocatedGatewayCents < (int) round((float) $return->total_refund_amount * 100)) {
                     throw new BusinessException('سجّل الاسترداد في بوابة الدفع وانتظر تأكيدها قبل إقفال المرتجع.');
                 }
-            } elseif ($unallocatedGatewayCents > 0) {
+            } elseif (! $isCreditNote && $unallocatedGatewayCents > 0) {
                 throw new BusinessException('يوجد استرداد مؤكد في بوابة الدفع؛ اختر طريقة الدفع الأصلية لتوثيقه.');
             }
             $reference = $reference !== null ? trim((string) $reference) : $reference;
@@ -434,7 +440,11 @@ class ReturnService
                 throw new BusinessException('مرجع الرد مسجّل سابقًا.', [], 409);
             }
 
-            $this->syncOrderPaymentStatusAfterRefund($order);
+            if ($isCreditNote) {
+                app(\App\Services\Wholesale\WholesalePaymentNoticeService::class)->settleCreditNote($order, $admin->id, $return->return_number);
+            } else {
+                $this->syncOrderPaymentStatusAfterRefund($order);
+            }
             if ($this->isOrderFullyReturned($order)) {
                 $this->orders->changeStatus(
                     $order,

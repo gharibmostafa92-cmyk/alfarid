@@ -148,6 +148,8 @@ class WholesalePortalTest extends TestCase
             ->assertJsonPath('data.subtotal', '180.00')
             ->assertJsonPath('data.grand_total', '170.00');
 
+        $this->assertDatabaseHas('staff_audit_logs', ['action' => 'quotation.priced', 'target_type' => 'quotation', 'target_id' => $id]);
+
         // القبول يحوّل العرض تلقائيًا إلى طلب مؤكد آجل بنفس الأسعار المتفق عليها
         $response = $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept")
             ->assertOk()->assertJsonPath('data.status', 'converted_to_order');

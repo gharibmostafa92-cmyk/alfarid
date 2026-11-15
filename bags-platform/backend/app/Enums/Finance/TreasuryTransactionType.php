@@ -18,6 +18,7 @@ enum TreasuryTransactionType: string
     case TransferIn = 'transfer_in';
     case TransferOut = 'transfer_out';
     case SupplierPayment = 'supplier_payment';
+    case SupplierPaymentReversal = 'supplier_payment_reversal';
     case CustomerReceipt = 'customer_receipt';
     case CustomerReceiptReversal = 'customer_receipt_reversal';
     case CashShortage = 'cash_shortage';

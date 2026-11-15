@@ -25,6 +25,29 @@ function load(relative) {
 const root = 'packages/ui/src/wholesale-portal/data/';
 const mappers = load(`${root}mappers.js`);
 
+test('checkout preserves retry key for in-progress conflicts and network failures', () => {
+  const { shouldRenewCheckoutKey } = load(`${root}helpers.js`);
+  assert.equal(shouldRenewCheckoutKey({ status: 409, code: 'retryable_conflict' }), false);
+  assert.equal(shouldRenewCheckoutKey({}), false);
+  assert.equal(shouldRenewCheckoutKey({ status: 409, code: 'price_changed' }), true);
+  assert.equal(shouldRenewCheckoutKey({ status: 422 }), true);
+});
+
+test('direct wholesale routes resolve to the storefront portal', () => {
+  for (const route of ['orders', 'orders/[id]', 'products', 'quick-order', 'quotations', 'invoices', 'account-statement']) {
+    const file = path.resolve(__dirname, '../apps/storefront/src/app/wholesale', route, 'page.tsx');
+    assert.match(fs.readFileSync(file, 'utf8'), /redirect\(/);
+  }
+});
+
+test('invalid numeric values and missing totals remain safe', () => {
+  const { num } = load(`${root}helpers.js`);
+  assert.equal(num('not-a-number'), null);
+  assert.equal(num('Infinity'), null);
+  assert.equal(mappers.mapCart({ id: 1, items: [], totals: null }).totals.total, null);
+  assert.equal(mappers.mapVariant({ available_qty: 'bad' }, {}).qty, 0);
+});
+
 test('invoice money is normalized before rendering and keeps the server invoice number', () => {
   const invoice = mappers.mapInvoice({ id: 72, invoice_number: 'INV-72', order_number: 'ORD-72',
     created_at: '2026-11-03T12:00:00Z', subtotal: '142650.00', discount_amount: '650.00',

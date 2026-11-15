@@ -69,6 +69,12 @@ class AuthController extends Controller
     {
         return DB::transaction(function () use ($user): string {
             $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
+            // Re-check after acquiring the lock: admin deactivation may have committed in between.
+            if (! $user->is_active || $user->supplier_id === null || ! $user->supplier()->where('is_active', true)->exists()) {
+                throw ValidationException::withMessages([
+                    'email' => ['حساب المورد أو الموظف غير مفعّل.'],
+                ]);
+            }
             StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5));
 
             return $user->createToken('supplier-token', ['supplier'],

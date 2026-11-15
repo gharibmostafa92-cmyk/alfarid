@@ -63,7 +63,14 @@
                     "bags-platform/frontend/apps/pos/src/lib/wholesale.ts",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/application-status/page.tsx",
                     "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
-                    "bags-platform/frontend/packages/pos-core/src/lib/wholesale.ts"
+                    "bags-platform/frontend/packages/pos-core/src/lib/wholesale.ts",
+                    "bags-platform/backend/app/Rules/RejectExecutableSignature.php",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/account-statement/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/invoices/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/orders/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/products/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quick-order/page.tsx",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

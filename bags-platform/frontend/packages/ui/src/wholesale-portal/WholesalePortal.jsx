@@ -153,12 +153,12 @@ export function WholesalePortal({
   }, [forbidden, setCartState]);
 
   const addToCart = useCallback(async (lines) => {
+    let last = null;
     try {
-      let last = null;
       for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
-      if (last) setCartState(mapCart(last));
       toast('تمت الإضافة إلى سلة المشتريات بنجاح');
     } catch (e) { toast(apiError(e).message); }
+    finally { if (last) setCartState(mapCart(last)); }
   }, [toast, setCartState]);
 
   const applyCartResponse = useCallback((c) => {

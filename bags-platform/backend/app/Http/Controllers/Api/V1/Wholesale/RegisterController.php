@@ -12,10 +12,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Wholesale\WholesaleRegisterRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Models\Customer;
+use App\Rules\RejectExecutableSignature;
 use App\Services\Customer\CustomerManagementService;
 use App\Services\Wholesale\WholesaleRegistrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -92,16 +94,17 @@ class RegisterController extends Controller
             throw new BusinessException('هذا المسار متاح للعملاء فقط.', [], 403);
         }
         $data = $request->validate([
-            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120'],
+            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120', new RejectExecutableSignature],
             'document_type' => ['nullable', Rule::enum(CustomerDocumentType::class)],
         ]);
-        $document = $customers->uploadDocument(
-            $customer,
-            $request->file('document'),
-            null,
-            isset($data['document_type']) ? CustomerDocumentType::from($data['document_type']) : null,
-            selfService: true,
-        );
+        $document = DB::transaction(function () use ($customer, $customers, $request, $data) {
+            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            if ($customer->documents()->count() >= 20) {
+                throw new BusinessException('وصل الحساب للحد الأقصى للمستندات؛ تواصل مع الدعم لاستبدال مستند.', [], 422);
+            }
+            return $customers->uploadDocument($customer, $request->file('document'), null,
+                isset($data['document_type']) ? CustomerDocumentType::from($data['document_type']) : null, selfService: true);
+        });
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]], 201);
     }

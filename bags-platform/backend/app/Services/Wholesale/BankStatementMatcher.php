@@ -8,16 +8,12 @@ use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Reconciles parsed bank statement credit transactions against pending wholesale payment notices.
  */
 final class BankStatementMatcher
 {
-    /** @var Collection<int, Customer>|null */
-    private ?Collection $cachedCustomers = null;
-
     /**
      * Classifies statement credit transactions into exact, probable, or unmatched buckets against pending payment notices.
      *
@@ -26,10 +22,20 @@ final class BankStatementMatcher
      */
     public function match(array $rows): array
     {
+        if (count($rows) > 500) {
+            throw new \App\Exceptions\BusinessException('كشف البنك يتجاوز 500 حركة؛ قسّمه إلى ملفات أصغر.', [], 422);
+        }
+        $amounts = array_values(array_unique(array_map(fn ($row) => number_format((float) ($row['amount'] ?? 0), 2, '.', ''), $rows)));
         $notices = WholesalePaymentNotice::query()
             ->with('customer:id,name,company_name')
             ->where('status', WholesalePaymentNoticeStatus::PendingReview)
+            ->whereIn('amount', $amounts)
+            ->orderBy('id')
+            ->limit(2001)
             ->get();
+        if ($notices->count() > 2000) {
+            throw new \App\Exceptions\BusinessException('عدد الإشعارات المرشحة كبير جدًا؛ قسّم كشف البنك إلى ملفات أصغر.', [], 422);
+        }
 
         $preparedNotices = $notices->map(fn ($n) => [
             'model' => $n,
@@ -41,6 +47,7 @@ final class BankStatementMatcher
         $exact = [];
         $probable = [];
         $unmatched = [];
+        $matchedNoticeIds = [];
         foreach ($rows as $index => $row) {
             $amount = number_format((float) ($row['amount'] ?? 0), 2, '.', '');
             $reference = mb_strtolower(trim((string) ($row['reference'] ?? '')));
@@ -54,6 +61,9 @@ final class BankStatementMatcher
             $hit = null;
             $kind = null;
             foreach ($preparedNotices as $prepared) {
+                if (isset($matchedNoticeIds[$prepared['model']->id])) {
+                    continue;
+                }
                 $sameAmount = $prepared['amount'] === $amount;
                 $sameReference = $reference !== '' && $prepared['reference'] === $reference;
                 $closeDate = $date !== null && abs($date->diffInDays($prepared['date'] ?? $date, true)) <= 1;
@@ -76,42 +86,38 @@ final class BankStatementMatcher
                 'notice_id' => $hit?->id,
                 'notice_number' => $hit?->notice_number,
             ];
+            if ($hit !== null) {
+                $matchedNoticeIds[$hit->id] = true;
+            }
             if ($kind === 'exact') {
                 $exact[] = $entry;
             } elseif ($kind === 'probable') {
                 $probable[] = $entry;
             } else {
-                $entry['suggestion'] = $this->suggestCustomer((string) ($row['description'] ?? ''));
+                $entry['suggestion'] = null;
                 $unmatched[] = $entry;
             }
         }
 
-        return ['exact' => $exact, 'probable' => $probable, 'unmatched' => $unmatched];
-    }
-
-    /**
-     * Fallback lookup: scans statement narration text against customer trade names to suggest sender.
-     *
-     * @return array{customer_id: int, name: string}|null
-     */
-    private function suggestCustomer(string $description): ?array
-    {
-        $description = mb_strtolower(trim($description));
-        if ($description === '') {
-            return null;
+        $descriptions = [];
+        foreach ($unmatched as $index => $entry) {
+            $description = mb_strtolower(trim((string) ($rows[$entry['row']]['description'] ?? '')));
+            if ($description !== '') $descriptions[$index] = $description;
         }
-        $customers = $this->cachedCustomers ??= Customer::query()
-            ->commercial()
-            ->limit(200)
-            ->get(['id', 'name', 'company_name']);
-
-        foreach ($customers as $customer) {
-            $name = mb_strtolower((string) ($customer->company_name ?: $customer->name));
-            if ($name !== '' && str_contains($description, $name)) {
-                return ['customer_id' => $customer->id, 'name' => $customer->company_name ?: $customer->name];
+        if ($descriptions !== []) {
+            foreach (Customer::query()->commercial()->orderBy('id')->cursor(['id', 'name', 'company_name']) as $customer) {
+                $name = mb_strtolower((string) ($customer->company_name ?: $customer->name));
+                if ($name === '') continue;
+                foreach ($descriptions as $index => $description) {
+                    if (str_contains($description, $name)) {
+                        $unmatched[$index]['suggestion'] = ['customer_id' => $customer->id, 'name' => $customer->company_name ?: $customer->name];
+                        unset($descriptions[$index]);
+                    }
+                }
+                if ($descriptions === []) break;
             }
         }
 
-        return null;
+        return ['exact' => $exact, 'probable' => $probable, 'unmatched' => $unmatched];
     }
 }

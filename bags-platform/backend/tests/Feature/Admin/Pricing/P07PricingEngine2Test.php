@@ -248,6 +248,7 @@ class P07PricingEngine2Test extends TestCase
             $row = ProductVariant::query()->whereKey($variant->id);
             $row = $svc->withStorePrice($row, $customer)->first();
             $this->assertSame($direct['unit_price'], (float) $row->store_price, "scenario {$s}: sql parity");
+            $this->assertSame($direct['base_price'], (float) $row->store_base_price, "scenario {$s}: SQL base-price parity");
 
             $tiersDirect = $svc->tiersFor($variant, $customer);
             $tiersCtx = $svc->tiersFor($variant, $customer, $ctx);

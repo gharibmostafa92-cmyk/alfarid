@@ -15,6 +15,22 @@ function load(client) {
   }).outputText, filename);
   return compiled.exports;
 }
+function loadSource(relative) {
+  const filename = path.resolve(__dirname, '..', relative);
+  const compiled = new Module(filename, module);
+  compiled.filename = filename; compiled.paths = Module._nodeModulePaths(path.dirname(filename));
+  compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, filename);
+  return compiled.exports;
+}
+test('approved distributors receive wholesale POS eligibility alongside wholesalers', () => {
+  const { isWholesaleEligible } = loadSource('packages/pos-core/src/lib/wholesale.ts');
+  assert.equal(isWholesaleEligible({ tier: 'wholesale', status: 'approved' }), true);
+  assert.equal(isWholesaleEligible({ tier: 'distributor', status: 'approved' }), true);
+  assert.equal(isWholesaleEligible({ tier: 'distributor', status: 'pending' }), false);
+  assert.equal(isWholesaleEligible({ tier: 'retail', status: 'approved' }), false);
+});
 test('variant choices traverse all product pages and fetch real nested variant IDs', async () => {
   const calls = [], ctrl = new AbortController();
   const { commerceLookupsApi } = load({ get: async (url, config) => {

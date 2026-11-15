@@ -88,6 +88,7 @@ export const REFUND_METHODS: Record<string, string> = {
   wallet: 'المحفظة',
   bank: 'تحويل بنكي',
   cash: 'نقدي',
+  credit_note: 'إشعار دائن للطلب الآجل',
 };
 
 export const PR_STATUS: Record<string, StatusMeta> = {

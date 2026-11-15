@@ -8,10 +8,10 @@ use App\Enums\Customer\CustomerDocumentType;
 use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\PasswordByteLimit;
+use App\Rules\RejectExecutableSignature;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerPhoneVerificationService;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 
@@ -50,15 +50,7 @@ class WholesaleRegisterRequest extends FormRequest
                 'mimes:pdf,jpg,jpeg,png',
                 'mimetypes:application/pdf,image/jpeg,image/png',
                 'max:5120',
-                static function (string $attribute, mixed $value, \Closure $fail): void {
-                    if (! $value instanceof UploadedFile || $value->getRealPath() === false) {
-                        return;
-                    }
-                    $head = (string) @file_get_contents($value->getRealPath(), false, null, 0, 4);
-                    if (str_starts_with($head, 'MZ')) {
-                        $fail('نوع الملف المرفوع غير مدعوم.');
-                    }
-                },
+                new RejectExecutableSignature,
             ],
             'document_types' => ['nullable', 'array', 'list', 'size:'.count(Arr::wrap($docs))],
             'document_types.*' => ['nullable', Rule::enum(CustomerDocumentType::class)],

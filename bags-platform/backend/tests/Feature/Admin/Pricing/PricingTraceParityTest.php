@@ -53,6 +53,29 @@ class PricingTraceParityTest extends TestCase
         }
     }
 
+    public function test_trace_does_not_report_a_fixed_group_discount_percentage(): void
+    {
+        $group = CustomerGroup::query()->create([
+            'name' => 'Trace group', 'code' => 'TRACE-'.uniqid(),
+            'discount_percentage' => 17, 'is_active' => true,
+        ]);
+        $customer = Customer::factory()->create([
+            'type' => CustomerType::Wholesale, 'status' => CustomerStatus::Approved,
+            'customer_group_id' => $group->id,
+        ]);
+        $variant = ProductVariant::factory()->create(['retail_price' => 100, 'wholesale_price' => 80]);
+        $list = PriceList::query()->create(['name' => 'Specific', 'type' => PriceListType::CustomerSpecific,
+            'customer_id' => $customer->id, 'priority' => 0]);
+        $list->items()->create(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 70]);
+
+        $trace = app(PricingService::class)->trace($variant, $customer);
+        $groupLayer = collect($trace['layers'])->firstWhere('layer', 'group_discount');
+
+        $this->assertSame('skipped', $groupLayer['status']);
+        $this->assertStringNotContainsString('10%', $groupLayer['reason']);
+        $this->assertStringContainsString('قائمة', $groupLayer['reason']);
+    }
+
     private function randomCustomer(): ?Customer
     {
         $roll = fake()->numberBetween(1, 100);

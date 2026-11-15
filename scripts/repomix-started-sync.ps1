@@ -116,6 +116,7 @@ $ignorePatterns = @(
 )
 
 foreach ($file in $targetFiles) {
+    if ([string]::IsNullOrWhiteSpace($file)) { continue }
     $ignored = $false
     foreach ($pat in $ignorePatterns) {
         if ($file -match $pat) {
@@ -225,7 +226,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 3. Orders, Returns & Refunds
-    if ($p -match 'returnservice|refund|returnrequest|/orders/|orderservice|paymob|orderitem|orderstatus|/models/order\.php|/models/orderitem\.php|operations/orders\.ts|checkoutreservation|tasktxtroadmapreturns|attachment') {
+    if (($p -match 'returnservice|refund|returnrequest|/orders/|orderservice|paymob|orderitem|orderstatus|/models/order\.php|/models/orderitem\.php|operations/orders\.ts|checkoutreservation|tasktxtroadmapreturns|attachment') -and $p -notmatch 'wholesale') {
         if ($configs.ContainsKey('repomix.orders-returns.json')) { [void]$matchedConfigs.Add('repomix.orders-returns.json') }
         if ($configs.ContainsKey('repomix.subsystem-02-orders-returns.json')) { [void]$matchedConfigs.Add('repomix.subsystem-02-orders-returns.json') }
     }
@@ -250,7 +251,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 7. Wholesale & B2B
-    if ($p -match 'wholesale|quotation|paymentnotice|fifodebt|b2b|normalizescustomerinput') {
+    if ($p -match 'wholesale|quotation|paymentnotice|fifodebt|b2b|normalizescustomerinput|pricing|pricelist|rejectexecutable') {
         if ($configs.ContainsKey('repomix.subsystem-04-wholesale-b2b.json')) { [void]$matchedConfigs.Add('repomix.subsystem-04-wholesale-b2b.json') }
         if ($configs.ContainsKey('repomix.wholesale-b2b.json')) { [void]$matchedConfigs.Add('repomix.wholesale-b2b.json') }
     }
@@ -279,7 +280,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput|app/rules|/rules/' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
     }
@@ -305,7 +306,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 14. System Overview & Core Documentation / Scripts
-    if ($p -match 'readme|\.env|composer\.json|package\.json|turbo\.json|bootstrap/|middleware/|providers/|routes/|scripts/|docs/|healthready') {
+    if ($p -match 'readme|\.env|composer\.json|package\.json|turbo\.json|bootstrap/|middleware/|providers/|routes/|scripts/|docs/|healthready|claude\.md|api-client/src/endpoints/index\.ts|api-client/src/index\.ts') {
         if ($configs.ContainsKey('repomix.system-overview.json')) { [void]$matchedConfigs.Add('repomix.system-overview.json') }
         if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
     }

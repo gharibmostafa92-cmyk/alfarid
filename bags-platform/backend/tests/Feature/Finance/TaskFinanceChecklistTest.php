@@ -19,14 +19,22 @@ class TaskFinanceChecklistTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    private function treasury(User $actor): \App\Models\Treasury
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $actor->assignRole('Super Admin');
+        return app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'CHECKLIST-SAFE', 'type' => 'main_safe', 'is_active' => true], $actor, '10000');
+    }
+
     public function test_payment_replays_equivalent_decimals_but_rejects_changed_amount_or_supplier(): void
     {
         $this->seed(SettingSeeder::class);
         $actor = User::factory()->create();
+        $treasury = $this->treasury($actor);
         $supplier = Supplier::factory()->create();
         $other = Supplier::factory()->create();
         $service = app(SupplierFinanceService::class);
-        $data = ['supplier_id' => $supplier->id, 'amount' => '5', 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
+        $data = ['supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => '5', 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
         $first = $service->createPayment($data, $actor, 'checklist-payment');
         foreach ([5.0, '5.00'] as $amount) {
             $this->assertSame($first->id, $service->createPayment([...$data, 'amount' => $amount], $actor, 'checklist-payment')->id);
@@ -63,6 +71,7 @@ class TaskFinanceChecklistTest extends TestCase
         $this->freezeTime();
         $this->seed(SettingSeeder::class);
         $actor = User::factory()->create();
+        $treasury = $this->treasury($actor);
         $service = app(SupplierFinanceService::class);
         for ($sample = 1; $sample <= 20; $sample++) {
             $supplier = Supplier::factory()->create(['opening_balance' => 17.25, 'current_balance' => 17.25]);
@@ -75,7 +84,7 @@ class TaskFinanceChecklistTest extends TestCase
                 $this->assertEqualsWithDelta($statement['opening_balance'] + $statement['total_credit'] - $statement['total_debit'], $statement['closing_balance'], 0.00001);
             };
             $check();
-            $data = ['supplier_id' => $supplier->id, 'amount' => 40.01, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
+            $data = ['supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 40.01, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
             $partial = $service->createPayment([...$data, 'supplier_invoice_id' => $invoice->id], $actor, 'partial-'.$sample);
             $this->assertSame(SupplierInvoiceStatus::PartiallyPaid, $invoice->fresh()->status);
             $check();
@@ -101,8 +110,9 @@ class TaskFinanceChecklistTest extends TestCase
         $this->seed(SettingSeeder::class);
         $supplier = Supplier::factory()->create();
         $actor = User::factory()->create();
+        $treasury = $this->treasury($actor);
         $service = app(SupplierFinanceService::class);
-        $payment = $service->createPayment(['supplier_id' => $supplier->id, 'amount' => 300, 'payment_method' => 'cash', 'payment_date' => now()->subDays(2)->toDateString()], $actor, 'before-period');
+        $payment = $service->createPayment(['supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 300, 'payment_method' => 'cash', 'payment_date' => now()->subDays(2)->toDateString()], $actor, 'before-period');
         $service->voidPayment($payment, $actor, 'checklist');
         $statement = $service->statement($supplier->fresh(), now()->subDay()->toDateString(), now()->toDateString());
         $this->assertSame(-300.0, $statement['opening_balance']);

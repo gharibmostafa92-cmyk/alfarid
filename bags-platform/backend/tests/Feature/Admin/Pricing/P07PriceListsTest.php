@@ -119,6 +119,25 @@ class P07PriceListsTest extends TestCase
             ['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 10])->assertCreated();
     }
 
+    public function test_nested_price_list_item_routes_cannot_mutate_an_item_from_another_list(): void
+    {
+        $listA = $this->priceList(PriceListType::Retail);
+        $listB = $this->priceList(PriceListType::Retail);
+        $item = $listB->items()->create([
+            'product_variant_id' => $this->variant()->id,
+            'min_qty' => 1,
+            'price' => 10,
+        ]);
+        $admin = $this->staff(self::ALL);
+        $token = $this->token($admin);
+        $path = "/api/v1/admin/price-lists/{$listA->id}/items/{$item->id}";
+
+        $this->withToken($token)->putJson($path, ['price' => 1])->assertNotFound();
+        $this->withToken($token)->deleteJson($path)->assertNotFound();
+
+        $this->assertSame('10.0000', $item->fresh()->price);
+    }
+
     // ── item 14: permission matrix for pricing endpoints ──
     public function test_pricing_permission_matrix(): void
     {
@@ -360,8 +379,8 @@ class P07PriceListsTest extends TestCase
         $this->assertNotContains($global->id, collect($index)->pluck('id')->all());
     }
 
-    // ── item 30: editing a list header dispatches a full refresh ──
-    public function test_list_header_edit_dispatches_full_refresh(): void
+    // An empty list cannot affect any catalog product, so no refresh is necessary.
+    public function test_empty_list_header_edit_does_not_dispatch_a_refresh(): void
     {
         $admin = $this->staff(self::ALL);
         $token = $this->token($admin);
@@ -369,7 +388,20 @@ class P07PriceListsTest extends TestCase
 
         Queue::fake();
         $this->withToken($token)->putJson("/api/v1/admin/price-lists/{$list->id}", ['priority' => 7])->assertOk();
-        Queue::assertPushed(RefreshCatalogRetailPrices::class, 1);
-        Queue::assertPushed(RefreshCatalogRetailPrices::class, fn ($job) => $job->productId === null);
+        Queue::assertNotPushed(RefreshCatalogRetailPrices::class);
+    }
+
+    public function test_price_list_header_update_records_actor_and_previous_values(): void
+    {
+        $admin = $this->staff(self::ALL);
+        $list = $this->priceList(PriceListType::Retail);
+        $previous = $list->priority;
+        $this->withToken($this->token($admin))->putJson("/api/v1/admin/price-lists/{$list->id}", ['priority' => 7])->assertOk();
+        $log = \Illuminate\Support\Facades\DB::table('staff_audit_logs')->where('action', 'price_list.updated')->where('target_id', $list->id)->first();
+        $this->assertNotNull($log);
+        $this->assertSame($admin->id, $log->actor_id);
+        $metadata = json_decode($log->metadata, true, flags: JSON_THROW_ON_ERROR);
+        $this->assertEquals($previous, $metadata['before']['priority']);
+        $this->assertEquals(7, $metadata['after']['priority']);
     }
 }

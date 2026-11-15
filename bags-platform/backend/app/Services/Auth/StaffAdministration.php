@@ -260,7 +260,7 @@ final class StaffAdministration
      */
     public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {
-        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email', 'discount_percentage', 'description', 'name_ar', 'name_en', 'slug', 'parent_id', 'sort_order', 'category_id', 'status', 'sales_channel', 'is_featured', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity', 'retail_price', 'wholesale_price', 'count', 'media_ids', 'updated_count']);
+        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email', 'discount_percentage', 'description', 'name_ar', 'name_en', 'slug', 'parent_id', 'sort_order', 'category_id', 'status', 'sales_channel', 'is_featured', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity', 'retail_price', 'wholesale_price', 'count', 'media_ids', 'updated_count', 'percent', 'price', 'product_variant_id', 'price_list_id', 'min_qty', 'starts_at', 'ends_at', 'priority', 'currency', 'customer_id', 'customer_group_id', 'discount_amount', 'tax_amount', 'grand_total', 'items']);
         $before = array_intersect_key($before, $allowed);
         $after = array_intersect_key($after, $allowed);
         if (array_key_exists('email', $before)) {

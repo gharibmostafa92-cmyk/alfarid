@@ -13,7 +13,6 @@ use App\Http\Resources\Admin\Procurement\SupplierResource;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
-use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\Procurement\SupplierService;
 use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
@@ -22,8 +21,6 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
 
 /**
  * Supplier profiles and portal staff administration with ledger balance tracking.
@@ -34,8 +31,8 @@ class SupplierController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:suppliers.view', only: ['index', 'show', 'users']),
-            new Middleware('can:suppliers.create', only: ['store', 'storeUser']),
-            new Middleware('can:suppliers.update', only: ['update', 'updateUser']),
+            new Middleware('can:suppliers.create', only: ['store']),
+            new Middleware('can:suppliers.update', only: ['update', 'storeUser', 'updateUser']),
             new Middleware('can:suppliers.delete', only: ['destroy', 'destroyUser']),
         ];
     }
@@ -96,7 +93,8 @@ class SupplierController extends Controller implements HasMiddleware
         DB::transaction(function () use ($supplier): void {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
             if ($supplier->purchaseOrders()->exists() || $supplier->invoices()->exists()
-                || $supplier->payments()->exists() || $supplier->users()->exists()) {
+                || $supplier->payments()->exists() || $supplier->users()->exists()
+                || $supplier->deliveries()->exists()) {
                 throw new BusinessException('لا يمكن حذف مورد له أوامر شراء أو فواتير أو دفعات أو حسابات مستخدمين؛ عطّله بدلًا من حذفه.');
             }
             $supplier->delete();
@@ -120,20 +118,8 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function storeUser(StoreSupplierUserRequest $request, Supplier $supplier): JsonResponse
     {
-        $data = $request->validated();
-        $user = DB::transaction(function () use ($supplier, $data): SupplierUser {
-            // M7: same advisory key as the other registration paths so the
-            // re-check below cannot race a concurrent signup elsewhere.
-            $lockEmail = mb_strtolower(trim((string) ($data['email'] ?? '')));
-            if ($lockEmail !== '') {
-                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
-            }
-            Validator::make(['email' => $data['email'] ?? null], [
-                'email' => ['required', 'email', Rule::unique('supplier_users', 'email'), new EmailNotUsedByOtherAccountType('supplier_users')],
-            ])->validate();
-
-            return $supplier->users()->create($data);
-        });
+        // SerializesAccountEmail locks and validates the cross-realm email while saving.
+        $user = $supplier->users()->create($request->validated());
 
         return SupplierUserResource::make($user)->response()->setStatusCode(201);
     }
@@ -150,14 +136,7 @@ class SupplierController extends Controller implements HasMiddleware
         }
         $user = DB::transaction(function () use ($supplier, $user, $data): SupplierUser {
             $user = $supplier->users()->lockForUpdate()->findOrFail($user->id);
-            $lockEmail = isset($data['email']) ? mb_strtolower(trim((string) $data['email'])) : '';
-            if ($lockEmail !== '') {
-                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
-                Validator::make(['email' => $lockEmail], [
-                    'email' => ['required', 'email', Rule::unique('supplier_users', 'email')->ignore($user->id), new EmailNotUsedByOtherAccountType('supplier_users')],
-                ])->validate();
-            }
-            $emailChanged = $lockEmail !== '' && $lockEmail !== mb_strtolower((string) $user->email);
+            $emailChanged = isset($data['email']) && mb_strtolower(trim((string) $data['email'])) !== mb_strtolower((string) $user->email);
             $user->update($data);
             if (isset($data['password']) || $emailChanged || (isset($data['is_active']) && ! $data['is_active'])) {
                 $user->tokens()->delete();

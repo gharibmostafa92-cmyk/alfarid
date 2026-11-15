@@ -119,8 +119,8 @@ export const mapCart = (c) => ({
     available: !!i.available, max_qty: num(i.max_qty), priced: !!i.priced,
   })),
   totals: {
-    subtotal: num(c.totals.subtotal), pricing_discount: num(c.totals.pricing_discount),
-    items_total: num(c.totals.items_total), coupon_discount: num(c.totals.coupon_discount),
-    total: num(c.totals.total), coupon_code: c.totals.coupon_code,
+    subtotal: num(c.totals?.subtotal), pricing_discount: num(c.totals?.pricing_discount),
+    items_total: num(c.totals?.items_total), coupon_discount: num(c.totals?.coupon_discount),
+    total: num(c.totals?.total), coupon_code: c.totals?.coupon_code,
   },
 });

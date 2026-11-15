@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Wholesale;
 
 use App\Enums\Wholesale\WholesalePaymentMethod;
+use App\Rules\RejectExecutableSignature;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -30,7 +31,7 @@ class StorePaymentNoticeRequest extends FormRequest
             'bank_name' => ['required', 'string', 'max:255'],
             'reference_number' => ['required', 'string', 'max:255'],
             'transfer_date' => ['required', 'date', 'before_or_equal:today'],
-            'receipt' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+            'receipt' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'mimetypes:application/pdf,image/jpeg,image/png,image/webp', 'max:10240', new RejectExecutableSignature],
         ];
     }
 }

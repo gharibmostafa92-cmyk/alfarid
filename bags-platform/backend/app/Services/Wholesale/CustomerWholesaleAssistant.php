@@ -78,7 +78,7 @@ final class CustomerWholesaleAssistant
 
         $receipt = $this->parseReceiptText($text);
         if ($receipt !== null) {
-            return 'سجلت تحويل '.$receipt['amount'].' مرجع '.$receipt['reference'].($receipt['bank'] !== '' ? ' ('.$receipt['bank'].')' : '').'. أربطه بأقرب طلب؟ [تأكيد] [على الحساب]';
+            return 'الرسائل هنا لا تسجل تحويلات ولا تحفظ مرجع السداد. ارفع صورة أو PDF الإيصال من بوابة الجملة لمراجعته.';
         }
 
         // Route price negotiations and rep requests to human sales reps.
@@ -96,7 +96,7 @@ final class CustomerWholesaleAssistant
             str_contains($text, 'كشف') => $this->statement($customer),
             str_starts_with($text, 'فاتورة') => $this->invoice($customer, $text),
             str_contains($text, 'طلبي') => $this->orderStatus($customer),
-            str_contains($text, 'عيد') => $this->reorder($customer),
+            preg_match('/\A\s*(?:عيد\s+(?:الطلب|آخر\s+طلب)|اعادة\s+الطلب|أعد\s+آخر\s+طلب|كرر\s+آخر\s+طلب)\s*\z/u', $text) === 1 => $this->reorder($customer),
             default => 'أقدر أساعدك في الرصيد، كشف الحساب، الفاتورة، حالة الطلب، أو إعادة آخر طلب.',
         };
     }
@@ -152,6 +152,9 @@ final class CustomerWholesaleAssistant
 
     private function verify(CustomerChannel $channel, string $text): string
     {
+        if ($this->settings->getBool('ai_wholesale_shadow_mode', true)) {
+            return 'التحقق عبر واتساب غير مفعّل حاليًا. استخدم بوابة الجملة أو تواصل مع الدعم.';
+        }
         if ($channel->verification_code_hash !== null && $channel->verification_expires_at?->isFuture()) {
             if ($channel->verification_attempts >= self::MAX_OTP_ATTEMPTS) {
                 return 'عدد المحاولات خلص. اطلب رمز جديد بعد انتهاء صلاحية الرمز الحالي.';
@@ -183,9 +186,7 @@ final class CustomerWholesaleAssistant
             'verification_attempts' => 0,
         ])->save();
         $payload = ['channel_id' => $channel->id, 'expires_at' => $channel->verification_expires_at->timestamp];
-        if (! $this->settings->getBool('ai_wholesale_shadow_mode', true)) {
-            $payload['code'] = $code;
-        }
+        $payload['code'] = $code;
         $this->outbox->queue(
             'customer-otp:'.$channel->id.':'.$channel->verification_expires_at->timestamp,
             'customer_whatsapp',
@@ -235,23 +236,23 @@ final class CustomerWholesaleAssistant
 
     private function statement(Customer $customer): string
     {
-        $statement = $this->notices->statement($customer);
-        $count = count($statement['entries'] ?? []);
+        $count = $this->notices->recentStatementCount($customer);
 
-        return 'كشف الحساب فيه '.$count.' حركة. PDF الكشف: /api/v1/wholesale/statement';
+        return 'كشف الحساب فيه '.$count.' حركة. افتحه من بوابة الجملة ضمن صفحة كشف الحساب.';
     }
 
     private function invoice(Customer $customer, string $text): string
     {
         $number = ArabicDigits::normalize(trim(str_replace('فاتورة', '', $text)));
         $order = Order::query()->where('customer_id', $customer->id)
-            ->where(fn ($q) => $q->where('order_number', $number)->orWhere('id', (int) $number))
+            ->where(fn ($q) => $q->where('order_number', $number)
+                ->when(preg_match('/\A[0-9]+\z/', $number) === 1, fn ($query) => $query->orWhere('id', (int) $number)))
             ->first();
         if ($order === null) {
             return 'الفاتورة مش موجودة على الحساب ده.';
         }
 
-        return 'فاتورة '.$order->order_number.' جاهزة من بوابة الجملة. PDF: /api/v1/wholesale/invoices/'.$order->id.'/pdf';
+        return 'فاتورة '.$order->order_number.' متاحة من بوابة الجملة ضمن صفحة الطلبات.';
     }
 
     private function needsHandoff(string $text): bool

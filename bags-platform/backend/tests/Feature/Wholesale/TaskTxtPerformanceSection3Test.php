@@ -37,6 +37,35 @@ class TaskTxtPerformanceSection3Test extends TestCase
 
     private Customer $trader;
 
+    public function test_bank_match_does_not_assign_one_notice_to_two_rows(): void
+    {
+        \App\Models\WholesalePaymentNotice::factory()->create([
+            'customer_id' => $this->trader->id, 'amount' => 1234,
+            'status' => 'pending_review', 'transfer_date' => now()->toDateString(),
+            'reference_number' => 'ONE-REF',
+        ]);
+        $row = ['amount' => 1234, 'reference' => 'ONE-REF', 'date' => now()->toDateString()];
+        $result = app(BankStatementMatcher::class)->match([$row, $row]);
+        $this->assertCount(1, $result['exact']);
+        $this->assertCount(1, $result['unmatched']);
+        $this->assertNull($result['unmatched'][0]['notice_id']);
+    }
+
+    public function test_customer_suggestions_scan_customers_once_for_multiple_rows(): void
+    {
+        Customer::factory()->count(205)->create(['type' => 'wholesale', 'status' => 'approved']);
+        $late = Customer::factory()->create(['type' => 'wholesale', 'status' => 'approved', 'company_name' => 'شركة نادرة جدا زيد']);
+        DB::enableQueryLog(); DB::flushQueryLog();
+        $result = app(BankStatementMatcher::class)->match([
+            ['amount' => 1, 'description' => 'تحويل شركة نادرة جدا زيد'],
+            ['amount' => 2, 'description' => 'دفعة شركة نادرة جدا زيد'],
+        ]);
+        $queries = DB::getQueryLog(); DB::disableQueryLog();
+        $this->assertSame($late->id, $result['unmatched'][0]['suggestion']['customer_id']);
+        $this->assertSame($late->id, $result['unmatched'][1]['suggestion']['customer_id']);
+        $this->assertCount(1, array_filter($queries, fn ($q) => str_contains(strtolower($q['query']), 'from "customers"')));
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -176,7 +205,9 @@ class TaskTxtPerformanceSection3Test extends TestCase
         $this->assertSame('30000.00', $breakdown['debt']);
         $this->assertSame('30000.00', $breakdown['free_pool']);
         $this->assertSame('0.00', $breakdown['outstanding']);
-        $this->assertCount(900, $statement['entries']);
+        $this->assertCount(180, $statement['entries']);
+        $this->assertSame(30000.0, $statement['opening_balance']);
+        $this->assertSame(30000.0, $statement['closing_balance']);
         $this->assertLessThan(2000.0, $elapsedMs, 'Bulk statement + balanceBreakdown must complete in under 2 seconds.');
     }
 

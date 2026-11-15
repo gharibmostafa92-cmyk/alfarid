@@ -50,7 +50,7 @@ class TaskTxtScoreReceiptJobTest extends TestCase
             'bank_name' => 'CIB',
             'status' => 'pending_review',
         ]);
-        Storage::disk('r2')->put($notice->receipt_file_path, 'fake-bytes');
+        Storage::disk('r2')->put($notice->receipt_file_path, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', true));
 
         return $notice->fresh();
     }
@@ -128,7 +128,12 @@ class TaskTxtScoreReceiptJobTest extends TestCase
         $before = $this->tempReceipts();
 
         $gemini = \Mockery::mock(GeminiClient::class);
-        $gemini->shouldReceive('generateStructured')->once()->andReturn([
+        $gemini->shouldReceive('generateStructured')->once()->withArgs(function (string $prompt, array $schema, \Illuminate\Http\UploadedFile $file): bool {
+            $this->assertSame('image/png', $file->getMimeType());
+            $this->assertSame('receipt.png', $file->getClientOriginalName());
+
+            return true;
+        })->andReturn([
             'amount' => '1500.00',
             'reference' => 'TXN-1',
             'date' => '2026-11-07',
@@ -141,5 +146,32 @@ class TaskTxtScoreReceiptJobTest extends TestCase
 
         $this->assertSame(100.0, (float) $notice->fresh()->match_score);
         $this->assertSame($before, $this->tempReceipts());
+    }
+
+    public function test_pdf_receipt_is_sent_with_its_real_mime_type(): void
+    {
+        $this->enableVision();
+        $notice = $this->noticeWithReceipt();
+        Storage::disk('r2')->put($notice->receipt_file_path, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
+        $gemini = \Mockery::mock(GeminiClient::class);
+        $gemini->shouldReceive('generateStructured')->once()->withArgs(function ($prompt, $schema, $file): bool {
+            $this->assertSame('application/pdf', $file->getMimeType());
+            $this->assertSame('receipt.pdf', $file->getClientOriginalName());
+            return true;
+        })->andReturn([]);
+        app()->instance(GeminiClient::class, $gemini);
+        $this->runJob($notice->id);
+    }
+
+    public function test_unsupported_receipt_content_is_not_sent_to_gemini(): void
+    {
+        $this->enableVision();
+        $notice = $this->noticeWithReceipt();
+        Storage::disk('r2')->put($notice->receipt_file_path, 'MZ executable');
+        $gemini = \Mockery::mock(GeminiClient::class);
+        $gemini->shouldNotReceive('generateStructured');
+        app()->instance(GeminiClient::class, $gemini);
+        $this->runJob($notice->id);
+        $this->assertNull($notice->fresh()->match_score);
     }
 }

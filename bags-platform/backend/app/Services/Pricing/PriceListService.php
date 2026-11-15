@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Pricing;
 
+use App\Services\Auth\StaffAdministration;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SearchTerm;
 
@@ -85,7 +86,11 @@ class PriceListService
         $this->validateDates($data);
         $data = $this->withValidOwner($data);
 
-        return PriceList::query()->create($data)->load(['customer', 'customerGroup', 'branch']);
+        return DB::transaction(function () use ($data, $user): PriceList {
+            $list = PriceList::query()->create($data);
+            if ($user) StaffAdministration::audit($user, 'price_list.created', 'price_list', $list->id, array_keys($data), [], $list->only(array_keys($data)), []);
+            return $list->load(['customer', 'customerGroup', 'branch']);
+        });
     }
 
     /**
@@ -110,7 +115,9 @@ class PriceListService
             $this->assertListAccess($user, $priceList);
             $this->validateDates($data, $priceList);
             $data = $this->withValidOwner($data, $priceList);
+            $before = $priceList->only(array_keys($data));
             $priceList->update($data);
+            if ($user) StaffAdministration::audit($user, 'price_list.updated', 'price_list', $priceList->id, array_keys($data), $before, $priceList->only(array_keys($data)), []);
 
             return $priceList->load(['customer', 'customerGroup', 'branch']);
         });
@@ -157,7 +164,9 @@ class PriceListService
         DB::transaction(function () use ($priceList, $user): void {
             $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             $this->assertListAccess($user, $locked);
+            $before = $locked->attributesToArray();
             $locked->delete();
+            if ($user) StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, [], []);
         });
     }
 
@@ -198,7 +207,9 @@ class PriceListService
             $this->validateDates($data);
             $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
 
-            return $priceList->items()->create($data)->load('variant.product');
+            $item = $priceList->items()->create($data);
+            if ($user) StaffAdministration::audit($user, 'price_list_item.created', 'price_list_item', $item->id, array_keys($data), [], $item->only(array_keys($data)), []);
+            return $item->load('variant.product');
         });
     }
 
@@ -226,7 +237,9 @@ class PriceListService
                 );
             }
 
+            $before = $item->only(array_keys($data));
             $item->update($data);
+            if ($user) StaffAdministration::audit($user, 'price_list_item.updated', 'price_list_item', $item->id, array_keys($data), $before, $item->only(array_keys($data)), []);
 
             return $item->load('variant.product');
         });
@@ -242,7 +255,10 @@ class PriceListService
         DB::transaction(function () use ($item, $user): void {
             $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
             $this->assertListAccess($user, $lockedList);
-            PriceListItem::query()->lockForUpdate()->findOrFail($item->id)->delete();
+            $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
+            $before = $item->attributesToArray();
+            $item->delete();
+            if ($user) StaffAdministration::audit($user, 'price_list_item.deleted', 'price_list_item', $item->id, array_keys($before), $before, [], []);
         });
     }
 
@@ -262,10 +278,12 @@ class PriceListService
             $productIds = ProductVariant::query()->withTrashed()
                 ->whereIn('id', (clone $items)->select('product_variant_id'))
                 ->distinct()->pluck('product_id')->map(fn ($id) => (int) $id)->all();
+            $before = (clone $items)->get(['id', 'product_variant_id', 'min_qty', 'price'])->toArray();
             $updated = DB::update(
                 'UPDATE price_list_items SET price = round(price * ?::numeric, 4), updated_at = ? WHERE price_list_id = ?',
                 [$factor, now(), $locked->id],
             );
+            StaffAdministration::audit($user, 'price_list.percentage_applied', 'price_list', $locked->id, ['percent', 'count', 'items'], ['items' => $before], ['percent' => $percent, 'count' => $updated], []);
             if ($productIds !== []) {
                 DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
             }
@@ -510,6 +528,7 @@ class PriceListService
             foreach (array_chunk($rows, 500) as $chunk) {
                 PriceListItem::query()->upsert($chunk, ['price_list_id', 'product_variant_id', 'min_qty'], ['price', 'starts_at', 'ends_at', 'updated_at']);
             }
+            if ($user) StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['items', 'count'], ['items' => $existing->values()->toArray()], ['items' => $rows, 'count' => count($rows)], []);
 
             // Query-builder upsert fires no Eloquent events, so the catalog
             // snapshot observer never sees these writes. Refresh the affected

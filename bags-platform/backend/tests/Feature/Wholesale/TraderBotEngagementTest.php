@@ -64,7 +64,8 @@ class TraderBotEngagementTest extends TestCase
 
         $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'فاتورة '.$order->order_number);
 
-        $this->assertStringContainsString("/api/v1/wholesale/invoices/{$order->id}/pdf", $reply);
+        $this->assertStringContainsString('بوابة الجملة', $reply);
+        $this->assertStringNotContainsString('/api/', $reply);
     }
 
     public function test_statement_reply_links_the_portal_pdf(): void
@@ -73,7 +74,47 @@ class TraderBotEngagementTest extends TestCase
 
         $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'كشف حساب الشهر ده');
 
-        $this->assertStringContainsString('/api/v1/wholesale/statement', $reply);
+        $this->assertStringContainsString('حركة', $reply);
+        $this->assertStringNotContainsString('/api/', $reply);
+    }
+
+    public function test_transfer_text_is_not_claimed_as_a_saved_payment_notice(): void
+    {
+        $customer = $this->verifiedTrader();
+        $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'بعت تحويل 50000 مرجع 998877');
+
+        $this->assertStringContainsString('لا تسجل تحويلات', $reply);
+        $this->assertDatabaseCount('wholesale_payment_notices', 0);
+    }
+
+    public function test_greeting_with_eid_does_not_trigger_reorder(): void
+    {
+        $customer = $this->verifiedTrader();
+        $quickOrder = \Mockery::mock(\App\Services\Wholesale\WholesaleQuickOrderService::class);
+        $quickOrder->shouldNotReceive('reorderToCart');
+        app()->instance(\App\Services\Wholesale\WholesaleQuickOrderService::class, $quickOrder);
+
+        $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'عيد سعيد');
+
+        $this->assertStringContainsString('أقدر أساعدك', $reply);
+    }
+
+    public function test_non_numeric_invoice_identifier_never_matches_internal_numeric_id(): void
+    {
+        $customer = $this->verifiedTrader();
+        $order = Order::factory()->create(['customer_id' => $customer->id, 'payment_method' => 'credit', 'payment_status' => 'unpaid']);
+        $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'فاتورة '.$order->id.' اضافي');
+        $this->assertStringContainsString('مش موجودة', $reply);
+    }
+
+    public function test_shadow_mode_does_not_queue_an_empty_otp(): void
+    {
+        $customer = Customer::factory()->create(['type' => 'wholesale', 'status' => 'approved']);
+        \Illuminate\Support\Facades\DB::table('settings')->where('key', 'ai_wholesale_shadow_mode')->update(['value' => '1']);
+        app(\App\Services\Shared\SettingService::class)->clearCache();
+        $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'السلام عليكم');
+        $this->assertStringContainsString('غير مفعّل', $reply);
+        $this->assertDatabaseCount('outbound_messages', 0);
     }
 
     public function test_bargaining_hands_off_to_sales_with_staff_notification(): void

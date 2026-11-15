@@ -120,9 +120,8 @@ class TraderBotPhase4Test extends TestCase
 
         $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'سجلت تحويل 15000 من البنك الأهلي مرجع 88231');
 
-        $this->assertStringContainsString('15000', $reply);
-        $this->assertStringContainsString('88231', $reply);
-        $this->assertStringContainsString('تأكيد', $reply);
+        $this->assertStringContainsString('لا تسجل تحويلات', $reply);
+        $this->assertStringContainsString('الإيصال', $reply);
         $this->assertSame(0, WholesalePaymentNotice::query()->count());
     }
 }

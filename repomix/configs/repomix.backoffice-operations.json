@@ -40,7 +40,9 @@
                     "bags-platform/frontend/apps/storefront/src/components/auth/AccountMenu.tsx",
                     "bags-platform/frontend/apps/storefront/src/components/auth/PhoneVerification.tsx",
                     "bags-platform/backend/app/Http/Controllers/Controller.php",
-                    "bags-platform/backend/app/Listeners/Orders/SendStaffOrderNotification.php"
+                    "bags-platform/backend/app/Listeners/Orders/SendStaffOrderNotification.php",
+                    "bags-platform/backend/app/Services/Auth/StaffAdministration.php",
+                    "bags-platform/backend/app/Rules/RejectExecutableSignature.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

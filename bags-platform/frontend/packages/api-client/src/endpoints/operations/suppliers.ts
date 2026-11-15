@@ -87,17 +87,19 @@ export const supplierInvoicesApi = {
 
 export interface SupplierPaymentApi {
   id: number; payment_number: string; supplier_id: number; supplier_invoice_id: number | null;
+  treasury_id: number | null;
   invoice?: { id: number; invoice_number: string; supplier_invoice_no: string | null } | null;
   amount: string; payment_method: 'cash' | 'bank_transfer' | 'check'; reference_no: string | null;
   payment_date: string; notes: string | null; voided_at: string | null; voided_by: number | null; void_reason: string | null;
 }
 export interface SupplierPaymentPayload {
-  supplier_id: number; supplier_invoice_id?: number | null; amount: number; payment_method: SupplierPaymentApi['payment_method'];
+  supplier_id: number; treasury_id: number; supplier_invoice_id?: number | null; amount: number; payment_method: SupplierPaymentApi['payment_method'];
   reference_no?: string | null; payment_date: string; notes?: string | null;
 }
 const PAY = `${ADMIN}/supplier-payments`;
 export const supplierPaymentsApi = {
   ...reader<SupplierPaymentApi, { page?: number; supplier_id?: number; supplier_invoice_id?: number; from_date?: string; to_date?: string }>(PAY),
+  treasuries: (page: number, signal?: AbortSignal) => api.get(`${PAY}/treasuries`, { params: { page }, signal }).then(r => asPage<{ id: number; name: string; type: 'main_safe' | 'bank_account'; branch_id: number | null }>(r)),
   create: (body: SupplierPaymentPayload, idempotencyKey: string) => api.post(PAY, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then(r => one<SupplierPaymentApi>(r)),
   update: (id: Id, body: Pick<SupplierPaymentPayload, 'payment_method' | 'reference_no' | 'notes'>) => api.put(`${PAY}/${id}`, body).then(r => one<SupplierPaymentApi>(r)),
   allocate: (id: Id, supplier_invoice_id: number) => api.post(`${PAY}/${id}/allocate`, { supplier_invoice_id }).then(r => one<SupplierPaymentApi>(r)),

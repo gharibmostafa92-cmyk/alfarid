@@ -27,12 +27,24 @@ class SupplierPaymentController extends Controller implements HasMiddleware
         return [
             new Middleware('can:purchases.view', only: ['index', 'show']),
             new Middleware('can:supplier_payments.create', only: ['store']),
+            new Middleware('can:supplier_payments.create', only: ['treasuries']),
             new Middleware('can:supplier_payments.update', only: ['update', 'allocate']),
             new Middleware('can:supplier_payments.delete', only: ['destroy', 'void']),
         ];
     }
 
     public function __construct(protected SupplierFinanceService $finance) {}
+
+    public function treasuries(Request $request, \App\Services\Inventory\BranchAccess $access): JsonResponse
+    {
+        $branch = $access->restrictedBranch($request->user());
+        $rows = \App\Models\Treasury::query()->where('is_active', true)
+            ->whereIn('type', ['main_safe', 'bank_account'])
+            ->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
+            ->orderBy('id')->paginate(100, ['id', 'name', 'type', 'branch_id']);
+
+        return response()->json($rows);
+    }
 
     /**
      * Lists paginated supplier payments filtered by supplier, invoice, or date range.

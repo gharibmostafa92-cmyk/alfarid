@@ -6,19 +6,23 @@ namespace App\Services\Procurement;
 
 use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Enums\Procurement\SupplierInvoiceStatus;
+use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierPayment;
+use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Shared\OperationIdempotencyService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\TreasuryService;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * Manages supplier accounts payable and vendor ledger accounting:
@@ -124,7 +128,7 @@ class SupplierFinanceService
                 $oldPath = $invoice->attachment_path;
                 $invoice->update(['attachment_path' => $files->store($attachment, "supplier_invoices/{$invoice->id}")]);
                 if ($oldPath) {
-                    DB::afterCommit(fn () => Storage::disk('r2')->delete($oldPath));
+                    DB::afterCommit(fn () => app(PrivateAttachments::class)->delete($oldPath));
                 }
             }
 
@@ -202,7 +206,7 @@ class SupplierFinanceService
             $path = $invoice->attachment_path;
             $invoice->delete();
             if ($path) {
-                DB::afterCommit(fn () => Storage::disk('r2')->delete($path));
+                DB::afterCommit(fn () => app(PrivateAttachments::class)->delete($path));
             }
         });
     }
@@ -216,14 +220,29 @@ class SupplierFinanceService
      */
     public function createPayment(array $data, User $creator, ?string $idempotencyKey = null): SupplierPayment
     {
+        // The key is optional for legacy clients. Do not persist a hash of the
+        // empty key: every keyless payment by the same actor would collide.
+        if ($idempotencyKey === null || trim($idempotencyKey) === '') {
+            return $this->executePayment($data, $creator, null);
+        }
+
         return app(OperationIdempotencyService::class)->run('supplier_payment', $creator, $idempotencyKey, $data,
             fn () => $this->executePayment($data, $creator, hash('sha256', $creator->id.':'.$idempotencyKey)));
     }
 
-    private function executePayment(array $data, User $creator, string $idempotencyKey): SupplierPayment
+    private function executePayment(array $data, User $creator, ?string $idempotencyKey): SupplierPayment
     {
         return DB::transaction(function () use ($data, $creator, $idempotencyKey): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail((int) $data['supplier_id']);
+            if (empty($data['treasury_id'])) {
+                throw new BusinessException('يجب تحديد خزينة لصرف دفعة المورد.');
+            }
+            $treasury = Treasury::query()->lockForUpdate()->findOrFail((int) $data['treasury_id']);
+            app(BranchAccess::class)->assertTreasury($creator->id, $treasury);
+            $expectedType = $data['payment_method'] === 'cash' ? TreasuryType::MainSafe : TreasuryType::BankAccount;
+            if ($treasury->type !== $expectedType) {
+                throw new BusinessException('اختر خزينة نقدية للدفع النقدي أو حسابًا بنكيًا للتحويل والشيك.');
+            }
             $amount = round((float) $data['amount'], 2);
             if ($amount <= 0 || $amount > 9999999999.99) {
                 throw new BusinessException('مبلغ الدفعة يجب أن يكون أكبر من صفر.');
@@ -251,12 +270,22 @@ class SupplierFinanceService
                 'payment_number' => $this->settings->generateNextNumber('supplier_payment'),
                 'idempotency_key' => $idempotencyKey,
                 'supplier_id' => $supplier->id,
+                'treasury_id' => $treasury->id,
                 'supplier_invoice_id' => $invoice?->id,
                 'amount' => $amount,
                 'payment_method' => $data['payment_method'],
                 'reference_no' => $reference,
                 'payment_date' => $data['payment_date'],
                 'notes' => $data['notes'] ?? null,
+                'created_by' => $creator->id,
+            ]);
+
+            app(TreasuryService::class)->record([
+                'treasury_id' => $treasury->id,
+                'type' => TreasuryTransactionType::SupplierPayment,
+                'amount' => '-'.number_format($amount, 2, '.', ''),
+                'reference_type' => 'supplier_payment',
+                'reference_id' => $payment->id,
                 'created_by' => $creator->id,
             ]);
 
@@ -286,6 +315,9 @@ class SupplierFinanceService
                 throw new BusinessException('لا يمكن تعديل دفعة ملغاة.');
             }
             $method = $data['payment_method'] ?? $payment->payment_method->value;
+            if ($payment->treasury_id !== null && $method !== $payment->payment_method->value) {
+                throw new BusinessException('وسيلة الدفعة المرتبطة بالخزينة لا تتغير؛ ألغِ الدفعة وسجّلها من جديد.');
+            }
             $reference = array_key_exists('reference_no', $data) ? $data['reference_no'] : $payment->reference_no;
             $data['reference_no'] = $this->paymentReference($supplier->id, $method, $reference, $payment->id);
             $payment->update(array_intersect_key($data, array_flip(['payment_method', 'reference_no', 'notes'])));
@@ -334,6 +366,21 @@ class SupplierFinanceService
             $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
             if ($payment->voided_at !== null) {
                 throw new BusinessException('هذه الدفعة ملغاة سابقًا.');
+            }
+            if ($payment->treasury_id !== null) {
+                if ($actor === null) {
+                    throw new BusinessException('يجب تحديد الموظف الذي يلغي الدفعة.');
+                }
+                $treasury = Treasury::query()->lockForUpdate()->findOrFail($payment->treasury_id);
+                app(BranchAccess::class)->assertTreasury($actor->id, $treasury);
+                app(TreasuryService::class)->record([
+                    'treasury_id' => $treasury->id,
+                    'type' => TreasuryTransactionType::SupplierPaymentReversal,
+                    'amount' => (string) $payment->amount,
+                    'reference_type' => 'supplier_payment',
+                    'reference_id' => $payment->id,
+                    'created_by' => $actor->id,
+                ]);
             }
             $supplier->increment('current_balance', (float) $payment->amount);
 
@@ -443,7 +490,8 @@ class SupplierFinanceService
         if ($poId === null || $poId === '') {
             return null;
         }
-        $po = PurchaseOrder::query()->find((int) $poId);
+        // Serialize invoice checks with order edits, cancellation and closeShort.
+        $po = PurchaseOrder::query()->lockForUpdate()->find((int) $poId);
         if ($po === null || (int) $po->supplier_id !== (int) $supplier->id) {
             throw new BusinessException('أمر الشراء المرتبط لا يخص هذا المورد.');
         }
@@ -462,7 +510,7 @@ class SupplierFinanceService
         if ($poId === null) {
             return;
         }
-        $po = PurchaseOrder::query()->find($poId);
+        $po = PurchaseOrder::query()->lockForUpdate()->find($poId);
         if ($po === null) {
             return;
         }
@@ -485,17 +533,25 @@ class SupplierFinanceService
             return round((float) $po->grand_total, 2);
         }
         $po->loadMissing('items');
-        $receivedSubtotal = 0.0;
-        $receivedTax = 0.0;
+        $receivedLines = [];
         foreach ($po->items as $item) {
-            $line = round((float) $item->received_qty * (float) $item->unit_cost, 2);
-            $receivedSubtotal += $line;
-            $receivedTax += round($line * (float) $item->tax_rate / 100, 2);
+            $receivedLines[] = [
+                'line' => round((float) $item->received_qty * (float) $item->unit_cost, 4),
+                'tax_rate' => (float) $item->tax_rate,
+            ];
         }
-        $receivedSubtotal = round($receivedSubtotal, 2);
+        $receivedSubtotal = round(array_sum(array_column($receivedLines, 'line')), 2);
         $discountShare = (float) $po->subtotal > 0
             ? round((float) $po->discount_amount * $receivedSubtotal / (float) $po->subtotal, 2)
             : 0.0;
+        // Match recalculateTotals(): discount scales the taxable base per line.
+        $taxableFactor = $receivedSubtotal > 0
+            ? ($receivedSubtotal - $discountShare) / $receivedSubtotal
+            : 0.0;
+        $receivedTax = round(array_sum(array_map(
+            fn (array $line): float => $line['line'] * $taxableFactor * $line['tax_rate'] / 100,
+            $receivedLines,
+        )), 2);
 
         return round($receivedSubtotal - $discountShare + $receivedTax, 2);
     }
@@ -514,7 +570,7 @@ class SupplierFinanceService
         $from = $fromDate !== null ? Carbon::parse($fromDate, $zone)->toDateString() : Carbon::parse($to, $zone)->subDays(365)->toDateString();
         $fromStart = Carbon::parse($from, $zone)->startOfDay();
         $toExclusive = Carbon::parse($to, $zone)->addDay()->startOfDay();
-        if (Carbon::parse($from)->gt(Carbon::parse($to)) || Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 366) {
+        if (Carbon::parse($from, $zone)->gt(Carbon::parse($to, $zone)) || Carbon::parse($from, $zone)->diffInDays(Carbon::parse($to, $zone)) > 366) {
             throw new BusinessException('فترة كشف الحساب يجب ألا تتجاوز 366 يومًا وبترتيب زمني صحيح.');
         }
         $countedStatuses = [
@@ -576,13 +632,13 @@ class SupplierFinanceService
             ->where('voided_at', '<', $toExclusive)
             ->get()
             ->map(fn (SupplierPayment $pay): array => [
-                'date' => $pay->voided_at->toDateString(),
+                'date' => $pay->voided_at->timezone($zone)->toDateString(),
                 'type' => 'payment_void',
                 'reference' => $pay->payment_number,
                 'description' => 'إلغاء دفعة '.$pay->payment_number.($internal && $pay->void_reason ? ' — '.$pay->void_reason : ''),
                 'credit' => round((float) $pay->amount, 2),
                 'debit' => 0.0,
-                'sort' => [$pay->voided_at->toDateString(), 2, $pay->id],
+                'sort' => [$pay->voided_at->timezone($zone)->toDateString(), 2, $pay->id],
             ]);
 
         $entries = [];
