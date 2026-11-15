@@ -171,7 +171,7 @@ export const Catalog = () => {
         </DataBoundary>
       </section>
       <p className="note mt-16"><i className="fa-solid fa-circle-info" />السعر النهائي لكل بند يتحسب في السلة حسب الكمية والشريحة المطبقة وقت الطلب.</p>
-      {open && <VariantModal product={open} onClose={() => setOpen(null)} onAdd={(lines) => { addToCart(lines.map((l) => ({ variant_id: l.v.id, qty: l.qty }))); setOpen(null); }} />}
+      {open && <VariantModal product={open} onClose={() => setOpen(null)} onAdd={(lines) => { addToCart(lines.map((l) => ({ variant_id: l.v.id, sku: l.v.sku, qty: l.qty }))); setOpen(null); }} />}
     </>
   );
 };

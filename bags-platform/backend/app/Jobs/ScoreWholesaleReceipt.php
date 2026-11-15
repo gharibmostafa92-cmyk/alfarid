@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\GeminiClient;
 use App\Services\Shared\SettingService;
@@ -21,6 +22,10 @@ use Throwable;
 class ScoreWholesaleReceipt implements ShouldQueue
 {
     use Queueable;
+
+    public int $tries = 2;
+
+    public int $timeout = 45;
 
     public function __construct(public int $noticeId) {}
 
@@ -94,9 +99,12 @@ class ScoreWholesaleReceipt implements ShouldQueue
             'date' => $notice->transfer_date?->toDateString() ?? '',
             'bank' => (string) ($notice->bank_name ?? ''),
         ], is_array($read) ? $read : []);
-        $notice->update([
-            'ocr_payload' => $scored['ocr'],
-            'match_score' => $scored['score'],
-        ]);
+        WholesalePaymentNotice::query()
+            ->whereKey($this->noticeId)
+            ->where('status', WholesalePaymentNoticeStatus::PendingReview->value)
+            ->update([
+                'ocr_payload' => json_encode($scored['ocr'], JSON_THROW_ON_ERROR),
+                'match_score' => $scored['score'],
+            ]);
     }
 }

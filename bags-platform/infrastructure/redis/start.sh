@@ -24,6 +24,8 @@ requirepass $REDIS_PASSWORD
 masterauth $REDIS_PASSWORD
 appendonly yes
 appendfsync everysec
+tcp-keepalive 60
+repl-ping-replica-period 5
 maxmemory 512mb
 # Shared security counters and locks must never be evicted to admit cache entries.
 maxmemory-policy noeviction
@@ -34,8 +36,8 @@ fi
 if [ "$1" != sentinel ]; then
   # Existing volumes retain Redis' rewritten role/replication settings, but
   # must receive policy updates too. Apply this before handing ownership back.
-  sed -i '/^maxmemory-policy[[:space:]]/d' runtime.conf
-  echo 'maxmemory-policy noeviction' >> runtime.conf
+  sed -i '/^maxmemory-policy[[:space:]]/d; /^tcp-keepalive[[:space:]]/d; /^repl-ping-replica-period[[:space:]]/d' runtime.conf
+  printf 'maxmemory-policy noeviction\ntcp-keepalive 60\nrepl-ping-replica-period 5\n' >> runtime.conf
   # M3: a rotated REDIS_PASSWORD must take effect on restart; the persisted
   # runtime.conf would otherwise keep the old secret and AUTH would fail cluster-wide.
   sed -i '/^requirepass[[:space:]]/d; /^masterauth[[:space:]]/d' runtime.conf

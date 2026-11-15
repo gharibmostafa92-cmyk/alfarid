@@ -1,0 +1,52 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-subsystem-05.2-ai-domain-tools.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "truncateBase64": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
+    "headerText": "SUBSYSTEM 5.2: AI DOMAIN EXECUTION TOOLS & FUNCTION CALLING ACTIONS\nAll-in-one stack: Gemini function calling tools across Catalog, Inventory, Pricing, Wholesale, Finance, Shipping, and Storefront domains, ToolRegistry execution boundary, WriteTool confirmation guards, admin AI simulation controllers, and AI state schema migrations."
+  },
+  "include": [
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/**",
+    "bags-platform/backend/app/Services/Ai/AgentTool.php",
+    "bags-platform/backend/app/Services/Ai/ToolKind.php",
+    "bags-platform/backend/app/Services/Ai/ToolOutcome.php",
+    "bags-platform/backend/app/Services/Ai/ToolRegistry.php",
+    "bags-platform/backend/app/Services/Ai/WriteTool.php",
+    "bags-platform/backend/app/Services/Ai/ProposalBuilder.php",
+    "bags-platform/backend/app/Services/Ai/Contracts/**",
+    "bags-platform/backend/app/Services/Ai/Catalog/**",
+    "bags-platform/backend/app/Services/Ai/Finance/**",
+    "bags-platform/backend/app/Services/Ai/Inventory/**",
+    "bags-platform/backend/app/Services/Ai/Pricing/**",
+    "bags-platform/backend/app/Services/Ai/Shipping/**",
+    "bags-platform/backend/app/Services/Ai/Storefront/**",
+    "bags-platform/backend/app/Services/Ai/Wholesale/**",
+    "bags-platform/backend/app/Services/Shared/SpokenQuantity.php",
+    "bags-platform/backend/app/Models/Ai*.php",
+    "bags-platform/backend/database/migrations/*ai*.php"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log",
+      "**/dist/**"
+    ]
+  }
+}

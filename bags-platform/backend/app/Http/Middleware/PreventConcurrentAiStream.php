@@ -32,7 +32,7 @@ class PreventConcurrentAiStream
         $lock = Cache::lock('ai-stream:'.$user->id, max($ttl, 60));
         if (! $lock->get()) {
             return response()->json(['message' => 'يوجد بث ذكاء اصطناعي قيد التنفيذ بالفعل؛ انتظر انتهاءه.'], 429)
-                ->header('Retry-After', (string) max($ttl, 60));
+                ->header('Retry-After', (string) min(max($ttl, 1), 10));
         }
         $request->attributes->set('ai_stream_lock', $lock);
 

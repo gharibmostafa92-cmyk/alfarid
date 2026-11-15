@@ -53,6 +53,7 @@ class PriceListItemController extends Controller implements HasMiddleware
 
     public function show(Request $request, PriceList $priceList, PriceListItem $item): PriceListItemResource
     {
+        abort_if($item->price_list_id !== $priceList->id, 404);
         $this->priceLists->assertListAccess($request->user(), $priceList);
 
         return PriceListItemResource::make($item->loadMissing('variant.product'));
@@ -60,11 +61,14 @@ class PriceListItemController extends Controller implements HasMiddleware
 
     public function update(UpdatePriceListItemRequest $request, PriceList $priceList, PriceListItem $item): PriceListItemResource
     {
+        abort_if($item->price_list_id !== $priceList->id, 404);
+
         return PriceListItemResource::make($this->priceLists->updateItem($item, $request->validated(), $request->user()));
     }
 
     public function destroy(Request $request, PriceList $priceList, PriceListItem $item): JsonResponse
     {
+        abort_if($item->price_list_id !== $priceList->id, 404);
         $this->priceLists->deleteItem($item, $request->user());
 
         return response()->json(['message' => 'تم حذف سعر الصنف بنجاح']);

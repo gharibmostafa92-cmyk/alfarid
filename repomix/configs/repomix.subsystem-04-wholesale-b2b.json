@@ -70,7 +70,8 @@
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/orders/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/products/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/quick-order/page.tsx",
-                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx"
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx",
+                    "bags-platform/backend/app/Imports/WholesaleQuickOrderImport.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

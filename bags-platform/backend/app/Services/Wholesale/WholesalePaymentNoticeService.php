@@ -57,6 +57,7 @@ class WholesalePaymentNoticeService
             Customer::query()->lockForUpdate()->findOrFail($customer->id);
             $reference = trim($data['reference_number']);
             if (WholesalePaymentNotice::query()->where('customer_id', $customer->id)
+                ->whereNotIn('status', [WholesalePaymentNoticeStatus::Rejected->value, WholesalePaymentNoticeStatus::Reversed->value])
                 ->whereReferenceNumber($reference)->exists()) {
                 throw new BusinessException('رقم مرجع السداد مسجل بالفعل لهذا التاجر.', [], 409);
             }
@@ -65,7 +66,7 @@ class WholesalePaymentNoticeService
             $transferDate = Carbon::parse((string) $data['transfer_date'])->toDateString();
             $crossCustomer = WholesalePaymentNotice::query()
                 ->where('customer_id', '!=', $customer->id)
-                ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+                ->whereNotIn('status', [WholesalePaymentNoticeStatus::Rejected->value, WholesalePaymentNoticeStatus::Reversed->value])
                 ->whereReferenceNumber($reference)
                 ->where('amount', (string) $amount)
                 ->whereDate('transfer_date', $transferDate)
@@ -81,7 +82,7 @@ class WholesalePaymentNoticeService
             $hash = hash_file('sha256', $realPath);
             $sameReceipt = WholesalePaymentNotice::query()
                 ->where('receipt_sha256', $hash)
-                ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+                ->whereNotIn('status', [WholesalePaymentNoticeStatus::Rejected->value, WholesalePaymentNoticeStatus::Reversed->value])
                 ->first();
             if ($sameReceipt !== null) {
                 throw new BusinessException("نفس الإيصال اترفع قبل كده ({$sameReceipt->notice_number}).", [], 409);
@@ -238,7 +239,7 @@ class WholesalePaymentNoticeService
      * @param  Customer  $customer  Wholesale customer
      * @param  string|null  $from  Start date (inclusive, YYYY-MM-DD)
      * @param  string|null  $to  End date (inclusive, YYYY-MM-DD)
-     * @return array{opening_balance: float, closing_balance: float, entries: list<array<string, mixed>>}
+     * @return array{opening_balance: string, closing_balance: string, entries: list<array<string, mixed>>}
      */
     public function statement(Customer $customer, ?string $from = null, ?string $to = null): array
     {
@@ -252,15 +253,16 @@ class WholesalePaymentNoticeService
         }
 
         // Compute all history before the requested window in SQL; never materialize a customer's lifetime ledger.
-        $opening = (float) Order::query()->where('customer_id', $customer->id)
+        $opening = BigDecimal::of((string) Order::query()->where('customer_id', $customer->id)
             ->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value)
-            ->where('created_at', '<', $fromDate)->sum('grand_total');
-        $opening -= (float) WholesalePaymentNotice::query()->where('customer_id', $customer->id)
-            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-            ->whereRaw('COALESCE(approved_at, transfer_date, updated_at) < ?', [$fromDate])->sum('amount');
-        $opening -= (float) ReturnRequest::query()->where('customer_id', $customer->id)
-            ->where('status', 'refunded')->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
-            ->whereNotNull('refunded_at')->where('refunded_at', '<', $fromDate)->sum('total_refund_amount');
+            ->where('created_at', '<', $fromDate)->sum('grand_total'))
+            ->minus((string) WholesalePaymentNotice::query()->where('customer_id', $customer->id)
+                ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+                ->whereRaw('COALESCE(approved_at, transfer_date, updated_at) < ?', [$fromDate])->sum('amount'))
+            ->minus((string) ReturnRequest::query()->where('customer_id', $customer->id)
+                ->where('status', 'refunded')->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+                ->whereNotNull('refunded_at')->where('refunded_at', '<', $fromDate)->sum('total_refund_amount'))
+            ->toScale(2, RoundingMode::HalfUp);
 
         $entries = collect();
 
@@ -276,7 +278,7 @@ class WholesalePaymentNoticeService
                 'type' => 'debit',
                 'description' => "طلب آجل {$order->order_number}",
                 'reference' => $order->order_number,
-                'amount' => (float) $order->grand_total,
+                'amount' => (string) $order->grand_total,
             ]));
 
         WholesalePaymentNotice::query()
@@ -290,7 +292,7 @@ class WholesalePaymentNoticeService
                 'type' => 'credit',
                 'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
                 'reference' => $notice->notice_number,
-                'amount' => (float) $notice->amount,
+                'amount' => (string) $notice->amount,
             ]));
 
         ReturnRequest::query()
@@ -306,7 +308,7 @@ class WholesalePaymentNoticeService
                 'type' => 'credit',
                 'description' => "مرتجع مسترد {$return->return_number}",
                 'reference' => $return->return_number,
-                'amount' => (float) $return->total_refund_amount,
+                'amount' => (string) $return->total_refund_amount,
             ]));
 
         // Standard accounting convention: debits precede credits on identical dates.
@@ -321,21 +323,24 @@ class WholesalePaymentNoticeService
         $running = $opening;
         $result = [];
         foreach ($sorted as $entry) {
-            $delta = $entry['type'] === 'debit' ? $entry['amount'] : -$entry['amount'];
-            $running += $delta;
+            $entryAmount = BigDecimal::of((string) $entry['amount'])->toScale(2, RoundingMode::HalfUp);
+            $running = ($entry['type'] === 'debit'
+                ? $running->plus($entryAmount)
+                : $running->minus($entryAmount)
+            )->toScale(2, RoundingMode::HalfUp);
             $result[] = [
                 'date' => $entry['date']->toDateString(),
                 'reference' => $entry['reference'],
                 'description' => $entry['description'],
-                'debit' => $entry['type'] === 'debit' ? number_format($entry['amount'], 2, '.', '') : '0.00',
-                'credit' => $entry['type'] === 'credit' ? number_format($entry['amount'], 2, '.', '') : '0.00',
-                'balance' => number_format($running, 2, '.', ''),
+                'debit' => $entry['type'] === 'debit' ? (string) $entryAmount : '0.00',
+                'credit' => $entry['type'] === 'credit' ? (string) $entryAmount : '0.00',
+                'balance' => (string) $running,
             ];
         }
 
         return [
-            'opening_balance' => round($opening, 2),
-            'closing_balance' => round($running, 2),
+            'opening_balance' => (string) $opening,
+            'closing_balance' => (string) $running,
             'entries' => $result,
         ];
     }
@@ -405,14 +410,18 @@ class WholesalePaymentNoticeService
                 'notes' => "اعتماد إشعار سداد جملة {$notice->notice_number}",
             ]);
 
-            $notice->update([
-                'status' => WholesalePaymentNoticeStatus::Approved,
-                'reviewed_by' => $adminId,
-                'approved_at' => now(),
-                'admin_notes' => $adminNotes ?? $notice->admin_notes,
-                'treasury_id' => $treasury->id,
-                'treasury_transaction_id' => $transaction->id,
-            ]);
+            try {
+                $notice->update([
+                    'status' => WholesalePaymentNoticeStatus::Approved,
+                    'reviewed_by' => $adminId,
+                    'approved_at' => now(),
+                    'admin_notes' => $adminNotes ?? $notice->admin_notes,
+                    'treasury_id' => $treasury->id,
+                    'treasury_transaction_id' => $transaction->id,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('مرجع التحويل البنكي معتمد بالفعل في إشعار آخر.', [], 409);
+            }
 
             if ($notice->order_id !== null) {
                 $this->settleOrderIfCovered((int) $notice->order_id, $adminId, $notice->notice_number);
@@ -630,7 +639,7 @@ class WholesalePaymentNoticeService
             $sameFile = WholesalePaymentNotice::query()
                 ->where('receipt_sha256', $notice->receipt_sha256)
                 ->whereKeyNot($notice->id)
-                ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+                ->whereNotIn('status', [WholesalePaymentNoticeStatus::Rejected->value, WholesalePaymentNoticeStatus::Reversed->value])
                 ->get(['id', 'notice_number', 'customer_id']);
             foreach ($sameFile as $other) {
                 $collisions[] = $mapCollision($other, 'same_receipt');
@@ -640,7 +649,7 @@ class WholesalePaymentNoticeService
         $sameTransfer = WholesalePaymentNotice::query()
             ->whereKeyNot($notice->id)
             ->where('customer_id', '!=', $notice->customer_id)
-            ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+            ->whereNotIn('status', [WholesalePaymentNoticeStatus::Rejected->value, WholesalePaymentNoticeStatus::Reversed->value])
             ->whereReferenceNumber((string) $notice->reference_number)
             ->where('amount', (string) $notice->amount)
             ->whereDate('transfer_date', $notice->transfer_date?->toDateString())
@@ -655,8 +664,7 @@ class WholesalePaymentNoticeService
     // FIFO allocation settles oldest unpaid orders first using available unallocated notices.
     private function settleFreeNoticeFifo(Customer $customer, int $adminId, string $noticeNumber): void
     {
-        $branchId = app(BranchAccess::class)->restrictedBranch(User::findOrFail($adminId));
-        $this->applyFreePlan($customer, $adminId, $noticeNumber, $this->planFreeAllocation($customer, '0', $branchId));
+        $this->applyFreePlan($customer, $adminId, $noticeNumber, $this->planFreeAllocation($customer, '0', null));
     }
 
     /**
@@ -825,6 +833,66 @@ class WholesalePaymentNoticeService
         return $linked->plus($allocated)->plus($this->creditNoteAmountForOrder($orderId))->toScale(2, RoundingMode::HalfUp);
     }
 
+    /**
+     * Releases excess FIFO allocations on an order when a credit note reduces its remaining balance,
+     * returning the freed credit to the customer's free pool. Caller holds the order lock.
+     */
+    public function releaseExcessAllocationsForCreditNote(Order $order, string $creditNoteAmount, int $adminId): string
+    {
+        $existingCreditNotes = $this->creditNoteAmountForOrder((int) $order->id);
+        if ($existingCreditNotes->plus($creditNoteAmount)->compareTo((string) $order->grand_total) > 0) {
+            throw new BusinessException('قيمة المرتجعات تتجاوز إجمالي الطلب.');
+        }
+        $excess = $this->orderCoveredAmount((int) $order->id)->plus($creditNoteAmount)
+            ->minus((string) $order->grand_total)->toScale(2, RoundingMode::HalfUp);
+        if ($excess->isLessThanOrEqualTo('0')) {
+            return '0.00';
+        }
+
+        $toRelease = $excess;
+        $allocations = WholesalePaymentAllocation::query()
+            ->where('order_id', $order->id)
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($allocations as $allocation) {
+            if ($toRelease->isLessThanOrEqualTo('0')) {
+                break;
+            }
+            $rowAmount = BigDecimal::of((string) $allocation->amount)->toScale(2, RoundingMode::HalfUp);
+            if ($rowAmount->compareTo($toRelease) <= 0) {
+                $toRelease = $toRelease->minus($rowAmount)->toScale(2, RoundingMode::HalfUp);
+                $allocation->delete();
+            } else {
+                $allocation->update([
+                    'amount' => (string) $rowAmount->minus($toRelease)->toScale(2, RoundingMode::HalfUp),
+                ]);
+                $toRelease = BigDecimal::zero()->toScale(2, RoundingMode::HalfUp);
+            }
+        }
+
+        // A linked receipt cannot be partly linked. Convert it to a free receipt,
+        // then retain its non-excess portion as an allocation to the same order.
+        if ($toRelease->isGreaterThan('0')) {
+            $linked = WholesalePaymentNotice::query()->where('order_id', $order->id)
+                ->where('status', WholesalePaymentNoticeStatus::Approved->value)->orderByDesc('id')->lockForUpdate()->get();
+            foreach ($linked as $notice) {
+                if ($toRelease->isLessThanOrEqualTo('0')) break;
+                $amount = BigDecimal::of((string) $notice->amount)->toScale(2, RoundingMode::HalfUp);
+                $released = $amount->compareTo($toRelease) <= 0 ? $amount : $toRelease;
+                $retained = $amount->minus($released)->toScale(2, RoundingMode::HalfUp);
+                $notice->update(['order_id' => null]);
+                if ($retained->isGreaterThan('0')) {
+                    WholesalePaymentAllocation::create(['notice_id' => $notice->id, 'order_id' => $order->id, 'amount' => (string) $retained, 'created_by' => $adminId]);
+                }
+                $toRelease = $toRelease->minus($released)->toScale(2, RoundingMode::HalfUp);
+            }
+        }
+
+        return (string) $excess->minus($toRelease)->toScale(2, RoundingMode::HalfUp);
+    }
+
     /** Caller holds the order lock in its transaction. */
     public function assertCreditNoteCapacity(Order $order, string $amount): void
     {
@@ -837,6 +905,9 @@ class WholesalePaymentNoticeService
     public function settleCreditNote(Order $order, int $adminId, string $number): void
     {
         $this->settleOrderIfCovered((int) $order->id, $adminId, $number);
+        if ($order->customer !== null) {
+            $this->settleFreeNoticeFifo($order->customer, $adminId, $number);
+        }
     }
 
     private function creditNoteAmountForOrder(int $orderId): BigDecimal

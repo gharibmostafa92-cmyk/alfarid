@@ -12,6 +12,7 @@ use App\Http\Resources\Admin\Procurement\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierDelivery;
 use App\Models\User;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Procurement\ProcurementService;
 use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
@@ -38,7 +39,10 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         ];
     }
 
-    public function __construct(protected ProcurementService $procurement) {}
+    public function __construct(
+        protected ProcurementService $procurement,
+        protected BranchAccess $branchAccess,
+    ) {}
 
     /**
      * List paginated purchase orders with supplier and branch filters.
@@ -52,8 +56,10 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             'search' => ['nullable', 'string', 'max:100'],
         ]);
         $search = trim((string) ($filters['search'] ?? ''));
+        $restrictedBranch = $this->branchAccess->restrictedBranch($request->user());
         $orders = PurchaseOrder::query()
             ->with(['supplier:id,code,name', 'branch:id,name'])
+            ->when($restrictedBranch !== null, fn ($q) => $q->where('branch_id', $restrictedBranch))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', (int) $id))
             ->when($filters['branch_id'] ?? null, fn ($q, $id) => $q->where('branch_id', (int) $id))
@@ -79,8 +85,10 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     /**
      * Retrieve details of a purchase order including item lines and delivery status.
      */
-    public function show(PurchaseOrder $purchaseOrder): PurchaseOrderResource
+    public function show(Request $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
+        $this->branchAccess->assertBranch($request->user()->id, (int) $purchaseOrder->branch_id);
+
         return $this->orderResource($purchaseOrder, includeDeliveries: true);
     }
 
@@ -97,9 +105,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     /**
      * Delete an unapproved draft purchase order.
      */
-    public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
+    public function destroy(Request $request, PurchaseOrder $purchaseOrder): JsonResponse
     {
-        $this->procurement->deletePurchaseOrder($purchaseOrder);
+        $this->procurement->deletePurchaseOrder($purchaseOrder, $request->user());
 
         return response()->json(['message' => 'تم حذف أمر الشراء.']);
     }
@@ -118,33 +126,33 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     /**
      * Mark a purchase order as sent to the supplier.
      */
-    public function send(PurchaseOrder $purchaseOrder): PurchaseOrderResource
+    public function send(Request $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
-        return PurchaseOrderResource::make($this->procurement->sendPurchaseOrder($purchaseOrder));
+        return PurchaseOrderResource::make($this->procurement->sendPurchaseOrder($purchaseOrder, $request->user()));
     }
 
     /**
      * Cancel a purchase order before fulfillment.
      */
-    public function cancel(PurchaseOrder $purchaseOrder): PurchaseOrderResource
+    public function cancel(Request $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
-        return PurchaseOrderResource::make($this->procurement->cancelPurchaseOrder($purchaseOrder));
+        return PurchaseOrderResource::make($this->procurement->cancelPurchaseOrder($purchaseOrder, $request->user()));
     }
 
     /**
      * Close a purchase order short when remaining quantities will not be fulfilled.
      */
-    public function closeShort(PurchaseOrder $purchaseOrder): PurchaseOrderResource
+    public function closeShort(Request $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
-        return PurchaseOrderResource::make($this->procurement->closeShort($purchaseOrder));
+        return PurchaseOrderResource::make($this->procurement->closeShort($purchaseOrder, $request->user()));
     }
 
     /**
      * Close one pending supplier delivery without completing the purchase order.
      */
-    public function closeDeliveryShort(SupplierDelivery $delivery): JsonResponse
+    public function closeDeliveryShort(Request $request, SupplierDelivery $delivery): JsonResponse
     {
-        $closed = $this->procurement->closeDeliveryShort($delivery);
+        $closed = $this->procurement->closeDeliveryShort($delivery, $request->user());
 
         return response()->json(['data' => [
             'id' => $closed->id,

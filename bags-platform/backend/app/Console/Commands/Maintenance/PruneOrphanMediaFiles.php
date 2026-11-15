@@ -69,6 +69,8 @@ class PruneOrphanMediaFiles extends Command
         $pruned = 0;
         $skipped = 0;
         $failures = 0;
+        $startedAt = microtime(true);
+        $timeBudgetSeconds = 3000.0;
 
         $stagingOnly = (bool) $this->option('staging-only');
         $staging = Media::query()->useWritePdo()->whereIn('model_type', [(new Product)->getMorphClass(), (new ProductVariant)->getMorphClass()])
@@ -111,12 +113,18 @@ class PruneOrphanMediaFiles extends Command
         }
 
         $halted = false;
+        $timeBudgetReached = false;
         $orphans = [];
         $remaining = $maxDeletions - $stagingIds->count();
-        $process = function (array $candidates) use ($disk, $cutoff, $remaining, $budgetExceeded, &$orphans, &$skipped, &$failures, &$halted): void {
+        $process = function (array $candidates) use ($disk, $cutoff, $remaining, $budgetExceeded, $startedAt, $timeBudgetSeconds, &$orphans, &$skipped, &$failures, &$halted, &$timeBudgetReached): void {
             $referenced = DB::table('media')->useWritePdo()->whereIn('uuid', array_keys($candidates))->pluck('uuid')->flip();
             foreach ($candidates as $base => $dir) {
                 if ($halted) {
+                    return;
+                }
+                if ((microtime(true) - $startedAt) > $timeBudgetSeconds) {
+                    $timeBudgetReached = true;
+
                     return;
                 }
                 if ($referenced->has($base)) {
@@ -154,7 +162,8 @@ class PruneOrphanMediaFiles extends Command
         try {
             $batch = [];
             foreach ($disk->getDriver()->listContents('', false) as $entry) {
-                if ($halted) {
+                if ($halted || $timeBudgetReached || (microtime(true) - $startedAt) > $timeBudgetSeconds) {
+                    $timeBudgetReached = $timeBudgetReached || (! $halted);
                     break;
                 }
                 $dir = $entry->path();

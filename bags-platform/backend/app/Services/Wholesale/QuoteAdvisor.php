@@ -151,6 +151,7 @@ final class QuoteAdvisor
             ->whereIn('quotation_items.product_variant_id', $variantIds)
             ->whereIn('quotations.status', [
                 QuotationStatus::Accepted->value,
+                QuotationStatus::ConvertedToOrder->value,
                 QuotationStatus::Rejected->value,
                 QuotationStatus::Expired->value,
             ])
@@ -163,7 +164,9 @@ final class QuoteAdvisor
         foreach ($byVariant as $vId => $statusCounts) {
             $total = (int) $statusCounts->sum('c');
             if ($total > 0) {
-                $accepted = (int) ($statusCounts->firstWhere('status', QuotationStatus::Accepted->value)?->c ?? 0);
+                $accepted = (int) $statusCounts
+                    ->whereIn('status', [QuotationStatus::Accepted->value, QuotationStatus::ConvertedToOrder->value])
+                    ->sum('c');
                 $rates[(int) $vId] = round(($accepted / $total) * 100, 1);
             }
         }

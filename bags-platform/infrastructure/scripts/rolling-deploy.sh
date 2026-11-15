@@ -9,6 +9,8 @@
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 DC=(docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.yml")
+if [[ ${ENABLE_MONITORING:-0} == 1 ]]; then DC+=(-f "$ROOT/docker-compose.monitoring.yml"); fi
+if [[ ${ENABLE_VIP:-0} == 1 ]]; then DC+=(-f "$ROOT/docker-compose.vip.yml"); fi
 if [[ ${LOAD_TEST:-0} == 1 ]]; then DC+=(-f "$ROOT/docker-compose.loadtest.yml"); fi
 SOCK=/var/run/haproxy/admin.sock
 NODES=(app1 app2 app3)
@@ -77,4 +79,7 @@ done
 for svc in worker worker2 media-worker; do
   "${DC[@]}" up -d --no-deps --no-build --force-recreate "$svc"
 done
+if "${DC[@]}" ps --status running -q whatsapp-worker | grep -q .; then
+  "${DC[@]}" up -d --no-deps --no-build --force-recreate whatsapp-worker
+fi
 echo 'Deploy complete'

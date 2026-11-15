@@ -4,6 +4,7 @@ import { SLOW_REQUEST_TIMEOUT } from './operations/http';
 const W = '/api/v1/wholesale';
 export const wholesaleEndpoints = {
   applicationStatus: (signal?: AbortSignal) => apiClient.get(`${W}/auth/application-status`, { signal }).then((r) => r.data.data),
+  uploadDocument: (fd: FormData) => apiClient.post(`${W}/auth/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data),
   dashboard: (signal?: AbortSignal) => apiClient.get(`${W}/dashboard`, { signal }).then((r) => r.data.data),
   products: (p: { search?: string; page?: number; per_page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/products`, { params: p, signal }).then((r) => r.data),
   exportPriceList: (format: 'pdf' | 'xlsx') => apiClient.get(`${W}/price-list/export`, { params: { format }, responseType: 'blob', timeout: SLOW_REQUEST_TIMEOUT }),

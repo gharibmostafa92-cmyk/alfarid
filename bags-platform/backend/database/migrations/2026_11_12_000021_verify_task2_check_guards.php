@@ -11,6 +11,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // Earlier releases could record the validation migration as applied
         // even when legacy rows violated one of these checks.
         foreach ([
@@ -23,7 +27,18 @@ return new class extends Migration
             ['treasury_transfers', 'treasury_transfers_approver_required'],
             ['wholesale_payment_allocations', 'wholesale_payment_allocations_amount_positive'],
         ] as [$table, $constraint]) {
-            DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+            $exists = DB::scalar(
+                'SELECT 1 FROM pg_constraint WHERE conname = ? AND conrelid = ?::regclass AND NOT convalidated',
+                [$constraint, $table]
+            );
+            if ($exists === null) {
+                continue;
+            }
+
+            DB::transaction(function () use ($table, $constraint): void {
+                DB::statement("SET LOCAL lock_timeout = '5s'");
+                DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+            });
         }
     }
 

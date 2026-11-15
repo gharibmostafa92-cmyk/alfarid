@@ -11,6 +11,7 @@ use App\Notifications\Inventory\TransferSuggestionNotification;
 use App\Services\Ai\Inventory\InventoryCoverage;
 use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -26,7 +27,10 @@ class SuggestTransferRedistribution implements ShouldQueue
             return;
         }
 
-        $targetMetrics = InventoryCoverage::metricsByBranch($event->productVariantId, [$event->branchId])[$event->branchId];
+        $targetMetrics = InventoryCoverage::metricsByBranch($event->productVariantId, [$event->branchId])[$event->branchId] ?? null;
+        if ($targetMetrics === null) {
+            return;
+        }
         $lowCoverage = $targetMetrics['coverage_days'];
         // Only trigger when target branch coverage is critically low (<= 7 days or zero stock).
         if ($lowCoverage !== null && $lowCoverage > 7) {
@@ -37,14 +41,18 @@ class SuggestTransferRedistribution implements ShouldQueue
             return;
         }
 
-        // Identify donor branch holding surplus stock (> 60 days coverage).
+        // Identify active donor branch and active/unassigned locations holding surplus stock (> 60 days coverage).
         $donors = DB::table('stock_levels')
-            ->selectRaw('branch_id, SUM(on_hand - reserved - damaged) AS available')
-            ->where('product_variant_id', $event->productVariantId)
-            ->where('branch_id', '!=', $event->branchId)
-            ->groupBy('branch_id')
-            ->havingRaw('SUM(on_hand - reserved - damaged) > 0')
+            ->join('branches', fn ($join) => $join->on('branches.id', '=', 'stock_levels.branch_id')->where('branches.is_active', true))
+            ->leftJoin('locations', 'locations.id', '=', 'stock_levels.location_id')
+            ->selectRaw('stock_levels.branch_id, SUM(stock_levels.on_hand - stock_levels.reserved - stock_levels.damaged) AS available')
+            ->where('stock_levels.product_variant_id', $event->productVariantId)
+            ->where('stock_levels.branch_id', '!=', $event->branchId)
+            ->where(fn ($query) => $query->whereNull('stock_levels.location_id')->orWhere('locations.is_active', true))
+            ->groupBy('stock_levels.branch_id')
+            ->havingRaw('SUM(stock_levels.on_hand - stock_levels.reserved - stock_levels.damaged) > 0')
             ->orderByDesc('available')
+            ->orderBy('stock_levels.branch_id')
             ->limit(10)->get()
             ->map(fn ($l) => ['branch_id' => (int) $l->branch_id, 'available' => (float) $l->available]);
         $donorMetrics = InventoryCoverage::metricsByBranch(
@@ -79,6 +87,10 @@ class SuggestTransferRedistribution implements ShouldQueue
             ->merge(StaffRecipients::branchManagers($event->branchId))
             ->unique('id');
         if ($recipients->isEmpty()) {
+            return;
+        }
+
+        if (! Cache::add("transfer-suggest:{$event->branchId}:{$event->productVariantId}", 1, now()->addHours(12))) {
             return;
         }
 

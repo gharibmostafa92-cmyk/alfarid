@@ -154,9 +154,11 @@ class Task2Slice1SchemaTest extends TestCase
             SELECT i.indisvalid
             FROM pg_class c
             JOIN pg_index i ON i.indexrelid = c.oid
-            WHERE c.relname = 'finance_reconcile_runs_created_at_idx'
+            WHERE c.relname = 'finance_reconcile_runs_created_at_index'
         ");
-        $this->assertNotNull($idx, 'finance_reconcile_runs_created_at_idx should exist.');
-        $this->assertTrue($idx->indisvalid, 'finance_reconcile_runs_created_at_idx should be valid.');
+        $this->assertNotNull($idx, 'finance_reconcile_runs_created_at_index should exist.');
+        $this->assertTrue($idx->indisvalid, 'finance_reconcile_runs_created_at_index should be valid.');
+        $duplicate = DB::selectOne("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'finance_reconcile_runs' AND indexname = 'finance_reconcile_runs_created_at_idx'");
+        $this->assertNull($duplicate, 'the duplicate finance_reconcile_runs index should be absent.');
     }
 }

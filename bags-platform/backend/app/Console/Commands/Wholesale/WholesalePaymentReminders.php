@@ -30,6 +30,13 @@ class WholesalePaymentReminders extends Command
             ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
             ->whereBetween('due_at', [now()->subDays(7)->startOfDay(), now()->addDays(3)->endOfDay()])
+            ->whereNotExists(function ($query): void {
+                $query->selectRaw('1')
+                    ->from('outbound_messages')
+                    ->whereRaw("outbound_messages.idempotency_key = CONCAT('payment-reminder:', orders.id, ':', CAST(orders.due_at AS DATE))");
+            })
+            ->orderBy('due_at')
+            ->orderBy('id')
             ->limit(200)
             ->get();
         foreach ($orders as $order) {
@@ -40,6 +47,7 @@ class WholesalePaymentReminders extends Command
             $sent = OutboundMessage::query()
                 ->where('customer_id', $customer->id)
                 ->where('template', 'payment_reminder')
+                ->whereNotIn('status', ['skipped', 'error'])
                 ->where('created_at', '>=', now()->subWeek())
                 ->count();
             if ($sent >= $cap) {

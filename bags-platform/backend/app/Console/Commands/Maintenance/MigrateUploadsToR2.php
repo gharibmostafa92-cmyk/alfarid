@@ -30,6 +30,8 @@ class MigrateUploadsToR2 extends Command
     {
         $count = 0;
         $failures = 0;
+        $startedAt = microtime(true);
+        $timeBudgetSeconds = 3000.0;
         $catalogPrefixes = [];
         Media::query()
             ->when($this->option('catalog-only'), fn ($query) => $query->whereIn('model_type', [Product::class, ProductVariant::class, Category::class, Brand::class]))
@@ -60,6 +62,10 @@ class MigrateUploadsToR2 extends Command
         foreach ($this->option('catalog-only') ? [] : ['public', 'local'] as $disk) {
             try {
                 foreach ($this->filePaths($disk, $disk === 'public' ? [''] : $directories) as $path) {
+                    if ((microtime(true) - $startedAt) > $timeBudgetSeconds) {
+                        $this->warn('Time budget reached during R2 migration; rerun to continue.');
+                        break 2;
+                    }
                     if (basename($path) === '.gitignore') {
                         continue;
                     }

@@ -13,10 +13,20 @@ export interface SupplierPayload {
   tax_number?: string | null; commercial_register?: string | null; address?: string | null;
   payment_terms_days?: number; opening_balance?: number; is_active: boolean;
 }
+export interface SupplierStatementEntry {
+  date: string; type: 'invoice' | 'payment' | 'payment_void'; reference: string; description: string;
+  credit: string; debit: string; running_balance: string;
+}
+export interface SupplierStatement {
+  supplier: { id: number; code: string; name: string; current_balance: string };
+  from_date: string; to_date: string; opening_balance: string; entries: SupplierStatementEntry[];
+  total_credit: string; total_debit: string; closing_balance: string;
+}
 const S = `${ADMIN}/suppliers`;
 export const suppliersApi = {
   ...crud<Supplier, SupplierPayload, { page?: number; search?: string; is_active?: boolean }>(S),
   users: (id: Id, signal?: AbortSignal) => api.get(`${S}/${id}/users`, { signal }).then(r => asPage<SupplierUser>(r).data),
+  statement: (id: Id, params?: { from_date?: string; to_date?: string }, signal?: AbortSignal) => api.get(`${S}/${id}/statement`, { params: cleanParams(params), signal }).then(r => r.data.data as SupplierStatement),
   createUser: (id: Id, body: SupplierUserPayload) => api.post(`${S}/${id}/users`, body).then(r => one<SupplierUser>(r)),
   updateUser: (id: Id, user: Id, body: Partial<SupplierUserPayload>) => api.put(`${S}/${id}/users/${user}`, body).then(r => one<SupplierUser>(r)),
   removeUser: (id: Id, user: Id) => api.delete(`${S}/${id}/users/${user}`).then(r => r.data as { message: string }),
@@ -62,6 +72,7 @@ export const purchaseOrdersApi = {
   receive: (id: Id, body: POReceivePayload, idempotencyKey: string) => api.post(`${PO}/${id}/receive`, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then(r => one<PurchaseOrder>(r)),
   cancel: (id: Id) => api.post(`${PO}/${id}/cancel`).then(r => one<PurchaseOrder>(r)),
   closeShort: (id: Id) => api.post(`${PO}/${id}/close-short`).then(r => one<PurchaseOrder>(r)),
+  closeDeliveryShort: (deliveryId: Id) => api.post(`${ADMIN}/supplier-deliveries/${deliveryId}/close-short`).then(r => r.data.data as { id: number; status: string }),
 };
 
 export interface SupplierInvoice {
@@ -77,7 +88,7 @@ export interface SupplierInvoicePayload {
 }
 const INV = `${ADMIN}/supplier-invoices`;
 export const supplierInvoicesApi = {
-  ...crud<SupplierInvoice, SupplierInvoicePayload, { page?: number; status?: string; supplier_id?: number; purchase_order_id?: number }>(INV),
+  ...crud<SupplierInvoice, SupplierInvoicePayload, { page?: number; status?: string; supplier_id?: number; purchase_order_id?: number; open?: boolean }>(INV),
   create: (body: SupplierInvoicePayload) => api.post(INV, toFormData(body as unknown as Record<string, unknown>), MULTIPART).then(r => one<SupplierInvoice>(r)),
   update: (id: Id, body: Partial<Omit<SupplierInvoicePayload, 'supplier_id'>>) => api.post(`${INV}/${id}`, toFormData(body as Record<string, unknown>, true), MULTIPART).then(r => one<SupplierInvoice>(r)),
   post: (id: Id) => api.post(`${INV}/${id}/post`).then(r => one<SupplierInvoice>(r)),

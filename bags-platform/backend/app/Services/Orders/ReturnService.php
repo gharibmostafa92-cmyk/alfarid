@@ -351,6 +351,11 @@ class ReturnService
     public function refund(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
         return DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
+            // Match payment approval's customer -> order lock order when the return can release credit.
+            $customerId = Order::query()->whereKey($return->order_id)->value('customer_id');
+            if ($customerId !== null) {
+                Customer::query()->whereKey($customerId)->lockForUpdate()->firstOrFail();
+            }
             $order = Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Received) {
@@ -369,10 +374,12 @@ class ReturnService
 
             $isCreditNote = $method === RefundMethod::CreditNote->value;
             if ($isCreditNote) {
-                if ($order->payment_method !== 'credit' || $order->payment_status !== 'unpaid') {
-                    throw new BusinessException('الإشعار الدائن مخصص للطلبات الآجلة غير المسددة فقط.');
+                if ($order->payment_method !== 'credit' || ! in_array($order->payment_status, ['unpaid', 'paid'], true) || $order->status === OrderStatus::Cancelled) {
+                    throw new BusinessException('الإشعار الدائن مخصص للطلبات الآجلة غير الملغاة.');
                 }
-                app(\App\Services\Wholesale\WholesalePaymentNoticeService::class)->assertCreditNoteCapacity($order, (string) $return->total_refund_amount);
+                $noticeService = app(\App\Services\Wholesale\WholesalePaymentNoticeService::class);
+                $noticeService->releaseExcessAllocationsForCreditNote($order, (string) $return->total_refund_amount, $admin->id);
+                $noticeService->assertCreditNoteCapacity($order, (string) $return->total_refund_amount);
             } elseif (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
                 throw new BusinessException('لا يمكن رد مبلغ نقدي أو إلى المحفظة لطلب غير مدفوع. يُقيَّد المرتجع كتخفيض للمستحق حتى يُبنى مسار إشعار دائن.');
             }

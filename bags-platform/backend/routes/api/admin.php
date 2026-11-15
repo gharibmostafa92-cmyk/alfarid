@@ -260,6 +260,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
 
         // Procurement, suppliers, and purchase orders
         Route::apiResource('suppliers', SupplierController::class);
+        Route::get('suppliers/{supplier}/statement', [SupplierController::class, 'statement'])->name('suppliers.statement');
         Route::get('suppliers/{supplier}/users', [SupplierController::class, 'users'])->middleware('permission:suppliers.view')->name('suppliers.users.index');
         Route::post('suppliers/{supplier}/users', [SupplierController::class, 'storeUser'])->middleware('permission:suppliers.update')->name('suppliers.users.store');
         Route::put('suppliers/{supplier}/users/{user}', [SupplierController::class, 'updateUser'])->middleware('permission:suppliers.update')->name('suppliers.users.update');

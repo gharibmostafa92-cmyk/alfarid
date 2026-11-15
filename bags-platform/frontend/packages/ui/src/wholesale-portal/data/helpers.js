@@ -5,6 +5,11 @@ export const num = (v) => {
   const value = Number(v);
   return Number.isFinite(value) ? value : null;
 };
+export const parsePortalId = (value) => {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+};
 export const shouldRenewCheckoutKey = (info) => info.code === 'price_changed' || info.status === 422;
 const cairoCalendar = new Intl.DateTimeFormat('en', {
   timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',

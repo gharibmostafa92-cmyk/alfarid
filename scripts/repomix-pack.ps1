@@ -11,15 +11,22 @@ param (
         'inventory', 'stock', 'inventory-ledger',
         'wholesale', 'b2b', 'wholesale-b2b',
         'ai', 'trader', 'whatsapp', 'ai-trader-gateway',
+        '5.1', 'ai-gateway', 'ai-gateway-core',
+        '5.2', 'ai-tools', 'ai-domain-tools',
         'storefront', 'catalog', 'storefront-catalog',
+        '6.1', 'storefront-client',
+        '6.2', 'catalog-shipping',
         'finance', 'treasury', 'finance-treasury',
         'procurement', 'suppliers', 'procurement-suppliers',
         'security', 'auth', 'backoffice', 'security-backoffice',
+        '9.1', 'security-auth', 'security-auth-rbac',
+        '9.2', 'backoffice-notifications',
         'infra', 'devops', 'infra-devops'
     )]
     [string]$Domain,
 
     [switch]$All,
+    [switch]$Splits,
     [switch]$TokenTree,
     [switch]$Clean,
     [switch]$VerifyMigrations,
@@ -51,19 +58,38 @@ $SubsystemConfigs = [ordered]@{
     'infra-devops'          = 'repomix.subsystem-10-infra-devops.json'
 }
 
+$SplitConfigs = [ordered]@{
+    'ai-gateway-core'          = 'repomix.subsystem-05.1-ai-gateway-core.json'
+    'ai-domain-tools'          = 'repomix.subsystem-05.2-ai-domain-tools.json'
+    'storefront-client'        = 'repomix.subsystem-06.1-storefront-client.json'
+    'catalog-shipping'         = 'repomix.subsystem-06.2-catalog-shipping.json'
+    'security-auth-rbac'       = 'repomix.subsystem-09.1-security-auth-rbac.json'
+    'backoffice-notifications' = 'repomix.subsystem-09.2-backoffice-notifications.json'
+}
+
+$AllConfigs = [ordered]@{}
+foreach ($k in $SubsystemConfigs.Keys) { $AllConfigs[$k] = $SubsystemConfigs[$k] }
+foreach ($k in $SplitConfigs.Keys) { $AllConfigs[$k] = $SplitConfigs[$k] }
+
 function Resolve-DomainKey([string]$key) {
     switch -Regex ($key) {
-        '^(pos|terminal|shifts)'        { return 'pos-terminal' }
-        '^(order|return|refund)'        { return 'orders-returns' }
-        '^(invent|stock|ledger)'        { return 'inventory-ledger' }
-        '^(wholesale|b2b|quotation)'    { return 'wholesale-b2b' }
-        '^(ai|whatsapp|trader|gateway)' { return 'ai-trader-gateway' }
-        '^(store|catalog|cart)'         { return 'storefront-catalog' }
-        '^(finance|treas|expense)'      { return 'finance-treasury' }
-        '^(procure|suppl|purchase)'     { return 'procurement-suppliers' }
-        '^(security|auth|backoffice|staff|admin)' { return 'security-backoffice' }
-        '^(infra|devops|docker)'        { return 'infra-devops' }
-        default                         { return $key }
+        '^(5\.1|ai-gateway|ai-gateway-core)$'               { return 'ai-gateway-core' }
+        '^(5\.2|ai-tools|ai-domain-tools)$'                 { return 'ai-domain-tools' }
+        '^(6\.1|storefront-client)$'                        { return 'storefront-client' }
+        '^(6\.2|catalog-shipping)$'                         { return 'catalog-shipping' }
+        '^(9\.1|security-auth|security-auth-rbac)$'         { return 'security-auth-rbac' }
+        '^(9\.2|backoffice-notifications)$'                 { return 'backoffice-notifications' }
+        '^(pos|terminal|shifts)'                            { return 'pos-terminal' }
+        '^(order|return|refund)'                            { return 'orders-returns' }
+        '^(invent|stock|ledger)'                            { return 'inventory-ledger' }
+        '^(wholesale|b2b|quotation)'                        { return 'wholesale-b2b' }
+        '^(ai|whatsapp|trader|gateway)'                     { return 'ai-trader-gateway' }
+        '^(store|catalog|cart)'                             { return 'storefront-catalog' }
+        '^(finance|treas|expense)'                          { return 'finance-treasury' }
+        '^(procure|suppl|purchase)'                         { return 'procurement-suppliers' }
+        '^(security|auth|backoffice|staff|admin)'           { return 'security-backoffice' }
+        '^(infra|devops|docker)'                            { return 'infra-devops' }
+        default                                             { return $key }
     }
 }
 
@@ -168,25 +194,41 @@ if ($All) {
     $stopwatch.Stop()
     Write-Host "`nAll 10 subsystem bundles successfully packed in $($stopwatch.Elapsed.TotalSeconds.ToString('F1')) seconds!" -ForegroundColor Green
     Test-MigrationCoverage
+} elseif ($Splits) {
+    Write-Host 'Starting batch repomix packing for all Split Subsystem slices (5.1, 5.2, 6.1, 6.2, 9.1, 9.2)...' -ForegroundColor Green
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    foreach ($key in $SplitConfigs.Keys) {
+        Invoke-RepomixDomain -key $key -configFile $SplitConfigs[$key]
+    }
+    $stopwatch.Stop()
+    Write-Host "`nAll split subsystem bundles successfully packed in $($stopwatch.Elapsed.TotalSeconds.ToString('F1')) seconds!" -ForegroundColor Green
 } elseif ($Domain) {
     $resolvedKey = Resolve-DomainKey $Domain
-    if ($SubsystemConfigs.Contains($resolvedKey)) {
-        Invoke-RepomixDomain -key $resolvedKey -configFile $SubsystemConfigs[$resolvedKey]
+    if ($AllConfigs.Contains($resolvedKey)) {
+        Invoke-RepomixDomain -key $resolvedKey -configFile $AllConfigs[$resolvedKey]
     } else {
         Write-Error "Unknown domain: $Domain"
     }
 } else {
     Write-Host 'Alfarid Platform - Repomix Vertical Subsystems Runner' -ForegroundColor Cyan
-    Write-Host 'Available subsystems:'
+    Write-Host 'Available core subsystems:'
     foreach ($key in $SubsystemConfigs.Keys) {
         Write-Host "  - $key" -ForegroundColor DarkCyan
     }
+    Write-Host "`nAvailable split subsystem slices:"
+    foreach ($key in $SplitConfigs.Keys) {
+        Write-Host "  - $key ($($SplitConfigs[$key]))" -ForegroundColor DarkGreen
+    }
     Write-Host "`nExamples:"
-    Write-Host '  .\scripts\repomix-pack.ps1 -Domain pos'
-    Write-Host '  .\scripts\repomix-pack.ps1 -Domain orders'
-    Write-Host '  .\scripts\repomix-pack.ps1 -Domain inventory -TokenTree'
-    Write-Host '  .\scripts\repomix-pack.ps1 -VerifyMigrations'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 5.1'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 5.2'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 6.1'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 6.2'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 9.1'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 9.2'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Splits'
     Write-Host '  .\scripts\repomix-pack.ps1 -All'
+    Write-Host '  .\scripts\repomix-pack.ps1 -VerifyMigrations'
     Write-Host '  .\scripts\repomix-pack.ps1 -Clean'
     Write-Host '  .\scripts\repomix-pack.ps1 -Sync'
     Write-Host '  .\scripts\repomix-pack.ps1 -Started'

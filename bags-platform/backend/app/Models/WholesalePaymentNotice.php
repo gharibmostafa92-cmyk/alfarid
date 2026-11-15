@@ -86,10 +86,14 @@ class WholesalePaymentNotice extends Model
     }
 
     /**
-     * Scope query to match reference number case-insensitively with trimmed whitespace.
+     * Scope query to match reference number using canonical wholesale identity on PostgreSQL.
      */
     public function scopeWhereReferenceNumber($query, string $reference)
     {
+        if ($query->getConnection()->getDriverName() === 'pgsql') {
+            return $query->whereRaw('wholesale_reference_identity(reference_number) = wholesale_reference_identity(?)', [$reference]);
+        }
+
         return $query->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower(trim($reference))]);
     }
 }

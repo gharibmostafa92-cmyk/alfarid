@@ -9,7 +9,7 @@ x-app: &app
     APP_ENV: production
     APP_DEBUG: 'false'
     APP_EXPOSE_NODE_HEADER: ${APP_EXPOSE_NODE_HEADER:-false}
-    TRUSTED_PROXIES: 172.31.0.10,172.31.0.11,172.31.0.20,172.31.0.21
+    TRUSTED_PROXIES: 172.31.0.10,172.31.0.11
     DB_HOST: pgbouncer
     DB_PORT: '6432'
     DB_DATABASE: alfarid
@@ -90,6 +90,8 @@ services:
       <<: *app-env
       DB_HOST: postgres
       DB_PORT: '5432'
+      DB_USERNAME: ${DB_MIGRATION_USERNAME:?set DB_MIGRATION_USERNAME}
+      DB_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
       DB_RUNTIME_ROLE: ${DB_USERNAME:?set DB_USERNAME}
       PGOPTIONS: '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=5000'
     command: [sh, -ec, 'php artisan migrate --force --isolated=75 && php artisan db:verify-schema']
@@ -141,8 +143,9 @@ services:
       WA_GATEWAY_SECRET: ${WA_GATEWAY_SECRET:-}
       WA_SESSION_KEY: ${WA_SESSION_KEY:-}
       DATABASE_URL: ${WA_SESSION_DATABASE_URL:-}
-      WA_LARAVEL_INBOUND_URL: http://app1:8080/api/v1/webhooks/whatsapp/inbound
-    networks: [appnet]
+      WA_LARAVEL_INBOUND_URL: ${API_INTERNAL_URL:-http://haproxy1:8081}/api/v1/webhooks/whatsapp/inbound
+    networks:
+      appnet: {ipv4_address: 172.31.0.25}
     restart: unless-stopped
     depends_on:
       postgres: {condition: service_healthy}
@@ -152,11 +155,14 @@ services:
     entrypoint: [sh, /opt/postgres-start.sh]
     environment:
       POSTGRES_DB: alfarid
-      POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_USER: ${DB_MIGRATION_USERNAME:?set DB_MIGRATION_USERNAME}
+      POSTGRES_PASSWORD: ${DB_MIGRATION_PASSWORD:?set DB_MIGRATION_PASSWORD}
+      DB_RUNTIME_USERNAME: ${DB_USERNAME:?set DB_USERNAME}
+      DB_RUNTIME_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
       DB_SSLMODE: ${DB_SSLMODE:-verify-full}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - './docker/postgres-init-runtime.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro'
       - '${DB_TLS_DIR:-./tls}/postgres:/run/alfarid-db-tls:ro'
     # M10: parallel queries need >64MB docker default shm (could not resize shared memory segment).
     shm_size: 1g
@@ -255,7 +261,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.alfarid.example}
         R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
-    environment: {API_INTERNAL_URL: 'http://haproxy1:8081'}
+    environment: {API_INTERNAL_URL: '${API_INTERNAL_URL:-http://haproxy1:8081}'}
     networks:
       appnet: {ipv4_address: 172.31.0.20}
     restart: unless-stopped
@@ -295,8 +301,8 @@ services:
         required: false
     environment:
       PGHOST: postgres
-      PGUSER: ${DB_USERNAME:?}
-      PGPASSWORD: ${DB_PASSWORD:?}
+      PGUSER: ${DB_MIGRATION_USERNAME:?}
+      PGPASSWORD: ${DB_MIGRATION_PASSWORD:?}
       PGDATABASE: alfarid
       PGSSLMODE: ${DB_SSLMODE:-verify-full}
       PGSSLROOTCERT: ${DB_SSLROOTCERT:-/run/alfarid-db-ca/root.crt}

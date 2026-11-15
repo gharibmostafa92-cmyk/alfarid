@@ -1,4 +1,5 @@
 import { api, asPage, one, toFormData, MULTIPART, type Id } from './operations/http';
+import type { SupplierStatement } from './operations';
 
 const S = '/api/v1/supplier';
 
@@ -51,27 +52,6 @@ export interface SupplierDashboard {
   in_progress_count: number;
   current_balance: string;
   last_payments: { id: number; payment_number: string; amount: string; payment_date: string; invoice?: { id: number; invoice_number: string } | null }[];
-}
-
-export interface SupplierStatementEntry {
-  date: string;
-  type: 'invoice' | 'payment' | 'payment_void';
-  reference: string;
-  description: string;
-  credit: number;
-  debit: number;
-  running_balance: number;
-}
-
-export interface SupplierStatement {
-  supplier: { id: number; code: string; name: string; current_balance: string };
-  from_date: string;
-  to_date: string;
-  opening_balance: number;
-  entries: SupplierStatementEntry[];
-  total_credit: number;
-  total_debit: number;
-  closing_balance: number;
 }
 
 export interface SupplierDeliveryPayload {

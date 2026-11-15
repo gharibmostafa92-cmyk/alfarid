@@ -48,9 +48,14 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
             'status' => ['nullable', Rule::enum(SupplierInvoiceStatus::class)],
             'supplier_id' => ['nullable', 'integer', 'min:1'],
             'purchase_order_id' => ['nullable', 'integer', 'min:1'],
+            'open' => ['nullable', 'boolean'],
         ]);
         $invoices = SupplierInvoice::query()
             ->with(['supplier:id,code,name', 'purchaseOrder:id,po_number'])
+            ->when($filters['open'] ?? false, fn ($q) => $q->whereIn('status', [
+                SupplierInvoiceStatus::Posted->value,
+                SupplierInvoiceStatus::PartiallyPaid->value,
+            ]))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', (int) $id))
             ->when($filters['purchase_order_id'] ?? null, fn ($q, $id) => $q->where('purchase_order_id', (int) $id))

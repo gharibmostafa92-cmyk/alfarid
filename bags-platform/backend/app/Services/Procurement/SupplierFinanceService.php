@@ -20,6 +20,8 @@ use App\Services\Inventory\BranchAccess;
 use App\Services\Pos\TreasuryService;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -51,9 +53,13 @@ class SupplierFinanceService
             }
             $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no']);
             $poId = $this->assertOrderBelongsToSupplier($data['purchase_order_id'] ?? null, $supplier);
-            $subtotal = round((float) $data['subtotal'], 2);
-            $tax = round((float) ($data['tax_amount'] ?? 0), 2);
-            $this->assertInvoiceDoesNotExceedOrder($poId, round($subtotal + $tax, 2));
+            $subtotal = BigDecimal::of((string) $data['subtotal'])->toScale(2, RoundingMode::HalfUp);
+            $tax = BigDecimal::of((string) ($data['tax_amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+            $total = $subtotal->plus($tax)->toScale(2, RoundingMode::HalfUp);
+            if ($total->compareTo('0') <= 0) {
+                throw new BusinessException('إجمالي الفاتورة يجب أن يكون أكبر من صفر.');
+            }
+            $this->assertInvoiceDoesNotExceedOrder($poId, (string) $total);
             [$issueDate, $dueDate] = $this->resolveInvoiceDates(
                 $data['issue_date'],
                 $data['due_date'] ?? null,
@@ -66,9 +72,9 @@ class SupplierFinanceService
                 'purchase_order_id' => $poId,
                 'issue_date' => $issueDate->toDateString(),
                 'due_date' => $dueDate->toDateString(),
-                'subtotal' => $subtotal,
-                'tax_amount' => $tax,
-                'total_amount' => round($subtotal + $tax, 2),
+                'subtotal' => (string) $subtotal,
+                'tax_amount' => (string) $tax,
+                'total_amount' => (string) $total,
                 'paid_amount' => 0,
                 'status' => SupplierInvoiceStatus::Draft,
             ]);
@@ -115,11 +121,14 @@ class SupplierFinanceService
             $updates = array_intersect_key($data, array_flip([
                 'supplier_invoice_no', 'purchase_order_id', 'issue_date', 'due_date', 'subtotal', 'tax_amount',
             ]));
-            $subtotal = round((float) ($updates['subtotal'] ?? $invoice->subtotal), 2);
-            $tax = round((float) ($updates['tax_amount'] ?? $invoice->tax_amount), 2);
-            $updates['subtotal'] = $subtotal;
-            $updates['tax_amount'] = $tax;
-            $updates['total_amount'] = round($subtotal + $tax, 2);
+            $subtotal = BigDecimal::of((string) ($updates['subtotal'] ?? $invoice->subtotal))->toScale(2, RoundingMode::HalfUp);
+            $tax = BigDecimal::of((string) ($updates['tax_amount'] ?? $invoice->tax_amount))->toScale(2, RoundingMode::HalfUp);
+            $updates['subtotal'] = (string) $subtotal;
+            $updates['tax_amount'] = (string) $tax;
+            $updates['total_amount'] = (string) $subtotal->plus($tax)->toScale(2, RoundingMode::HalfUp);
+            if (BigDecimal::of($updates['total_amount'])->compareTo('0') <= 0) {
+                throw new BusinessException('إجمالي الفاتورة يجب أن يكون أكبر من صفر.');
+            }
             $poId = array_key_exists('purchase_order_id', $updates) ? $updates['purchase_order_id'] : $invoice->purchase_order_id;
             $this->assertInvoiceDoesNotExceedOrder($poId, $updates['total_amount'], $invoice->id);
             $invoice->update($updates);
@@ -152,10 +161,13 @@ class SupplierFinanceService
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
                 throw new BusinessException('لا يمكن اعتماد فاتورة إلا وهي مسودة.');
             }
-            if ($invoice->purchase_order_id !== null) {
-                $this->assertInvoiceDoesNotExceedOrder((int) $invoice->purchase_order_id, (float) $invoice->total_amount, $invoice->id);
+            if (BigDecimal::of((string) $invoice->total_amount)->compareTo('0') <= 0) {
+                throw new BusinessException('إجمالي الفاتورة يجب أن يكون أكبر من صفر.');
             }
-            $supplier->increment('current_balance', (float) $invoice->total_amount);
+            if ($invoice->purchase_order_id !== null) {
+                $this->assertInvoiceDoesNotExceedOrder((int) $invoice->purchase_order_id, (string) $invoice->total_amount, $invoice->id);
+            }
+            $supplier->increment('current_balance', (string) $invoice->total_amount);
             $invoice->update(['status' => SupplierInvoiceStatus::Posted]);
 
             return $invoice->fresh();
@@ -178,8 +190,8 @@ class SupplierFinanceService
 
                 return $invoice->fresh();
             }
-            if ($invoice->status === SupplierInvoiceStatus::Posted && (float) $invoice->paid_amount <= 0) {
-                $supplier->decrement('current_balance', (float) $invoice->total_amount);
+            if ($invoice->status === SupplierInvoiceStatus::Posted && BigDecimal::of((string) $invoice->paid_amount)->compareTo('0') <= 0) {
+                $supplier->decrement('current_balance', (string) $invoice->total_amount);
                 $invoice->update(['status' => SupplierInvoiceStatus::Cancelled]);
 
                 return $invoice->fresh();
@@ -243,8 +255,8 @@ class SupplierFinanceService
             if ($treasury->type !== $expectedType) {
                 throw new BusinessException('اختر خزينة نقدية للدفع النقدي أو حسابًا بنكيًا للتحويل والشيك.');
             }
-            $amount = round((float) $data['amount'], 2);
-            if ($amount <= 0 || $amount > 9999999999.99) {
+            $amount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
+            if ($amount->compareTo('0') <= 0 || $amount->compareTo('19999999999.98') > 0) {
                 throw new BusinessException('مبلغ الدفعة يجب أن يكون أكبر من صفر.');
             }
 
@@ -259,10 +271,12 @@ class SupplierFinanceService
                 if (! in_array($invoice->status, [SupplierInvoiceStatus::Posted, SupplierInvoiceStatus::PartiallyPaid], true)) {
                     throw new BusinessException('لا يمكن سداد فاتورة إلا وهي معتمدة أو مسددة جزئيًا.');
                 }
-                $remaining = round((float) $invoice->total_amount - (float) $invoice->paid_amount, 2);
-                if ($amount > $remaining) {
+                $remaining = BigDecimal::of((string) $invoice->total_amount)->minus((string) $invoice->paid_amount)->toScale(2);
+                if ($amount->compareTo($remaining) > 0) {
                     throw new BusinessException("مبلغ الدفعة ({$amount}) أكبر من المتبقي على الفاتورة ({$remaining}).");
                 }
+            } elseif (! $supplier->is_active) {
+                throw new BusinessException('لا يمكن تسجيل دفعة غير مرتبطة بفاتورة لمورد غير نشط.');
             }
 
             $reference = $this->paymentReference($supplier->id, $data['payment_method'], $data['reference_no'] ?? null);
@@ -272,7 +286,7 @@ class SupplierFinanceService
                 'supplier_id' => $supplier->id,
                 'treasury_id' => $treasury->id,
                 'supplier_invoice_id' => $invoice?->id,
-                'amount' => $amount,
+                'amount' => (string) $amount,
                 'payment_method' => $data['payment_method'],
                 'reference_no' => $reference,
                 'payment_date' => $data['payment_date'],
@@ -283,15 +297,15 @@ class SupplierFinanceService
             app(TreasuryService::class)->record([
                 'treasury_id' => $treasury->id,
                 'type' => TreasuryTransactionType::SupplierPayment,
-                'amount' => '-'.number_format($amount, 2, '.', ''),
+                'amount' => (string) $amount->negated(),
                 'reference_type' => 'supplier_payment',
                 'reference_id' => $payment->id,
                 'created_by' => $creator->id,
             ]);
 
-            $supplier->decrement('current_balance', $amount);
+            $supplier->decrement('current_balance', (string) $amount);
             if ($invoice !== null) {
-                $invoice->increment('paid_amount', $amount);
+                $invoice->increment('paid_amount', (string) $amount);
                 $this->syncInvoicePaidStatus($invoice->fresh());
             }
 
@@ -382,12 +396,12 @@ class SupplierFinanceService
                     'created_by' => $actor->id,
                 ]);
             }
-            $supplier->increment('current_balance', (float) $payment->amount);
+            $supplier->increment('current_balance', (string) $payment->amount);
 
             if ($payment->supplier_invoice_id !== null) {
                 $invoice = SupplierInvoice::query()->lockForUpdate()->find($payment->supplier_invoice_id);
                 if ($invoice !== null && $invoice->status !== SupplierInvoiceStatus::Cancelled) {
-                    $invoice->decrement('paid_amount', (float) $payment->amount);
+                    $invoice->decrement('paid_amount', (string) $payment->amount);
                     $this->syncInvoicePaidStatus($invoice->fresh());
                 }
             }
@@ -427,12 +441,12 @@ class SupplierFinanceService
             if (! in_array($invoice->status, [SupplierInvoiceStatus::Posted, SupplierInvoiceStatus::PartiallyPaid], true)) {
                 throw new BusinessException('لا يمكن تخصيص دفعة إلا لفاتورة معتمدة أو مسددة جزئيًا.');
             }
-            $remaining = round((float) $invoice->total_amount - (float) $invoice->paid_amount, 2);
-            if ((float) $payment->amount > $remaining) {
+            $remaining = BigDecimal::of((string) $invoice->total_amount)->minus((string) $invoice->paid_amount)->toScale(2);
+            if (BigDecimal::of((string) $payment->amount)->compareTo($remaining) > 0) {
                 throw new BusinessException("مبلغ الدفعة ({$payment->amount}) أكبر من المتبقي على الفاتورة ({$remaining}).");
             }
             $payment->update(['supplier_invoice_id' => $invoice->id]);
-            $invoice->increment('paid_amount', (float) $payment->amount);
+            $invoice->increment('paid_amount', (string) $payment->amount);
             $this->syncInvoicePaidStatus($invoice->fresh());
 
             return $payment->fresh();
@@ -448,11 +462,11 @@ class SupplierFinanceService
             || $invoice->status === SupplierInvoiceStatus::Cancelled) {
             return;
         }
-        $paid = round((float) $invoice->paid_amount, 2);
-        $total = round((float) $invoice->total_amount, 2);
+        $paid = BigDecimal::of((string) $invoice->paid_amount);
+        $total = BigDecimal::of((string) $invoice->total_amount);
         $invoice->update(['status' => match (true) {
-            $paid >= $total => SupplierInvoiceStatus::Paid,
-            $paid > 0 => SupplierInvoiceStatus::PartiallyPaid,
+            $paid->compareTo($total) >= 0 => SupplierInvoiceStatus::Paid,
+            $paid->compareTo('0') > 0 => SupplierInvoiceStatus::PartiallyPaid,
             default => SupplierInvoiceStatus::Posted,
         }]);
     }
@@ -505,7 +519,7 @@ class SupplierFinanceService
         return $po->id;
     }
 
-    private function assertInvoiceDoesNotExceedOrder(?int $poId, float $thisTotal, ?int $exceptInvoiceId = null): void
+    private function assertInvoiceDoesNotExceedOrder(?int $poId, string $thisTotal, ?int $exceptInvoiceId = null): void
     {
         if ($poId === null) {
             return;
@@ -514,12 +528,12 @@ class SupplierFinanceService
         if ($po === null) {
             return;
         }
-        $existing = (float) SupplierInvoice::query()
+        $existing = (string) SupplierInvoice::query()
             ->where('purchase_order_id', $poId)
             ->where('status', '!=', SupplierInvoiceStatus::Cancelled)
             ->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))
             ->sum('total_amount');
-        if (round($existing + $thisTotal, 2) > $this->invoiceCeiling($po)) {
+        if (BigDecimal::of($existing)->plus($thisTotal)->compareTo((string) $this->invoiceCeiling($po)) > 0) {
             throw new BusinessException('مجموع فواتير أمر الشراء يتجاوز إجمالي الأمر.');
         }
     }
@@ -527,33 +541,58 @@ class SupplierFinanceService
     /**
      * Ordered grand total until the order is closed; after completion the ceiling is the received value.
      */
-    private function invoiceCeiling(PurchaseOrder $po): float
+    private function invoiceCeiling(PurchaseOrder $po): BigDecimal
     {
         if ($po->status !== PurchaseOrderStatus::Completed) {
-            return round((float) $po->grand_total, 2);
+            return BigDecimal::of((string) $po->grand_total)->toScale(2);
         }
         $po->loadMissing('items');
-        $receivedLines = [];
+        $receivedSubtotalExact = BigDecimal::zero();
+        $taxBaseWeights = [];
         foreach ($po->items as $item) {
-            $receivedLines[] = [
-                'line' => round((float) $item->received_qty * (float) $item->unit_cost, 4),
-                'tax_rate' => (float) $item->tax_rate,
-            ];
+            $line = BigDecimal::of((string) $item->received_qty)
+                ->multipliedBy((string) $item->unit_cost)->toScale(4, RoundingMode::HalfUp);
+            $receivedSubtotalExact = $receivedSubtotalExact->plus($line);
+            $taxBaseWeights[] = ['line' => $line, 'rate' => BigDecimal::of((string) $item->tax_rate)];
         }
-        $receivedSubtotal = round(array_sum(array_column($receivedLines, 'line')), 2);
-        $discountShare = (float) $po->subtotal > 0
-            ? round((float) $po->discount_amount * $receivedSubtotal / (float) $po->subtotal, 2)
-            : 0.0;
+        $receivedSubtotal = $receivedSubtotalExact->toScale(2, RoundingMode::HalfUp);
+        $poSubtotal = BigDecimal::of((string) $po->subtotal);
+        $discountShare = $poSubtotal->compareTo('0') > 0
+            ? BigDecimal::of((string) $po->discount_amount)->multipliedBy($receivedSubtotal)
+                ->dividedBy($poSubtotal, 2, RoundingMode::HalfUp)
+            : BigDecimal::zero()->toScale(2);
         // Match recalculateTotals(): discount scales the taxable base per line.
-        $taxableFactor = $receivedSubtotal > 0
-            ? ($receivedSubtotal - $discountShare) / $receivedSubtotal
-            : 0.0;
-        $receivedTax = round(array_sum(array_map(
-            fn (array $line): float => $line['line'] * $taxableFactor * $line['tax_rate'] / 100,
-            $receivedLines,
-        )), 2);
+        $taxableFactor = $receivedSubtotal->compareTo('0') > 0
+            ? $receivedSubtotal->minus($discountShare)->dividedBy($receivedSubtotal, 12, RoundingMode::HalfUp)
+            : BigDecimal::zero();
+        $receivedTaxExact = BigDecimal::zero();
+        foreach ($taxBaseWeights as $line) {
+            $receivedTaxExact = $receivedTaxExact->plus($line['line']->multipliedBy($taxableFactor)
+                ->multipliedBy($line['rate'])->dividedBy('100', 12, RoundingMode::HalfUp));
+        }
+        $receivedTax = $receivedTaxExact->toScale(2, RoundingMode::HalfUp);
 
-        return round($receivedSubtotal - $discountShare + $receivedTax, 2);
+        return $receivedSubtotal->minus($discountShare)->plus($receivedTax)->toScale(2, RoundingMode::HalfUp);
+    }
+
+    /**
+     * Reject closing a purchase order short when posted invoices exceed the value actually received.
+     *
+     * @throws BusinessException
+     */
+    public function assertInvoicesFitClosedOrder(PurchaseOrder $po): void
+    {
+        $ceiling = $this->invoiceCeiling($po);
+        $invoiced = BigDecimal::of((string) SupplierInvoice::query()
+            ->where('purchase_order_id', $po->id)
+            ->where('status', '!=', SupplierInvoiceStatus::Cancelled)
+            ->sum('total_amount'))->toScale(2);
+
+        if ($invoiced->compareTo($ceiling) > 0) {
+            throw new BusinessException(
+                "قيمة الفواتير المرتبطة ({$invoiced}) تتجاوز قيمة البضاعة المستلمة ({$ceiling}); عدّل أو ألغِ الفواتير الزائدة قبل إغلاق النقص."
+            );
+        }
     }
 
     /**
@@ -579,24 +618,25 @@ class SupplierFinanceService
             SupplierInvoiceStatus::Paid->value,
         ];
 
-        $creditBefore = (float) SupplierInvoice::query()
+        $creditBefore = BigDecimal::of((string) SupplierInvoice::query()
             ->where('supplier_id', $supplier->id)
             ->whereIn('status', $countedStatuses)
             ->where('issue_date', '<', $from)
-            ->sum('total_amount');
-        $debitBefore = (float) SupplierPayment::query()
+            ->sum('total_amount'));
+        $debitBefore = BigDecimal::of((string) SupplierPayment::query()
             ->where('supplier_id', $supplier->id)
             ->where('payment_date', '<', $from)
-            ->sum('amount');
-        $voidCreditBefore = (float) SupplierPayment::query()
+            ->sum('amount'));
+        $voidCreditBefore = BigDecimal::of((string) SupplierPayment::query()
             ->where('supplier_id', $supplier->id)
             ->whereNotNull('voided_at')
             ->where('voided_at', '<', $fromStart)
-            ->sum('amount');
-        $running = round((float) $supplier->opening_balance + $creditBefore - $debitBefore + $voidCreditBefore, 2);
+            ->sum('amount'));
+        $running = BigDecimal::of((string) $supplier->opening_balance)->plus($creditBefore)->minus($debitBefore)->plus($voidCreditBefore)->toScale(2);
         $periodOpening = $running;
 
         $invoices = SupplierInvoice::query()
+            ->select(['id', 'invoice_number', 'supplier_invoice_no', 'purchase_order_id', 'issue_date', 'total_amount'])
             ->with('purchaseOrder:id,po_number')
             ->where('supplier_id', $supplier->id)
             ->whereIn('status', $countedStatuses)
@@ -607,11 +647,12 @@ class SupplierFinanceService
                 'type' => 'invoice',
                 'reference' => $inv->invoice_number,
                 'description' => 'فاتورة مورد '.$inv->supplier_invoice_no.($inv->purchaseOrder !== null ? ' — أمر شراء '.$inv->purchaseOrder->po_number : ''),
-                'credit' => round((float) $inv->total_amount, 2),
-                'debit' => 0.0,
+                'credit' => (string) BigDecimal::of((string) $inv->total_amount)->toScale(2),
+                'debit' => '0.00',
                 'sort' => [$inv->issue_date->toDateString(), 0, $inv->id],
             ]);
         $payments = SupplierPayment::query()
+            ->select(['id', 'payment_number', 'supplier_invoice_id', 'amount', 'payment_date'])
             ->with('invoice:id,invoice_number')
             ->where('supplier_id', $supplier->id)
             ->whereBetween('payment_date', [$from, $to])
@@ -621,11 +662,12 @@ class SupplierFinanceService
                 'type' => 'payment',
                 'reference' => $pay->payment_number,
                 'description' => 'دفعة للمورد'.($pay->invoice !== null ? ' — سداد فاتورة '.$pay->invoice->invoice_number : ''),
-                'credit' => 0.0,
-                'debit' => round((float) $pay->amount, 2),
+                'credit' => '0.00',
+                'debit' => (string) BigDecimal::of((string) $pay->amount)->toScale(2),
                 'sort' => [$pay->payment_date->toDateString(), 1, $pay->id],
             ]);
         $voids = SupplierPayment::query()
+            ->select(['id', 'payment_number', 'amount', 'voided_at', 'void_reason'])
             ->where('supplier_id', $supplier->id)
             ->whereNotNull('voided_at')
             ->where('voided_at', '>=', $fromStart)
@@ -636,20 +678,20 @@ class SupplierFinanceService
                 'type' => 'payment_void',
                 'reference' => $pay->payment_number,
                 'description' => 'إلغاء دفعة '.$pay->payment_number.($internal && $pay->void_reason ? ' — '.$pay->void_reason : ''),
-                'credit' => round((float) $pay->amount, 2),
-                'debit' => 0.0,
+                'credit' => (string) BigDecimal::of((string) $pay->amount)->toScale(2),
+                'debit' => '0.00',
                 'sort' => [$pay->voided_at->timezone($zone)->toDateString(), 2, $pay->id],
             ]);
 
         $entries = [];
-        $totalCredit = 0.0;
-        $totalDebit = 0.0;
+        $totalCredit = BigDecimal::zero()->toScale(2);
+        $totalDebit = BigDecimal::zero()->toScale(2);
         foreach ($invoices->concat($payments)->concat($voids)->sortBy(fn (array $e): array => $e['sort'])->values() as $entry) {
-            $running = round($running + $entry['credit'] - $entry['debit'], 2);
-            $totalCredit += $entry['credit'];
-            $totalDebit += $entry['debit'];
+            $running = $running->plus($entry['credit'])->minus($entry['debit'])->toScale(2);
+            $totalCredit = $totalCredit->plus($entry['credit'])->toScale(2);
+            $totalDebit = $totalDebit->plus($entry['debit'])->toScale(2);
             unset($entry['sort']);
-            $entry['running_balance'] = $running;
+            $entry['running_balance'] = (string) $running;
             $entries[] = $entry;
         }
 
@@ -658,15 +700,15 @@ class SupplierFinanceService
                 'id' => $supplier->id,
                 'code' => $supplier->code,
                 'name' => $supplier->name,
-                'current_balance' => $supplier->current_balance,
+                'current_balance' => Supplier::query()->whereKey($supplier->id)->value('current_balance'),
             ],
             'from_date' => $from,
             'to_date' => $to,
-            'opening_balance' => $periodOpening,
+            'opening_balance' => (string) $periodOpening,
             'entries' => $entries,
-            'total_credit' => round($totalCredit, 2),
-            'total_debit' => round($totalDebit, 2),
-            'closing_balance' => $running,
+            'total_credit' => (string) $totalCredit,
+            'total_debit' => (string) $totalDebit,
+            'closing_balance' => (string) $running,
         ];
     }
 }

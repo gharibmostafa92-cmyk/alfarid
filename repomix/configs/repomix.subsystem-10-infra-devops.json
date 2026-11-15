@@ -118,7 +118,14 @@
                     "bags-platform/frontend/packages/api-client/src/endpoints/index.ts",
                     "bags-platform/backend/database/migrations/2026_11_15_000001_canonicalize_procurement_indexes.php",
                     "bags-platform/backend/database/migrations/2026_11_15_000002_add_credit_note_refund_method.php",
-                    "bags-platform/backend/database/migrations/2026_11_15_000003_link_supplier_payments_to_treasury.php"
+                    "bags-platform/backend/database/migrations/2026_11_15_000003_link_supplier_payments_to_treasury.php",
+                    "scripts/repomix-pack.ps1",
+                    "bags-platform/backend/database/migrations/2026_11_15_000001_include_credit_notes_in_wholesale_order_overallocated.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000002_index_wholesale_reference_identity.php",
+                    "bags-platform/infrastructure/.env.example",
+                    "docs/TASK4_INFRA_SECURITY_DEPLOYMENT_STATUS.md",
+                    "bags-platform/backend/database/migrations/2026_11_15_000005_guard_credit_note_order_totals.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000006_expand_procurement_money_capacity.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

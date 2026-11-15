@@ -19,6 +19,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Handles wholesale merchant self-registration and KYC document staging.
@@ -50,7 +51,18 @@ class WholesaleRegistrationService
         $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
         $disk = Storage::disk('r2');
 
-        // Assert proof existence upfront before expensive cloud file I/O; actual token consumption happens in DB transaction.
+        // Assert proof existence and uniqueness upfront before expensive cloud file I/O; actual token consumption happens in DB transaction.
+        $email = isset($data['email']) ? mb_strtolower(trim((string) $data['email'])) : '';
+        if ($email !== '' && Customer::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
+            throw ValidationException::withMessages([
+                'email' => ['البريد الإلكتروني مسجل بالفعل.'],
+            ]);
+        }
+        if (Customer::query()->where('phone', $data['phone'])->exists()) {
+            throw ValidationException::withMessages([
+                'phone' => ['رقم الهاتف مسجل بالفعل.'],
+            ]);
+        }
         $this->phoneVerification->assertProofPresent($data);
 
         try {

@@ -57,7 +57,7 @@ final class SpokenQuantity
     {
         $normalized = ArabicDigits::normalize($text);
         $words = self::wordsPattern();
-        $cleaned = (string) preg_replace('/[\d.,]+|'.$words.'/u', '', $normalized);
+        $cleaned = (string) preg_replace('/(?<![\p{L}\p{N}_])(?:[\d.,]+|'.$words.')(?![\p{L}\p{N}_])/u', '', $normalized);
 
         return trim((string) preg_replace('/\s+/u', ' ', $cleaned));
     }

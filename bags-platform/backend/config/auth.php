@@ -11,7 +11,7 @@ return [
     'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 1440),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
     // M4: supplier portal tokens expose financial statements; keep them short.
-    'supplier_token_minutes' => (int) env('SUPPLIER_TOKEN_MINUTES', 10080),
+    'supplier_token_minutes' => (int) env('SUPPLIER_TOKEN_MINUTES', 720),
     // M-4: 12h instead of 30 days for a '*' admin token held in localStorage.
     'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 720),
     'staff_current_password_failures' => (int) env('STAFF_CURRENT_PASSWORD_FAILURES', 5),

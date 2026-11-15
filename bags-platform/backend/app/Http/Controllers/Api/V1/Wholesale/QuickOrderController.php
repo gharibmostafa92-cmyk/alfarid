@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Imports\WholesaleQuickOrderImport;
 use App\Models\Customer;
+use App\Rules\RejectExecutableSignature;
 use App\Services\Wholesale\WholesaleQuickOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,7 +66,7 @@ class QuickOrderController extends Controller
     public function import(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv,txt', 'max:5120'],
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv,txt', 'max:5120', new RejectExecutableSignature],
         ]);
 
         /** @var Customer $customer */
@@ -74,6 +76,10 @@ class QuickOrderController extends Controller
         Excel::import($import, $request->file('file'));
 
         $rows = $this->normalizeRows($import->rows);
+        if (count($rows) > 500) {
+            throw new BusinessException('الحد الأقصى للاستيراد هو 500 صنف في المرة الواحدة.', [], 422);
+        }
+
         $report = $this->service->importToCart($customer, $rows);
 
         return response()->json(['data' => $report]);

@@ -37,20 +37,15 @@ final class BankStatementMatcher
             throw new \App\Exceptions\BusinessException('عدد الإشعارات المرشحة كبير جدًا؛ قسّم كشف البنك إلى ملفات أصغر.', [], 422);
         }
 
-        $preparedNotices = $notices->map(fn ($n) => [
+        $preparedNoticesByAmount = $notices->map(fn ($n) => [
             'model' => $n,
             'amount' => number_format((float) $n->amount, 2, '.', ''),
             'reference' => mb_strtolower(trim((string) $n->reference_number)),
             'date' => $n->transfer_date?->copy()->startOfDay(),
-        ]);
+        ])->groupBy('amount');
 
-        $exact = [];
-        $probable = [];
-        $unmatched = [];
-        $matchedNoticeIds = [];
+        $parsedRows = [];
         foreach ($rows as $index => $row) {
-            $amount = number_format((float) ($row['amount'] ?? 0), 2, '.', '');
-            $reference = mb_strtolower(trim((string) ($row['reference'] ?? '')));
             try {
                 $date = isset($row['date']) ? Carbon::parse((string) $row['date'])->startOfDay() : null;
             } catch (\Throwable) {
@@ -58,40 +53,76 @@ final class BankStatementMatcher
                 // instead of aborting the whole reconciliation.
                 $date = null;
             }
-            $hit = null;
-            $kind = null;
-            foreach ($preparedNotices as $prepared) {
-                if (isset($matchedNoticeIds[$prepared['model']->id])) {
+            $parsedRows[$index] = [
+                'index' => $index,
+                'amount' => number_format((float) ($row['amount'] ?? 0), 2, '.', ''),
+                'reference' => mb_strtolower(trim((string) ($row['reference'] ?? ''))),
+                'raw_reference' => (string) ($row['reference'] ?? ''),
+                'date' => $date,
+            ];
+        }
+
+        $rowResults = [];
+        $claimedNoticeIds = [];
+
+        // Pass 1: classify all exact matches first using amount-indexed buckets.
+        foreach ($parsedRows as $index => $parsed) {
+            if ($parsed['reference'] === '') {
+                continue;
+            }
+            foreach ($preparedNoticesByAmount->get($parsed['amount'], collect()) as $prepared) {
+                if (isset($claimedNoticeIds[$prepared['model']->id])) {
                     continue;
                 }
-                $sameAmount = $prepared['amount'] === $amount;
-                $sameReference = $reference !== '' && $prepared['reference'] === $reference;
-                $closeDate = $date !== null && abs($date->diffInDays($prepared['date'] ?? $date, true)) <= 1;
-                // Exact match requires matching amount, sanitized reference, and date within a 1-day banking window.
-                if ($sameAmount && $sameReference && $closeDate) {
-                    $hit = $prepared['model'];
-                    $kind = 'exact';
+                $sameReference = $prepared['reference'] === $parsed['reference'];
+                $closeDate = $parsed['date'] !== null && abs($parsed['date']->diffInDays($prepared['date'] ?? $parsed['date'], true)) <= 1;
+                if ($sameReference && $closeDate) {
+                    $rowResults[$index] = ['kind' => 'exact', 'model' => $prepared['model']];
+                    $claimedNoticeIds[$prepared['model']->id] = true;
                     break;
                 }
-                // Probable match pairs matching amounts having either identical reference or close date.
-                if ($hit === null && $sameAmount && ($sameReference || $closeDate)) {
+            }
+        }
+
+        // Pass 2: match remaining rows as probable or unmatched.
+        foreach ($parsedRows as $index => $parsed) {
+            if (isset($rowResults[$index])) {
+                continue;
+            }
+            $hit = null;
+            foreach ($preparedNoticesByAmount->get($parsed['amount'], collect()) as $prepared) {
+                if (isset($claimedNoticeIds[$prepared['model']->id])) {
+                    continue;
+                }
+                $sameReference = $parsed['reference'] !== '' && $prepared['reference'] === $parsed['reference'];
+                $closeDate = $parsed['date'] !== null && abs($parsed['date']->diffInDays($prepared['date'] ?? $parsed['date'], true)) <= 1;
+                if ($sameReference || $closeDate) {
                     $hit = $prepared['model'];
-                    $kind = 'probable';
+                    $claimedNoticeIds[$prepared['model']->id] = true;
+                    break;
                 }
             }
+            $rowResults[$index] = $hit !== null
+                ? ['kind' => 'probable', 'model' => $hit]
+                : ['kind' => 'unmatched', 'model' => null];
+        }
+
+        $exact = [];
+        $probable = [];
+        $unmatched = [];
+        foreach ($parsedRows as $index => $parsed) {
+            $res = $rowResults[$index];
+            $hit = $res['model'];
             $entry = [
                 'row' => $index,
-                'amount' => $amount,
-                'reference' => (string) ($row['reference'] ?? ''),
+                'amount' => $parsed['amount'],
+                'reference' => $parsed['raw_reference'],
                 'notice_id' => $hit?->id,
                 'notice_number' => $hit?->notice_number,
             ];
-            if ($hit !== null) {
-                $matchedNoticeIds[$hit->id] = true;
-            }
-            if ($kind === 'exact') {
+            if ($res['kind'] === 'exact') {
                 $exact[] = $entry;
-            } elseif ($kind === 'probable') {
+            } elseif ($res['kind'] === 'probable') {
                 $probable[] = $entry;
             } else {
                 $entry['suggestion'] = null;

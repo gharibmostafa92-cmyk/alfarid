@@ -38,12 +38,8 @@ class TaskTxtBankStatementMatcherTest extends TestCase
         ]);
     }
 
-    public function test_duplicate_rows_reference_the_same_notice_as_candidates(): void
+    public function test_duplicate_rows_cannot_claim_the_same_notice_twice(): void
     {
-        // Locks the current contract (also asserted by the execution suite):
-        // rows are matched independently, so one notice can back two rows.
-        // Whether reconciliation should enforce one-to-one claiming is an
-        // open owner decision; this test pins behavior until it lands.
         $notice = $this->pendingNotice();
 
         $result = app(BankStatementMatcher::class)->match([
@@ -52,8 +48,9 @@ class TaskTxtBankStatementMatcherTest extends TestCase
         ]);
 
         $this->assertSame($notice->id, $result['exact'][0]['notice_id'] ?? null);
-        $this->assertSame($notice->id, $result['probable'][0]['notice_id'] ?? null);
-        $this->assertCount(0, $result['unmatched']);
+        $this->assertCount(0, $result['probable']);
+        $this->assertCount(1, $result['unmatched']);
+        $this->assertNull($result['unmatched'][0]['notice_id']);
     }
 
     public function test_garbage_row_date_does_not_abort_matching(): void

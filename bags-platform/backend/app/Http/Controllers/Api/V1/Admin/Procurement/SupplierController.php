@@ -13,6 +13,7 @@ use App\Http\Resources\Admin\Procurement\SupplierResource;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
+use App\Services\Procurement\SupplierFinanceService;
 use App\Services\Procurement\SupplierService;
 use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
@@ -30,23 +31,30 @@ class SupplierController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:suppliers.view', only: ['index', 'show', 'users']),
+            new Middleware('can:suppliers.view', only: ['index', 'show', 'users', 'statement']),
             new Middleware('can:suppliers.create', only: ['store']),
             new Middleware('can:suppliers.update', only: ['update', 'storeUser', 'updateUser']),
             new Middleware('can:suppliers.delete', only: ['destroy', 'destroyUser']),
         ];
     }
 
-    public function __construct(protected SupplierService $suppliers) {}
+    public function __construct(
+        protected SupplierService $suppliers,
+        protected SupplierFinanceService $finance,
+    ) {}
 
     /**
      * List paginated suppliers with case-insensitive search and status filtering.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
-        $search = trim((string) $request->query('search', ''));
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+        $search = trim((string) ($filters['search'] ?? ''));
         $suppliers = Supplier::query()
-            ->when($request->query('is_active') !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
+            ->when(array_key_exists('is_active', $filters), fn ($q) => $q->where('is_active', (bool) $filters['is_active']))
             ->when($search !== '', fn ($q) => $q->where(function ($w) use ($search): void {
                 $pattern = SearchTerm::pattern($search);
                 $w->where('name', 'ilike', $pattern)
@@ -75,6 +83,24 @@ class SupplierController extends Controller implements HasMiddleware
     public function show(Supplier $supplier): SupplierResource
     {
         return SupplierResource::make($supplier->loadMissing('users'));
+    }
+
+    /**
+     * Administrative chronological statement with internal void reasons included.
+     */
+    public function statement(Request $request, Supplier $supplier): JsonResponse
+    {
+        $filters = $request->validate([
+            'from_date' => ['nullable', 'date_format:Y-m-d'],
+            'to_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from_date'],
+        ]);
+
+        return response()->json(['data' => $this->finance->statement(
+            $supplier,
+            $filters['from_date'] ?? null,
+            $filters['to_date'] ?? null,
+            internal: true,
+        )]);
     }
 
     /**
@@ -154,8 +180,12 @@ class SupplierController extends Controller implements HasMiddleware
     public function destroyUser(Supplier $supplier, SupplierUser $user): JsonResponse
     {
         $this->assertBelongsToSupplier($supplier, $user);
-        $user->tokens()->delete();
-        $user->delete();
+        DB::transaction(function () use ($supplier, $user): void {
+            // Serialize with AuthController::issueToken(), which locks the same row.
+            $locked = $supplier->users()->lockForUpdate()->findOrFail($user->id);
+            $locked->tokens()->delete();
+            $locked->delete();
+        });
 
         return response()->json(['message' => 'تم حذف حساب موظف المورد.']);
     }

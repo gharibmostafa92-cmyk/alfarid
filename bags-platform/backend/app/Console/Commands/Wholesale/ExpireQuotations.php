@@ -33,15 +33,16 @@ class ExpireQuotations extends Command
         }
 
         $expired = 0;
-        $query->orderBy('id')
-            ->each(function (Quotation $quotation) use ($quotations, &$expired): void {
+        $query->chunkById(200, function ($rows) use ($quotations, &$expired): void {
+            foreach ($rows as $quotation) {
                 try {
                     $quotations->expire($quotation);
                     $expired++;
                 } catch (Throwable $e) {
                     report($e);
                 }
-            });
+            }
+        });
 
         $this->info("Expired {$expired} quotations.");
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands\Wholesale;
 
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\RefundMethod;
 use App\Enums\Wholesale\QuotationStatus;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Order;
@@ -14,6 +15,7 @@ use App\Notifications\StaffRecipients;
 use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -49,7 +51,24 @@ class WholesaleDailyBriefing extends Command
             ->whereNotNull('due_at')
             ->where('due_at', '<', now()->startOfDay());
         $overdueCount = (int) (clone $overdue)->distinct()->count('customer_id');
-        $overdueTotal = (float) (clone $overdue)->sum('grand_total');
+        $overdueOrderIds = (clone $overdue)->pluck('id')->all();
+        $grossOverdue = (float) (clone $overdue)->sum('grand_total');
+        $coveredOverdue = 0.0;
+        if ($overdueOrderIds !== []) {
+            $coveredOverdue += (float) DB::table('wholesale_payment_notices')
+                ->whereIn('order_id', $overdueOrderIds)
+                ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+                ->sum('amount');
+            $coveredOverdue += (float) DB::table('wholesale_payment_allocations')
+                ->whereIn('order_id', $overdueOrderIds)
+                ->sum('amount');
+            $coveredOverdue += (float) DB::table('return_requests')
+                ->whereIn('order_id', $overdueOrderIds)
+                ->where('status', 'refunded')
+                ->where('refund_method', RefundMethod::CreditNote->value)
+                ->sum('total_refund_amount');
+        }
+        $overdueTotal = max(0.0, $grossOverdue - $coveredOverdue);
         $worst = (clone $overdue)->with('customer')->orderBy('due_at')->first()?->customer;
 
         $worstText = $worst === null ? '' : ' وأخطرهم '.($worst->company_name ?: $worst->name).'.';

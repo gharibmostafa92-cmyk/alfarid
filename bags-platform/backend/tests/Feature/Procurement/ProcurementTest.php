@@ -126,7 +126,7 @@ class ProcurementTest extends TestCase
 
         $this->assertDatabaseHas('suppliers', ['id' => $this->supplier->id, 'opening_balance' => 150, 'current_balance' => 350]);
         $statement = app(SupplierFinanceService::class)->statement($this->supplier->fresh());
-        $this->assertSame(350.0, $statement['closing_balance']);
+        $this->assertSame('350.00', $statement['closing_balance']);
     }
 
     public function test_purchase_order_can_update_delivery_date_without_replacing_items(): void

@@ -77,7 +77,11 @@ class EnsureStaffAuthenticated
     /** Cache branch active status for 30 seconds to balance check frequency with deactivation propagation delay. */
     private function branchIsActive(int $branchId): bool
     {
-        return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
+        try {
+            return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
+        } catch (\Throwable) {
+            return (bool) Branch::query()->whereKey($branchId)->value('is_active');
+        }
     }
 
     private function isPasswordRotationRequest(Request $request): bool

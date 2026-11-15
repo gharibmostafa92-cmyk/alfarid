@@ -34,6 +34,8 @@ const DOC_ST = { verified: 'approved' };
 export const ApplicationStatus = ({ onLogout, onEnter }) => {
   const [entering, setEntering] = useState(false);
   const [enterError, setEnterError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const api = useApi((signal) => wholesaleEndpoints.applicationStatus(signal), []);
   const d = api.data;
   const status = d?.status || 'pending';
@@ -110,7 +112,35 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
               })}
             </ul>
             {(status === 'rejected' || docs.some((x) => x.status === 'rejected')) && status !== 'approved' && (
-              <p className="luxury-field-hint" style={{ marginBottom: 0 }}><i className="fa-solid fa-circle-info" /> إعادة رفع المستندات غير متاحة من البوابة حاليًا — تواصل مع فريق المبيعات لاستكمالها.</p>
+              <div style={{ marginTop: 10 }}>
+                <label className="pill-btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: uploading ? 'not-allowed' : 'pointer' }}>
+                  <i className="fa-solid fa-upload" /> {uploading ? 'جارٍ رفع المستند…' : 'إعادة رفع مستند بديل'}
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    disabled={uploading}
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setUploadError('');
+                      setUploading(true);
+                      try {
+                        const fd = new FormData();
+                        fd.append('document', file);
+                        await wholesaleEndpoints.uploadDocument(fd);
+                        api.reload();
+                      } catch (err) {
+                        setUploadError(apiError(err).message);
+                      } finally {
+                        setUploading(false);
+                      }
+                    }}
+                  />
+                </label>
+                {uploadError && <p className="luxury-form-error" role="alert" style={{ marginTop: 6 }}>{uploadError}</p>}
+              </div>
             )}
           </div>
 
@@ -194,7 +224,7 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSu
     const er = {};
     if (!login.trim()) er.login = 'أدخل البريد الإلكتروني أو رقم الموبايل.';
     if (!token) er.token = 'رابط إعادة التعيين ناقص الرمز (token).';
-    if (p1.length < 8) er.p1 = 'كلمة المرور لازم تكون 8 حروف على الأقل.';
+    if (p1.length < 12) er.p1 = 'كلمة المرور لازم تكون 12 حرفًا على الأقل.';
     if (p1 !== p2) er.p2 = 'تأكيد كلمة المرور غير مطابق.';
     setErrs(er);
     if (Object.keys(er).length) return;
@@ -213,7 +243,7 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSu
       setBusy(false);
     }
   };
-  const rules = [[p1.length >= 8, '8 حروف على الأقل'], [/[A-Za-z]/.test(p1) && /\d/.test(p1), 'حروف وأرقام'], [p1 && p1 === p2, 'التأكيد مطابق']];
+  const rules = [[p1.length >= 12, '12 حرفًا على الأقل'], [/[A-Za-z]/.test(p1) && /\d/.test(p1), 'حروف وأرقام'], [p1 && p1 === p2, 'التأكيد مطابق']];
   if (linkState !== 'valid' || !token) return (
     <AuthFrame>
       <h1 className="luxury-title">{linkState === 'expired' ? 'انتهت صلاحية الرابط' : 'الرابط غير صالح'}</h1>

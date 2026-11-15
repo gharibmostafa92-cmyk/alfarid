@@ -70,8 +70,7 @@ return new class extends Migration
     private function validateTenderConstraint(): void
     {
         DB::transaction(function (): void {
-            DB::statement("SET LOCAL lock_timeout = '3s'");
-            DB::statement("SET LOCAL statement_timeout = '10s'");
+            DB::statement("SET LOCAL lock_timeout = '5s'");
             DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
         });
     }

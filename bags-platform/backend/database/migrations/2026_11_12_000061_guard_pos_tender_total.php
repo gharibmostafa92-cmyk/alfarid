@@ -30,7 +30,10 @@ return new class extends Migration
             }
         });
 
-        DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+            DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+        });
     }
 
     public function down(): void

@@ -26,7 +26,9 @@ class AiStreamLockTest extends TestCase
         $response = (new PreventConcurrentAiStream)->handle($request, fn () => response('ok'));
 
         $this->assertSame(429, $response->getStatusCode());
-        $this->assertNotEmpty($response->headers->get('Retry-After'));
+        $retryAfter = (int) $response->headers->get('Retry-After');
+        $this->assertGreaterThanOrEqual(1, $retryAfter);
+        $this->assertLessThanOrEqual(10, $retryAfter);
         $this->assertNotSame('', (string) $response->getContent());
     }
 }

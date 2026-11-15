@@ -1263,11 +1263,12 @@ export function Empty({
 }
 
 export function HatchBar({ pct, h = 14 }: { pct: number; h?: number }) {
+  const width = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
   return (
     <div className="w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5" style={{ height: h }}>
       <div
         className="h-full rounded-full transition-all duration-500"
-        style={{ width: pct + '%', background: 'var(--accent)' }}
+        style={{ width: width + '%', background: 'var(--accent)' }}
       />
       <div className="h-full flex-1 rounded-full hatch-track" />
     </div>

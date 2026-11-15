@@ -18,6 +18,20 @@ class SupplierInvoiceRequest extends FormRequest
     }
 
     /**
+     * On update, a due-date-only payload must still be compared with the stored issue date.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->isMethod('POST') || $this->filled('issue_date')) {
+            return;
+        }
+        $invoice = $this->route('supplier_invoice');
+        if ($invoice !== null && $invoice->issue_date !== null) {
+            $this->merge(['issue_date' => $invoice->issue_date->toDateString()]);
+        }
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function rules(): array

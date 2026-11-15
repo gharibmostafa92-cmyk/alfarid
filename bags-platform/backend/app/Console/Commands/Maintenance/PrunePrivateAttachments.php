@@ -173,14 +173,44 @@ class PrunePrivateAttachments extends Command
         }
 
         // The existing GIN index supports both containment shapes.
-        return array_column(DB::selectFromWriteConnection(<<<'SQL'
-            SELECT candidate.path
-            FROM jsonb_array_elements_text(?::jsonb) AS candidate(path)
-            WHERE EXISTS (
-                SELECT 1 FROM return_request_items item
-                WHERE item.attachments::jsonb @> jsonb_build_array(candidate.path)
-                   OR item.attachments::jsonb @> jsonb_build_array(jsonb_build_object('path', candidate.path))
-            )
-            SQL, [json_encode($paths, JSON_THROW_ON_ERROR)]), 'path');
+        try {
+            return array_column(DB::selectFromWriteConnection(<<<'SQL'
+                SELECT candidate.path
+                FROM jsonb_array_elements_text(?::jsonb) AS candidate(path)
+                WHERE EXISTS (
+                    SELECT 1 FROM return_request_items item
+                    WHERE item.attachments::jsonb @> jsonb_build_array(candidate.path)
+                       OR item.attachments::jsonb @> jsonb_build_array(jsonb_build_object('path', candidate.path))
+                )
+                SQL, [json_encode($paths, JSON_THROW_ON_ERROR)]), 'path');
+        } catch (\Illuminate\Database\QueryException $exception) {
+            if ($exception->getCode() !== '22P02') {
+                throw $exception;
+            }
+
+            $lookup = array_flip($paths);
+            $matched = [];
+            DB::table('return_request_items')
+                ->useWritePdo()
+                ->select(['id', 'attachments'])
+                ->whereNotNull('attachments')
+                ->orderBy('id')
+                ->chunkById(500, function ($rows) use ($lookup, &$matched): void {
+                    foreach ($rows as $row) {
+                        $decoded = is_string($row->attachments) ? json_decode($row->attachments, true) : $row->attachments;
+                        if (! is_array($decoded)) {
+                            continue;
+                        }
+                        foreach ($decoded as $entry) {
+                            $candidate = is_array($entry) ? ($entry['path'] ?? null) : $entry;
+                            if (is_string($candidate) && isset($lookup[$candidate])) {
+                                $matched[$candidate] = true;
+                            }
+                        }
+                    }
+                });
+
+            return array_keys($matched);
+        }
     }
 }

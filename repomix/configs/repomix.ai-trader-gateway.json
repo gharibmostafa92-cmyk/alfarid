@@ -21,7 +21,8 @@
                     "bags-platform/backend/app/Services/Ai/**",
                     "bags-platform/backend/config/ai.php",
                     ".github/workflows/ai-agent-evaluation.yml",
-                    "bags-platform/backend/app/Jobs/SendOutboundMessage.php"
+                    "bags-platform/backend/app/Jobs/SendOutboundMessage.php",
+                    "bags-platform/backend/app/Services/Shared/SpokenQuantity.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

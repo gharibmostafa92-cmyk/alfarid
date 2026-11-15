@@ -30,28 +30,29 @@ class QuoteExpiryReminders extends Command
             ->whereNotNull('valid_until')
             ->whereDate('valid_until', '>', now()->toDateString())
             ->whereDate('valid_until', '<=', $until)
-            ->orderBy('id')
-            ->each(function (Quotation $quotation) use ($outbox, &$sent): void {
-                $valid = $quotation->valid_until?->toDateString() ?? '';
-                $key = "quote-expiry:{$quotation->id}:{$valid}";
-                if (OutboundMessage::query()->where('idempotency_key', $key)->exists()) {
-                    return;
+            ->chunkById(200, function ($quotations) use ($outbox, &$sent): void {
+                foreach ($quotations as $quotation) {
+                    $valid = $quotation->valid_until?->toDateString() ?? '';
+                    $key = "quote-expiry:{$quotation->id}:{$valid}";
+                    if (OutboundMessage::query()->where('idempotency_key', $key)->exists()) {
+                        continue;
+                    }
+                    $customer = $quotation->customer;
+                    $message = "عرض السعر {$quotation->quotation_number} هينتهي يوم {$valid}.";
+                    $customer?->notify(new WholesaleDeskNotification('quotation_expiring', $message, [
+                        'quotation_id' => $quotation->id,
+                    ]));
+                    $outbox->queue(
+                        $key,
+                        'customer_whatsapp',
+                        $customer?->id,
+                        'quotation_expiring',
+                        ['quotation_id' => $quotation->id, 'quotation_number' => $quotation->quotation_number, 'valid_until' => $valid],
+                        $outbox->nextContactAt($customer),
+                        $outbox->customerAllowsWhatsapp($customer),
+                    );
+                    $sent++;
                 }
-                $customer = $quotation->customer;
-                $message = "عرض السعر {$quotation->quotation_number} هينتهي يوم {$valid}.";
-                $customer?->notify(new WholesaleDeskNotification('quotation_expiring', $message, [
-                    'quotation_id' => $quotation->id,
-                ]));
-                $outbox->queue(
-                    $key,
-                    'customer_whatsapp',
-                    $customer?->id,
-                    'quotation_expiring',
-                    ['quotation_id' => $quotation->id, 'quotation_number' => $quotation->quotation_number, 'valid_until' => $valid],
-                    $outbox->nextContactAt($customer),
-                    $outbox->customerAllowsWhatsapp($customer),
-                );
-                $sent++;
             });
 
         $this->info("Queued {$sent} quotation expiry reminders.");

@@ -206,8 +206,8 @@ class TaskTxtPerformanceSection3Test extends TestCase
         $this->assertSame('30000.00', $breakdown['free_pool']);
         $this->assertSame('0.00', $breakdown['outstanding']);
         $this->assertCount(180, $statement['entries']);
-        $this->assertSame(30000.0, $statement['opening_balance']);
-        $this->assertSame(30000.0, $statement['closing_balance']);
+        $this->assertSame('30000.00', $statement['opening_balance']);
+        $this->assertSame('30000.00', $statement['closing_balance']);
         $this->assertLessThan(2000.0, $elapsedMs, 'Bulk statement + balanceBreakdown must complete in under 2 seconds.');
     }
 

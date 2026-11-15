@@ -47,6 +47,9 @@ return new class extends Migration
             DB::statement("ALTER TABLE {$table} DROP CONSTRAINT {$constraint}");
             DB::statement("ALTER TABLE {$table} RENAME CONSTRAINT {$temp} TO {$constraint}");
         });
-        DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+        DB::transaction(function () use ($table, $constraint): void {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+            DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+        });
     }
 };

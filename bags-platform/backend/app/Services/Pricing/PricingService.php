@@ -46,7 +46,22 @@ class PricingService
             return ['key' => 'retail', 'public_retail' => true];
         }
 
-        return $this->catalogContexts[$customer->id] ??= $this->resolveCatalogContext($customer);
+        $customer->loadMissing('customerGroup');
+        $cacheKey = implode(':', [
+            $customer->id,
+            $customer->customer_group_id ?? 'none',
+            $customer->updated_at?->getTimestamp() ?? 0,
+            $customer->customerGroup?->updated_at?->getTimestamp() ?? 0,
+        ]);
+
+        if (! isset($this->catalogContexts[$cacheKey])) {
+            if (count($this->catalogContexts) >= 256) {
+                $this->catalogContexts = array_slice($this->catalogContexts, -128, null, true);
+            }
+            $this->catalogContexts[$cacheKey] = $this->resolveCatalogContext($customer);
+        }
+
+        return $this->catalogContexts[$cacheKey];
     }
 
     /**
@@ -105,6 +120,9 @@ class PricingService
     public function withStorePrice(Builder $variants, ?Customer $customer): Builder
     {
         $eligible = $customer !== null && $customer->status === CustomerStatus::Approved;
+        if ($eligible) {
+            $customer->loadMissing('customerGroup');
+        }
         $channel = $this->channelFor($customer);
         $group = $eligible ? $customer->customerGroup : null;
         $group = $group?->is_active ? $group : null;

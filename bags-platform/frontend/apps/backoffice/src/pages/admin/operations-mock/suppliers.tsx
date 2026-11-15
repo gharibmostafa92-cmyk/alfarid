@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { suppliersApi, purchaseRequestsApi, purchaseOrdersApi, supplierInvoicesApi, supplierPaymentsApi, branchesApi, commerceLookupsApi, newIdempotencyKey, type Supplier as SupplierApi, type PurchaseRequest as PRApi, type PurchaseOrder as POApi, type SupplierInvoice as InvoiceApi, type SupplierPaymentApi } from '@alfarid/api-client';
 import { useCan } from '../../../hooks/useCan';
 import { RemoteFeedback } from './api/RemoteFeedback';
@@ -64,7 +64,7 @@ const mockInvoices = INVOICES.map(i => ({ id: i.id, invoice_number: i.sys, suppl
 const mockPayments = SPAYMENTS.map(p => ({ id: p.id, payment_number: p.no, supplier_id: p.sup, supplier_invoice_id: null, invoice: p.inv ? { id: 0, invoice_number: p.inv, supplier_invoice_no: null } : null, amount: String(p.amount), payment_method: paymentMethod(p.method), reference_no: p.ref, payment_date: p.date, notes: p.notes, voided_at: p.void?.at ?? null, void_reason: p.void?.reason ?? null, voided_by: null } as SupplierPaymentApi)).map(row => Object.assign(row, { __demo: true }) as SupplierPaymentApi);
 const pageOf = <T,>(data: T[]) => ({ data, meta: { current_page: 1, last_page: 1, per_page: 20, total: data.length, from: data.length ? 1 : null, to: data.length || null } });
 function useSupplierLookup() {
-  return useRemote((signal) => allPages((page) => suppliersApi.list({ page }, signal)).then(r => r.map(mapSupplier)), [], { mock: () => mockSuppliers.map(mapSupplier) });
+  return useRemote((signal) => allPages((page) => suppliersApi.list({ page }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapSupplier)), [], { mock: () => mockSuppliers.map(mapSupplier) });
 }
 function useVariants() {
   return useRemote(signal => commerceLookupsApi.variants(signal).then(rows => rows.map(v => ({ id: v.id, name: v.label, sku: '' }))), [], { mock: () => VARIANTS.map((v, id) => ({ id: id + 1, name: v.name, sku: v.sku })) });
@@ -387,12 +387,13 @@ export function SupplierForm({ row, onClose, onSaved, blocked }: { row: Supplier
 export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id?: any; sub?: any }) => void }) {
   const toast = useToast();
   const { busy, run } = useAction();
+  const [tab, setTab] = useState<'info' | 'users' | 'pos' | 'invs' | 'pays' | 'statement'>('info');
   const sup = useRemote(signal => suppliersApi.show(id, signal).then(mapSupplier), [id], { mock: () => mapSupplier(mockSuppliers.find(s => s.id === id) ?? mockSuppliers[0]) });
   const usersRemote = useRemote(signal => suppliersApi.users(id, signal), [id], { mock: () => [] });
-  const posRemote = useRemote(signal => allPages(page => purchaseOrdersApi.list({ page, supplier_id: id }, signal)).then(p => p.map(mapPO)), [id], { mock: () => mockPOs.filter(p => p.supplier_id === id).map(mapPO) });
-  const invRemote = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: id }, signal)).then(p => p.map(mapInvoice)), [id], { mock: () => mockInvoices.filter(p => p.supplier_id === id).map(mapInvoice) });
-  const payRemote = useRemote(signal => allPages(page => supplierPaymentsApi.list({ page, supplier_id: id }, signal)).then(p => p.map(mapPayment)), [id], { mock: () => mockPayments.filter(p => p.supplier_id === id).map(mapPayment) });
-  const [tab, setTab] = useState<'info' | 'users' | 'pos' | 'invs' | 'pays'>('info');
+  const posRemote = useRemote(signal => allPages(page => purchaseOrdersApi.list({ page, supplier_id: id }, signal), undefined, { maxPages: 50 }).then(p => p.map(mapPO)), [id], { enabled: tab === 'pos', mock: () => mockPOs.filter(p => p.supplier_id === id).map(mapPO) });
+  const invRemote = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: id }, signal), undefined, { maxPages: 50 }).then(p => p.map(mapInvoice)), [id], { enabled: tab === 'invs', mock: () => mockInvoices.filter(p => p.supplier_id === id).map(mapInvoice) });
+  const payRemote = useRemote(signal => allPages(page => supplierPaymentsApi.list({ page, supplier_id: id }, signal), undefined, { maxPages: 50 }).then(p => p.map(mapPayment)), [id], { enabled: tab === 'pays', mock: () => mockPayments.filter(p => p.supplier_id === id).map(mapPayment) });
+  const statementRemote = useRemote(signal => suppliersApi.statement(id, undefined, signal), [id], { enabled: tab === 'statement', mock: () => ({ supplier: { id, code: '', name: '', current_balance: '0.00' }, from_date: '', to_date: '', opening_balance: '0.00', entries: [], total_credit: '0.00', total_debit: '0.00', closing_balance: '0.00' }) });
   const [uform, setUform] = useState<any>(null);
   const [udel, setUdel] = useState<any>(null);
   const [edit, setEdit] = useState(false);
@@ -444,15 +445,15 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
           <div className="grid grid-cols-3 gap-2 mt-3">
             <div className="v-sub p-3 text-center">
               <div className="text-[10.5px] tx3">أوامر</div>
-              <Num className="font-display text-[18px] font-bold">{pos.length}</Num>
+              <Num className="font-display text-[18px] font-bold">{posRemote.data ? pos.length : '—'}</Num>
             </div>
             <div className="v-sub p-3 text-center">
               <div className="text-[10.5px] tx3">فواتير</div>
-              <Num className="font-display text-[18px] font-bold">{invs.length}</Num>
+              <Num className="font-display text-[18px] font-bold">{invRemote.data ? invs.length : '—'}</Num>
             </div>
             <div className="v-sub p-3 text-center">
               <div className="text-[10.5px] tx3">مدفوعات</div>
-              <Num className="font-display text-[18px] font-bold">{pays.length}</Num>
+              <Num className="font-display text-[18px] font-bold">{payRemote.data ? pays.length : '—'}</Num>
             </div>
           </div>
         </div>
@@ -463,9 +464,10 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
             tabs={[
               { value: 'info', label: 'البيانات الأساسية' },
               { value: 'users', label: 'حسابات الموظفين', count: users.length },
-              { value: 'pos', label: 'أوامر الشراء', count: pos.length },
-              { value: 'invs', label: 'الفواتير', count: invs.length },
-              { value: 'pays', label: 'المدفوعات', count: pays.length },
+              { value: 'pos', label: 'أوامر الشراء', count: posRemote.data ? pos.length : undefined },
+              { value: 'invs', label: 'الفواتير', count: invRemote.data ? invs.length : undefined },
+              { value: 'pays', label: 'المدفوعات', count: payRemote.data ? pays.length : undefined },
+              { value: 'statement', label: 'كشف الحساب' },
             ]}
           />
           {tab === 'info' && (
@@ -495,6 +497,26 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
                   ]}
                 />
               </div>
+            </Card>
+          )}
+          {tab === 'statement' && (
+            <Card stg={3}>
+              <RemoteFeedback state={statementRemote} />
+              {statementRemote.data && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap justify-between gap-3 text-sm">
+                    <span>الفترة: <Num>{statementRemote.data.from_date}</Num> — <Num>{statementRemote.data.to_date}</Num></span>
+                    <span>الرصيد الافتتاحي: <b>{fmtMoney(num(statementRemote.data.opening_balance))}</b></span>
+                    <span>الرصيد الختامي: <b>{fmtMoney(num(statementRemote.data.closing_balance))}</b></span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr><th className="p-2 text-right">التاريخ</th><th className="p-2 text-right">الحركة</th><th className="p-2 text-right">المرجع</th><th className="p-2 text-left">دائن</th><th className="p-2 text-left">مدين</th><th className="p-2 text-left">الرصيد</th></tr></thead>
+                      <tbody>{statementRemote.data.entries.map((entry, index) => <tr key={`${entry.type}-${entry.reference}-${index}`} className="border-t border-black/10"><td className="p-2"><Num>{entry.date}</Num></td><td className="p-2">{entry.description}</td><td className="p-2"><Num>{entry.reference}</Num></td><td className="p-2 text-left">{fmtMoney(num(entry.credit))}</td><td className="p-2 text-left">{fmtMoney(num(entry.debit))}</td><td className="p-2 text-left">{fmtMoney(num(entry.running_balance))}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </Card>
           )}
           {tab === 'users' && (
@@ -942,15 +964,25 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
   const toast = useToast();
   const { busy, run } = useAction();
   const [qtys, setQtys] = useState<Record<number, number>>({});
-  const [idemKey] = useState(newIdempotencyKey);
+  const [idemKey, setIdemKey] = useState(newIdempotencyKey);
   const [deliveryId, setDeliveryId] = useState('');
+  const lastPayload = useRef('');
   if (!open) return null;
   const save = async () => {
     if (!po || po.demo || blocked) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (lines.some((l: any, i: number) => !Number.isInteger(Number(qtys[i] ?? 0)) || Number(qtys[i] ?? 0) < 0 || Number(qtys[i] ?? 0) > l.ord - l.rec)) return toast('الكمية المستلمة يجب ألا تتجاوز المتبقي', 'red');
     const items = lines.map((l: any, i: number) => ({ purchase_order_item_id: l.id, qty: Number(qtys[i] ?? 0) })).filter((x) => x.qty > 0);
     if (!items.length) return toast('أدخل كمية مستلمة واحدة على الأقل', 'red');
-    const r = await run(() => purchaseOrdersApi.receive(po.id, { items, supplier_delivery_id: deliveryId ? Number(deliveryId) : null }, idemKey), { toast, success: 'تم تسجيل الاستلام' });
+    const payload = JSON.stringify({ items, supplier_delivery_id: deliveryId ? Number(deliveryId) : null });
+    // Network retries of the same payload keep the key; any edited quantity or
+    // delivery notice starts a new logical receipt operation.
+    let key = idemKey;
+    if (lastPayload.current !== '' && lastPayload.current !== payload) {
+      key = newIdempotencyKey();
+      setIdemKey(key);
+    }
+    lastPayload.current = payload;
+    const r = await run(() => purchaseOrdersApi.receive(po.id, { items, supplier_delivery_id: deliveryId ? Number(deliveryId) : null }, key), { toast, success: 'تم تسجيل الاستلام' });
     if (r) onSaved();
   };
   return (
@@ -1004,7 +1036,7 @@ export function POModule() {
   const list = useRemote(signal => purchaseOrdersApi.list({ page, search: dq || undefined, status: st ? toPOStatus(st) as any : undefined, supplier_id: sp ? Number(sp) : undefined, branch_id: br ? Number(br) : undefined }, signal), [page, dq, st, sp, br], { mock: () => pageOf(mockPOs.filter(p => (!st || p.status === toPOStatus(st)) && (!sp || p.supplier_id === Number(sp)))) });
   const suppliers = useSupplierLookup();
   const branches = useRemote((signal) => branchesApi.list({}, signal).then(r => r.data), []);
-  const approvedPRs = useRemote(signal => allPages(page => purchaseRequestsApi.list({ page, status: 'approved' }, signal)), []);
+  const approvedPRs = useRemote(signal => allPages(page => purchaseRequestsApi.list({ page, status: 'approved' }, signal), undefined, { maxPages: 20 }), [], { enabled: !!form });
   const variants = useVariants();
   const rows = (list.data?.data ?? []).map(mapPO);
   const detail = useRemote(signal => purchaseOrdersApi.show(view.id, signal), [view?.id], { enabled: !!view, mock: () => mockPOs.find(p => p.id === view.id)! });
@@ -1017,6 +1049,18 @@ export function POModule() {
     return (({ accepted: ['receive', 'cancel'], sent: ['receive', 'cancel'], partial: ['receive', 'close'] } as Record<string, string[]>)[p.status] ?? []).filter(action => canReceive || !['receive', 'close'].includes(action));
   };
   const lines = (detail.data?.items ?? []).map(it => ({ id: it.id, v: { name: it.variant?.sku ?? `#${it.product_variant_id}`, sku: it.variant?.sku ?? '' }, ord: num(it.ordered_qty), rec: num(it.received_qty), cost: num(it.unit_cost), tax: num(it.tax_rate) }));
+  const estimateTotal = () => {
+    const subtotal = form.items.reduce((sum: number, it: any) => sum + Number(it.qty) * Number(it.cost), 0);
+    const discount = Number(form.discount || 0);
+    const factor = subtotal > 0 ? (subtotal - discount) / subtotal : 0;
+    const tax = form.items.reduce((sum: number, it: any) => sum + Number(it.qty) * Number(it.cost) * factor * Number(it.tax) / 100, 0);
+    return Math.max(0, subtotal - discount + tax);
+  };
+  const closeDelivery = async (id: number) => {
+    if (list.usingMock || detail.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    const r = await run(() => purchaseOrdersApi.closeDeliveryShort(id), { toast, success: 'أُغلق إشعار التوريد' });
+    if (r) { detail.reload(); list.reload(); }
+  };
   const save = async () => {
     if (form.demo || list.usingMock || suppliers.usingMock || variants.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (!form.sup || !form.branch || form.items.some((it: any) => !it.product_variant_id || !Number.isInteger(Number(it.qty)) || Number(it.qty) <= 0)) return toast('أكمل المورد والفرع والبنود بكميات صحيحة', 'red');
@@ -1204,7 +1248,7 @@ export function POModule() {
                   r: (l: any) => (
                     <div className="flex items-center gap-2 min-w-[110px]">
                       <div className="flex-1">
-                        <HatchBar pct={(l.rec / l.ord) * 100} h={9} />
+                        <HatchBar pct={l.ord > 0 ? (l.rec / l.ord) * 100 : 0} h={9} />
                       </div>
                       <Num className="text-[11.5px]">{l.rec}</Num>
                     </div>
@@ -1214,15 +1258,27 @@ export function POModule() {
                 { h: 'الضريبة', r: (l: any) => <Num>{l.tax}%</Num> },
               ]}
             />
-            {view.status === 'partial' && (
+            {(detail.data?.deliveries?.length ?? 0) > 0 && (
               <div>
                 <div className="lbl mb-2">التوريدات المرتبطة</div>
-                <div className="v-sub p-3 flex items-center justify-between text-[12px]">
-                  <span className="flex items-center gap-2">
-                    <Icon name="truck" size={14} className="tx2" />
-                    <span className="num font-semibold">{detail.data?.deliveries?.map(d => d.delivery_number).join('، ') || '—'}</span>
-                  </span>
-                  <Num className="tx3">{detail.data?.deliveries?.[0]?.delivery_date ?? '—'}</Num>
+                <div className="space-y-2">
+                  {detail.data?.deliveries?.map((d: any) => (
+                    <div key={d.id} className="v-sub p-3 flex items-center justify-between gap-3 text-[12px]">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <Icon name="truck" size={14} className="tx2" />
+                        <span className="num font-semibold">{d.delivery_number}</span>
+                        <span className="tx3">{d.status}</span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <Num className="tx3">{d.delivery_date ?? '—'}</Num>
+                        {d.status === 'pending_receipt' && (
+                          <button className="btn btn-soft btn-sm" disabled={busy} onClick={() => closeDelivery(d.id)}>
+                            إغلاق الإشعار
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -1301,7 +1357,7 @@ export function POModule() {
               </Field>
               <div className="flex-1 v-sub px-4 py-2.5 flex items-center justify-between">
                 <span className="tx2 text-[12px]">الإجمالي التقديري</span>
-                <span className="font-display font-bold">{fmtMoney(Math.max(0, form.items.reduce((sum: number, it: any) => sum + Number(it.qty) * Number(it.cost) * (1 + Number(it.tax) / 100), 0) - Number(form.discount || 0)))}</span>
+                <span className="font-display font-bold">{fmtMoney(estimateTotal())}</span>
               </div>
             </div>
           </div>
@@ -1322,7 +1378,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
   const [postConfirm, setPostConfirm] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const suppliers = useSupplierLookup();
-  const orders = useRemote(signal => allPages(page => purchaseOrdersApi.list({ page, supplier_id: form?.sup ? Number(form.sup) : undefined }, signal)).then(r => r.map(mapPO)), [form?.sup]);
+  const orders = useRemote(signal => allPages(page => purchaseOrdersApi.list({ page, supplier_id: Number(form?.sup) }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapPO)), [form?.sup], { enabled: !!form?.sup });
   const list = useRemote(signal => supplierInvoicesApi.list({ page }, signal), [page], { mock: () => pageOf(mockInvoices) });
   const rows = (list.data?.data ?? []).map(mapInvoice);
   const supName = (id: number) => suppliers.data?.find(x => x.id === id)?.company || suppliers.data?.find(x => x.id === id)?.name || `#${id}`;
@@ -1453,7 +1509,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
               ))}
             </div>
             <div className="mt-1">
-              <HatchBar pct={(view.paid / (view.subtotal + view.tax)) * 100} />
+              <HatchBar pct={view.subtotal + view.tax > 0 ? (view.paid / (view.subtotal + view.tax)) * 100 : 0} />
             </div>
             <KV
               items={[
@@ -1566,21 +1622,32 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
   const [page, setPage] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [idemKey, setIdemKey] = useState(newIdempotencyKey);
+  const lastPayload = useRef('');
   const [voidReason, setVoidReason] = useState('');
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [allocateId, setAllocateId] = useState('');
   const suppliers = useSupplierLookup();
-  const treasuries = useRemote(signal => allPages(page => supplierPaymentsApi.treasuries(page, signal)), []);
-  const invoices = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: Number(form?.sup || view?.sup) || undefined }, signal)).then(r => r.filter(i => ['posted', 'partially_paid'].includes(i.status)).map(mapInvoice)), [form?.sup, view?.sup]);
+  const treasuries = useRemote(signal => allPages(page => supplierPaymentsApi.treasuries(page, signal), undefined, { maxPages: 10 }), [], { enabled: !!form && !form.id });
+  const invoices = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: Number(form?.sup || view?.sup), open: true }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapInvoice)), [form?.sup, view?.sup], { enabled: !!(form?.sup || view?.sup) });
   const list = useRemote(signal => supplierPaymentsApi.list({ page }, signal), [page], { mock: () => pageOf(mockPayments) });
   const rows = (list.data?.data ?? []).map(mapPayment);
   const supName = (id: number) => suppliers.data?.find(x => x.id === id)?.company || suppliers.data?.find(x => x.id === id)?.name || `#${id}`;
-  const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? new Date().toISOString().slice(0, 10), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
+  const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); lastPayload.current = ''; setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? new Date().toISOString().slice(0, 10), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
   useEffect(() => { if (initialInvoice) openForm({ demo: initialInvoice.demo, sup: initialInvoice.sup, invId: initialInvoice.id, amount: initialInvoice.remaining }); }, [initialInvoice?.id]);
   const save = async () => {
     if (form.demo || list.usingMock || suppliers.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     const common = { payment_method: paymentMethod(method), reference_no: form.ref || null, notes: form.notes || null };
-    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, common) : supplierPaymentsApi.create({ ...common, supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date }, idemKey), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
+    const createBody = { ...common, supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date };
+    let key = idemKey;
+    if (!form.id) {
+      const payload = JSON.stringify(createBody);
+      if (lastPayload.current !== '' && lastPayload.current !== payload) {
+        key = newIdempotencyKey();
+        setIdemKey(key);
+      }
+      lastPayload.current = payload;
+    }
+    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, common) : supplierPaymentsApi.create(createBody, key), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
     if (r) { setForm(null); list.reload(); invoices.reload(); suppliers.reload(); }
   };
   const voidPayment = async () => {

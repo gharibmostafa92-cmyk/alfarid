@@ -31,7 +31,7 @@
 param (
     [string]$Commit,
     [switch]$StartedOnly,
-    [switch]$Pack = $true,
+    [bool]$Pack = $true,
     [switch]$DryRun,
     [string]$Domain,
     [switch]$IncludeTests = $false,
@@ -70,13 +70,18 @@ if ($Commit) {
     foreach ($line in $statusLines) {
         if ($line.Length -gt 3) {
             $code = $line.Substring(0, 2).Trim()
-            $filePath = $line.Substring(3).Trim() -replace '\\', '/'
-            # Filter ?? (untracked), A (added), M (modified)
-            if ($code -match '^\?\?|A|M') {
+            $rawPath = $line.Substring(3).Trim().Trim('"')
+            if ($rawPath -match ' -> (.+)$') {
+                $rawPath = $Matches[1].Trim().Trim('"')
+            }
+            $filePath = $rawPath -replace '\\', '/'
+            # Filter ?? (untracked), A (added), M (modified), R (renamed)
+            if ($code -match '^(?:\?\?|A|M|R)') {
                 $fullCandidate = Join-Path $RootDir $filePath
                 if (Test-Path -Path $fullCandidate -PathType Container) {
+                    $rootPrefixLen = $RootDir.Path.TrimEnd('\', '/').Length + 1
                     Get-ChildItem -Path $fullCandidate -File -Recurse | ForEach-Object {
-                        $relChild = Resolve-Path -Path $_.FullName -Relative
+                        $relChild = $_.FullName.Substring($rootPrefixLen)
                         $normChild = ($relChild -replace '^\.\\', '' -replace '^\./', '') -replace '\\', '/'
                         $targetFiles.Add($normChild)
                     }
@@ -168,6 +173,7 @@ function Test-PathMatchedByGlobs([string]$relPath, [array]$includePatterns) {
 
         # Convert simple glob to regex: e.g. **/*.php or docs/** or *.php
         $regex = '^' + [regex]::Escape($normPattern)
+        $regex = $regex -replace '\\\*\\\*/', '(?:.*/)?'
         $regex = $regex -replace '\\\*\\\*', '.*'
         $regex = $regex -replace '\\\*', '[^/]*'
         $regex = $regex -replace '\\\?', '.'
@@ -226,7 +232,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 3. Orders, Returns & Refunds
-    if (($p -match 'returnservice|refund|returnrequest|/orders/|orderservice|paymob|orderitem|orderstatus|/models/order\.php|/models/orderitem\.php|operations/orders\.ts|checkoutreservation|tasktxtroadmapreturns|attachment') -and $p -notmatch 'wholesale') {
+    if (($p -match 'returnservice|refund|returnrequest|/orders/|orderservice|paymob|orderitem|orderstatus|/models/order\.php|/models/orderitem\.php|operations/orders\.ts|checkoutreservation|tasktxtroadmapreturns|attachment|r2upload|migrateuploadstor2|pruneorphanmedia') -and $p -notmatch 'wholesale') {
         if ($configs.ContainsKey('repomix.orders-returns.json')) { [void]$matchedConfigs.Add('repomix.orders-returns.json') }
         if ($configs.ContainsKey('repomix.subsystem-02-orders-returns.json')) { [void]$matchedConfigs.Add('repomix.subsystem-02-orders-returns.json') }
     }
@@ -245,26 +251,38 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 6. Inventory & Ledger
-    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|production_receipt|inventory.*seeder|/branches/|/locations/|actions/branch|actions/location|inventoryanomalies|detectinventoryanomalies|stocklevel|stocktransfer|/models/stock') {
+    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|production_receipt|inventory.*seeder|/branches/|/locations/|actions/branch|actions/location|inventoryanomalies|detectinventoryanomalies|stocklevel|stocktransfer|/models/stock|productvariant') {
         if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
         if ($configs.ContainsKey('repomix.inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.inventory-ledger.json') }
     }
 
     # 7. Wholesale & B2B
-    if ($p -match 'wholesale|quotation|paymentnotice|fifodebt|b2b|normalizescustomerinput|pricing|pricelist|rejectexecutable') {
+    if ($p -match 'wholesale|quotation|paymentnotice|fifodebt|b2b|normalizescustomerinput|pricing|pricelist|rejectexecutable|customergroup|spokenquantity') {
         if ($configs.ContainsKey('repomix.subsystem-04-wholesale-b2b.json')) { [void]$matchedConfigs.Add('repomix.subsystem-04-wholesale-b2b.json') }
         if ($configs.ContainsKey('repomix.wholesale-b2b.json')) { [void]$matchedConfigs.Add('repomix.wholesale-b2b.json') }
     }
 
     # 8. AI Trader & WhatsApp Gateway
-    if ($p -match 'ai-trader|whatsapp|baileys|gemini|agentorchestrator|toolregistry|outboundmessage') {
+    if ($p -match 'ai-trader|whatsapp|baileys|gemini|agentorchestrator|toolregistry|outboundmessage|spokenquantity') {
         if ($configs.ContainsKey('repomix.subsystem-05-ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.subsystem-05-ai-trader-gateway.json') }
+        if ($configs.ContainsKey('repomix.subsystem-05.1-ai-gateway-core.json') -and ($p -match 'wa-gateway|webhook|gemini|orchestrator|whatsapp')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-05.1-ai-gateway-core.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-05.2-ai-domain-tools.json') -and ($p -match 'tool|spokenquantity|order|trader')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-05.2-ai-domain-tools.json')
+        }
         if ($configs.ContainsKey('repomix.ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.ai-trader-gateway.json') }
     }
 
     # 9. Storefront & Catalog
-    if ($p -match 'apps/storefront/|catalog|category|cart|coupon|promotion|\bproduct\b|customer.*auth|normalizescustomerinput') {
+    if ($p -match 'apps/storefront/|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|normalizescustomerinput' -and $p -notmatch 'production') {
         if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
+        if ($configs.ContainsKey('repomix.subsystem-06.1-storefront-client.json') -and ($p -match 'apps/storefront')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-06.1-storefront-client.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json') -and ($p -match 'catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-06.2-catalog-shipping.json')
+        }
         if ($configs.ContainsKey('repomix.storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.storefront-catalog.json') }
     }
 
@@ -280,8 +298,14 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput|app/rules|/rules/' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput|app/rules|/rules/|operations/http' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth|wholesale') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
+        if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-09.2-backoffice-notifications.json') -and ($p -match 'backoffice|notification|operations/http')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.2-backoffice-notifications.json')
+        }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
     }
 
@@ -293,7 +317,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 13. Infrastructure & DevOps
-    if ($p -match 'infrastructure/|docker|k6/|haproxy|redis|cloud-run|\.env(\..+)?$|healthready|trustproxy|exceptions/|businessexception') {
+    if ($p -match 'infrastructure/|docker|k6/|haproxy|redis|cloud-run|\.env(\..+)?$|healthready|trustproxy|exceptions/|businessexception|maintenance/|r2upload|pruneorphanmedia') {
         if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
     }
 
@@ -402,7 +426,8 @@ if ($Pack -and -not $DryRun) {
             [void]$configsToPack.Add($domainConfig)
         } else {
             # Try searching by prefix
-            $matched = $allConfigs.Keys | Where-Object { $_ -match $Domain }
+            $escapedDomain = [regex]::Escape($Domain)
+            $matched = $allConfigs.Keys | Where-Object { $_ -match $escapedDomain }
             foreach ($m in $matched) { [void]$configsToPack.Add($m) }
         }
     } else {

@@ -8,9 +8,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const envPath = resolve(root, '.env');
 if (!existsSync(envPath)) {
   let env = readFileSync(resolve(root, '.env.example'), 'utf8');
-  for (const key of ['DB_PASSWORD', 'REDIS_PASSWORD', 'HAPROXY_STATS_PASSWORD', 'GRAFANA_PASSWORD']) {
+  for (const key of ['DB_PASSWORD', 'DB_MIGRATION_PASSWORD', 'REDIS_PASSWORD', 'HAPROXY_STATS_PASSWORD', 'GRAFANA_PASSWORD']) {
     env = env.replace(new RegExp(`^${key}=$`, 'm'), `${key}=${randomBytes(24).toString('hex')}`);
   }
+  env = env.replace(/^KEEPALIVED_AUTH_PASS=$/m, `KEEPALIVED_AUTH_PASS=${randomBytes(4).toString('hex')}`);
   env = env.replace(/^APP_KEY=$/m, `APP_KEY=base64:${randomBytes(32).toString('base64')}`);
   writeFileSync(envPath, env, { mode: 0o600 });
   console.log('Created infrastructure/.env with random local credentials. Configure R2 and mail for deployment.');

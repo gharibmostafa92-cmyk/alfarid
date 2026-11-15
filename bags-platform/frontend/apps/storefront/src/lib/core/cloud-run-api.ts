@@ -213,7 +213,7 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       headers: forwarded,
       cache: 'no-store',
       redirect: 'manual',
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(60000)]),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(isAiTurn ? 180_000 : 60_000)]),
     };
     if (request.body) {
       init.body = limitRequestBody(request.body, MAX_PAYLOAD_BYTES);

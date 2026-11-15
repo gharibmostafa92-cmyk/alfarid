@@ -99,8 +99,10 @@ const SAFE_INLINE = new Set(['application/pdf', 'image/png', 'image/jpeg', 'imag
 export async function allPages<T>(
   loadPage: (page: number, signal?: AbortSignal) => Promise<{ data: T[]; meta?: { last_page?: number } }>,
   signal?: AbortSignal,
+  opts: { maxPages?: number } = {},
 ): Promise<T[]> {
   const items: T[] = [];
+  const maxPages = opts.maxPages ?? Number.POSITIVE_INFINITY;
   let page = 1;
   let last = 1;
   do {
@@ -109,7 +111,7 @@ export async function allPages<T>(
     items.push(...(response.data || []));
     last = response.meta?.last_page ?? 1;
     page += 1;
-  } while (page <= last && !signal?.aborted);
+  } while (page <= last && page <= maxPages && !signal?.aborted);
   return items;
 }
 

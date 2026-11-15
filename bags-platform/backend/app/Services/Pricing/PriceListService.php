@@ -164,9 +164,18 @@ class PriceListService
         DB::transaction(function () use ($priceList, $user): void {
             $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             $this->assertListAccess($user, $locked);
+            $productIds = ProductVariant::query()->withTrashed()
+                ->whereIn('id', $locked->items()->select('product_variant_id'))
+                ->distinct()
+                ->pluck('product_id')
+                ->map(fn ($id): int => (int) $id)
+                ->all();
             $before = $locked->attributesToArray();
             $locked->delete();
             if ($user) StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, [], []);
+            if ($productIds !== []) {
+                DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
+            }
         });
     }
 

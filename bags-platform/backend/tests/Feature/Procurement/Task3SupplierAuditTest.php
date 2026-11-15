@@ -95,6 +95,73 @@ class Task3SupplierAuditTest extends TestCase
         $this->assertDatabaseHas('treasury_transactions', ['reference_type' => 'supplier_payment', 'reference_id' => $first->id, 'type' => 'supplier_payment_reversal']);
     }
 
+    public function test_invoice_payment_above_ten_billion_preserves_decimal_value(): void
+    {
+        $finance = app(SupplierFinanceService::class);
+        $invoice = $finance->createInvoice([
+            'supplier_id' => $this->supplier->id,
+            'supplier_invoice_no' => 'LARGE-10000000000',
+            'issue_date' => now()->toDateString(),
+            'subtotal' => '9999999999.99',
+            'tax_amount' => '1.00',
+        ]);
+        $finance->postInvoice($invoice);
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(
+            ['name' => 'Large pay', 'code' => 'SUP-LARGE', 'type' => 'main_safe', 'is_active' => true],
+            $this->admin,
+            '20000000001.98',
+        );
+
+        $payment = $finance->createPayment([
+            'supplier_id' => $this->supplier->id,
+            'supplier_invoice_id' => $invoice->id,
+            'treasury_id' => $treasury->id,
+            'amount' => '10000000000.99',
+            'payment_method' => 'cash',
+            'payment_date' => now()->toDateString(),
+        ], $this->admin);
+
+        $this->assertSame('10000000000.99', $payment->amount);
+        $this->assertSame('10000000000.99', $invoice->fresh()->paid_amount);
+        $this->assertSame('0.00', $this->supplier->fresh()->current_balance);
+        $this->assertSame('10000000000.99', $treasury->fresh()->current_balance);
+    }
+
+    public function test_purchase_order_line_total_uses_its_full_validated_decimal_capacity(): void
+    {
+        $po = $this->auth()->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $this->supplier->id,
+            'branch_id' => $this->branch->id,
+            'items' => [[
+                'product_variant_id' => $this->variant->id,
+                'ordered_qty' => 99999999,
+                'unit_cost' => '99999999.9999',
+            ]],
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('9999999899990000.0001', (string) DB::table('purchase_order_items')->where('purchase_order_id', $po['id'])->value('line_total'));
+        $this->assertSame('9999999899990000.00', (string) DB::table('purchase_orders')->where('id', $po['id'])->value('subtotal'));
+    }
+
+    public function test_purchase_order_discount_and_tax_keep_exact_cents(): void
+    {
+        $po = $this->auth()->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $this->supplier->id,
+            'branch_id' => $this->branch->id,
+            'discount_amount' => '0.01',
+            'items' => [[
+                'product_variant_id' => $this->variant->id,
+                'ordered_qty' => 3,
+                'unit_cost' => '0.10',
+                'tax_rate' => '10',
+            ]],
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('0.30', (string) DB::table('purchase_orders')->where('id', $po['id'])->value('subtotal'));
+        $this->assertSame('0.03', (string) DB::table('purchase_orders')->where('id', $po['id'])->value('tax_amount'));
+        $this->assertSame('0.32', (string) DB::table('purchase_orders')->where('id', $po['id'])->value('grand_total'));
+    }
+
     public function test_insufficient_treasury_funds_roll_back_supplier_payment(): void
     {
         $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'SUP-LOW', 'type' => 'main_safe', 'is_active' => true], $this->admin, '5.00');
@@ -351,6 +418,130 @@ class Task3SupplierAuditTest extends TestCase
         $this->assertContains('purchase_orders_purchase_request_id_index', $indexes);
         $this->assertContains('supplier_payments_supplier_id_payment_date_index', $indexes);
         $this->assertContains('supplier_invoices_supplier_id_status_index', $indexes);
+    }
+
+    public function test_purchase_order_api_is_branch_scoped_and_rejects_foreign_branches(): void
+    {
+        $otherBranch = Branch::factory()->create();
+        $own = $this->auth()->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $this->supplier->id,
+            'branch_id' => $this->branch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'ordered_qty' => 1, 'unit_cost' => 10]],
+        ])->assertCreated()->json('data');
+        $foreign = $this->auth()->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $this->supplier->id,
+            'branch_id' => $otherBranch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'ordered_qty' => 1, 'unit_cost' => 10]],
+        ])->assertCreated()->json('data');
+
+        $staff = User::factory()->create(['branch_id' => $this->branch->id]);
+        $staff->givePermissionTo(['purchases.view', 'purchases.create']);
+        $token = $staff->createToken('branch-staff')->plainTextToken;
+
+        Auth::forgetGuards();
+        $this->withToken($token)->getJson("/api/v1/admin/purchase-orders/{$own['id']}")->assertOk();
+        $this->withToken($token)->getJson("/api/v1/admin/purchase-orders/{$foreign['id']}")->assertForbidden();
+
+        $ids = $this->withToken($token)->getJson('/api/v1/admin/purchase-orders')->assertOk()->json('data.*.id');
+        $this->assertContains($own['id'], $ids);
+        $this->assertNotContains($foreign['id'], $ids);
+
+        $this->withToken($token)->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $this->supplier->id,
+            'branch_id' => $otherBranch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'ordered_qty' => 1, 'unit_cost' => 10]],
+        ])->assertForbidden();
+    }
+
+    public function test_procurement_service_fails_closed_without_an_authenticated_actor(): void
+    {
+        $po = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'branch_id' => $this->branch->id,
+            'created_by' => $this->admin->id,
+        ]);
+
+        Auth::forgetGuards();
+        $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
+        app(ProcurementService::class)->sendPurchaseOrder($po);
+    }
+
+    public function test_close_short_rejects_posted_invoices_above_the_received_value(): void
+    {
+        $po = $this->sentOrder(qty: 10, cost: 100);
+        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/receive", [
+            'items' => [['purchase_order_item_id' => $po['items'][0]['id'], 'qty' => 5]],
+        ])->assertOk();
+
+        $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
+            'supplier_id' => $this->supplier->id,
+            'purchase_order_id' => $po['id'],
+            'supplier_invoice_no' => 'OVER-RECEIVED',
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 600,
+        ])->assertCreated()->json('data.id');
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
+
+        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/close-short")->assertUnprocessable();
+        $this->assertSame('partially_received', PurchaseOrder::query()->findOrFail($po['id'])->status->value);
+    }
+
+    public function test_zero_total_supplier_invoices_are_rejected(): void
+    {
+        $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
+            'supplier_id' => $this->supplier->id,
+            'supplier_invoice_no' => 'ZERO',
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 0,
+        ])->assertUnprocessable();
+    }
+
+    public function test_inactive_supplier_cannot_receive_an_unlinked_payment(): void
+    {
+        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(
+            ['name' => 'Inactive Safe', 'code' => 'INACTIVE-SAFE', 'type' => 'main_safe', 'is_active' => true],
+            $this->admin,
+            '100.00',
+        );
+        $this->supplier->update(['is_active' => false]);
+
+        $this->expectException(\App\Exceptions\BusinessException::class);
+        app(SupplierFinanceService::class)->createPayment([
+            'supplier_id' => $this->supplier->id,
+            'treasury_id' => $treasury->id,
+            'amount' => 10,
+            'payment_method' => 'cash',
+            'payment_date' => now()->toDateString(),
+        ], $this->admin);
+    }
+
+    public function test_admin_statement_endpoint_returns_the_supplier_ledger(): void
+    {
+        $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
+            'supplier_id' => $this->supplier->id,
+            'supplier_invoice_no' => 'STATEMENT-1',
+            'issue_date' => now()->toDateString(),
+            'subtotal' => 100,
+        ])->assertCreated()->json('data.id');
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
+
+        $statement = $this->auth()->getJson("/api/v1/admin/suppliers/{$this->supplier->id}/statement?from_date=".now()->startOfYear()->toDateString().'&to_date='.now()->toDateString())
+            ->assertOk()->json('data');
+
+        $this->assertSame($this->supplier->id, $statement['supplier']['id']);
+        $this->assertNotEmpty($statement['entries']);
+        $this->assertSame(100.0, (float) $statement['closing_balance']);
+    }
+
+    public function test_supplier_payment_date_requires_the_canonical_iso_format(): void
+    {
+        $this->auth()->postJson('/api/v1/admin/supplier-payments', [
+            'supplier_id' => $this->supplier->id,
+            'treasury_id' => 1,
+            'amount' => 10,
+            'payment_method' => 'cash',
+            'payment_date' => '15/11/2026',
+        ])->assertUnprocessable();
     }
 
     /**

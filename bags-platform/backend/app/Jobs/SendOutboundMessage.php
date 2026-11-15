@@ -42,6 +42,14 @@ class SendOutboundMessage implements ShouldQueue
         return [(new WithoutOverlapping('outbound-message:'.$this->messageId))->releaseAfter(10)->expireAfter(300)];
     }
 
+    /** Remove OTP secrets even when the queue exhausts all transient retries. */
+    public function failed(?Throwable $exception): void
+    {
+        OutboundMessage::query()->whereKey($this->messageId)
+            ->where('template', 'customer_otp')->where('status', 'pending')
+            ->update(['status' => 'error', 'error' => 'otp_delivery_failed', 'payload' => '[]']);
+    }
+
     public function handle(SettingService $settings): void
     {
         $message = OutboundMessage::query()->find($this->messageId);

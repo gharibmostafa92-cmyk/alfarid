@@ -114,8 +114,8 @@ class InvoiceController extends Controller
 
         return response()->json([
             'data' => [
-                'opening_balance' => number_format($statement['opening_balance'], 2, '.', ''),
-                'closing_balance' => number_format($statement['closing_balance'], 2, '.', ''),
+                'opening_balance' => $statement['opening_balance'],
+                'closing_balance' => $statement['closing_balance'],
                 'entries' => $statement['entries'],
             ],
         ]);

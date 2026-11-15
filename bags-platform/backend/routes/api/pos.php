@@ -50,8 +50,12 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
         ->name('sales.held');
 
     // Stocktake blind scanning without requiring an open cashier shift
-    Route::get('stocktakes/current', [PosStockController::class, 'currentStocktake'])->name('stocktakes.current');
-    Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])->name('stocktakes.scan');
+    Route::get('stocktakes/current', [PosStockController::class, 'currentStocktake'])
+        ->middleware('permission:stocktakes.view|stocktakes.update|stocktakes.approve')
+        ->name('stocktakes.current');
+    Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])
+        ->middleware('permission:stocktakes.update')
+        ->name('stocktakes.scan');
 
     // Protected endpoints requiring an active shift (pos.shift middleware injects current shift).
     Route::middleware('pos.shift')->group(function (): void {
@@ -94,10 +98,18 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
         Route::get('stock', [PosStockController::class, 'index'])
             ->middleware('permission:pos.sales.create|inventory.view')
             ->name('stock.index');
-        Route::get('transfers/incoming', [PosStockController::class, 'incoming'])->name('transfers.incoming');
-        Route::get('transfer-sources', [PosStockController::class, 'sources'])->name('transfer-sources.index');
-        Route::post('transfer-requests', [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
-        Route::post('transfers/{transfer}/receive', [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
+        Route::get('transfers/incoming', [PosStockController::class, 'incoming'])
+            ->middleware('permission:transfers.view|transfers.receive')
+            ->name('transfers.incoming');
+        Route::get('transfer-sources', [PosStockController::class, 'sources'])
+            ->middleware('permission:transfers.view|transfers.create')
+            ->name('transfer-sources.index');
+        Route::post('transfer-requests', [PosStockController::class, 'requestTransfer'])
+            ->middleware('permission:transfers.create')
+            ->name('transfer-requests.store');
+        Route::post('transfers/{transfer}/receive', [PosStockController::class, 'receiveTransfer'])
+            ->middleware('permission:transfers.receive')
+            ->name('transfers.receive');
     });
 
     // Staff notifications

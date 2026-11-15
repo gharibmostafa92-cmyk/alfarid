@@ -86,6 +86,10 @@ final class CustomerWholesaleAssistant
             return $this->handoffToSales($customer, $text);
         }
 
+        if (preg_match(self::ORDER_VERBS_REGEX, $text) === 1
+            && preg_match('/(?<![\p{L}\p{N}_])و?(?:نص|نصف)(?![\p{L}\p{N}_])/u', $text) === 1) {
+            return 'وضح الكمية بعدد القطع الصحيح لكل صنف قبل الطلب.';
+        }
         $orderLines = $this->parseOrderLines($text);
         if ($orderLines !== null) {
             return $this->orderLookup($customer, $orderLines);
@@ -131,10 +135,19 @@ final class CustomerWholesaleAssistant
                 return 'رقم واتساب غير متاح للحساب.';
             }
 
-            $channel = CustomerChannel::query()->firstOrCreate(
-                ['customer_id' => $customer->id, 'provider' => 'whatsapp_cloud'],
-                ['phone' => $phone, 'verification_status' => 'unverified'],
-            );
+            $channel = CustomerChannel::query()
+                ->where('customer_id', $customer->id)
+                ->where('provider', 'whatsapp_cloud')
+                ->lockForUpdate()
+                ->first();
+            if ($channel === null) {
+                $channel = CustomerChannel::query()->create([
+                    'customer_id' => $customer->id,
+                    'phone' => $phone,
+                    'provider' => 'whatsapp_cloud',
+                    'verification_status' => 'unverified',
+                ]);
+            }
             if ($channel->phone !== $phone) {
                 $channel->forceFill([
                     'phone' => $phone,
@@ -268,7 +281,8 @@ final class CustomerWholesaleAssistant
     {
         $recipients = StaffRecipients::withAnyPermission(['quotations.price']);
         if ($recipients->isNotEmpty()) {
-            Notification::send($recipients, new WholesaleDeskNotification('trader_handoff', "التاجر {$customer->name} طلب موظف مبيعات: {$text}", [
+            $excerpt = mb_substr($text, 0, 500);
+            Notification::send($recipients, new WholesaleDeskNotification('trader_handoff', "التاجر {$customer->name} طلب موظف مبيعات: {$excerpt}", [
                 'customer_id' => $customer->id,
             ]));
         }
@@ -341,8 +355,12 @@ final class CustomerWholesaleAssistant
      * @param  UploadedFile  $file  Uploaded image of handwritten or printed order sheet.
      * @return string Summary of resolved products or Arabic clarification prompt.
      */
-    public function readOrderImage(Customer $customer, UploadedFile $file): string
+    public function readOrderImage(Customer $customer, UploadedFile $file, ?string $sender = null): string
     {
+        if (($verification = $this->requireVerifiedChannel($customer, '', $sender)) !== null) {
+            return $verification;
+        }
+
         try {
             // Treat sheet text strictly as inert catalog data, preventing handwritten prompt injection.
             $read = $this->gemini->generateStructured(
@@ -397,8 +415,12 @@ final class CustomerWholesaleAssistant
      * @param  UploadedFile  $audio  Uploaded audio recording (e.g. OGG/Opus).
      * @return string Merchant-facing reply message.
      */
-    public function transcribeAndReply(Customer $customer, UploadedFile $audio): string
+    public function transcribeAndReply(Customer $customer, UploadedFile $audio, ?string $sender = null): string
     {
+        if (($verification = $this->requireVerifiedChannel($customer, '', $sender)) !== null) {
+            return $verification;
+        }
+
         try {
             // Spoken instructions are transcribed purely as input text, inheriting prompt isolation rules.
             $read = $this->gemini->generateStructured(
@@ -417,7 +439,7 @@ final class CustomerWholesaleAssistant
             return 'الصوت مش واضح. ابعت رسالة مكتوبة.';
         }
 
-        return $this->reply($customer, $text);
+        return $this->reply($customer, $text, null, $sender);
     }
 
     /**
@@ -443,7 +465,7 @@ final class CustomerWholesaleAssistant
             }
             $normalized = EntityResolver::normalizeDigits($clean);
             $qty = null;
-            if (preg_match_all('/\d+(?:[.,]\d+)?/u', $normalized, $numbers) && $numbers[0] !== []) {
+            if (preg_match_all('/(?<![\p{L}\p{N}_])\d+(?:[.,]\d+)?(?![\p{L}\p{N}_])/u', $normalized, $numbers) && $numbers[0] !== []) {
                 $qty = (float) str_replace(',', '.', $numbers[0][0]);
                 // Egyptian trade convention: 'dasta' (دسته) represents a 12-unit batch.
                 if (preg_match('/دست[هة]?/u', $normalized)) {
@@ -477,6 +499,7 @@ final class CustomerWholesaleAssistant
         // Direct single-token match on SKU or barcode avoids expensive fuzzy catalog full-text search.
         if (! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 2) {
             $exact = ProductVariant::query()
+                ->wholesalePurchasable()
                 ->where(fn ($q) => $q->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]))
                 ->limit(2)
                 ->get();
@@ -492,8 +515,7 @@ final class CustomerWholesaleAssistant
 
         return ProductVariant::query()
             ->with('product:id,name_ar')
-            ->where('is_active', true)
-            ->whereHas('product', fn ($q) => $q->where('status', 'published'))
+            ->wholesalePurchasable()
             ->when($terms !== [], function ($x) use ($terms, $clean): void {
                 $x->where(function ($w) use ($terms, $clean): void {
                     foreach ($terms as $term) {

@@ -24,17 +24,18 @@ class WholesaleMonthlyStatements extends Command
             ->commercial()
             ->where('status', 'approved')
             ->whereNotNull('whatsapp_opt_in_at')
-            ->orderBy('id')
-            ->each(function (Customer $customer) use ($outbox, $month): void {
-                $outbox->queue(
-                    "monthly-statement:{$customer->id}:{$month}",
-                    'customer_whatsapp',
-                    $customer->id,
-                    'customer_statement',
-                    ['month' => $month],
-                    $outbox->nextContactAt($customer),
-                    true,
-                );
+            ->chunkById(200, function ($customers) use ($outbox, $month): void {
+                foreach ($customers as $customer) {
+                    $outbox->queue(
+                        "monthly-statement:{$customer->id}:{$month}",
+                        'customer_whatsapp',
+                        $customer->id,
+                        'customer_statement',
+                        ['month' => $month],
+                        $outbox->nextContactAt($customer),
+                        true,
+                    );
+                }
             });
 
         return self::SUCCESS;

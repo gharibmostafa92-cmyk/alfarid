@@ -25,6 +25,14 @@ function load(relative) {
 const root = 'packages/ui/src/wholesale-portal/data/';
 const mappers = load(`${root}mappers.js`);
 
+test('portal IDs accept only positive safe integers', () => {
+  const { parsePortalId } = load(`${root}helpers.js`);
+  assert.equal(parsePortalId('42'), 42);
+  assert.equal(parsePortalId('0'), null);
+  assert.equal(parsePortalId('999999999999999999999'), null);
+  assert.equal(parsePortalId('abc'), null);
+});
+
 test('checkout preserves retry key for in-progress conflicts and network failures', () => {
   const { shouldRenewCheckoutKey } = load(`${root}helpers.js`);
   assert.equal(shouldRenewCheckoutKey({ status: 409, code: 'retryable_conflict' }), false);

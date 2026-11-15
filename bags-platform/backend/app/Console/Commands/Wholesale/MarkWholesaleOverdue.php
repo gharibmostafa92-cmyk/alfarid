@@ -28,15 +28,16 @@ class MarkWholesaleOverdue extends Command
             ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
             ->where('due_at', '<', now()->startOfDay())
-            ->orderBy('id')
-            ->each(function (Order $order) use (&$marked): void {
-                $due = $order->due_at?->toDateString() ?? '';
-                $key = "order-overdue:{$order->id}:{$due}";
-                if (OutboundMessage::query()->where('idempotency_key', $key)->exists()) {
-                    return;
+            ->chunkById(200, function ($orders) use (&$marked): void {
+                foreach ($orders as $order) {
+                    $due = $order->due_at?->toDateString() ?? '';
+                    $key = "order-overdue:{$order->id}:{$due}";
+                    if (OutboundMessage::query()->where('idempotency_key', $key)->exists()) {
+                        continue;
+                    }
+                    OrderBecameOverdue::dispatch($order);
+                    $marked++;
                 }
-                OrderBecameOverdue::dispatch($order);
-                $marked++;
             });
 
         $this->info("Marked {$marked} overdue orders.");

@@ -179,7 +179,7 @@ class UnifiedNotificationsTest extends TestCase
         ]);
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $po->id]);
 
-        app(ProcurementService::class)->sendPurchaseOrder($po);
+        app(ProcurementService::class)->sendPurchaseOrder($po, $this->admin);
 
         $this->assertSame(1, $supplierUser->fresh()->notifications()->count());
         $this->assertSame('purchase_order_sent', $supplierUser->fresh()->notifications()->first()->data['kind']);

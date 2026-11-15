@@ -58,7 +58,16 @@
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/orders/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/products/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/quick-order/page.tsx",
-                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx"
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Pricing/PriceListItemController.php",
+                    "bags-platform/backend/app/Http/Requests/Admin/Pricing/ImportPriceListItemsRequest.php",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/auth-screens.jsx",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/data/useApi.js",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/orders-screens.jsx",
+                    "bags-platform/backend/database/migrations/2026_11_15_000001_include_credit_notes_in_wholesale_order_overallocated.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000002_index_wholesale_reference_identity.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Customer/CustomerGroupController.php",
+                    "bags-platform/backend/app/Services/Shared/SpokenQuantity.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

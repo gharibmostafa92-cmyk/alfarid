@@ -36,6 +36,7 @@ class CustomerGroupController extends Controller implements HasMiddleware
 
     public function index(Request $request): AnonymousResourceCollection
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'is_active' => ['nullable', 'boolean'],
@@ -56,8 +57,10 @@ class CustomerGroupController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
-    public function show(CustomerGroup $customerGroup): CustomerGroupResource
+    public function show(Request $request, CustomerGroup $customerGroup): CustomerGroupResource
     {
+        $this->branchAccess->assertCentralAccess($request->user());
+
         return CustomerGroupResource::make($customerGroup->loadCount('customers'));
     }
 

@@ -35,46 +35,62 @@ class WholesalePriceListService
 
     private function calculateRows(Customer $customer, ?int $limit): array
     {
-        $variants = ProductVariant::query()->with('product')
-            ->where('is_active', true)
-            ->whereHas('product', fn ($q) => $q->where('status', ProductStatus::Published->value))
-            ->orderBy('sku')
-            ->when($limit !== null, fn ($query) => $query->limit($limit))
-            ->get();
+        $maxRows = $limit !== null ? min($limit, 10000) : 10000;
+        $rows = [];
 
-        $availability = StockLevel::query()
-            ->whereIn('product_variant_id', $variants->pluck('id')->all())
-            ->groupBy('product_variant_id')
-            ->selectRaw('product_variant_id, SUM(available) AS total_available')
-            ->pluck('total_available', 'product_variant_id')
-            ->map(fn ($v) => (float) $v)
-            ->all();
+        ProductVariant::query()->with('product')
+            ->wholesalePurchasable()
+            ->orderBy('id')
+            ->chunkById(500, function ($variants) use ($customer, &$rows, $maxRows): bool {
+                $remaining = $maxRows - count($rows);
+                if ($remaining <= 0) {
+                    return false;
+                }
+                if ($variants->count() > $remaining) {
+                    $variants = $variants->take($remaining);
+                }
 
-        // Preload customer pricing rules and tier overrides once to eliminate N+1 group queries.
-        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
+                $variantIds = $variants->pluck('id')->all();
+                $availability = StockLevel::query()
+                    ->whereIn('product_variant_id', $variantIds)
+                    ->groupBy('product_variant_id')
+                    ->selectRaw('product_variant_id, SUM(available) AS total_available')
+                    ->pluck('total_available', 'product_variant_id')
+                    ->map(fn ($v) => (float) $v)
+                    ->all();
 
-        return $variants->map(function (ProductVariant $variant) use ($customer, $availability, $ctx): array {
-            try {
-                $resolved = $this->pricing->resolve($variant, $customer, 1, null, $ctx);
-                $price = $resolved['unit_price'];
-                $base = $resolved['base_price'];
-                $tiers = $this->pricing->tiersFor($variant, $customer, $ctx);
-            } catch (BusinessException) {
-                // Emit unpriced variants with null instead of aborting the bulk catalog export.
-                $price = null;
-                $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;
-                $tiers = [];
-            }
+                // Preload customer pricing rules and tier overrides once per chunk to eliminate N+1 group queries.
+                $ctx = $this->pricing->contextFor($customer, $variantIds);
 
-            return [
-                'sku' => $variant->sku,
-                'barcode' => $variant->barcode,
-                'product_name' => $variant->product?->name_ar,
-                'base_price' => $base,
-                'wholesale_price' => $price,
-                'tier_prices' => $tiers,
-                'available_qty' => $availability[$variant->id] ?? 0.0,
-            ];
-        })->all();
+                foreach ($variants as $variant) {
+                    try {
+                        $resolved = $this->pricing->resolve($variant, $customer, 1, null, $ctx);
+                        $price = $resolved['unit_price'];
+                        $base = $resolved['base_price'];
+                        $tiers = $this->pricing->tiersFor($variant, $customer, $ctx);
+                    } catch (BusinessException) {
+                        // Emit unpriced variants with null instead of aborting the bulk catalog export.
+                        $price = null;
+                        $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;
+                        $tiers = [];
+                    }
+
+                    $rows[] = [
+                        'sku' => $variant->sku,
+                        'barcode' => $variant->barcode,
+                        'product_name' => $variant->product?->name_ar,
+                        'base_price' => $base,
+                        'wholesale_price' => $price,
+                        'tier_prices' => $tiers,
+                        'available_qty' => $availability[$variant->id] ?? 0.0,
+                    ];
+                }
+
+                return count($rows) < $maxRows;
+            });
+
+        usort($rows, static fn (array $a, array $b): int => strcmp((string) $a['sku'], (string) $b['sku']));
+
+        return $rows;
     }
 }

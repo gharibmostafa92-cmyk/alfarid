@@ -174,4 +174,18 @@ class TaskTxtScoreReceiptJobTest extends TestCase
         $this->runJob($notice->id);
         $this->assertNull($notice->fresh()->match_score);
     }
+
+    public function test_receipt_score_is_not_written_after_notice_is_reviewed(): void
+    {
+        $this->enableVision();
+        $notice = $this->noticeWithReceipt();
+        $gemini = \Mockery::mock(GeminiClient::class);
+        $gemini->shouldReceive('generateStructured')->once()->andReturnUsing(function () use ($notice): array {
+            $notice->update(['status' => 'rejected']);
+            return ['amount' => '1500.00', 'reference' => 'TXN-1', 'date' => '2026-11-07', 'bank' => 'CIB'];
+        });
+        app()->instance(GeminiClient::class, $gemini);
+        $this->runJob($notice->id);
+        $this->assertNull($notice->fresh()->match_score);
+    }
 }

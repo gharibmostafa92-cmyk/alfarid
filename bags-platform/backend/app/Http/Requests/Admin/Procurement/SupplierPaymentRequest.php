@@ -27,10 +27,10 @@ class SupplierPaymentRequest extends FormRequest
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
             'treasury_id' => ['required', 'integer', 'exists:treasuries,id'],
             'supplier_invoice_id' => ['nullable', 'integer', 'exists:supplier_invoices,id'],
-            'amount' => ['required', 'numeric', 'gt:0', 'max:9999999999.99', 'decimal:0,2'],
+            'amount' => ['required', 'numeric', 'gt:0', 'max:19999999999.98', 'decimal:0,2'],
             'payment_method' => ['required', Rule::enum(SupplierPaymentMethod::class)],
             'reference_no' => ['required_unless:payment_method,cash', 'nullable', 'string', 'max:100'],
-            'payment_date' => ['required', 'date', 'before_or_equal:today'],
+            'payment_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

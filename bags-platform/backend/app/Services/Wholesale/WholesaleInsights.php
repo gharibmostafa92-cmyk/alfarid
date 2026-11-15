@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Wholesale;
 
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\RefundMethod;
 use App\Enums\Wholesale\QuotationStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Quotation;
@@ -27,7 +29,7 @@ final class WholesaleInsights
      */
     public function collectionPriorities(): array
     {
-        return Order::query()
+        $orders = Order::query()
             ->with('customer:id,name,company_name')
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
@@ -36,21 +38,30 @@ final class WholesaleInsights
             ->whereNotIn('status', [OrderStatus::Cancelled])
             ->orderBy('due_at')
             ->limit(30)
-            ->get()
-            ->map(function (Order $order): array {
+            ->get();
+
+        $covered = $this->coveredByOrderIds($orders->pluck('id')->all());
+
+        return $orders
+            ->map(function (Order $order) use ($covered): ?array {
+                $remaining = max(0.0, round((float) $order->grand_total - ($covered[$order->id] ?? 0.0), 2));
+                if ($remaining <= 0.0) {
+                    return null;
+                }
                 $days = (int) $order->due_at?->diffInDays(now());
                 $name = $order->customer?->company_name ?: $order->customer?->name;
 
                 return [
                     'customer' => $name,
                     'order_number' => $order->order_number,
-                    'amount' => (string) $order->grand_total,
+                    'amount' => number_format($remaining, 2, '.', ''),
                     'days_late' => $days,
                     // Debt exposure index: weights outstanding value by days overdue to prioritize large old balances.
-                    'score' => round((float) $order->grand_total * max(1, $days), 2),
+                    'score' => round($remaining * max(1, $days), 2),
                     'draft' => "يا {$name}، طلب {$order->order_number} متأخر {$days} يوم. نأكد موعد السداد؟",
                 ];
             })
+            ->filter()
             ->sortByDesc('score')
             ->values()
             ->all();
@@ -108,7 +119,8 @@ final class WholesaleInsights
             ->selectRaw('status, count(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
-        $accepted = (int) ($counts[QuotationStatus::Accepted->value] ?? 0);
+        $accepted = (int) ($counts[QuotationStatus::Accepted->value] ?? 0)
+            + (int) ($counts[QuotationStatus::ConvertedToOrder->value] ?? 0);
         // Exclude pending/draft quotes from denominator so in-flight negotiations do not artificially depress rate.
         $closed = $accepted
             + (int) ($counts[QuotationStatus::Rejected->value] ?? 0)
@@ -142,30 +154,45 @@ final class WholesaleInsights
 
         $customerIds = $customers->pluck('id')->all();
 
-        // Disqualify merchants with any unpaid orders past due_at, regardless of total utilization.
+        // Disqualify merchants with any non-cancelled unpaid orders past due_at, regardless of total utilization.
         $overdueCustomerIds = Order::query()
             ->whereIn('customer_id', $customerIds)
             ->where('payment_status', 'unpaid')
+            ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
             ->where('due_at', '<', now())
             ->pluck('customer_id')
             ->flip()
             ->all();
 
-        $usedByCustomer = Order::query()
+        $openOrders = Order::query()
             ->whereIn('customer_id', $customerIds)
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
-            ->groupBy('customer_id')
-            ->selectRaw('customer_id, SUM(grand_total) as total_used')
-            ->pluck('total_used', 'customer_id')
-            ->all();
+            ->where('status', '!=', OrderStatus::Cancelled->value)
+            ->get(['id', 'customer_id', 'grand_total']);
+        $covered = $this->coveredByOrderIds($openOrders->pluck('id')->all());
+        $usedByCustomer = [];
+        foreach ($openOrders as $order) {
+            $remaining = max(0.0, (float) $order->grand_total - ($covered[$order->id] ?? 0.0));
+            $usedByCustomer[$order->customer_id] = ($usedByCustomer[$order->customer_id] ?? 0.0) + $remaining;
+        }
+        $freeByCustomer = DB::table('wholesale_payment_notices as n')
+            ->whereIn('n.customer_id', $customerIds)->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->where(fn ($q) => $q->whereNull('n.order_id')->orWhereExists(fn ($s) => $s->selectRaw('1')->from('orders as o')->whereColumn('o.id', 'n.order_id')->where('o.status', OrderStatus::Cancelled->value)))
+            ->groupBy('n.customer_id')->selectRaw('n.customer_id, SUM(n.amount) as total')->pluck('total', 'customer_id');
+        $allocatedByCustomer = DB::table('wholesale_payment_allocations as a')
+            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+            ->join('orders as o', 'o.id', '=', 'a.order_id')
+            ->whereIn('n.customer_id', $customerIds)->where('o.status', '!=', OrderStatus::Cancelled->value)
+            ->groupBy('n.customer_id')->selectRaw('n.customer_id, SUM(a.amount) as total')->pluck('total', 'customer_id');
 
         foreach ($customers as $customer) {
             if (isset($overdueCustomerIds[$customer->id])) {
                 continue;
             }
-            $used = (float) ($usedByCustomer[$customer->id] ?? 0.0);
+            $floating = max(0.0, (float) ($freeByCustomer[$customer->id] ?? 0) - (float) ($allocatedByCustomer[$customer->id] ?? 0));
+            $used = max(0.0, (float) ($usedByCustomer[$customer->id] ?? 0.0) - $floating);
             $limit = (float) $customer->credit_limit;
             // Target merchants with at least 90% credit utilization to proactively prevent order checkout blockages.
             if ($limit <= 0 || ($used / $limit) < 0.9) {
@@ -190,7 +217,12 @@ final class WholesaleInsights
     public function anomalies(): array
     {
         $out = [];
-        $notices = WholesalePaymentNotice::query()->whereNotNull('ocr_payload')->limit(100)->get();
+        $notices = WholesalePaymentNotice::query()
+            ->where('status', WholesalePaymentNoticeStatus::PendingReview)
+            ->whereNotNull('ocr_payload')
+            ->latest('id')
+            ->limit(100)
+            ->get();
         foreach ($notices as $notice) {
             $read = $notice->ocr_payload['amount'] ?? null;
             if (! is_string($read) || $read === '') {
@@ -208,5 +240,51 @@ final class WholesaleInsights
         }
 
         return $out;
+    }
+
+    /**
+     * Sums approved linked notices, FIFO allocations, and refunded credit notes per order ID.
+     *
+     * @param  list<int>  $orderIds
+     * @return array<int, float>
+     */
+    private function coveredByOrderIds(array $orderIds): array
+    {
+        if ($orderIds === []) {
+            return [];
+        }
+
+        $covered = [];
+        $linked = DB::table('wholesale_payment_notices')
+            ->whereIn('order_id', $orderIds)
+            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(amount) as total')
+            ->pluck('total', 'order_id');
+        foreach ($linked as $orderId => $amount) {
+            $covered[(int) $orderId] = ($covered[(int) $orderId] ?? 0.0) + (float) $amount;
+        }
+
+        $allocated = DB::table('wholesale_payment_allocations')
+            ->whereIn('order_id', $orderIds)
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(amount) as total')
+            ->pluck('total', 'order_id');
+        foreach ($allocated as $orderId => $amount) {
+            $covered[(int) $orderId] = ($covered[(int) $orderId] ?? 0.0) + (float) $amount;
+        }
+
+        $creditNotes = DB::table('return_requests')
+            ->whereIn('order_id', $orderIds)
+            ->where('status', 'refunded')
+            ->where('refund_method', RefundMethod::CreditNote->value)
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(total_refund_amount) as total')
+            ->pluck('total', 'order_id');
+        foreach ($creditNotes as $orderId => $amount) {
+            $covered[(int) $orderId] = ($covered[(int) $orderId] ?? 0.0) + (float) $amount;
+        }
+
+        return $covered;
     }
 }

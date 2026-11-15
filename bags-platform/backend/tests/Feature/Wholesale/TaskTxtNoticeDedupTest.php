@@ -81,11 +81,8 @@ class TaskTxtNoticeDedupTest extends TestCase
         $this->assertDatabaseCount('treasury_transactions', 0);
     }
 
-    public function test_reference_block_persists_after_reject_while_receipt_check_differs(): void
+    public function test_reference_can_be_resubmitted_after_reject_and_remains_blocked_while_active(): void
     {
-        // Documents the pending-unification split: the per-trader reference
-        // check includes rejected notices, the service receipt check excludes
-        // them (the unique index excludes rejected AND reversed).
         $service = app(WholesalePaymentNoticeService::class);
         $admin = \App\Models\User::factory()->create();
         $admin->assignRole('Super Admin');
@@ -94,9 +91,14 @@ class TaskTxtNoticeDedupTest extends TestCase
         $first = \App\Models\WholesalePaymentNotice::query()->findOrFail($firstId);
         $service->reject($first, $admin->id, 'غير واضح');
 
-        // Same reference after rejection stays blocked for the same trader.
+        // After HIGH-05 unification, rejected notices no longer block reference resubmission.
         $this->submit(
             ['reference_number' => 'RETRY-1', 'receipt' => UploadedFile::fake()->image('retry.jpg', 300, 300)]
+        )->assertCreated();
+
+        // While the resubmitted notice is PendingReview, a duplicate reference is blocked.
+        $this->submit(
+            ['reference_number' => 'RETRY-1', 'receipt' => UploadedFile::fake()->image('dup.jpg', 350, 350)]
         )->assertConflict();
     }
 }

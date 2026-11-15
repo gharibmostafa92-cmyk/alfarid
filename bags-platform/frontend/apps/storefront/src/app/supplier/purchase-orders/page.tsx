@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { supplierPortalApi, type SupplierPortalPO, type SupplierPortalPOStatus } from '@alfarid/api-client';
 import { formatStorePrice } from '@alfarid/utils';
 
@@ -23,8 +24,20 @@ const statusLabel: Record<SupplierPortalPOStatus, string> = {
   cancelled: 'ملغاة',
 };
 
+const statusValues = new Set<SupplierPortalPOStatus>(statuses.flatMap((item) => item.value ? [item.value] : []));
+
 export default function SupplierPurchaseOrdersPage() {
-  const [status, setStatus] = useState<SupplierPortalPOStatus | undefined>();
+  return (
+    <Suspense fallback={<main id="main-content" className="mx-auto max-w-5xl px-5 py-8"><p role="status">جارٍ التحميل…</p></main>}>
+      <SupplierPurchaseOrdersContent />
+    </Suspense>
+  );
+}
+
+function SupplierPurchaseOrdersContent() {
+  const searchParams = useSearchParams();
+  const requestedStatus = searchParams.get('status') as SupplierPortalPOStatus | null;
+  const [status, setStatus] = useState<SupplierPortalPOStatus | undefined>(requestedStatus && statusValues.has(requestedStatus) ? requestedStatus : undefined);
   const [orders, setOrders] = useState<SupplierPortalPO[] | null>(null);
   const [error, setError] = useState('');
 

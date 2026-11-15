@@ -1,12 +1,21 @@
 # Linux bridge demonstration. VIP is reachable inside appnet on Docker Desktop.
 services:
+  # Internal callers follow the active HAProxy VIP when the VIP profile is enabled.
+  storefront1:
+    environment: {API_INTERNAL_URL: http://172.31.0.100:8081}
+  storefront2:
+    environment: {API_INTERNAL_URL: http://172.31.0.100:8081}
+  wa-gateway:
+    environment: {WA_LARAVEL_INBOUND_URL: http://172.31.0.100:8081/api/v1/webhooks/whatsapp/inbound}
   keepalived1:
     image: alfarid-keepalived:local
     build: {context: .., dockerfile: infrastructure/docker/keepalived.Dockerfile}
     network_mode: service:haproxy1
     cap_add: [NET_ADMIN, NET_RAW]
+    environment:
+      KEEPALIVED_AUTH_PASS: ${KEEPALIVED_AUTH_PASS:?set KEEPALIVED_AUTH_PASS}
     volumes: [./keepalived/keepalived-master.conf:/opt/keepalived.conf:ro]
-    entrypoint: [sh, -c, 'cp /opt/keepalived.conf /tmp/keepalived.conf && chmod 644 /tmp/keepalived.conf && exec keepalived --dont-fork --log-console --use-file=/tmp/keepalived.conf']
+    entrypoint: [sh, -ec, 'vrrp_pass=$$(printf "%.8s" "$${KEEPALIVED_AUTH_PASS}"); sed "s/__KEEPALIVED_AUTH_PASS__/$${vrrp_pass}/g" /opt/keepalived.conf > /tmp/keepalived.conf && chmod 600 /tmp/keepalived.conf && exec keepalived --dont-fork --log-console --use-file=/tmp/keepalived.conf']
     depends_on: [haproxy1]
     profiles: [vip]
   keepalived2:
@@ -14,7 +23,9 @@ services:
     build: {context: .., dockerfile: infrastructure/docker/keepalived.Dockerfile}
     network_mode: service:haproxy2
     cap_add: [NET_ADMIN, NET_RAW]
+    environment:
+      KEEPALIVED_AUTH_PASS: ${KEEPALIVED_AUTH_PASS:?set KEEPALIVED_AUTH_PASS}
     volumes: [./keepalived/keepalived-backup.conf:/opt/keepalived.conf:ro]
-    entrypoint: [sh, -c, 'cp /opt/keepalived.conf /tmp/keepalived.conf && chmod 644 /tmp/keepalived.conf && exec keepalived --dont-fork --log-console --use-file=/tmp/keepalived.conf']
+    entrypoint: [sh, -ec, 'vrrp_pass=$$(printf "%.8s" "$${KEEPALIVED_AUTH_PASS}"); sed "s/__KEEPALIVED_AUTH_PASS__/$${vrrp_pass}/g" /opt/keepalived.conf > /tmp/keepalived.conf && chmod 600 /tmp/keepalived.conf && exec keepalived --dont-fork --log-console --use-file=/tmp/keepalived.conf']
     depends_on: [haproxy2]
     profiles: [vip]

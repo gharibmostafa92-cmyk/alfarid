@@ -242,3 +242,27 @@ test('rejects a chunked body that crosses the byte limit even when fetch wraps t
   });
   assert.equal(response.status, 413);
 });
+
+test('uses 180s upstream timeout for AI conversation turns and 60s for regular API calls', async () => {
+  const timeouts: number[] = [];
+  const originalTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = ((ms: number) => {
+    timeouts.push(ms);
+    return originalTimeout(ms);
+  }) as typeof AbortSignal.timeout;
+  try {
+    const config = {
+      upstream,
+      aiUpstream: 'https://private-ai.run.app',
+      origins: [office],
+      clientIpSecret,
+      identityToken: async () => 'service-token',
+      send: async () => new Response('ok', { status: 200 }),
+    };
+    await proxyCloudRunApi(makeRequest(office, { method: 'POST' }), ['admin', 'ai', 'conversations', '7', 'stream'], config);
+    await proxyCloudRunApi(makeRequest(office, { method: 'POST' }), ['pos', 'sales'], config);
+    assert.deepEqual(timeouts, [180_000, 60_000]);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+});

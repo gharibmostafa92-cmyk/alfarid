@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\Procurement\PurchaseRequestRequest;
 use App\Http\Resources\Admin\Procurement\PurchaseRequestResource;
 use App\Models\PurchaseRequest;
 use App\Models\User;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Procurement\ProcurementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,7 +35,10 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         ];
     }
 
-    public function __construct(protected ProcurementService $procurement) {}
+    public function __construct(
+        protected ProcurementService $procurement,
+        protected BranchAccess $branchAccess,
+    ) {}
 
     /**
      * List paginated purchase requisitions with branch and status filtering.
@@ -45,8 +49,10 @@ class PurchaseRequestController extends Controller implements HasMiddleware
             'status' => ['nullable', Rule::enum(PurchaseRequestStatus::class)],
             'branch_id' => ['nullable', 'integer', 'min:1'],
         ]);
+        $restrictedBranch = $this->branchAccess->restrictedBranch($request->user());
         $requests = PurchaseRequest::query()
             ->with(['branch:id,name', 'items.variant'])
+            ->when($restrictedBranch !== null, fn ($q) => $q->where('branch_id', $restrictedBranch))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['branch_id'] ?? null, fn ($q, $branchId) => $q->where('branch_id', (int) $branchId))
             ->latest('id')
@@ -70,8 +76,10 @@ class PurchaseRequestController extends Controller implements HasMiddleware
     /**
      * Retrieve details of a specific purchase requisition.
      */
-    public function show(PurchaseRequest $purchaseRequest): PurchaseRequestResource
+    public function show(Request $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
+        $this->branchAccess->assertBranch($request->user()->id, (int) $purchaseRequest->branch_id);
+
         return $this->requestResource($purchaseRequest);
     }
 
@@ -80,7 +88,7 @@ class PurchaseRequestController extends Controller implements HasMiddleware
      */
     public function update(PurchaseRequestRequest $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
-        $pr = $this->procurement->updatePurchaseRequest($purchaseRequest, $request->validated());
+        $pr = $this->procurement->updatePurchaseRequest($purchaseRequest, $request->validated(), $request->user());
 
         return $this->requestResource($pr);
     }
@@ -88,9 +96,9 @@ class PurchaseRequestController extends Controller implements HasMiddleware
     /**
      * Delete a draft purchase requisition.
      */
-    public function destroy(PurchaseRequest $purchaseRequest): JsonResponse
+    public function destroy(Request $request, PurchaseRequest $purchaseRequest): JsonResponse
     {
-        $this->procurement->deletePurchaseRequest($purchaseRequest);
+        $this->procurement->deletePurchaseRequest($purchaseRequest, $request->user());
 
         return response()->json(['message' => 'تم حذف طلب الشراء.']);
     }
@@ -111,24 +119,24 @@ class PurchaseRequestController extends Controller implements HasMiddleware
     /**
      * Submit a draft purchase requisition for review.
      */
-    public function submit(PurchaseRequest $purchaseRequest): PurchaseRequestResource
+    public function submit(Request $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
-        return PurchaseRequestResource::make($this->procurement->submitPurchaseRequest($purchaseRequest));
+        return PurchaseRequestResource::make($this->procurement->submitPurchaseRequest($purchaseRequest, $request->user()));
     }
 
     /**
      * Approve a submitted purchase requisition.
      */
-    public function approve(PurchaseRequest $purchaseRequest): PurchaseRequestResource
+    public function approve(Request $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
-        return PurchaseRequestResource::make($this->procurement->approvePurchaseRequest($purchaseRequest));
+        return PurchaseRequestResource::make($this->procurement->approvePurchaseRequest($purchaseRequest, $request->user()));
     }
 
     /**
      * Reject a submitted purchase requisition.
      */
-    public function reject(PurchaseRequest $purchaseRequest): PurchaseRequestResource
+    public function reject(Request $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
-        return PurchaseRequestResource::make($this->procurement->rejectPurchaseRequest($purchaseRequest));
+        return PurchaseRequestResource::make($this->procurement->rejectPurchaseRequest($purchaseRequest, $request->user()));
     }
 }

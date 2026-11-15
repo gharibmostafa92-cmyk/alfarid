@@ -278,8 +278,19 @@ export const QuoteForm = ({ id }) => {
   const [errs, setErrs] = useState({});
   const [confirm, setConfirm] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [draftId, setDraftId] = useState(editingId);
   const savedId = React.useRef(editingId);
   const quoteApi = useApi((signal) => wholesaleEndpoints.quote(editingId, signal).then(mapQuote), [editingId], !!editingId);
+
+  useEffect(() => {
+    savedId.current = editingId;
+    setDraftId(editingId);
+    if (!editingId) {
+      setItems([]);
+      setNote('');
+      setErrs({});
+    }
+  }, [editingId]);
 
   useEffect(() => {
     if (quoteApi.state === 'ready' && quoteApi.data) {
@@ -287,8 +298,7 @@ export const QuoteForm = ({ id }) => {
         setItems((m.items || []).map((it) => ({ variant_id: it.variant_id, name: it.name, sku: it.sku, qty: it.qty, target: it.target != null ? String(it.target) : '' })));
         setNote(m.trader_note || '');
     }
-    savedId.current = editingId;
-  }, [editingId, quoteApi.data]);
+  }, [quoteApi.state, quoteApi.data]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 400);
@@ -326,6 +336,7 @@ export const QuoteForm = ({ id }) => {
     try {
       const saved = savedId.current ? await wholesaleEndpoints.updateQuote(savedId.current, body) : await wholesaleEndpoints.createQuote(body);
       savedId.current = saved.id;
+      setDraftId(saved.id);
       return saved;
     } catch (err) {
       const info = apiError(err);
@@ -360,9 +371,11 @@ export const QuoteForm = ({ id }) => {
   };
 
   const removeDraft = async () => {
+    const targetId = savedId.current ?? draftId ?? editingId;
+    if (!targetId) return;
     setBusy(true);
     try {
-      await wholesaleEndpoints.deleteQuote(editingId);
+      await wholesaleEndpoints.deleteQuote(targetId);
       toast('تم حذف المسودة');
       go('quotes');
     } catch (err) {
@@ -377,8 +390,8 @@ export const QuoteForm = ({ id }) => {
 
   return (
     <>
-      <PageHead en={editingId ? 'تعديل مسودة' : 'New Quote'} crumb={<Crumb items={[{ label: 'عروض الأسعار', go: () => go('quotes') }, { label: editingId ? 'تعديل مسودة' : 'طلب جديد' }]} />} ar={editingId ? 'مسودة — يمكنك التعديل قبل الإرسال' : 'اختر المنتجات والكميات، واقترح السعر المستهدف لو حابب'}>
-        {editingId && <button className="btn-pill is-danger" onClick={() => setConfirm('delete')}><i className="fa-regular fa-trash-can" /> حذف المسودة</button>}
+      <PageHead en={draftId ? 'تعديل مسودة' : 'New Quote'} crumb={<Crumb items={[{ label: 'عروض الأسعار', go: () => go('quotes') }, { label: draftId ? 'تعديل مسودة' : 'طلب جديد' }]} />} ar={draftId ? 'مسودة — يمكنك التعديل قبل الإرسال' : 'اختر المنتجات والكميات، واقترح السعر المستهدف لو حابب'}>
+        {draftId && <button className="btn-pill is-danger" onClick={() => setConfirm('delete')}><i className="fa-regular fa-trash-can" /> حذف المسودة</button>}
       </PageHead>
       <div className="grid-2" style={{ gridTemplateColumns: '1fr 340px' }}>
         <section className="panel">
@@ -560,17 +573,24 @@ export const ReturnForm = ({ orderId }) => {
 
   const toggle = (id) => setSel((s) => ({ ...s, [id]: s[id] ? undefined : { qty: 1, reason: '', files: [] } }));
   const set = (id, k, v) => setSel((s) => ({ ...s, [id]: { ...s[id], [k]: v } }));
-  const chosen = Object.entries(sel).filter(([, v]) => v);
+  const chosen = (order?.items || []).map((it) => [String(it.id), sel[it.id]]).filter(([, v]) => v);
   const totalFiles = chosen.reduce((a, [, v]) => a + v.files.length, 0);
 
   const addFiles = (id, list) => {
-    const cur = sel[id];
-    if (!cur) return;
-    const next = [...cur.files, ...list];
-    const error = validateReturnFiles(chosen.map(([itemId, value]) => String(itemId) === String(id) ? next : value.files));
-    setErrs((previous) => ({ ...previous, files: error }));
-    if (error) { toast(error); return; }
-    set(id, 'files', next);
+    setSel((s) => {
+      const cur = s[id];
+      if (!cur) return s;
+      const next = [...cur.files, ...list];
+      const nextSel = { ...s, [id]: { ...cur, files: next } };
+      const nextFiles = Object.values(nextSel).filter(Boolean).map((v) => v.files);
+      const error = validateReturnFiles(nextFiles);
+      setErrs((previous) => ({ ...previous, files: error }));
+      if (error) {
+        toast(error);
+        return s;
+      }
+      return nextSel;
+    });
   };
 
   const submit = async () => {

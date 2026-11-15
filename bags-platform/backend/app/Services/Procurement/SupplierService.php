@@ -55,9 +55,12 @@ class SupplierService
             }
             $supplier->update($data);
             if (array_key_exists('is_active', $data) && $data['is_active'] === false && $supplier->wasChanged('is_active')) {
+                // Lock portal users so a concurrent login cannot mint a token after
+                // the deactivation revokes the old sessions.
+                $userIds = $supplier->users()->lockForUpdate()->pluck('id');
                 DB::table('personal_access_tokens')
                     ->where('tokenable_type', (new SupplierUser)->getMorphClass())
-                    ->whereIn('tokenable_id', $supplier->users()->select('id'))
+                    ->whereIn('tokenable_id', $userIds)
                     ->delete();
             }
 

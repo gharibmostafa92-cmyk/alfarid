@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Models\Concerns\TracksEditVersion;
 use App\Support\CatalogMedia;
 use Database\Factories\ProductVariantFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -50,6 +53,22 @@ class ProductVariant extends Model implements HasMedia
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Restricts variants to active items on published wholesale/both products under active category trees.
+     */
+    public function scopeWholesalePurchasable(Builder $query): Builder
+    {
+        return $query->where('is_active', true)
+            ->whereHas('product', fn (Builder $p) => $p
+                ->where('status', ProductStatus::Published->value)
+                ->whereIn('sales_channel', [SalesChannel::Wholesale->value, SalesChannel::Both->value])
+                ->whereHas('category', fn (Builder $c) => $c
+                    ->where('is_active', true)
+                    ->whereDoesntHave('parent', fn (Builder $parent) => $parent
+                        ->where('is_active', false)
+                        ->orWhereHas('parent', fn (Builder $gp) => $gp->where('is_active', false)))));
     }
 
     /** Compatibility with the catalog's existing editable retail price. */

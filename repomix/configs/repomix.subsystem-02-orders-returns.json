@@ -68,7 +68,9 @@
                     "bags-platform/backend/app/Http/Requests/Store/Orders/CheckoutRequest.php",
                     "bags-platform/backend/app/Http/Resources/Store/Orders/OrderResource.php",
                     "bags-platform/backend/app/Http/Requests/Store/Orders/ShippingOptionsRequest.php",
-                    "bags-platform/backend/app/Http/Resources/Store/Orders/TrackOrderResource.php"
+                    "bags-platform/backend/app/Http/Resources/Store/Orders/TrackOrderResource.php",
+                    "bags-platform/backend/app/Console/Commands/Maintenance/MigrateUploadsToR2.php",
+                    "bags-platform/backend/app/Console/Commands/Maintenance/PruneOrphanMediaFiles.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

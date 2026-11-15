@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Pricing;
 
+use App\Rules\RejectExecutableSignature;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ImportPriceListItemsRequest extends FormRequest
@@ -19,7 +20,7 @@ class ImportPriceListItemsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240', new RejectExecutableSignature],
         ];
     }
 }

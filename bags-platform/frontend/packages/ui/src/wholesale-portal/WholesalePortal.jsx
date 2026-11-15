@@ -8,7 +8,7 @@ import { authEndpoints, cartEndpoints, wholesaleEndpoints, defaultApiClient } fr
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
 import { Async, ErrorState } from './ui-primitives';
-import { apiError } from './data/helpers';
+import { apiError, parsePortalId } from './data/helpers';
 import { mapAccount, mapCart } from './data/mappers';
 import { fmt } from './data/format';
 import {
@@ -85,7 +85,8 @@ const NAV_GROUPS = [
 const readRoute = (initialScreen) => {
   if (typeof window === 'undefined') return { screen: initialScreen, id: null };
   const p = new URLSearchParams(window.location.search);
-  return { screen: p.get('screen') || initialScreen, id: p.get('id') ? Number(p.get('id')) : null };
+  const rawId = p.get('id');
+  return { screen: p.get('screen') || initialScreen, id: parsePortalId(rawId) };
 };
 
 /**
@@ -155,11 +156,19 @@ export function WholesalePortal({
   const addToCart = useCallback(async (lines) => {
     let last = null;
     try {
-      for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
+      if (lines.length > 0 && lines.every((l) => l.sku)) {
+        const res = await wholesaleEndpoints.quickAddToCart(lines.map((l) => ({ sku: l.sku, qty: l.qty })));
+        if (res?.cart) last = res.cart;
+      } else {
+        for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
+      }
       toast('تمت الإضافة إلى سلة المشتريات بنجاح');
     } catch (e) { toast(apiError(e).message); }
-    finally { if (last) setCartState(mapCart(last)); }
-  }, [toast, setCartState]);
+    finally {
+      if (last) setCartState(mapCart(last));
+      else await loadCart();
+    }
+  }, [toast, setCartState, loadCart]);
 
   const applyCartResponse = useCallback((c) => {
     if (c) setCartState(mapCart(c));

@@ -82,9 +82,9 @@ class TaskTxtStatementParityTest extends TestCase
         $statement = $service->statement($this->customer);
         $breakdown = $service->balanceBreakdown($this->customer);
 
-        $this->assertSame(400.0, $statement['closing_balance']);
+        $this->assertSame('400.00', $statement['closing_balance']);
         $this->assertSame('400.00', $breakdown['outstanding']);
-        $this->assertSame($statement['closing_balance'], (float) $breakdown['outstanding']);
+        $this->assertSame($statement['closing_balance'], $breakdown['outstanding']);
     }
 
     public function test_statement_range_keeps_opening_balance_and_orders_same_day_debits_first(): void
@@ -133,7 +133,7 @@ class TaskTxtStatementParityTest extends TestCase
         $this->assertNotContains($cancelled->order_number, $references);
         $this->assertNotContains($rejected->notice_number, $references);
 
-        $this->assertSame(0.0, $statement['closing_balance']);
+        $this->assertSame('0.00', $statement['closing_balance']);
         $this->assertSame('0.00', $service->balanceBreakdown($this->customer)['outstanding']);
     }
 
@@ -158,7 +158,7 @@ class TaskTxtStatementParityTest extends TestCase
 
         $this->assertCount(1, $credits);
         $this->assertSame('0.00', $credits[0]['debit']);
-        $this->assertSame(0.0, $statement['closing_balance']);
+        $this->assertSame('0.00', $statement['closing_balance']);
         $this->assertSame('0.00', $service->balanceBreakdown($this->customer)['outstanding']);
     }
 
@@ -183,7 +183,7 @@ class TaskTxtStatementParityTest extends TestCase
 
         $service = app(WholesalePaymentNoticeService::class);
         $this->assertSame('700.00', $service->balanceBreakdown($this->customer)['outstanding']);
-        $this->assertSame(700.0, $service->statement($this->customer)['closing_balance']);
+        $this->assertSame('700.00', $service->statement($this->customer)['closing_balance']);
 
         $notice = WholesalePaymentNotice::factory()->create([
             'customer_id' => $this->customer->id,
@@ -195,7 +195,7 @@ class TaskTxtStatementParityTest extends TestCase
 
         $this->assertSame('paid', $order->fresh()->payment_status);
         $this->assertSame('0.00', $service->balanceBreakdown($this->customer)['outstanding']);
-        $this->assertSame(0.0, $service->statement($this->customer)['closing_balance']);
+        $this->assertSame('0.00', $service->statement($this->customer)['closing_balance']);
     }
 
     public function test_full_credit_note_settles_order_without_cash_movement(): void

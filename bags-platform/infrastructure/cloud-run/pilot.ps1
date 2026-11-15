@@ -17,7 +17,15 @@ param(
     [string]$DatabasePasswordSecret,
     [string]$GeminiApiKeySecret,
     [string]$GeminiModel,
-    [string]$ProxyClientIpSecret
+    [string]$ProxyClientIpSecret,
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^(?!log$|failover$|array$).+$')]
+    [string]$MailMailer = 'smtp',
+    [string]$MailHost,
+    [int]$MailPort = 587,
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^(?!\*$|none$).+$')]
+    [string]$TrustedProxies = '169.254.1.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,7 +89,7 @@ switch ($Action) {
 
         $environment = @(
             'APP_ENV=production', 'APP_DEBUG=false', 'AUTORUN_ENABLED=false',
-            'TRUSTED_PROXIES=none', 'MAIL_MAILER=array',
+            "TRUSTED_PROXIES=$TrustedProxies", "MAIL_MAILER=$MailMailer",
             'DB_CONNECTION=pgsql', "DB_HOST=$DatabaseHost", 'DB_PORT=5432',
             "DB_DATABASE=$DatabaseName", "DB_USERNAME=$DatabaseUser", 'DB_SSLMODE=verify-full',
             'PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt',
@@ -90,16 +98,24 @@ switch ($Action) {
             'APP_MAINTENANCE_DRIVER=cache', 'APP_MAINTENANCE_STORE=database',
             'READINESS_CHECK_REDIS=false', 'QUEUE_CONNECTION=database', 'LOG_STACK=stderr'
         )
+        if ($MailHost) {
+            $environment += @("MAIL_HOST=$MailHost", "MAIL_PORT=$MailPort")
+        }
         $secrets = "APP_KEY=$AppKeySecret,DB_PASSWORD=$DatabasePasswordSecret"
         $runtime = @("--image=$Image", "--service-account=$RuntimeServiceAccount", '--cpu=1', '--memory=512Mi', "--set-secrets=$secrets")
 
         if ($Action -eq 'DeployApi') {
+            if ($ProxyClientIpSecret -cnotmatch $secretPattern) {
+                throw 'DeployApi requires a pinned ProxyClientIpSecret.'
+            }
             $apiEnvironment = ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8')) -join ','
+            $apiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
+            $apiRuntime += "--set-secrets=$secrets,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
             Invoke-Gcloud -Arguments (@(
                 'run', 'deploy', 'alfarid-api', '--no-allow-unauthenticated', '--invoker-iam-check',
                 '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=10', '--concurrency=8',
                 '--port=8080', '--timeout=60s', "--set-env-vars=$apiEnvironment"
-            ) + $scope + $runtime)
+            ) + $scope + $apiRuntime)
             return
         }
         if ($Action -eq 'DeployAi') {
@@ -112,7 +128,7 @@ switch ($Action) {
             Invoke-Gcloud -Arguments (@(
                 'run', 'deploy', 'alfarid-ai', '--no-allow-unauthenticated', '--invoker-iam-check',
                 '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=4', '--concurrency=2',
-                '--port=8080', '--timeout=60s', "--set-env-vars=$aiEnvironment"
+                '--port=8080', '--timeout=180s', "--set-env-vars=$aiEnvironment"
             ) + $scope + $aiRuntime)
             return
         }

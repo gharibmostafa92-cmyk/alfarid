@@ -103,6 +103,14 @@ class OutboundMessageQueueTest extends TestCase
         $this->jobWith($message)->handle($this->settings());
     }
 
+    public function test_exhausted_otp_retries_redact_the_secret(): void
+    {
+        $message = $this->message(['template' => 'customer_otp', 'payload' => ['code' => '123456', 'channel_id' => 1]]);
+        $this->jobWith($message)->failed(new RuntimeException('provider unavailable'));
+        $this->assertSame('error', $message->fresh()->status);
+        $this->assertSame([], $message->fresh()->payload);
+    }
+
     public function test_permanent_provider_rejection_marks_the_message_failed(): void
     {
         $this->configureProvider();

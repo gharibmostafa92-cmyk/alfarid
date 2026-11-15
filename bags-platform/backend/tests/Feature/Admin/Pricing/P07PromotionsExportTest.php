@@ -156,16 +156,12 @@ class P07PromotionsExportTest extends TestCase
         // 350 × 0.9 = 315. Customer-specific and customer-group lists return
         // early with final prices (no compounding); see P07PricingEngine2Test.
         $this->assertSame(315.0, $bySku[$bothVariant->sku]['wholesale_price']);
-        // Retail-only products still appear (owner decision: no channel filter).
-        $this->assertArrayHasKey($retailOnlyVariant->sku, $bySku->toArray());
+        // Retail-only products are excluded from wholesale price list exports (HIGH-01).
+        $this->assertArrayNotHasKey($retailOnlyVariant->sku, $bySku->toArray());
 
         // Unapproved dealers see retail pricing under the wholesale header (owner decision).
         $pending = $this->customer(CustomerType::Wholesale, CustomerStatus::Pending);
         $pendingRows = collect(app(WholesalePriceListService::class)->rows($pending))->keyBy('sku');
         $this->assertSame(500.0, $pendingRows[$bothVariant->sku]['wholesale_price']);
-
-        // Variants without any wholesale price resolve through the retail base,
-        // still carrying the group percentage: 500 × 0.9 = 450.
-        $this->assertSame(450.0, $bySku[$retailOnlyVariant->sku]['wholesale_price']);
     }
 }

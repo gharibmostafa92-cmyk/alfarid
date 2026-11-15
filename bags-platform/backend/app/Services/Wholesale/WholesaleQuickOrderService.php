@@ -137,6 +137,7 @@ class WholesaleQuickOrderService
 
         // Key by active variant ID rather than historical snapshot SKU to ensure integrity against catalog renames.
         $variants = ProductVariant::query()->with('product')
+            ->wholesalePurchasable()
             ->whereIn('id', collect($rows)->pluck('variant_id')->all())
             ->get()->keyBy('id');
         $availability = $this->availabilityFor($variants->pluck('id')->all());
@@ -217,8 +218,7 @@ class WholesaleQuickOrderService
         }
 
         $variants = ProductVariant::query()->with(['product.media', 'media'])
-            ->where('is_active', true)
-            ->whereHas('product', fn ($q) => $q->where('status', 'published'))
+            ->wholesalePurchasable()
             ->where(function ($q) use ($skus, $barcodes): void {
                 if ($skus !== []) {
                     $q->orWhereIn('sku', $skus);
