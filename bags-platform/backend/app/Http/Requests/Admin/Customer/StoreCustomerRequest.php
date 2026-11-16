@@ -32,9 +32,17 @@ class StoreCustomerRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail],
             'phone' => ['required', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->whereNull('deleted_at')],
+            // Staff-assigned passwords intentionally require 12 characters; retail self-service allows 8.
             'password' => ['required', 'string', new PasswordByteLimit, 'min:12', 'max:72'],
             'type' => ['nullable', Rule::enum(CustomerType::class)],
-            'status' => ['nullable', Rule::in([CustomerStatus::Pending->value, CustomerStatus::Approved->value])],
+            'status' => [
+                'nullable',
+                Rule::in([CustomerStatus::Pending->value, CustomerStatus::Approved->value]),
+                Rule::when(
+                    ($this->input('type') ?? CustomerType::Retail->value) === CustomerType::Retail->value,
+                    [Rule::in([CustomerStatus::Approved->value])],
+                ),
+            ],
             'company_name' => ['nullable', 'string', 'max:255'],
             'tax_number' => ['nullable', 'string', 'max:50'],
             'commercial_register' => ['nullable', 'string', 'max:50'],

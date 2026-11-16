@@ -85,6 +85,8 @@ class TaskTxtProcurementCloseoutTest extends TestCase
     public function test_purchase_order_with_a_live_invoice_cannot_be_cancelled(): void
     {
         $po = $this->sentOrder(qty: 4, cost: 25);
+        // F05: a draft invoice within the order total no longer needs received
+        // goods to be recorded, and still blocks cancellation while live.
         $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id,
             'purchase_order_id' => $po['id'],
@@ -92,7 +94,6 @@ class TaskTxtProcurementCloseoutTest extends TestCase
             'issue_date' => now()->toDateString(),
             'subtotal' => 100,
         ])->assertCreated()->json('data.id');
-        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
 
         $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/cancel")->assertUnprocessable();
         $this->assertSame(PurchaseOrderStatus::SentToSupplier, PurchaseOrder::query()->findOrFail($po['id'])->status);
@@ -180,21 +181,26 @@ class TaskTxtProcurementCloseoutTest extends TestCase
         ])->assertOk();
         $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/close-short")->assertOk();
 
-        $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
+        // F05: the draft fits the order total so it can be recorded, but posting
+        // it must fail the 3-way match against the 400 actually received.
+        $over = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id,
             'purchase_order_id' => $po['id'],
             'supplier_invoice_no' => 'OVER-RECEIVED',
             'issue_date' => now()->toDateString(),
             'subtotal' => 1000,
-        ])->assertUnprocessable();
+        ])->assertCreated()->json('data.id');
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$over}/post")->assertUnprocessable();
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$over}/cancel")->assertOk();
 
-        $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
+        $matching = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id,
             'purchase_order_id' => $po['id'],
             'supplier_invoice_no' => 'MATCHES-RECEIVED',
             'issue_date' => now()->toDateString(),
             'subtotal' => 400,
-        ])->assertCreated();
+        ])->assertCreated()->json('data.id');
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$matching}/post")->assertOk();
     }
 
     public function test_supplier_statement_hides_the_internal_void_reason(): void

@@ -17,14 +17,23 @@ final class AuditStaffAdministration
 {
     public function handle(Request $request, Closure $next): mixed
     {
+        $path = $request->path();
+        $adminPrefix = 'api/v1/admin/';
         if (! in_array($request->method(), ['POST', 'PATCH', 'PUT', 'DELETE'], true)
-            || ! preg_match('~^api/v1/admin/(users|roles|settings|branches|ai|customers|suppliers)(?:/([0-9a-zA-Z\-]+))?(?:/.*)?$~', $request->path(), $target)) {
+            || ! str_starts_with($path, $adminPrefix)) {
             return $next($request);
         }
-        // L7: AI conversations have their own throttle; counting them here lets chat lock out admin work.
-        if (str_starts_with($request->path(), 'api/v1/admin/ai/conversations')) {
+
+        $resourcePath = substr($path, strlen($adminPrefix));
+        // Logout has no administrative mutation; AI conversations have their own throttle.
+        if ($resourcePath === 'auth/logout'
+            || $resourcePath === 'ai/conversations'
+            || str_starts_with($resourcePath, 'ai/conversations/')) {
             return $next($request);
         }
+        $segments = explode('/', $resourcePath);
+        $target = [$path, $segments[0] ?? 'admin_resource', $segments[1] ?? null];
+
         $actor = $request->user('staff');
         $key = 'staff:admin-mutations:'.($actor?->id ?? 'guest');
         $limit = max(1, (int) config('auth.staff_admin_mutations_minute', 60));
@@ -61,7 +70,20 @@ final class AuditStaffAdministration
                 'ai' => 'ai_administration',
                 'customers' => 'customer',
                 'suppliers' => 'supplier',
-            ][$target[1]];
+                'treasuries' => 'treasury',
+                'treasury-transfers' => 'treasury_transfer',
+                'expenses' => 'expense',
+                'supplier-payments' => 'supplier_payment',
+                'supplier-invoices' => 'supplier_invoice',
+                'wallet-adjustments' => 'wallet_adjustment',
+                'price-lists' => 'price_list',
+                'coupons' => 'coupon',
+                'promotions' => 'promotion',
+                'shifts' => 'shift',
+                'inventory' => 'inventory',
+                'stocktakes' => 'stocktake',
+                'transfers' => 'stock_transfer',
+            ][$target[1]] ?? 'admin_resource';
             try {
                 $targetId = isset($target[2]) && ctype_digit($target[2]) ? (int) $target[2] : null;
                 StaffAdministration::audit($actor, 'administration.denied', $type, $targetId, []);

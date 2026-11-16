@@ -3,7 +3,7 @@ import { useApp } from './context';
 import { wholesaleEndpoints, accountEndpoints, defaultApiClient } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError, pageMeta, saveBlob, allPages } from './data/helpers';
+import { apiError, pageMeta, saveBlob } from './data/helpers';
 import { mapOrder, mapQuote, mapReturn } from './data/mappers';
 import { validateReturnFiles } from './data/validation';
 import { ORDER_STATUS, PAY_METHOD, PAY_STATUS, QUOTE_STATUS, RETURN_STATUS, REFUND_METHOD } from './data/constants';
@@ -455,7 +455,7 @@ export const QuoteDetail = ({ id }) => {
     setBusy(true);
     try {
       if (kind === 'accept') {
-        await wholesaleEndpoints.acceptQuote(id);
+        await wholesaleEndpoints.acceptQuote(id, q?.revision != null ? { expected_revision: q.revision } : undefined);
         toast('تم قبول العرض');
       } else {
         await wholesaleEndpoints.rejectQuote(id);
@@ -562,8 +562,8 @@ export const ReturnForm = ({ orderId }) => {
   const [errs, setErrs] = useState({});
   const [busy, setBusy] = useState(false);
 
-  const eligibleApi = useApi((signal) => allPages((page, signal) => wholesaleEndpoints.orders({ group: 'delivered', page }, signal), signal)
-    .then((rows) => rows.map(mapOrder).filter((o) => o.returnable)), []);
+  const eligibleApi = useApi((signal) => wholesaleEndpoints.orders({ group: 'delivered', returnable: 1, per_page: 100 }, signal)
+    .then((r) => (r.data || []).map(mapOrder).filter((o) => o.returnable)), []);
   const eligible = eligibleApi.data || [];
   useEffect(() => { if (!oid && eligible.length) setOid(eligible[0].id); }, [oid, eligible]);
 
@@ -577,20 +577,18 @@ export const ReturnForm = ({ orderId }) => {
   const totalFiles = chosen.reduce((a, [, v]) => a + v.files.length, 0);
 
   const addFiles = (id, list) => {
-    setSel((s) => {
-      const cur = s[id];
-      if (!cur) return s;
-      const next = [...cur.files, ...list];
-      const nextSel = { ...s, [id]: { ...cur, files: next } };
-      const nextFiles = Object.values(nextSel).filter(Boolean).map((v) => v.files);
-      const error = validateReturnFiles(nextFiles);
-      setErrs((previous) => ({ ...previous, files: error }));
-      if (error) {
-        toast(error);
-        return s;
-      }
-      return nextSel;
-    });
+    const cur = sel[id];
+    if (!cur) return;
+    const next = [...cur.files, ...list];
+    const nextSel = { ...sel, [id]: { ...cur, files: next } };
+    const nextFiles = Object.values(nextSel).filter(Boolean).map((v) => v.files);
+    const error = validateReturnFiles(nextFiles);
+    setErrs((previous) => ({ ...previous, files: error }));
+    if (error) {
+      toast(error);
+      return;
+    }
+    setSel(nextSel);
   };
 
   const submit = async () => {

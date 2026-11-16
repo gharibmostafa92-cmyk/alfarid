@@ -13,6 +13,7 @@ use App\Http\Resources\Admin\Procurement\SupplierResource;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Procurement\SupplierFinanceService;
 use App\Services\Procurement\SupplierService;
 use App\Services\Shared\SearchTerm;
@@ -41,6 +42,7 @@ class SupplierController extends Controller implements HasMiddleware
     public function __construct(
         protected SupplierService $suppliers,
         protected SupplierFinanceService $finance,
+        protected BranchAccess $branchAccess,
     ) {}
 
     /**
@@ -90,6 +92,7 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function statement(Request $request, Supplier $supplier): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $filters = $request->validate([
             'from_date' => ['nullable', 'date_format:Y-m-d'],
             'to_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from_date'],

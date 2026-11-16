@@ -51,7 +51,7 @@ export interface SupplierDashboard {
   new_orders_count: number;
   in_progress_count: number;
   current_balance: string;
-  last_payments: { id: number; payment_number: string; amount: string; payment_date: string; invoice?: { id: number; invoice_number: string } | null }[];
+  last_payments: { id: number; payment_number: string; amount: string; payment_date: string; invoice_number: string | null }[];
 }
 
 export interface SupplierDeliveryPayload {

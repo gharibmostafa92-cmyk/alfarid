@@ -27,7 +27,7 @@ class MarkWholesaleOverdue extends Command
             ->where('payment_status', 'unpaid')
             ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
-            ->where('due_at', '<', now()->startOfDay())
+            ->where('due_at', '<', now((string) config('app.business_timezone', 'Africa/Cairo'))->startOfDay())
             ->chunkById(200, function ($orders) use (&$marked): void {
                 foreach ($orders as $order) {
                     $due = $order->due_at?->toDateString() ?? '';

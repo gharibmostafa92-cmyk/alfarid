@@ -13,9 +13,10 @@ trait SerializesAccountEmail
     public static function bootSerializesAccountEmail(): void
     {
         static::saving(function ($account): void {
-            if (! $account->isDirty(['email', 'email_verified_at', 'deleted_at'])
+            if (! $account->isDirty(['email', 'email_verified_at', 'type', 'deleted_at'])
                 || ! $account->email
-                || ($account instanceof Customer && ($account->email_verified_at === null || $account->trashed()))) {
+                || ($account instanceof Customer && ($account->trashed()
+                    || ($account->email_verified_at === null && ! $account->isCommercialTier())))) {
                 return;
             }
 

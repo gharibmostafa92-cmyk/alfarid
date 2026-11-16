@@ -75,7 +75,7 @@ class Customer extends Authenticatable
      */
     public function canShop(): bool
     {
-        return ! in_array($this->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true);
+        return $this->status === CustomerStatus::Approved;
     }
 
     /**

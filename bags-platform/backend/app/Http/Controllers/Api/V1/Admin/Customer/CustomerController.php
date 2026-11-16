@@ -20,6 +20,7 @@ use App\Models\CustomerDocument;
 use App\Rules\MaxImagePixels;
 use App\Rules\RejectExecutableSignature;
 use App\Services\Customer\CustomerManagementService;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -34,7 +35,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class CustomerController extends Controller implements HasMiddleware
 {
-    public function __construct(private readonly CustomerManagementService $customers) {}
+    public function __construct(
+        private readonly CustomerManagementService $customers,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public static function middleware(): array
     {
@@ -45,7 +49,7 @@ class CustomerController extends Controller implements HasMiddleware
             new Middleware('permission:customers.create|customers.manage', only: ['store']),
             new Middleware('permission:customers.update|customers.manage', only: ['update']),
             new Middleware('permission:customers.delete|customers.manage', only: ['destroy', 'restore']),
-            new Middleware('permission:customers.approve|customers.manage', only: ['approve', 'reject', 'suspend', 'reactivate', 'reviewDocument']),
+            new Middleware('permission:customers.approve', only: ['approve', 'reject', 'suspend', 'reactivate', 'reviewDocument']),
         ];
     }
 
@@ -167,10 +171,13 @@ class CustomerController extends Controller implements HasMiddleware
     /**
      * Download customer verification document from private storage.
      */
-    public function downloadDocument(Customer $customer, CustomerDocument $document): StreamedResponse
+    public function downloadDocument(Request $request, Customer $customer, CustomerDocument $document): StreamedResponse
     {
+        // Defense in depth: never serve a document through a mismatched customer binding.
+        abort_unless($document->customer_id === $customer->id, 404);
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         abort_unless(Storage::disk('r2')->exists($document->file_path), 404, 'المستند غير موجود.');
-        CustomerAuditLog::record($customer, 'document_downloaded', request()->user()->id, ['document_id' => $document->id]);
+        CustomerAuditLog::record($customer, 'document_downloaded', $request->user()->id, ['document_id' => $document->id]);
 
         $mimeMap = [
             'application/pdf' => 'pdf',
@@ -205,7 +212,10 @@ class CustomerController extends Controller implements HasMiddleware
     public function reviewDocument(Request $request, Customer $customer, CustomerDocument $document): JsonResponse
     {
         $data = $request->validate([
-            'status' => ['required', Rule::enum(CustomerDocumentStatus::class)],
+            'status' => ['required', Rule::in([
+                CustomerDocumentStatus::Verified->value,
+                CustomerDocumentStatus::Rejected->value,
+            ])],
             'note' => ['nullable', 'string', 'max:500', 'required_if:status,rejected'],
         ]);
         $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user()->id, $data['note'] ?? null);

@@ -167,6 +167,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     {
         /** @var User $admin */
         $admin = $request->user();
+        $this->branchAccess->assertBranch($admin->id, (int) $purchaseOrder->branch_id);
         $po = $this->procurement->receivePurchaseOrder(
             $purchaseOrder,
             $request->validated('items'),

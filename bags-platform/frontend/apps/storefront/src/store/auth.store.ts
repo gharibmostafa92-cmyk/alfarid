@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { setAuthToken, setUnauthorizedHandler } from '@alfarid/api-client';
 import type { ActorType, Destination } from '@/types/auth';
 import { resetCartIdentity } from '@/stores/cart-store';
+import { unauthorizedLoginRedirect } from '@/store/auth-redirect';
 
 interface WebSession {
   token: string | null;
@@ -60,13 +61,10 @@ if (typeof window !== 'undefined') {
     } : emptySession);
   });
   setUnauthorizedHandler(() => {
-    useAuthStore.getState().clear();
+    const hasSession = useAuthStore.getState().token !== null;
     const { pathname, search } = window.location;
-    if (pathname.startsWith('/auth/') || pathname === '/wholesale/register') return;
-    // Public storefront pages must degrade to a guest session instead of forcing a
-    // login redirect that also drops the current query string.
-    const protectedPrefixes = ['/account', '/supplier', '/wholesale'];
-    if (!protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return;
-    window.location.href = `/auth/login?redirect=${encodeURIComponent(pathname + search)}`;
+    useAuthStore.getState().clear();
+    const redirect = unauthorizedLoginRedirect(pathname, search, hasSession);
+    if (redirect) window.location.href = redirect;
   });
 }

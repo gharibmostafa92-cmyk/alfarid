@@ -114,7 +114,7 @@ class SupplierFinanceService
             if (array_key_exists('purchase_order_id', $data)) {
                 $data['purchase_order_id'] = $this->assertOrderBelongsToSupplier(
                     $data['purchase_order_id'],
-                    $invoice->supplier()->firstOrFail(),
+                    $supplier,
                     $actor,
                 );
             }
@@ -178,7 +178,7 @@ class SupplierFinanceService
                 throw new BusinessException('إجمالي الفاتورة يجب أن يكون أكبر من صفر.');
             }
             if ($invoice->purchase_order_id !== null) {
-                $this->assertInvoiceDoesNotExceedOrder((int) $invoice->purchase_order_id, (string) $invoice->total_amount, $invoice->id);
+                $this->assertPostedInvoiceFitsReceived((int) $invoice->purchase_order_id, (string) $invoice->total_amount, $invoice->id);
             }
             $supplier->increment('current_balance', (string) $invoice->total_amount);
             $invoice->update(['status' => SupplierInvoiceStatus::Posted]);
@@ -603,6 +603,8 @@ class SupplierFinanceService
 
     private function assertInvoiceDoesNotExceedOrder(?int $poId, string $thisTotal, ?int $exceptInvoiceId = null): void
     {
+        // Draft-time check: allow recording vendor invoices up to the order grand total.
+        // The strict 3-way match (received goods ceiling, posted invoices only) runs at post time.
         if ($poId === null) {
             return;
         }
@@ -615,8 +617,27 @@ class SupplierFinanceService
             ->where('status', '!=', SupplierInvoiceStatus::Cancelled)
             ->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))
             ->sum('total_amount');
-        if (BigDecimal::of($existing)->plus($thisTotal)->compareTo((string) $this->invoiceCeiling($po)) > 0) {
+        if (BigDecimal::of($existing)->plus($thisTotal)->compareTo((string) $po->grand_total) > 0) {
             throw new BusinessException('مجموع فواتير أمر الشراء يتجاوز إجمالي الأمر.');
+        }
+    }
+
+    private function assertPostedInvoiceFitsReceived(?int $poId, string $thisTotal, ?int $exceptInvoiceId = null): void
+    {
+        if ($poId === null) {
+            return;
+        }
+        $po = PurchaseOrder::query()->lockForUpdate()->find($poId);
+        if ($po === null) {
+            return;
+        }
+        $existing = (string) SupplierInvoice::query()
+            ->where('purchase_order_id', $poId)
+            ->whereIn('status', [SupplierInvoiceStatus::Posted, SupplierInvoiceStatus::PartiallyPaid, SupplierInvoiceStatus::Paid])
+            ->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))
+            ->sum('total_amount');
+        if (BigDecimal::of($existing)->plus($thisTotal)->compareTo((string) $this->invoiceCeiling($po)) > 0) {
+            throw new BusinessException('مجموع الفواتير المعتمدة يتجاوز قيمة البضاعة المستلمة فعليًا على أمر الشراء.');
         }
     }
 
@@ -694,8 +715,15 @@ class SupplierFinanceService
      */
     public function statement(Supplier $supplier, ?string $fromDate = null, ?string $toDate = null, bool $internal = false): array
     {
-        return DB::transaction(function () use ($supplier, $fromDate, $toDate, $internal): array {
-            if (DB::getDriverName() === 'pgsql') {
+        // SET TRANSACTION ... must be the first statement of a top-level
+        // transaction. Inside an outer transaction (e.g. test refresh
+        // transactions or a caller-managed unit of work) it is illegal, so
+        // only request the repeatable-read snapshot when we own the
+        // outermost transaction; production behavior is unchanged.
+        $ownsTransaction = DB::transactionLevel() === 0;
+
+        return DB::transaction(function () use ($supplier, $fromDate, $toDate, $internal, $ownsTransaction): array {
+            if ($ownsTransaction && DB::getDriverName() === 'pgsql') {
                 DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
             }
 
@@ -707,7 +735,13 @@ class SupplierFinanceService
     private function buildStatementSnapshot(Supplier $supplier, ?string $fromDate, ?string $toDate, bool $internal): array
     {
         $zone = (string) config('app.timezone');
-        $to = $toDate !== null ? Carbon::parse($toDate, $zone)->toDateString() : Carbon::now($zone)->toDateString();
+        $today = Carbon::now($zone)->toDateString();
+        if ($toDate === null && $fromDate !== null) {
+            $candidateTo = Carbon::parse($fromDate, $zone)->addDays(365)->toDateString();
+            $to = $candidateTo < $today ? $candidateTo : $today;
+        } else {
+            $to = $toDate !== null ? Carbon::parse($toDate, $zone)->toDateString() : $today;
+        }
         $from = $fromDate !== null ? Carbon::parse($fromDate, $zone)->toDateString() : Carbon::parse($to, $zone)->subDays(365)->toDateString();
         $fromStart = Carbon::parse($from, $zone)->startOfDay();
         $toExclusive = Carbon::parse($to, $zone)->addDay()->startOfDay();

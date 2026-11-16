@@ -8,6 +8,7 @@ use App\Http\Middleware\ManufacturingBusiness;
 use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\Supplier;
+use App\Models\Treasury;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -81,6 +82,59 @@ class TaskTxtProcurementMoneyCapacityTest extends TestCase
             'subtotal' => '1000000000000000000',
             'tax_amount' => 0,
         ])->assertUnprocessable()->assertJsonValidationErrors('subtotal');
+    }
+
+    public function test_json_money_inputs_are_capped_below_javascript_cent_precision_loss(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $supplier = Supplier::factory()->create();
+        $branch = Branch::factory()->create();
+        $variant = ProductVariant::factory()->create(['cost_price' => 1, 'retail_price' => 2]);
+        $treasury = Treasury::query()->create([
+            'name' => 'خزينة حد الدقة',
+            'code' => 'JS-CENT-CAP',
+            'type' => 'bank_account',
+            'branch_id' => null,
+            'current_balance' => '2000000000000.00',
+            'is_active' => true,
+        ]);
+        $token = $admin->createToken('json-money-cap')->plainTextToken;
+
+        $this->withToken($token)->postJson('/api/v1/admin/suppliers', [
+            'code' => 'JS-CENT-CAP-SUP',
+            'name' => 'مورد حد الدقة',
+            'opening_balance' => '1000000000000.00',
+        ])->assertUnprocessable()->assertJsonValidationErrors('opening_balance');
+
+        $this->postJson('/api/v1/admin/supplier-invoices', [
+            'supplier_id' => $supplier->id,
+            'supplier_invoice_no' => 'JS-CENT-CAP-INV',
+            'issue_date' => now()->toDateString(),
+            'subtotal' => '1000000000000.00',
+        ])->assertUnprocessable()->assertJsonValidationErrors('subtotal');
+
+        $this->postJson('/api/v1/admin/supplier-payments', [
+            'supplier_id' => $supplier->id,
+            'treasury_id' => $treasury->id,
+            'amount' => '1000000000000.00',
+            'payment_method' => 'cash',
+            'payment_date' => now()->toDateString(),
+        ], ['Idempotency-Key' => (string) Str::uuid()])
+            ->assertUnprocessable()->assertJsonValidationErrors('amount');
+
+        $this->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $supplier->id,
+            'branch_id' => $branch->id,
+            'discount_amount' => '1000000000000.00',
+            'items' => [[
+                'product_variant_id' => $variant->id,
+                'ordered_qty' => 1,
+                'unit_cost' => '10.00',
+                'tax_rate' => '0.00',
+            ]],
+        ], ['Idempotency-Key' => (string) Str::uuid()])
+            ->assertUnprocessable()->assertJsonValidationErrors('discount_amount');
     }
 
     public function test_fully_received_four_decimal_order_invoices_at_exact_grand_total(): void

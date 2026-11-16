@@ -19,7 +19,6 @@ export const AuthFrame = ({ children, wide }) => (
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><polygon points="4,10 10,4 10,13 4,19" fill="#09090b" /><polygon points="11,11 17,5 17,14 11,20" fill="#09090b" /></svg>
             <span className="luxury-brand-tag">SOPHIE · WHOLESALE</span>
           </span>
-          <button type="button" className="luxury-lang-btn" lang="en" onClick={() => {}}>English</button>
         </div>
         <div className="luxury-form-wrap" style={wide ? { maxWidth: 460 } : null}>{children}</div>
       </section>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Customer;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -40,9 +41,9 @@ class CustomerMessageBudget
      * @param  string|null  $networkKey  Subnet key to enforce network-level verification caps.
      * @return bool True if all quota slots were successfully acquired; false if exhausted.
      */
-    public function claim(string $scope, bool $sms = true, ?string $networkKey = null): bool
+    public function claim(string $scope, bool $sms = true, ?string $networkKey = null, ?CarbonImmutable $at = null): bool
     {
-        $now = now(config('app.business_timezone', 'Africa/Cairo'));
+        $now = $at ?? CarbonImmutable::now(config('app.business_timezone', 'Africa/Cairo'));
         $date = $now->toDateString();
         $budgets = $sms ? [
             'sms:global:day' => (int) config('auth.customer_sms_daily_limit', 1000),
@@ -94,6 +95,38 @@ class CustomerMessageBudget
             }
 
             return true;
+        });
+    }
+
+    /**
+     * Refund all quota counters reserved for one verification SMS that failed to send.
+     */
+    public function releaseVerificationClaim(string $phoneKey, ?string $networkKey, CarbonImmutable $at): void
+    {
+        if ($networkKey === null) {
+            return;
+        }
+
+        $date = $at->toDateString();
+        $hour = $at->format('H');
+        $scopes = [
+            'sms:global:day',
+            'sms:global:hour:'.$hour,
+            'sms:verify:day',
+            'sms:verify:hour:'.$hour,
+            'sms:verify:network:'.$networkKey,
+            'sms:verify:network-hour:'.$hour.':'.$networkKey,
+            'verify:'.$phoneKey,
+        ];
+
+        DB::transaction(function () use ($scopes, $date): void {
+            foreach ($scopes as $scope) {
+                DB::table('customer_message_budgets')
+                    ->where('key', hash('sha256', $scope))
+                    ->where('date', $date)
+                    ->where('sends', '>', 0)
+                    ->decrement('sends');
+            }
         });
     }
 }

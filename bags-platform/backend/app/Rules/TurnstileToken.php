@@ -42,7 +42,9 @@ final class TurnstileToken implements ValidationRule
             return;
         }
         $consumedKey = 'turnstile:consumed:'.hash('sha256', $value);
-        if (Cache::has($consumedKey)) {
+        // Reserve a token across all app workers before making the network call.
+        // Keeping the reservation after failures requires the browser to solve a fresh challenge.
+        if (! Cache::add($consumedKey, 1, now()->addMinutes(5))) {
             $fail('فشل التحقق البشري، حاول مرة أخرى.');
 
             return;
@@ -61,7 +63,6 @@ final class TurnstileToken implements ValidationRule
             $ok = false;
         }
         if (! $ok) {
-            Cache::put($consumedKey, 1, now()->addSeconds(30));
             $fail('فشل التحقق البشري، حاول مرة أخرى.');
         }
     }

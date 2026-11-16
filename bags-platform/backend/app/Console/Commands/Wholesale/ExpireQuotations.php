@@ -24,7 +24,7 @@ class ExpireQuotations extends Command
         $query = Quotation::query()
             ->where('status', QuotationStatus::PricedByAdmin)
             ->whereNotNull('valid_until')
-            ->whereDate('valid_until', '<', now()->toDateString());
+            ->whereDate('valid_until', '<', now((string) config('app.business_timezone', 'Africa/Cairo'))->toDateString());
 
         if ($this->option('dry-run')) {
             $this->info("Would expire {$query->count()} quotations.");

@@ -247,7 +247,9 @@ class WholesalePaymentNoticeService
     private function allocatedTotal(Customer $customer): BigDecimal
     {
         return BigDecimal::of((string) WholesalePaymentAllocation::query()
-            ->whereHas('notice', fn ($q) => $q->where('customer_id', $customer->id))
+            ->whereHas('notice', fn ($q) => $q
+                ->where('customer_id', $customer->id)
+                ->where('status', WholesalePaymentNoticeStatus::Approved->value))
             ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
             ->sum('amount'))->toScale(2, RoundingMode::HalfUp);
     }
@@ -255,7 +257,9 @@ class WholesalePaymentNoticeService
     private function allocatedOpenTotal(Customer $customer): BigDecimal
     {
         return BigDecimal::of((string) WholesalePaymentAllocation::query()
-            ->whereHas('notice', fn ($q) => $q->where('customer_id', $customer->id))
+            ->whereHas('notice', fn ($q) => $q
+                ->where('customer_id', $customer->id)
+                ->where('status', WholesalePaymentNoticeStatus::Approved->value))
             ->whereHas('order', fn ($q) => $q
                 ->where('status', '!=', OrderStatus::Cancelled->value)
                 ->where('payment_status', 'unpaid'))
@@ -298,6 +302,7 @@ class WholesalePaymentNoticeService
 
         $openingReturns = ReturnRequest::query()->where('customer_id', $customer->id)
             ->where('status', 'refunded')->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
             ->whereNotNull('refunded_at')->where('refunded_at', '<', $fromDate)->sum('total_refund_amount');
 
         $opening = BigDecimal::of((string) $openingOrders)
@@ -374,6 +379,7 @@ class WholesalePaymentNoticeService
             ->where('customer_id', $customer->id)
             ->where('status', 'refunded')
             ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
             ->whereNotNull('refunded_at')
             ->whereBetween('refunded_at', [$fromDate, $toDate])
             ->orderBy('refunded_at')->orderBy('id')->limit(1501)
@@ -578,9 +584,10 @@ class WholesalePaymentNoticeService
             }
 
             $treasury = Treasury::query()->find($notice->treasury_id);
-            if ($treasury !== null) {
-                app(BranchAccess::class)->assertTreasury($adminId, $treasury);
+            if ($treasury === null) {
+                throw new BusinessException('الخزينة المرتبطة بالإشعار غير موجودة.');
             }
+            app(BranchAccess::class)->assertTreasury($adminId, $treasury);
 
             $orderIds = WholesalePaymentAllocation::query()
                 ->where('notice_id', $notice->id)
@@ -618,7 +625,10 @@ class WholesalePaymentNoticeService
                 $this->reopenOrderIfUncovered($orderId, $adminId, $notice->notice_number);
             }
 
-            return $notice->load(['customer', 'order', 'treasury']);
+            $fresh = $notice->load(['customer', 'order', 'treasury']);
+            DB::afterCommit(static fn () => PaymentNoticeReviewed::dispatch($fresh));
+
+            return $fresh;
         });
     }
 
@@ -690,7 +700,10 @@ class WholesalePaymentNoticeService
                     $incoming = $notice->status === WholesalePaymentNoticeStatus::Approved
                         ? BigDecimal::zero()
                         : BigDecimal::of((string) $notice->amount);
-                    $already = BigDecimal::of((string) WholesalePaymentAllocation::query()->where('order_id', $order->id)->sum('amount'))
+                    $already = BigDecimal::of((string) WholesalePaymentAllocation::query()
+                        ->where('order_id', $order->id)
+                        ->whereHas('notice', fn ($q) => $q->where('status', WholesalePaymentNoticeStatus::Approved->value))
+                        ->sum('amount'))
                         ->plus($this->creditNoteAmountForOrder((int) $order->id));
                     $remaining = BigDecimal::of((string) $order->grand_total)->minus($approved)->minus($incoming)->minus($already)
                         ->toScale(2, RoundingMode::HalfUp);
@@ -919,6 +932,7 @@ class WholesalePaymentNoticeService
             ->sum('amount'));
         $allocated = BigDecimal::of((string) WholesalePaymentAllocation::query()
             ->where('order_id', $orderId)
+            ->whereHas('notice', fn ($q) => $q->where('status', WholesalePaymentNoticeStatus::Approved->value))
             ->sum('amount'));
 
         return $linked->plus($allocated)->plus($this->creditNoteAmountForOrder($orderId, $excludeReturnRequestId))->toScale(2, RoundingMode::HalfUp);
@@ -926,7 +940,7 @@ class WholesalePaymentNoticeService
 
     /**
      * Releases excess FIFO allocations on an order when a credit note reduces its remaining balance,
-     * returning the freed credit to the customer's free pool. Caller holds the order lock.
+     * returning the freed credit to the customer's free pool. Enforces Customer -> Order -> Notice lock ordering.
      */
     public function releaseExcessAllocationsForCreditNote(
         Order $order,
@@ -934,58 +948,67 @@ class WholesalePaymentNoticeService
         int $adminId,
         ?int $excludeReturnRequestId = null,
     ): string {
-        $existingCreditNotes = $this->creditNoteAmountForOrder((int) $order->id, $excludeReturnRequestId);
-        if ($existingCreditNotes->plus($creditNoteAmount)->compareTo((string) $order->grand_total) > 0) {
-            throw new BusinessException('قيمة المرتجعات تتجاوز إجمالي الطلب.');
-        }
-        $excess = $this->orderCoveredAmount((int) $order->id, $excludeReturnRequestId)->plus($creditNoteAmount)
-            ->minus((string) $order->grand_total)->toScale(2, RoundingMode::HalfUp);
-        if ($excess->isLessThanOrEqualTo('0')) {
-            return '0.00';
-        }
-
-        $toRelease = $excess;
-        $allocations = WholesalePaymentAllocation::query()
-            ->where('order_id', $order->id)
-            ->orderByDesc('id')
-            ->lockForUpdate()
-            ->get();
-
-        foreach ($allocations as $allocation) {
-            if ($toRelease->isLessThanOrEqualTo('0')) {
-                break;
+        return DB::transaction(function () use ($order, $creditNoteAmount, $adminId, $excludeReturnRequestId): string {
+            if ($order->customer_id !== null) {
+                Customer::query()->lockForUpdate()->findOrFail($order->customer_id);
             }
-            $rowAmount = BigDecimal::of((string) $allocation->amount)->toScale(2, RoundingMode::HalfUp);
-            if ($rowAmount->compareTo($toRelease) <= 0) {
-                $toRelease = $toRelease->minus($rowAmount)->toScale(2, RoundingMode::HalfUp);
-                $allocation->delete();
-            } else {
-                $allocation->update([
-                    'amount' => (string) $rowAmount->minus($toRelease)->toScale(2, RoundingMode::HalfUp),
-                ]);
-                $toRelease = BigDecimal::zero()->toScale(2, RoundingMode::HalfUp);
-            }
-        }
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
-        // A linked receipt cannot be partly linked. Convert it to a free receipt,
-        // then retain its non-excess portion as an allocation to the same order.
-        if ($toRelease->isGreaterThan('0')) {
-            $linked = WholesalePaymentNotice::query()->where('order_id', $order->id)
-                ->where('status', WholesalePaymentNoticeStatus::Approved->value)->orderByDesc('id')->lockForUpdate()->get();
-            foreach ($linked as $notice) {
-                if ($toRelease->isLessThanOrEqualTo('0')) break;
-                $amount = BigDecimal::of((string) $notice->amount)->toScale(2, RoundingMode::HalfUp);
-                $released = $amount->compareTo($toRelease) <= 0 ? $amount : $toRelease;
-                $retained = $amount->minus($released)->toScale(2, RoundingMode::HalfUp);
-                $notice->update(['order_id' => null]);
-                if ($retained->isGreaterThan('0')) {
-                    WholesalePaymentAllocation::create(['notice_id' => $notice->id, 'order_id' => $order->id, 'amount' => (string) $retained, 'created_by' => $adminId]);
+            $existingCreditNotes = $this->creditNoteAmountForOrder((int) $order->id, $excludeReturnRequestId);
+            if ($existingCreditNotes->plus($creditNoteAmount)->compareTo((string) $order->grand_total) > 0) {
+                throw new BusinessException('قيمة المرتجعات تتجاوز إجمالي الطلب.');
+            }
+            $excess = $this->orderCoveredAmount((int) $order->id, $excludeReturnRequestId)->plus($creditNoteAmount)
+                ->minus((string) $order->grand_total)->toScale(2, RoundingMode::HalfUp);
+            if ($excess->isLessThanOrEqualTo('0')) {
+                return '0.00';
+            }
+
+            $toRelease = $excess;
+            $allocations = WholesalePaymentAllocation::query()
+                ->where('order_id', $order->id)
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($allocations as $allocation) {
+                if ($toRelease->isLessThanOrEqualTo('0')) {
+                    break;
                 }
-                $toRelease = $toRelease->minus($released)->toScale(2, RoundingMode::HalfUp);
+                $rowAmount = BigDecimal::of((string) $allocation->amount)->toScale(2, RoundingMode::HalfUp);
+                if ($rowAmount->compareTo($toRelease) <= 0) {
+                    $toRelease = $toRelease->minus($rowAmount)->toScale(2, RoundingMode::HalfUp);
+                    $allocation->delete();
+                } else {
+                    $allocation->update([
+                        'amount' => (string) $rowAmount->minus($toRelease)->toScale(2, RoundingMode::HalfUp),
+                    ]);
+                    $toRelease = BigDecimal::zero()->toScale(2, RoundingMode::HalfUp);
+                }
             }
-        }
 
-        return (string) $excess->minus($toRelease)->toScale(2, RoundingMode::HalfUp);
+            // A linked receipt cannot be partly linked. Convert it to a free receipt,
+            // then retain its non-excess portion as an allocation to the same order.
+            if ($toRelease->isGreaterThan('0')) {
+                $linked = WholesalePaymentNotice::query()->where('order_id', $order->id)
+                    ->where('status', WholesalePaymentNoticeStatus::Approved->value)->orderByDesc('id')->lockForUpdate()->get();
+                foreach ($linked as $notice) {
+                    if ($toRelease->isLessThanOrEqualTo('0')) {
+                        break;
+                    }
+                    $amount = BigDecimal::of((string) $notice->amount)->toScale(2, RoundingMode::HalfUp);
+                    $released = $amount->compareTo($toRelease) <= 0 ? $amount : $toRelease;
+                    $retained = $amount->minus($released)->toScale(2, RoundingMode::HalfUp);
+                    $notice->update(['order_id' => null]);
+                    if ($retained->isGreaterThan('0')) {
+                        WholesalePaymentAllocation::create(['notice_id' => $notice->id, 'order_id' => $order->id, 'amount' => (string) $retained, 'created_by' => $adminId]);
+                    }
+                    $toRelease = $toRelease->minus($released)->toScale(2, RoundingMode::HalfUp);
+                }
+            }
+
+            return (string) $excess->minus($toRelease)->toScale(2, RoundingMode::HalfUp);
+        });
     }
 
     /** Caller holds the order lock in its transaction. */
@@ -996,13 +1019,20 @@ class WholesalePaymentNoticeService
         }
     }
 
-    /** Caller holds the order lock and has already recorded the credit note. */
+    /** Atomically settles the order and applies any freed credit-note pool via FIFO. */
     public function settleCreditNote(Order $order, int $adminId, string $number): void
     {
-        $this->settleOrderIfCovered((int) $order->id, $adminId, $number);
-        if ($order->customer !== null) {
-            $this->settleFreeNoticeFifo($order->customer, $adminId, $number);
-        }
+        DB::transaction(function () use ($order, $adminId, $number): void {
+            $customer = $order->customer_id !== null
+                ? Customer::query()->lockForUpdate()->find($order->customer_id)
+                : null;
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+
+            $this->settleOrderIfCovered((int) $order->id, $adminId, $number);
+            if ($customer !== null) {
+                $this->settleFreeNoticeFifo($customer, $adminId, $number);
+            }
+        });
     }
 
     private function creditNoteAmountForOrder(int $orderId, ?int $excludeReturnRequestId = null): BigDecimal
@@ -1011,6 +1041,7 @@ class WholesalePaymentNoticeService
             ->where('order_id', $orderId)
             ->where('status', 'refunded')
             ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
             ->when($excludeReturnRequestId !== null, fn ($q) => $q->whereKeyNot($excludeReturnRequestId))
             ->sum('total_refund_amount'))->toScale(2, RoundingMode::HalfUp);
     }

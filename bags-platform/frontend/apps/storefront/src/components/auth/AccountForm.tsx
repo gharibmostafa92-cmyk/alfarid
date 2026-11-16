@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useBranding } from '@alfarid/ui/branding';
 import { registerWeb, requestPasswordReset, resetWebPassword } from '@/services/auth.service';
 import { PhoneVerification, type PhoneProof } from './PhoneVerification';
+import { PASSWORD_BYTE_LIMIT, passwordByteLength } from '@/lib/auth/password-byte-limit';
 
 export type AuthView = 'login' | 'register' | 'wholesale-register' | 'forgot-password' | 'reset-password';
 type AccountView = Exclude<AuthView, 'login'>;
@@ -179,6 +180,10 @@ export function AccountForm({
     setErrors({});
     setFormError('');
     setNotice('');
+    if ((!recovery || resetStep) && passwordByteLength(password) > PASSWORD_BYTE_LIMIT) {
+      setErrors({ password: [text('يجب ألا تتجاوز كلمة المرور 72 بايتًا.', 'Password must be at most 72 bytes.')] });
+      return;
+    }
     if (!recovery && !phoneProof.ready) {
       setFormError(text('أكّد رقم الموبايل أولًا.', 'Verify your mobile number first.'));
       return;

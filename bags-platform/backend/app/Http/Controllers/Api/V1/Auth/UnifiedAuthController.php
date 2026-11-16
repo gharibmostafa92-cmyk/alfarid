@@ -57,13 +57,12 @@ class UnifiedAuthController extends Controller
         // Best-effort cart merge for accounts allowed to shop: non-shopping actors
         // must not consume guest carts, and failed merges report cart_merged=false.
         $cartMerged = false;
-        if ($actor->canShop()) {
-            $cartMerged = true;
+        $guestToken = trim((string) $request->header('X-Cart-Session', ''));
+        if ($actor->canShop() && $guestToken !== '') {
             try {
-                $this->carts->mergeGuestCart($actor, $request->header('X-Cart-Session'));
+                $cartMerged = $this->carts->mergeGuestCart($actor, $guestToken);
             } catch (\Throwable $exception) {
                 report($exception);
-                $cartMerged = false;
             }
         }
 

@@ -27,7 +27,10 @@ class ScoreWholesaleReceipt implements ShouldQueue
 
     public int $timeout = 45;
 
-    public function __construct(public int $noticeId) {}
+    public function __construct(public int $noticeId)
+    {
+        $this->afterCommit();
+    }
 
     public function handle(SettingService $settings, GeminiClient $gemini, ReceiptMatchScorer $scorer): void
     {

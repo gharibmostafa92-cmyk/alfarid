@@ -159,24 +159,39 @@ export function WholesalePortal({
 
   const addToCart = useCallback(async (lines) => {
     let last = null;
+    let ok = false;
+    let addedCount = 0;
     try {
       if (lines.length > 0 && lines.every((l) => l.sku)) {
         const res = await wholesaleEndpoints.quickAddToCart(lines.map((l) => ({ sku: l.sku, qty: l.qty })));
         if (res?.cart) last = res.cart;
         if (res?.skipped?.length > 0) {
           toast(res?.added?.length > 0 ? 'تمت إضافة بعض الأصناف وتجاوز الأصناف غير المتوفرة' : 'لم تتم الإضافة؛ الكميات المطلوبة غير متوفرة حالياً');
+          ok = Boolean(res?.added?.length > 0);
         } else {
           toast('تمت الإضافة إلى سلة المشتريات بنجاح');
+          ok = true;
         }
       } else {
-        for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
+        for (const l of lines) {
+          last = await cartEndpoints.add(l.variant_id, l.qty, null);
+          addedCount += 1;
+        }
         toast('تمت الإضافة إلى سلة المشتريات بنجاح');
+        ok = true;
       }
-    } catch (e) { toast(apiError(e).message); }
-    finally {
+    } catch (e) {
+      if (addedCount > 0) {
+        toast(`تمت إضافة ${addedCount} من ${lines.length} أصناف قبل حدوث خطأ: ${apiError(e).message}`);
+      } else {
+        toast(apiError(e).message);
+      }
+      ok = false;
+    } finally {
       if (last) setCartState(mapCart(last));
       else await loadCart();
     }
+    return ok;
   }, [toast, setCartState, loadCart]);
 
   const applyCartResponse = useCallback((c) => {

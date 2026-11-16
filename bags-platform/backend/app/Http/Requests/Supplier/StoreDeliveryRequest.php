@@ -22,7 +22,7 @@ class StoreDeliveryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'delivery_date' => ['required', 'date_format:Y-m-d'],
+            'delivery_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:2000-01-01', 'before_or_equal:2100-12-31'],
             'supplier_invoice_no' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'invoice_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],

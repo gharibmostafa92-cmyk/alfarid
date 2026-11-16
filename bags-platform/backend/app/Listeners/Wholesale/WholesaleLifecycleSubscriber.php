@@ -114,9 +114,11 @@ final class WholesaleLifecycleSubscriber
         $this->guard(function () use ($event): void {
             $notice = $event->notice->loadMissing('customer');
             $status = $notice->status instanceof \BackedEnum ? $notice->status->value : (string) $notice->status;
-            $message = $status === 'approved'
-                ? "إشعار السداد {$notice->notice_number} اتعمد."
-                : "إشعار السداد {$notice->notice_number} اترفض." . ($notice->admin_notes ? ' السبب: ' . $notice->admin_notes : '');
+            $message = match ($status) {
+                'approved' => "إشعار السداد {$notice->notice_number} اتعمد.",
+                'reversed' => "تم عكس اعتماد إشعار السداد {$notice->notice_number}." . ($notice->admin_notes ? ' السبب: ' . $notice->admin_notes : ''),
+                default => "إشعار السداد {$notice->notice_number} اترفض." . ($notice->admin_notes ? ' السبب: ' . $notice->admin_notes : ''),
+            };
             $this->notifyCustomer($notice->customer, 'payment_notice_reviewed', $message, [
                 'notice_id' => $notice->id,
                 'status' => $status,

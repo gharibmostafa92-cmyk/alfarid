@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Listeners\Procurement;
 
+use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Events\Procurement\PurchaseOrderSentToSupplier;
 use App\Models\SupplierUser;
 use App\Notifications\Procurement\PurchaseOrderSentNotification;
@@ -24,6 +25,10 @@ class SendPurchaseOrderSent implements ShouldQueue
 
     public function handle(PurchaseOrderSentToSupplier $event): void
     {
+        $po = $event->purchaseOrder->fresh();
+        if ($po === null || $po->status === PurchaseOrderStatus::Cancelled) {
+            return;
+        }
         $users = SupplierUser::query()
             ->where('supplier_id', $event->purchaseOrder->supplier_id)
             ->where('is_active', true)

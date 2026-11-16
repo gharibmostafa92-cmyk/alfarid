@@ -6,8 +6,11 @@ namespace App\Http\Controllers\Api\V1\Admin\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
+use App\Models\User;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use InvalidArgumentException;
 
 /**
@@ -20,10 +23,14 @@ class SettingController extends Controller
     /**
      * Retrieve all system settings grouped by domain with validation warnings.
      */
-    public function index(): JsonResponse
+    public function index(Request $request, BranchAccess $branchAccess): JsonResponse
     {
+        $user = $request->user('staff');
+        abort_unless($user instanceof User, 403);
+        $branchAccess->assertCentralAccess($user);
+
         return response()->json([
-            'data' => $this->settings->getAllGrouped(),
+            'data' => $this->visibleSettings($user),
             'warnings' => $this->settings->warnings,
         ]);
     }
@@ -46,8 +53,32 @@ class SettingController extends Controller
         }
 
         return response()->json([
-            'data' => $this->settings->getAllGrouped(),
+            'data' => $this->visibleSettings($request->user('staff')),
             'warnings' => $this->settings->warnings,
         ]);
+    }
+
+    /**
+     * Strip AI configuration values from users without the dedicated AI settings permission.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function visibleSettings(?User $user): array
+    {
+        $data = $this->settings->getAllGrouped();
+        if ($user?->can('ai_agent.settings')) {
+            return $data;
+        }
+
+        unset($data['ai']);
+
+        return array_map(
+            static fn (array $values): array => array_filter(
+                $values,
+                static fn (string $key): bool => ! str_starts_with($key, 'ai_'),
+                ARRAY_FILTER_USE_KEY,
+            ),
+            $data,
+        );
     }
 }

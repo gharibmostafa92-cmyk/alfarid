@@ -26,7 +26,6 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const [staffCheckPending, setStaffCheckPending] = useState(initialView === 'login');
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState('');
   const [challengeRequired, setChallengeRequired] = useState(false);
@@ -45,23 +44,18 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
-    if (view !== 'login' || token || login !== '' || password !== '') {
-      setStaffCheckPending(false);
+    if (view !== 'login' || token || login !== '' || password !== '' || params.get('as') === 'customer') {
       return;
     }
     const office = new URL(resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'));
     const nonce = createSessionNonce();
-    if (!nonce) {
-      setStaffCheckPending(false);
-      return;
-    }
+    if (!nonce) return;
     const frame = document.createElement('iframe');
     frame.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0';
     frame.setAttribute('aria-hidden', 'true');
     frame.tabIndex = -1;
     frame.title = 'Session verification';
     frame.src = new URL(`/auth/session#nonce=${encodeURIComponent(nonce)}`, office).href;
-    setStaffCheckPending(true);
     let cleaned = false;
     const cleanup = () => {
       if (cleaned) return;
@@ -78,20 +72,19 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       )
         return;
       cleanup();
-      if (event.data.authenticated === true) window.location.replace(new URL('/dashboard', office).href);
-      else setStaffCheckPending(false);
+      const path = event.data.authenticated === true ? event.data.path : null;
+      if (path === '/dashboard' || path === '/pos') window.location.replace(new URL(path, office).href);
     };
     window.addEventListener('message', receive);
     document.body.appendChild(frame);
     const timer = window.setTimeout(() => {
       cleanup();
-      setStaffCheckPending(false);
     }, 800);
     return () => {
       window.clearTimeout(timer);
       cleanup();
     };
-  }, [view, token, login, password]);
+  }, [view, token, login, password, params]);
 
   // If already authenticated, redirect to the intended destination or default home path.
   useEffect(() => {

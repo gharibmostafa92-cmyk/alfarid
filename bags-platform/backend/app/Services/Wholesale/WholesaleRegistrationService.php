@@ -153,7 +153,7 @@ class WholesaleRegistrationService
             }
         }
         if ($storedPaths !== []) {
-            $this->deleteDirectorySilently($stagingDirectory);
+            $this->deleteDirectorySilently($customerDirectory);
         }
     }
 

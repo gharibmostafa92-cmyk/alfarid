@@ -71,7 +71,10 @@
                     "bags-platform/backend/database/migrations/*roles*.php",
                     "bags-platform/backend/database/migrations/*least_privilege_roles*.php",
                     "bags-platform/backend/database/migrations/*scope_phone_unique*.php",
-                    "bags-platform/backend/app/Notifications/Auth/StaffAuthenticationAlert.php"
+                    "bags-platform/backend/app/Notifications/Auth/StaffAuthenticationAlert.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/auth/SessionProbePage.tsx",
+                    "bags-platform/frontend/apps/storefront/src/lib/auth/password-byte-limit.ts",
+                    "bags-platform/frontend/apps/storefront/src/store/auth-redirect.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

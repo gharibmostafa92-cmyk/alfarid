@@ -11,6 +11,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -51,6 +52,13 @@ class EnsureStaffAuthenticated
         }
 
         $token = $user->currentAccessToken();
+        // Administrative routes are bearer-token only. A stateful session
+        // resolves to a TransientToken, which must never reach staff APIs.
+        if (! $token instanceof PersonalAccessToken) {
+            return response()->json([
+                'message' => 'غير مصرح لك بالدخول كموظف أو الحساب غير نشط.',
+            ], 403);
+        }
         // Rotation self-service stays reachable for accounts flagged for
         // rotation; every other POS-scoped token is refused outside POS and
         // logout (item 14: a normal POS token must not read admin/me).

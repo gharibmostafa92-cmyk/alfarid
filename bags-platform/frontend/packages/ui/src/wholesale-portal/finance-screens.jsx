@@ -3,7 +3,7 @@ import { useApp } from './context';
 import { wholesaleEndpoints, accountEndpoints } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError, saveBlob, pageMeta, num, calendarDay, today, allPages } from './data/helpers';
+import { apiError, saveBlob, pageMeta, num, calendarDay, today } from './data/helpers';
 import { mapOrder, mapInvoice, mapStatement, mapNotice, mapWalletTx, mapNotif } from './data/mappers';
 import { ORDER_STATUS, PAY_METHOD, PAY_STATUS, NOTICE_STATUS, NOTICE_METHOD } from './data/constants';
 import { fmt, Money } from './data/format';
@@ -189,8 +189,8 @@ export const NoticeForm = () => {
   const [done, setDone] = useState(null);
   const inputRef = useRef(null);
 
-  const ordersApi = useApi((signal) => allPages((page, signal) => wholesaleEndpoints.invoices({ payment_status: 'unpaid', page }, signal), signal)
-    .then((rows) => rows.map(mapInvoice)), []);
+  const ordersApi = useApi((signal) => wholesaleEndpoints.invoices({ payment_status: 'unpaid', per_page: 100 }, signal)
+    .then((r) => (r.data || []).map(mapInvoice)), []);
   const orders = ordersApi.data || [];
   useEffect(() => {
     const pre = preselectId ? orders.find((x) => x.id === preselectId) : null;
@@ -458,6 +458,11 @@ export const Notifications = () => {
 
   const list = api.data?.items || [];
   const unreadCount = api.data?.meta?.unread_count ?? unread;
+  const allTotalRef = useRef(null);
+  if (f === 'all' && api.data?.meta?.total != null) {
+    allTotalRef.current = api.data.meta.total;
+  }
+  const allCount = f === 'all' ? (api.data?.meta?.total ?? (api.data ? list.length : null)) : allTotalRef.current;
 
   const read = async (n) => {
     try {
@@ -490,7 +495,7 @@ export const Notifications = () => {
         <button className="btn-pill" onClick={readAll}>تحديد الكل كمقروء</button>
       </PageHead>
       <section className="panel">
-        <div className="toolbar"><Seg value={f} onChange={setF} options={[{ value: 'all', label: 'الكل', n: all.length }, { value: 'unread', label: 'غير مقروء', n: all.filter((n) => n.unread).length }]} /></div>
+        <div className="toolbar"><Seg value={f} onChange={setF} options={[{ value: 'all', label: 'الكل', n: allCount }, { value: 'unread', label: 'غير مقروء', n: unreadCount }]} /></div>
         <DataBoundary api={api}>
           <Async rows={5} cols={3} isEmpty={!list.length} empty={<Empty icon="fa-bell-slash" title="مفيش إشعارات غير مقروءة" desc="كل الإشعارات اتقرت." />}>
             {list.map((n) => (

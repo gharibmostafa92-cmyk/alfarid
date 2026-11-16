@@ -38,9 +38,9 @@ class LoginDestinationPropertyTest extends TestCase
                 $result = $resolver->resolve($actor, $path)['path'];
                 $decoded = rawurldecode($result);
                 $pathname = preg_split('/[?#]/', $decoded, 2)[0];
-                $safe = str_starts_with($decoded, '/') && ! str_starts_with($decoded, '//')
-                    && ! str_contains($decoded, '\\') && ! str_contains($decoded, '://')
-                    && ! preg_match('/[\x00-\x20\x7f]/', $decoded)
+                $safe = str_starts_with($pathname, '/') && ! str_starts_with($pathname, '//')
+                    && ! str_contains($pathname, '\\') && ! str_contains($pathname, '://')
+                    && ! preg_match('/[\x00-\x20\x7f]/', $pathname)
                     && array_intersect(explode('/', $pathname), ['.', '..']) === [];
                 if ($actor === $retail) {
                     $safe = $safe && ! preg_match('~^/(auth|supplier|wholesale)(/|$)~', $pathname);

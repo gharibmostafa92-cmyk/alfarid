@@ -22,7 +22,14 @@ class MaxImagePixels implements ValidationRule
         }
         $head = @file_get_contents($value->getRealPath() ?: $value->getPathname(), false, null, 0, 5);
         $mime = (string) $value->getMimeType();
-        if ($head === '%PDF-' || (! str_starts_with($mime, 'image/') && ($mime === 'application/pdf' || $value->getClientMimeType() === 'application/pdf'))) {
+        $isPdfUpload = strtolower($mime) === 'application/pdf'
+            || strtolower($value->getClientMimeType()) === 'application/pdf';
+        if ($isPdfUpload && $head !== '%PDF-') {
+            $fail('ملف PDF لا يبدأ بترويسة PDF صالحة.');
+
+            return;
+        }
+        if ($head === '%PDF-') {
             return;
         }
         // Highly compressed images bypass filesize limits; cap total pixel count to prevent GD memory exhaustion bombs.

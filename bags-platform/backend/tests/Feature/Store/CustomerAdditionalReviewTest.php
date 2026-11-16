@@ -227,7 +227,7 @@ class CustomerAdditionalReviewTest extends TestCase
         $url = '/api/v1/admin/customers/'.$customer->id.'/documents/'.$document->id;
         $this->withToken($token)->patchJson($url, ['status' => 'verified'])->assertForbidden();
         Auth::forgetGuards();
-        $token = $this->staff(['customers.approve', 'customers.documents.view']);
+        $token = $this->staff(['customers.approve', 'customers.documents.view', 'inventory.all_branches']);
 
         $this->withToken($token)->patchJson($url, ['status' => 'verified'])->assertOk();
         $this->withToken($token)->getJson($url.'/download')->assertOk();

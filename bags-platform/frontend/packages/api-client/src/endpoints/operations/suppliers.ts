@@ -88,7 +88,7 @@ export interface SupplierInvoicePayload {
 }
 const INV = `${ADMIN}/supplier-invoices`;
 export const supplierInvoicesApi = {
-  ...crud<SupplierInvoice, SupplierInvoicePayload, { page?: number; status?: string; supplier_id?: number; purchase_order_id?: number; open?: boolean }>(INV),
+  ...crud<SupplierInvoice, SupplierInvoicePayload, { page?: number; status?: string; supplier_id?: number; purchase_order_id?: number; open?: boolean; search?: string }>(INV),
   create: (body: SupplierInvoicePayload) => api.post(INV, toFormData(body as unknown as Record<string, unknown>), MULTIPART).then(r => one<SupplierInvoice>(r)),
   update: (id: Id, body: Partial<Omit<SupplierInvoicePayload, 'supplier_id'>>) => api.post(`${INV}/${id}`, toFormData(body as Record<string, unknown>, true), MULTIPART).then(r => one<SupplierInvoice>(r)),
   post: (id: Id) => api.post(`${INV}/${id}/post`).then(r => one<SupplierInvoice>(r)),
@@ -113,7 +113,7 @@ export const supplierPaymentsApi = {
   ...reader<SupplierPaymentApi, { page?: number; supplier_id?: number; supplier_invoice_id?: number; from_date?: string; to_date?: string }>(PAY),
   treasuries: (page: number, signal?: AbortSignal) => api.get(`${PAY}/treasuries`, { params: { page }, signal }).then(r => asPage<{ id: number; name: string; type: 'main_safe' | 'bank_account'; branch_id: number | null }>(r)),
   create: (body: SupplierPaymentPayload, idempotencyKey: string) => api.post(PAY, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then(r => one<SupplierPaymentApi>(r)),
-  update: (id: Id, body: Pick<SupplierPaymentPayload, 'payment_method' | 'reference_no' | 'notes'>) => api.put(`${PAY}/${id}`, body).then(r => one<SupplierPaymentApi>(r)),
+  update: (id: Id, body: Pick<SupplierPaymentPayload, 'reference_no' | 'notes'>) => api.put(`${PAY}/${id}`, body).then(r => one<SupplierPaymentApi>(r)),
   allocate: (id: Id, supplier_invoice_id: number) => api.post(`${PAY}/${id}/allocate`, { supplier_invoice_id }).then(r => one<SupplierPaymentApi>(r)),
   void: (id: Id, void_reason: string) => api.post(`${PAY}/${id}/void`, { void_reason }).then(r => r.data as { message: string }),
 };

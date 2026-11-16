@@ -100,6 +100,7 @@ function Test-MigrationCoverage {
 
     foreach ($subKey in $SubsystemConfigs.Keys) {
         $cfgPath = Join-Path $ConfigsDir $SubsystemConfigs[$subKey]
+        if (-not (Test-Path $cfgPath)) { continue }
         $json = Get-Content $cfgPath -Raw | ConvertFrom-Json
         $patterns = $json.include | Where-Object { $_ -match "migrations" }
         foreach ($pat in $patterns) {
@@ -189,7 +190,10 @@ if ($All) {
     Write-Host 'Starting batch repomix packing for ALL 10 End-to-End Vertical Subsystems...' -ForegroundColor Green
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     foreach ($key in $SubsystemConfigs.Keys) {
-        Invoke-RepomixDomain -key $key -configFile $SubsystemConfigs[$key]
+        $cfgPath = Join-Path $ConfigsDir $SubsystemConfigs[$key]
+        if (Test-Path $cfgPath) {
+            Invoke-RepomixDomain -key $key -configFile $SubsystemConfigs[$key]
+        }
     }
     $stopwatch.Stop()
     Write-Host "`nAll 10 subsystem bundles successfully packed in $($stopwatch.Elapsed.TotalSeconds.ToString('F1')) seconds!" -ForegroundColor Green

@@ -25,21 +25,30 @@ test('task 25 / F04: legacy /api/auth cookie endpoint is decommissioned and sets
   } finally { await context.close(); }
 });
 
-async function stubPublicApi(context) {
-  await context.route('**/api/v1/**', route => route.fulfill({
-    headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' },
-    json: { data: new URL(route.request().url()).pathname.endsWith('/branding') ? { name: 'Alfarid', logo: null } : [] },
-  }));
+async function stubPublicApi(context, staffPath = '/dashboard') {
+  await context.route('**/api/v1/**', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    const json = pathname.endsWith('/branding')
+      ? { data: { name: 'Alfarid', logo: null } }
+      : pathname.endsWith('/admin/me')
+        ? { redirect: { path: staffPath } }
+        : { data: [] };
+    return route.fulfill({
+      headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' },
+      json,
+    });
+  });
 }
 
 for (const authenticated of [false, true]) {
   test(`task 27: real session probe restricts ${authenticated ? 'active' : 'absent'} session replies to the storefront`, async () => {
     const context = await browser.newContext({ permissions: ['local-network-access'] });
     try {
+      const staffPath = '/pos';
       if (authenticated) await context.addInitScript(office => {
         if (location.origin === office) localStorage.setItem('backoffice_token', `1|${'x'.repeat(40)}`);
       }, office);
-      await stubPublicApi(context);
+      await stubPublicApi(context, staffPath);
       const html = `<!doctype html><script>window.messages=[];addEventListener('message',e=>messages.push({origin:e.origin,data:e.data}));</script><iframe src="${office}/auth/session#nonce=probe-test"></iframe>`;
       await context.route(`${web}/probe-test`, route => route.fulfill({ contentType: 'text/html', body: html }));
       await context.route(`${foreign}/probe-test`, route => route.fulfill({ contentType: 'text/html', body: html }));
@@ -47,7 +56,7 @@ for (const authenticated of [false, true]) {
       await page.goto(`${web}/probe-test`);
       await page.waitForFunction(() => window.messages.length > 0);
       const expected = {
-        origin: office, data: { type: 'alfarid:staff-session', nonce: 'probe-test', authenticated },
+        origin: office, data: { type: 'alfarid:staff-session', nonce: 'probe-test', authenticated, path: authenticated ? staffPath : null },
       };
       const messages = await page.evaluate(() => window.messages);
       assert.ok(messages.length > 0);
@@ -64,7 +73,7 @@ for (const authenticated of [false, true]) {
 }
 
 for (const attack of ['nonce', 'origin', 'source']) {
-  test(`task 27: login ignores a forged ${attack} and enables its form after five seconds`, async () => {
+  test(`task 27: login ignores a forged ${attack} while keeping its form available`, async () => {
     const context = await browser.newContext({ permissions: ['local-network-access'] });
     try {
       await stubPublicApi(context);
@@ -110,24 +119,42 @@ for (const attack of ['nonce', 'origin', 'source']) {
         }, office);
       }
       await page.waitForFunction(() => window.attackReceived, undefined, { timeout: 10000 });
-      assert.equal(await button.isDisabled(), true);
+      assert.equal(await button.isDisabled(), false);
       await button.waitFor({ state: 'visible' });
-      await page.waitForFunction(() => !document.querySelector('form button[type=submit]').disabled, undefined, { timeout: 8000 });
+      await page.waitForTimeout(850);
+      assert.equal(await button.isDisabled(), false);
       assert.equal(new URL(page.url()).pathname, '/auth/login');
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
   });
 }
 
-test('task 27: a matching session reply from the configured frame reaches the backoffice', async () => {
+for (const path of ['/dashboard', '/pos']) {
+  test(`task 27: a matching session reply routes staff to ${path}`, async () => {
+    const context = await browser.newContext({ permissions: ['local-network-access'] });
+    try {
+      await stubPublicApi(context);
+      await context.route(`${office}/auth/session**`, route => route.fulfill({ contentType: 'text/html',
+        body: `<script>parent.postMessage({type:'alfarid:staff-session',nonce:new URLSearchParams(location.hash.slice(1)).get('nonce'),authenticated:true,path:${JSON.stringify(path)}},${JSON.stringify(web)})</script>` }));
+      await context.route(`${office}${path}`, route => route.fulfill({ contentType: 'text/html', body: '<h1>Backoffice destination</h1>' }));
+      const page = await context.newPage();
+      await page.goto(`${web}/auth/login`);
+      await page.waitForURL(`${office}${path}`);
+    } finally { await context.close(); }
+  });
+}
+
+test('task 27: as=customer leaves the storefront login available when staff is signed in', async () => {
   const context = await browser.newContext({ permissions: ['local-network-access'] });
   try {
     await stubPublicApi(context);
-    await context.route(`${office}/auth/session**`, route => route.fulfill({ contentType: 'text/html',
-      body: `<script>parent.postMessage({type:'alfarid:staff-session',nonce:new URLSearchParams(location.hash.slice(1)).get('nonce'),authenticated:true},${JSON.stringify(web)})</script>` }));
-    await context.route(`${office}/dashboard`, route => route.fulfill({ contentType: 'text/html', body: '<h1>Backoffice destination</h1>' }));
+    await context.addInitScript(office => {
+      if (location.origin === office) localStorage.setItem('backoffice_token', `1|${'x'.repeat(40)}`);
+    }, office);
     const page = await context.newPage();
-    await page.goto(`${web}/auth/login`);
-    await page.waitForURL(`${office}/dashboard`);
+    await page.goto(`${web}/auth/login?as=customer`);
+    await page.waitForTimeout(900);
+    assert.equal(new URL(page.url()).pathname, '/auth/login');
+    assert.equal(await page.locator('iframe[title="Session verification"]').count(), 0);
   } finally { await context.close(); }
 });

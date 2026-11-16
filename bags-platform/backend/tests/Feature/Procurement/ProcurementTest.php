@@ -144,6 +144,17 @@ class ProcurementTest extends TestCase
         $this->assertDatabaseHas('purchase_order_items', ['id' => $po['items'][0]['id'], 'ordered_qty' => 5]);
     }
 
+    public function test_purchase_request_self_approval_is_rejected(): void
+    {
+        $pr = $this->auth()->postJson('/api/v1/admin/purchase-requests', [
+            'branch_id' => $this->branch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'requested_qty' => 2]],
+        ])->assertCreated()->json('data');
+        $this->auth()->postJson("/api/v1/admin/purchase-requests/{$pr['id']}/submit")->assertOk();
+        // F14: فصل المهام — منشئ الطلب لا يعتمده بنفسه
+        $this->auth()->postJson("/api/v1/admin/purchase-requests/{$pr['id']}/approve")->assertUnprocessable();
+    }
+
     public function test_purchase_request_flow_and_conversion_to_po(): void
     {
         $this->variant->update(['cost_price' => 40]);
@@ -158,8 +169,14 @@ class ProcurementTest extends TestCase
         // الاعتماد من draft مرفوض — لازم إرسال الأول
         $this->auth()->postJson("/api/v1/admin/purchase-requests/{$pr['id']}/approve")->assertUnprocessable();
         $this->auth()->postJson("/api/v1/admin/purchase-requests/{$pr['id']}/submit")->assertOk();
-        $this->auth()->postJson("/api/v1/admin/purchase-requests/{$pr['id']}/approve")
+        // الاعتماد الذاتي مرفوض (F14): الاعتماد من مدير آخر
+        $approver = User::factory()->create();
+        $approver->assignRole('Super Admin');
+        Auth::forgetGuards();
+        $this->withToken($approver->createToken('pr-approver')->plainTextToken)
+            ->postJson("/api/v1/admin/purchase-requests/{$pr['id']}/approve")
             ->assertOk()->assertJsonPath('data.status', 'approved');
+        Auth::forgetGuards();
 
         // أمر شراء من الطلب: البنود والفرع منسوخة من الطلب
         $po = $this->auth()->postJson('/api/v1/admin/purchase-orders', [

@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
@@ -46,6 +47,7 @@ class AuthController extends Controller
         $user = $request->user('staff');
 
         abort_unless($user instanceof User, 403);
+        abort_unless($user->currentAccessToken() instanceof PersonalAccessToken, 403);
 
         return $this->userResource($user);
     }

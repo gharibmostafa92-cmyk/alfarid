@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
-import { suppliersApi, purchaseRequestsApi, purchaseOrdersApi, supplierInvoicesApi, supplierPaymentsApi, branchesApi, commerceLookupsApi, newIdempotencyKey, type Supplier as SupplierApi, type PurchaseRequest as PRApi, type PurchaseOrder as POApi, type SupplierInvoice as InvoiceApi, type SupplierPaymentApi } from '@alfarid/api-client';
+import { suppliersApi, purchaseRequestsApi, purchaseOrdersApi, supplierInvoicesApi, supplierPaymentsApi, branchesApi, commerceLookupsApi, locationsApi, newIdempotencyKey, type Supplier as SupplierApi, type PurchaseRequest as PRApi, type PurchaseOrder as POApi, type SupplierInvoice as InvoiceApi, type SupplierPaymentApi } from '@alfarid/api-client';
 import { useCan } from '../../../hooks/useCan';
 import { RemoteFeedback } from './api/RemoteFeedback';
 import { useRemote, useDebounced, useAction, allPages } from './api/useRemote';
@@ -62,7 +62,12 @@ const mockPRs = PRS.map(p => ({ id: p.id, request_number: p.no, branch_id: 0, br
 const mockPOs = POS.map(p => ({ id: p.id, po_number: p.no, supplier_id: p.sup, branch_id: 0, branch: { id: 0, name: p.branch }, purchase_request_id: null, status: toPOStatus(p.status), expected_delivery_date: p.eta, grand_total: String(p.total), approved_by: null, supplier_change_notes: null, subtotal: String(p.total), tax_amount: '0', discount_amount: '0', items: [], deliveries: [] } as POApi)).map(row => Object.assign(row, { __demo: true }) as POApi);
 const mockInvoices = INVOICES.map(i => ({ id: i.id, invoice_number: i.sys, supplier_invoice_no: i.supNo, supplier_id: i.sup, purchase_order_id: null, issue_date: i.issue, due_date: i.due, subtotal: String(i.subtotal), tax_amount: String(i.tax), total_amount: String(i.subtotal + i.tax), paid_amount: String(i.paid), remaining_amount: String(i.subtotal + i.tax - i.paid), status: i.status === 'partial' ? 'partially_paid' : i.status, attachment_url: null } as InvoiceApi)).map(row => Object.assign(row, { __demo: true }) as InvoiceApi);
 const mockPayments = SPAYMENTS.map(p => ({ id: p.id, payment_number: p.no, supplier_id: p.sup, supplier_invoice_id: null, invoice: p.inv ? { id: 0, invoice_number: p.inv, supplier_invoice_no: null } : null, amount: String(p.amount), payment_method: paymentMethod(p.method), reference_no: p.ref, payment_date: p.date, notes: p.notes, voided_at: p.void?.at ?? null, void_reason: p.void?.reason ?? null, voided_by: null } as SupplierPaymentApi)).map(row => Object.assign(row, { __demo: true }) as SupplierPaymentApi);
+const MAX_JSON_MONEY = 999999999999.99;
 const pageOf = <T,>(data: T[]) => ({ data, meta: { current_page: 1, last_page: 1, per_page: 20, total: data.length, from: data.length ? 1 : null, to: data.length || null } });
+const localToday = () => {
+  const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
+  return d.toISOString().slice(0, 10);
+};
 function SupplierPicker({
   value,
   onChange,
@@ -415,7 +420,7 @@ export function SupplierForm({ row, onClose, onSaved, blocked }: { row: Supplier
           </Field>
           {!row && (
             <Field label="الرصيد الافتتاحي" err={f.errors.opening}>
-              <input type="number" step="0.01" className="inp num" value={f.v.opening} onChange={f.on('opening' as any)} />
+              <input type="number" step="0.01" min={-MAX_JSON_MONEY} max={MAX_JSON_MONEY} className="inp num" value={f.v.opening} onChange={f.on('opening' as any)} />
             </Field>
           )}
         </div>
@@ -1022,14 +1027,17 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
   const [qtys, setQtys] = useState<Record<number, number>>({});
   const [idemKey, setIdemKey] = useState(newIdempotencyKey);
   const [deliveryId, setDeliveryId] = useState('');
+  const [locationId, setLocationId] = useState('');
   const lastPayload = useRef('');
+  const branchId = po?.branchId ?? po?.raw?.branch_id;
+  const locations = useRemote(signal => branchId ? locationsApi.list(branchId, { per_page: 100 }, signal) : Promise.resolve({ data: [] } as any), [branchId], { enabled: open && !!branchId });
   if (!open) return null;
   const save = async () => {
     if (!po || po.demo || blocked) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (lines.some((l: any, i: number) => !Number.isInteger(Number(qtys[i] ?? 0)) || Number(qtys[i] ?? 0) < 0 || Number(qtys[i] ?? 0) > l.ord - l.rec)) return toast('الكمية المستلمة يجب ألا تتجاوز المتبقي', 'red');
     const items = lines.map((l: any, i: number) => ({ purchase_order_item_id: l.id, qty: Number(qtys[i] ?? 0) })).filter((x) => x.qty > 0);
     if (!items.length) return toast('أدخل كمية مستلمة واحدة على الأقل', 'red');
-    const payload = JSON.stringify({ items, supplier_delivery_id: deliveryId ? Number(deliveryId) : null });
+    const payload = JSON.stringify({ items, location_id: locationId ? Number(locationId) : null, supplier_delivery_id: deliveryId ? Number(deliveryId) : null });
     // Network retries of the same payload keep the key; any edited quantity or
     // delivery notice starts a new logical receipt operation.
     let key = idemKey;
@@ -1038,7 +1046,7 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
       setIdemKey(key);
     }
     lastPayload.current = payload;
-    const r = await run(() => purchaseOrdersApi.receive(po.id, { items, supplier_delivery_id: deliveryId ? Number(deliveryId) : null }, key), { toast, success: 'تم تسجيل الاستلام' });
+    const r = await run(() => purchaseOrdersApi.receive(po.id, { items, location_id: locationId ? Number(locationId) : null, supplier_delivery_id: deliveryId ? Number(deliveryId) : null }, key), { toast, success: 'تم تسجيل الاستلام' });
     if (r) onSaved();
   };
   return (
@@ -1046,6 +1054,7 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
       footer={<><button className="btn btn-soft" onClick={onClose}>إلغاء</button><button className="btn btn-accent" disabled={busy} onClick={save}>تأكيد الاستلام</button></>}>
       <div className="space-y-4">
         <Field label="إشعار التوريد" hint="حدد الإشعار عند وجود توريد معلق"><select className="inp" value={deliveryId} onChange={e => setDeliveryId(e.target.value)}><option value="">بدون</option>{(po?.raw?.deliveries ?? []).filter((d: any) => d.status === 'pending_receipt').map((d: any) => <option key={d.id} value={d.id}>{d.delivery_number}</option>)}</select></Field>
+        <Field label="موقع التخزين" hint="اختياري — يوجّه البضاعة لموقع داخل الفرع"><select className="inp" value={locationId} onChange={e => setLocationId(e.target.value)}><option value="">الموقع الافتراضي للفرع</option>{((locations.data as any)?.data ?? []).filter((l: any) => l.is_active !== false).map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field>
         <div className="v-sub p-2">
           <div className="grid grid-cols-12 gap-2 px-2 py-1 text-[11px] tx3">
             <span className="col-span-6">البند</span>
@@ -1406,7 +1415,7 @@ export function POModule() {
             />
             <div className="flex items-end gap-3">
               <Field label="خصم إجمالي" className="w-48">
-                <input type="number" className="inp num" value={form.discount} onChange={e => setForm({ ...form, discount: e.target.value })} />
+                <input type="number" min="0" max={MAX_JSON_MONEY} step="0.01" className="inp num" value={form.discount} onChange={e => setForm({ ...form, discount: e.target.value })} />
               </Field>
               <div className="flex-1 v-sub px-4 py-2.5 flex items-center justify-between">
                 <span className="tx2 text-[12px]">الإجمالي التقديري</span>
@@ -1439,7 +1448,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
   const orders = useRemote(signal => purchaseOrdersApi.list({ page: 1, search: poDq || undefined, supplier_id: Number(form?.sup) }, signal).then(r => r.data.map(mapPO)), [form?.sup, poDq], { enabled: !!form?.sup });
   const list = useRemote(signal => supplierInvoicesApi.list({ page }, signal), [page], { mock: () => pageOf(mockInvoices) });
   const rows = (list.data?.data ?? []).map(mapInvoice);
-  const openForm = (invoice?: any) => { setErrors({}); setPoq(''); setForm({ demo: list.usingMock || invoice?.demo, id: invoice?.id, sys: invoice?.sys, sup: invoice?.sup ?? '', supNo: invoice?.supNo ?? '', poId: invoice?.poId ?? '', poNo: invoice?.po ?? '', issue: invoice?.issue || new Date().toISOString().slice(0, 10), due: invoice?.due ?? '', subtotal: invoice?.subtotal ?? 0, tax: invoice?.tax ?? 0, attachment: undefined }); };
+  const openForm = (invoice?: any) => { setErrors({}); setPoq(''); setForm({ demo: list.usingMock || invoice?.demo, id: invoice?.id, sys: invoice?.sys, sup: invoice?.sup ?? '', supNo: invoice?.supNo ?? '', poId: invoice?.poId ?? '', poNo: invoice?.po ?? '', issue: invoice?.issue || localToday(), due: invoice?.due ?? '', subtotal: invoice?.subtotal ?? 0, tax: invoice?.tax ?? 0, attachment: undefined }); };
   const action = async (fn: () => Promise<unknown>, success: string) => { if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red'); const r = await run(fn, { toast, success }); if (r) { setView(null); setPostConfirm(false); list.reload(); return true; } return false; };
   const save = async () => {
     if (form.demo || list.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
@@ -1639,7 +1648,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
                     {form.poId && form.poNo && !(orders.data ?? []).some(p => String(p.id) === String(form.poId)) && (
                       <option value={form.poId}>{form.poNo}</option>
                     )}
-                    {(orders.data ?? []).map((p) => (
+                    {(orders.data ?? []).filter((p) => !['draft', 'cancelled'].includes(p.raw?.status ?? p.status)).map((p) => (
                       <option key={p.id} value={p.id}>{p.no}</option>
                     ))}
                   </select>
@@ -1653,10 +1662,10 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
                 <input type="date" className="inp" value={form.due} onChange={e => setForm({ ...form, due: e.target.value })} />
               </Field>
               <Field label="المجموع الفرعي" err={errors.subtotal} req>
-                <input type="number" step="0.01" className="inp num" value={form.subtotal} onChange={e => setForm({ ...form, subtotal: e.target.value })} />
+                <input type="number" min="0" max={MAX_JSON_MONEY} step="0.01" className="inp num" value={form.subtotal} onChange={e => setForm({ ...form, subtotal: e.target.value })} />
               </Field>
               <Field label="الضريبة" err={errors.tax_amount}>
-                <input type="number" step="0.01" className="inp num" value={form.tax} onChange={e => setForm({ ...form, tax: e.target.value })} />
+                <input type="number" min="0" max={MAX_JSON_MONEY} step="0.01" className="inp num" value={form.tax} onChange={e => setForm({ ...form, tax: e.target.value })} />
               </Field>
             </div>
             <Field label="المرفق" err={errors.attachment}>
@@ -1687,16 +1696,18 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
   const [voidReason, setVoidReason] = useState('');
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [allocateId, setAllocateId] = useState('');
+  const [invQ, setInvQ] = useState('');
+  const invDq = useDebounced(invQ);
   const treasuries = useRemote(signal => allPages(page => supplierPaymentsApi.treasuries(page, signal), undefined, { maxPages: 10 }), [], { enabled: !!form && !form.id });
-  const invoices = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: Number(form?.sup || view?.sup), open: true }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapInvoice)), [form?.sup, view?.sup, allocateOpen], { enabled: (!!form?.sup && !form?.id) || (allocateOpen && !!view?.sup) });
+  const invoices = useRemote(signal => supplierInvoicesApi.list({ page: 1, supplier_id: Number(form?.sup || view?.sup), open: true, search: invDq || undefined }, signal).then(r => r.data.map(mapInvoice)), [form?.sup, view?.sup, allocateOpen, invDq], { enabled: (!!form?.sup && !form?.id) || (allocateOpen && !!view?.sup) });
   const list = useRemote(signal => supplierPaymentsApi.list({ page }, signal), [page], { mock: () => pageOf(mockPayments) });
   const rows = (list.data?.data ?? []).map(mapPayment);
-  const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); lastPayload.current = ''; setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? new Date().toISOString().slice(0, 10), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
+  const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); lastPayload.current = ''; setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? localToday(), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
   useEffect(() => { if (initialInvoice && canCreate) openForm({ demo: initialInvoice.demo, sup: initialInvoice.sup, invId: initialInvoice.id, amount: initialInvoice.remaining }); }, [initialInvoice?.id, canCreate]);
   const save = async () => {
     if (form.demo || list.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
-    const common = { payment_method: paymentMethod(method), reference_no: form.ref || null, notes: form.notes || null };
-    const createBody = { ...common, supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date };
+    const updateBody = { reference_no: form.ref || null, notes: form.notes || null };
+    const createBody = { ...updateBody, payment_method: paymentMethod(method), supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date };
     let key = idemKey;
     if (!form.id) {
       const payload = JSON.stringify(createBody);
@@ -1706,7 +1717,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
       }
       lastPayload.current = payload;
     }
-    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, common) : supplierPaymentsApi.create(createBody, key), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
+    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, updateBody) : supplierPaymentsApi.create(createBody, key), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
     if (r) { setForm(null); list.reload(); invoices.reload(); }
   };
   const voidPayment = async () => {
@@ -1920,18 +1931,22 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
                   disabled={!!form.id}
                 />
               </Field>
-              <Field label="فاتورة مرتبطة" err={errors.supplier_invoice_id} hint="اختيارية">
-                <select className="inp" value={form.invId || ''} disabled={!!form.id} onChange={e => setForm({ ...form, invId: e.target.value })}>
-                  <option value="">بدون</option>
-                  {(invoices.data ?? []).map((i) => (
-                    <option key={i.id} value={i.id}>{i.sys}</option>
-                  ))}
-                </select>
+              <Field label="فاتورة مرتبطة" err={errors.supplier_invoice_id} hint="اختيارية — ابحث برقم الفاتورة">
+                <div className="space-y-2">
+                  <SearchPill value={invQ} onChange={setInvQ} placeholder="ابحث برقم الفاتورة" w="w-full" />
+                  <select className="inp" value={form.invId || ''} disabled={!!form.id} onChange={e => setForm({ ...form, invId: e.target.value })}>
+                    <option value="">بدون</option>
+                    {(invoices.data ?? []).map((i) => (
+                      <option key={i.id} value={i.id}>{i.sys}</option>
+                    ))}
+                  </select>
+                </div>
               </Field>
               <Field label="المبلغ" err={errors.amount} req hint={form.id ? null : 'أكبر من صفر'}>
                 <input
                   type="number"
                   min="0.01"
+                  max={MAX_JSON_MONEY}
                   step="0.01"
                   className="inp num"
                   disabled={!!form.id}

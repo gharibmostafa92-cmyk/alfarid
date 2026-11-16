@@ -141,7 +141,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         [, $create] = $this->createStaff(['customers.create']);
         [, $update] = $this->createStaff(['customers.update']);
         [, $approve] = $this->createStaff(['customers.approve']);
-        [, $docsView] = $this->createStaff(['customers.documents.view']);
+        [, $docsView] = $this->createStaff(['customers.documents.view', 'inventory.all_branches']);
         [, $delete] = $this->createStaff(['customers.delete']);
         [, $docsApprove] = $this->createStaff(['customers.documents.view', 'customers.approve']);
         [, $docsUpdate] = $this->createStaff(['customers.documents.view', 'customers.update']);
@@ -709,7 +709,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
      */
     public function test_13_14_15_document_idor_safe_filename_and_review_validation(): void
     {
-        [, $token] = $this->createStaff(['customers.documents.view', 'customers.approve']);
+        [, $token] = $this->createStaff(['customers.documents.view', 'customers.approve', 'inventory.all_branches']);
 
         $customerA = Customer::factory()->wholesale()->create(['status' => CustomerStatus::Approved]);
         $customerB = Customer::factory()->wholesale()->create(['status' => CustomerStatus::Pending]);
@@ -781,10 +781,11 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
             'note' => 'انتهت صلاحية السجل',
         ])->assertOk()->assertJsonPath('data.status', 'rejected');
 
-        // back to pending -> 200
+        // back to pending is not a valid review outcome -> 422
         $this->apiAs($token, 'PATCH', "/api/v1/admin/customers/{$customerA->id}/documents/{$docOfA->id}", [
             'status' => 'pending',
-        ])->assertOk()->assertJsonPath('data.status', 'pending');
+        ])->assertUnprocessable();
+        $this->assertSame('rejected', $docOfA->fresh()->status->value);
     }
 
     /**

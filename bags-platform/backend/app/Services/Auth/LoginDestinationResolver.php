@@ -64,10 +64,6 @@ final class LoginDestinationResolver
         }
 
         if ($actor->type === CustomerType::Retail) {
-            // Route rejected commercial applicants to application-status page to view decision and appeal notes.
-            if ($actor->status === CustomerStatus::Rejected) {
-                return ['app' => 'web', 'path' => '/wholesale/application-status', 'destination' => 'wholesale_pending'];
-            }
             // Respect requested redirect paths (e.g. /checkout) before falling back to configured retail home.
             $home = (string) config('store.retail_home', '/shop');
             $path = $this->safe($requested, '/');
@@ -88,15 +84,18 @@ final class LoginDestinationResolver
             return null;
         }
 
-        $decoded = rawurldecode($path);
+        $pathnameEnd = strcspn($path, '?#');
+        $rawPathname = substr($path, 0, $pathnameEnd);
+        $suffix = substr($path, $pathnameEnd);
+        $pathname = rawurldecode($rawPathname);
         // Reject double-encoded paths: a second decode must be stable (L1).
-        if (rawurldecode($decoded) !== $decoded) {
+        if (rawurldecode($pathname) !== $pathname) {
             return null;
         }
-        $pathname = explode('?', explode('#', $decoded, 2)[0], 2)[0];
-        if (! str_starts_with($decoded, '/') || str_starts_with($decoded, '//')
-            || str_contains($decoded, '\\') || str_contains($decoded, '://')
-            || preg_match('/[\x00-\x20\x7f]/', $decoded)
+        if (! str_starts_with($pathname, '/') || str_starts_with($pathname, '//')
+            || str_contains($pathname, '\\') || str_contains($pathname, '://')
+            || str_contains($pathname, '?') || str_contains($pathname, '#')
+            || preg_match('/[\x00-\x20\x7f]/', $pathname)
             || array_intersect(explode('/', $pathname), ['.', '..']) !== []
             || ($prefix !== '/' && $pathname !== $prefix && ! str_starts_with($pathname, $prefix.'/'))) {
             return null;
@@ -106,6 +105,6 @@ final class LoginDestinationResolver
             return null;
         }
 
-        return $path;
+        return $pathname.$suffix;
     }
 }

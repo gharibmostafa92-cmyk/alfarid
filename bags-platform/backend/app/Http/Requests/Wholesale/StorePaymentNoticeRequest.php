@@ -24,13 +24,15 @@ class StorePaymentNoticeRequest extends FormRequest
      */
     public function rules(): array
     {
+        $today = now((string) config('app.business_timezone', 'Africa/Cairo'))->toDateString();
+
         return [
             'order_id' => ['nullable', 'integer', 'min:1'],
             'amount' => ['required', 'numeric', 'gt:0', 'max:9999999999.99', 'decimal:0,2'],
             'payment_method' => ['required', Rule::enum(WholesalePaymentMethod::class)],
             'bank_name' => ['required', 'string', 'max:255'],
             'reference_number' => ['required', 'string', 'max:255'],
-            'transfer_date' => ['required', 'date', 'before_or_equal:today'],
+            'transfer_date' => ['required', 'date', 'before_or_equal:'.$today],
             'receipt' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'mimetypes:application/pdf,image/jpeg,image/png,image/webp', 'max:10240', new RejectExecutableSignature],
         ];
     }

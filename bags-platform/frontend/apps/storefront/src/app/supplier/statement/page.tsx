@@ -26,6 +26,13 @@ export default function SupplierStatementPage() {
       setError('تاريخ النهاية يجب أن يكون بعد تاريخ البداية.');
       return;
     }
+    if (fromDate && toDate) {
+      const days = (new Date(toDate).getTime() - new Date(fromDate).getTime()) / 86400000;
+      if (days > 366) {
+        setError('فترة كشف الحساب يجب ألا تتجاوز 366 يومًا.');
+        return;
+      }
+    }
     setPeriod({ from_date: fromDate || undefined, to_date: toDate || undefined });
   };
 

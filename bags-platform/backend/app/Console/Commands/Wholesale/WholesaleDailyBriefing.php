@@ -49,7 +49,7 @@ class WholesaleDailyBriefing extends Command
             ->where('payment_status', 'unpaid')
             ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
-            ->where('due_at', '<', now()->startOfDay());
+            ->where('due_at', '<', now($tz)->startOfDay());
         $overdueCount = (int) (clone $overdue)->distinct()->count('customer_id');
         $overdueOrderIds = (clone $overdue)->pluck('id')->all();
         $grossOverdue = (float) (clone $overdue)->sum('grand_total');
@@ -59,9 +59,11 @@ class WholesaleDailyBriefing extends Command
                 ->whereIn('order_id', $overdueOrderIds)
                 ->where('status', WholesalePaymentNoticeStatus::Approved->value)
                 ->sum('amount');
-            $coveredOverdue += (float) DB::table('wholesale_payment_allocations')
-                ->whereIn('order_id', $overdueOrderIds)
-                ->sum('amount');
+            $coveredOverdue += (float) DB::table('wholesale_payment_allocations as a')
+                ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+                ->whereIn('a.order_id', $overdueOrderIds)
+                ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+                ->sum('a.amount');
             $coveredOverdue += (float) DB::table('return_requests')
                 ->whereIn('order_id', $overdueOrderIds)
                 ->where('status', 'refunded')

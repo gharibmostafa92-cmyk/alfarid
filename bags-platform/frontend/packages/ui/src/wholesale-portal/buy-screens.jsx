@@ -171,21 +171,34 @@ export const Catalog = () => {
         </DataBoundary>
       </section>
       <p className="note mt-16"><i className="fa-solid fa-circle-info" />السعر النهائي لكل بند يتحسب في السلة حسب الكمية والشريحة المطبقة وقت الطلب.</p>
-      {open && <VariantModal product={open} onClose={() => setOpen(null)} onAdd={(lines) => { addToCart(lines.map((l) => ({ variant_id: l.v.id, sku: l.v.sku, qty: l.qty }))); setOpen(null); }} />}
+      {open && <VariantModal product={open} onClose={() => setOpen(null)} onAdd={async (lines) => {
+        const ok = await addToCart(lines.map((l) => ({ variant_id: l.v.id, sku: l.v.sku, qty: l.qty })));
+        if (ok) setOpen(null);
+      }} />}
     </>
   );
 };
 
 export const VariantModal = ({ product, onClose, onAdd }) => {
   const [qty, setQty] = useState(Object.fromEntries(product.variants.map((v) => [v.id, 0])));
+  const [busy, setBusy] = useState(false);
   const lines = product.variants.filter((v) => qty[v.id] > 0).map((v) => ({ v: { ...v, product }, qty: qty[v.id] }));
   const total = lines.reduce((a, l) => a + tierPrice(l.v, l.qty) * l.qty, 0);
   const over = product.variants.some((v) => qty[v.id] > (v.qty || 0));
+  const submit = async () => {
+    if (busy || !lines.length || over) return;
+    setBusy(true);
+    try {
+      await onAdd(lines);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <Modal wide title={product.name_ar} onClose={onClose} icon={<Thumb sm />}
+    <Modal wide title={product.name_ar} onClose={() => { if (!busy) onClose(); }} icon={<Thumb sm />}
       foot={<><span className="muted small" style={{ marginInlineEnd: 'auto' }}>تقديري: <Money v={total} strong /></span>
-        <button className="btn-pill" onClick={onClose}>إلغاء</button>
-        <button className="btn-pill is-dark" disabled={!lines.length || over} onClick={() => onAdd(lines)}><i className="fa-solid fa-cart-plus" /> إضافة للسلة {lines.length > 0 && <span className="num">({lines.reduce((a, l) => a + l.qty, 0)})</span>}</button></>}>
+        <button className="btn-pill" onClick={onClose} disabled={busy}>إلغاء</button>
+        <button className="btn-pill is-dark" disabled={!lines.length || over || busy} onClick={submit}>{busy ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة للسلة {lines.length > 0 && <span className="num">({lines.reduce((a, l) => a + l.qty, 0)})</span>}</button></>}>
       <p className="prod-en" style={{ textAlign: 'right', marginTop: -10 }}>{product.name_en} · السعر الأساسي <span className="strike">{fmt(product.base)}</span></p>
       <div className="tbl-wrap mt-16"><table className="tbl">
         <thead><tr><th>المتغير</th><th>SKU / باركود</th><th>سعرك</th><th>الشرائح</th><th>المتاح</th><th>الكمية</th></tr></thead>

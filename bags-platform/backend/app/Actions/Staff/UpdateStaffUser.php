@@ -65,7 +65,9 @@ final class UpdateStaffUser
             $validated,
             $verifiedPasswordHash, $via, $selfRotation, $currentPassword,
         ): ?string {
-            StaffAdministration::lock();
+            if (! $selfRotation) {
+                StaffAdministration::lock();
+            }
             $lockEmail = mb_strtolower(trim((string) ($userAttributes['email'] ?? '')));
             if ($lockEmail !== '' && DB::getDriverName() === 'pgsql') {
                 DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);

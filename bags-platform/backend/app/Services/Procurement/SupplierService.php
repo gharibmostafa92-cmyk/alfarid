@@ -7,6 +7,8 @@ namespace App\Services\Procurement;
 use App\Exceptions\BusinessException;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -46,12 +48,14 @@ class SupplierService
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
             unset($data['current_balance']);
             if (array_key_exists('opening_balance', $data)
-                && (float) $data['opening_balance'] !== (float) $supplier->opening_balance) {
+                && BigDecimal::of((string) $data['opening_balance'])->toScale(2, RoundingMode::HalfUp)->compareTo(BigDecimal::of((string) $supplier->opening_balance)->toScale(2, RoundingMode::HalfUp)) !== 0) {
                 if ($supplier->invoices()->exists() || $supplier->payments()->exists()) {
                     throw new BusinessException('لا يمكن تعديل الرصيد الافتتاحي بعد تسجيل فواتير أو دفعات.');
                 }
-                $data['current_balance'] = round((float) $supplier->current_balance
-                    + (float) $data['opening_balance'] - (float) $supplier->opening_balance, 2);
+                $data['current_balance'] = (string) BigDecimal::of((string) $supplier->current_balance)
+                    ->plus((string) $data['opening_balance'])
+                    ->minus((string) $supplier->opening_balance)
+                    ->toScale(2, RoundingMode::HalfUp);
             }
             $supplier->update($data);
             if (array_key_exists('is_active', $data) && $data['is_active'] === false && $supplier->wasChanged('is_active')) {

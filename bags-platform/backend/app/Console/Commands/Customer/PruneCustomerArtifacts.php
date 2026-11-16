@@ -7,7 +7,7 @@ namespace App\Console\Commands\Customer;
 use App\Models\Customer;
 use App\Support\StorageCleanupOwner;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -115,13 +115,23 @@ class PruneCustomerArtifacts extends Command
      * @param  int  $cutoffTimestamp  Unix cutoff timestamp
      * @param  int  $failures  Failure counter incremented by reference
      */
-    private function pruneDirectoryIfInactive(Filesystem $disk, string $directory, int $cutoffTimestamp, int &$failures): void
+    private function pruneDirectoryIfInactive(FilesystemAdapter $disk, string $directory, int $cutoffTimestamp, int &$failures): void
     {
         try {
             $newest = 0;
-            $files = $disk->allFiles($directory);
-            foreach ($files as $file) {
-                $newest = max($newest, $disk->lastModified($file));
+            $files = [];
+            foreach ($disk->getDriver()->listContents($directory, true) as $attributes) {
+                if (! $attributes->isFile()) {
+                    continue;
+                }
+
+                $lastModified = $attributes->lastModified();
+                if ($lastModified === null) {
+                    throw new \RuntimeException('Storage listing did not return file modification metadata.');
+                }
+
+                $files[] = $attributes->path();
+                $newest = max($newest, $lastModified);
             }
             if ($newest < $cutoffTimestamp) {
                 foreach (array_chunk($files, 500) as $paths) {

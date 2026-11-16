@@ -408,7 +408,7 @@ class CustomerStoreReviewTest extends TestCase
         $customer = Customer::factory()->create();
         $document = $customer->documents()->create(['document_type' => 'other', 'file_path' => 'missing.pdf',
             'original_name' => "directory\\bad\"name\r\n.pdf", 'mime_type' => 'application/pdf']);
-        $token = $this->staff(['customers.view', 'customers.documents.view']);
+        $token = $this->staff(['customers.view', 'customers.documents.view', 'inventory.all_branches']);
         $uri = "/api/v1/admin/customers/{$customer->id}/documents/{$document->id}/download";
 
         $this->withToken($token)->getJson($uri)->assertNotFound();

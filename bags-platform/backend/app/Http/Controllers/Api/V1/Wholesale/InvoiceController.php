@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
+use App\Enums\Orders\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -31,9 +33,7 @@ class InvoiceController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $invoices = Order::query()
-            ->where('customer_id', $request->user()->id)
-            ->where(fn ($q) => $q->where('payment_method', 'credit')->orWhere('payment_status', 'paid'))
+        $invoices = $this->invoiceableQuery((int) $request->user()->id)
             ->when($filters['payment_status'] ?? null, fn ($q, $v) => $q->where('payment_status', $v))
             ->latest('id')
             ->paginate($filters['per_page'] ?? 15);
@@ -72,8 +72,7 @@ class InvoiceController extends Controller
     {
         /** @var Customer $customer */
         $customer = $request->user();
-        $model = Order::query()
-            ->where('customer_id', $customer->id)
+        $model = $this->invoiceableQuery((int) $customer->id)
             ->with('items')
             ->findOrFail($order);
 
@@ -82,6 +81,17 @@ class InvoiceController extends Controller
             'customer' => $customer,
             'order' => $model,
         ])->download("invoice-{$model->order_number}.pdf");
+    }
+
+    /**
+     * @return Builder<Order>
+     */
+    private function invoiceableQuery(int $customerId): Builder
+    {
+        return Order::query()
+            ->where('customer_id', $customerId)
+            ->whereNotIn('status', [OrderStatus::Cancelled->value, 'draft'])
+            ->where(fn ($q) => $q->where('payment_method', 'credit')->orWhere('payment_status', 'paid'));
     }
 
     /**

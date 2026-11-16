@@ -75,6 +75,7 @@ function buildTrack(current, history) {
 export const mapQuote = (q) => ({
   id: q.id, number: q.quotation_number, created: day(q.created_at), valid_until: day(q.valid_until),
   status: QUOTE_ST[q.status] || q.status,
+  revision: q.revision ?? null,
   subtotal: num(q.subtotal), discount: num(q.discount_amount), tax: num(q.tax_amount), total: num(q.grand_total),
   trader_note: q.customer_notes, admin_note: q.admin_notes, converted_order_id: q.converted_order_id,
   items: (q.items || []).map((i) => ({ id: i.id, variant_id: i.product_variant_id, name: i.variant?.product_name || i.variant?.product?.name_ar || i.product_name || '', sku: i.variant?.sku, qty: num(i.qty), target: num(i.requested_target_price), offered: num(i.offered_unit_price), line_total: num(i.line_total) })),

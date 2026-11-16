@@ -11,6 +11,7 @@ use App\Http\Resources\Admin\Procurement\SupplierInvoiceResource;
 use App\Models\SupplierInvoice;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Procurement\SupplierFinanceService;
+use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -53,6 +54,7 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
             'supplier_id' => ['nullable', 'integer', 'min:1'],
             'purchase_order_id' => ['nullable', 'integer', 'min:1'],
             'open' => ['nullable', 'boolean'],
+            'search' => ['nullable', 'string', 'max:100'],
         ]);
         $branch = $this->branchAccess->restrictedBranch($request->user());
         $invoices = SupplierInvoice::query()
@@ -68,6 +70,13 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', (int) $id))
             ->when($filters['purchase_order_id'] ?? null, fn ($q, $id) => $q->where('purchase_order_id', (int) $id))
+            ->when(trim((string) ($filters['search'] ?? '')) !== '', function ($q) use ($filters): void {
+                $pattern = SearchTerm::pattern(trim((string) $filters['search']));
+                $q->where(function ($w) use ($pattern): void {
+                    $w->where('supplier_invoice_no', 'ilike', $pattern)
+                        ->orWhere('invoice_number', 'ilike', $pattern);
+                });
+            })
             ->latest('id')
             ->paginate(20);
 

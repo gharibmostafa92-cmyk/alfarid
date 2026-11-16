@@ -47,7 +47,7 @@ export default function SupplierDashboardPage() {
               <ul className="divide-y divide-black/10">
                 {data.last_payments.map((payment) => (
                   <li key={payment.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
-                    <span>{payment.payment_number}{payment.invoice ? ` — ${payment.invoice.invoice_number}` : ''}</span>
+                    <span>{payment.payment_number}{payment.invoice_number ? ` — ${payment.invoice_number}` : ''}</span>
                     <span>{payment.payment_date}</span>
                     <strong>{formatStorePrice(payment.amount)}</strong>
                   </li>

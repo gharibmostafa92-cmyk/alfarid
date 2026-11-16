@@ -147,9 +147,14 @@ class ProductController extends Controller
             return Excel::download(new WholesalePriceListExport($rows), 'price-list.xlsx');
         }
 
-        $rows = $this->priceList->rows($customer, 1501);
-        if (count($rows) > 1500) {
-            throw new BusinessException('قائمة الأسعار أكبر من حد PDF (1500 صنف). استخدم تصدير Excel.');
+        $cacheKey = 'wholesale:price-list-rows:c'.$customer->id.':u'.($customer->updated_at?->timestamp ?? 0);
+        $rows = \Illuminate\Support\Facades\Cache::remember(
+            $cacheKey,
+            300,
+            fn (): array => $this->priceList->rows($customer, 501),
+        );
+        if (count($rows) > 500) {
+            throw new BusinessException('قائمة الأسعار أكبر من حد PDF (500 صنف). استخدم تصدير Excel.');
         }
 
         $validUntil = now()->addDays(30);

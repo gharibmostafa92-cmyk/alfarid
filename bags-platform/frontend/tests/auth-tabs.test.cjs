@@ -155,7 +155,7 @@ async function probe(env, get) {
 test('session discovery validates staff on the server and never sends the token to the other origin', async () => {
   const env = browser('private-token');
   let endpoint;
-  await probe(env, async url => { endpoint = url; });
+  await probe(env, async url => { endpoint = url; return { data: { redirect: { path: '/dashboard' } } }; });
   assert.equal(endpoint, '/api/v1/admin/me');
   assert.equal(env.state.messages[0].origin, 'http://localhost:3000');
   assert.equal(env.state.messages[0].data.authenticated, true);

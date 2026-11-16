@@ -16,7 +16,6 @@
                },
     "include":  [
                     "bags-platform/frontend/packages/ui/src/wholesale-portal/**",
-                    "bags-platform/frontend/src/app/wholesale/**",
                     "bags-platform/frontend/packages/api-client/src/endpoints/wholesale.ts",
                     "bags-platform/backend/routes/api/wholesale.php",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Wholesale/**",
@@ -72,7 +71,8 @@
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/quick-order/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/wholesale/quotations/page.tsx",
                     "bags-platform/backend/app/Imports/WholesaleQuickOrderImport.php",
-                    "bags-platform/backend/app/Http/Middleware/EnsureWholesaleApproved.php"
+                    "bags-platform/backend/app/Http/Middleware/EnsureWholesaleApproved.php",
+                    "docs/TASK6_WHOLESALE_DEPLOYMENT_STATUS.md"
                 ],
     "ignore":  {
                    "useGitignore":  true,

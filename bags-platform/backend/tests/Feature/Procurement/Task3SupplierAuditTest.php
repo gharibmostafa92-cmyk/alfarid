@@ -311,12 +311,17 @@ class Task3SupplierAuditTest extends TestCase
             ->assertOk();
 
         Auth::forgetGuards();
+        // F05: posting requires received goods, so receive part of the order
+        // before recording and posting the matching invoice.
+        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/receive", [
+            'items' => [['purchase_order_item_id' => $po['items'][0]['id'], 'qty' => 2]],
+        ])->assertOk();
         $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id,
             'purchase_order_id' => $po['id'],
             'supplier_invoice_no' => 'PRE-PAY',
             'issue_date' => now()->toDateString(),
-            'subtotal' => 100,
+            'subtotal' => 40,
         ])->assertCreated()->json('data.id');
         $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
 
@@ -473,6 +478,8 @@ class Task3SupplierAuditTest extends TestCase
             'items' => [['purchase_order_item_id' => $po['items'][0]['id'], 'qty' => 5]],
         ])->assertOk();
 
+        // F05: an invoice above the received value (600 > 500) can be recorded
+        // as a draft, but posting it must fail the 3-way match.
         $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id,
             'purchase_order_id' => $po['id'],
@@ -480,10 +487,11 @@ class Task3SupplierAuditTest extends TestCase
             'issue_date' => now()->toDateString(),
             'subtotal' => 600,
         ])->assertCreated()->json('data.id');
-        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertUnprocessable();
 
-        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/close-short")->assertUnprocessable();
-        $this->assertSame('partially_received', PurchaseOrder::query()->findOrFail($po['id'])->status->value);
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/cancel")->assertOk();
+        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/close-short")->assertOk();
+        $this->assertSame('completed', PurchaseOrder::query()->findOrFail($po['id'])->status->value);
     }
 
     public function test_zero_total_supplier_invoices_are_rejected(): void

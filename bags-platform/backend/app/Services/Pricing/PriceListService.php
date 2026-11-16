@@ -11,6 +11,7 @@ use App\Services\Shared\SearchTerm;
 use App\Enums\Catalog\PriceListType;
 use App\Exceptions\BusinessException;
 use App\Jobs\RefreshCatalogRetailPrices;
+use App\Models\Customer;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
@@ -89,6 +90,8 @@ class PriceListService
         return DB::transaction(function () use ($data, $user): PriceList {
             $list = PriceList::query()->create($data);
             if ($user) StaffAdministration::audit($user, 'price_list.created', 'price_list', $list->id, array_keys($data), [], $list->only(array_keys($data)), []);
+            $this->invalidateCustomerCatalogContextIfNeeded($list);
+
             return $list->load(['customer', 'customerGroup', 'branch']);
         });
     }
@@ -116,8 +119,10 @@ class PriceListService
             $this->validateDates($data, $priceList);
             $data = $this->withValidOwner($data, $priceList);
             $before = $priceList->only(array_keys($data));
+            $previousCustomerId = $priceList->customer_id;
             $priceList->update($data);
             if ($user) StaffAdministration::audit($user, 'price_list.updated', 'price_list', $priceList->id, array_keys($data), $before, $priceList->only(array_keys($data)), []);
+            $this->invalidateCustomerCatalogContextIfNeeded($priceList, $previousCustomerId);
 
             $impactedFields = ['is_active', 'type', 'starts_at', 'ends_at', 'branch_id', 'priority'];
             if (array_intersect(array_keys($data), $impactedFields) !== []) {
@@ -167,6 +172,30 @@ class PriceListService
         return $data;
     }
 
+    private function invalidateCustomerCatalogContextIfNeeded(PriceList $priceList, ?int $previousCustomerId = null): void
+    {
+        $ids = array_values(array_unique(array_filter([
+            $priceList->type === PriceListType::CustomerSpecific ? $priceList->customer_id : null,
+            $previousCustomerId,
+        ], static fn ($id): bool => $id !== null)));
+
+        foreach ($ids as $customerId) {
+            $this->invalidateCustomerCatalogContextById((int) $customerId);
+        }
+    }
+
+    private function invalidateCustomerCatalogContextById(?int $customerId): void
+    {
+        if ($customerId === null) {
+            return;
+        }
+
+        DB::afterCommit(static function () use ($customerId): void {
+            Customer::query()->whereKey($customerId)->update(['updated_at' => now()]);
+            app(PricingService::class)->flushCatalogContexts();
+        });
+    }
+
     /**
      * Deletes a price list under exclusive lock (cascades item deletion in database).
      */
@@ -184,8 +213,10 @@ class PriceListService
                 ->map(fn ($id): int => (int) $id)
                 ->all();
             $before = $locked->attributesToArray();
+            $customerId = $locked->customer_id;
             $locked->delete();
             if ($user) StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, [], []);
+            $this->invalidateCustomerCatalogContextById($customerId);
             if ($productIds !== []) {
                 DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
             }
@@ -374,7 +405,6 @@ class PriceListService
             }
         }, 'price-list-'.$priceList->id.'.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
-            'X-Row-Count' => (string) $priceList->items()->count(),
         ]);
     }
 
@@ -497,7 +527,7 @@ class PriceListService
         }
         $valid = array_values($deduped);
 
-        DB::transaction(function () use ($valid, $priceList, $user, $dryRun, &$report): void {
+        DB::transaction(function () use ($valid, $priceList, $user, $dryRun, &$report, $file): void {
             $locked = PriceList::query()
                 ->when(! $dryRun, fn ($query) => $query->lockForUpdate())
                 ->findOrFail($priceList->id);
@@ -550,7 +580,19 @@ class PriceListService
             foreach (array_chunk($rows, 500) as $chunk) {
                 PriceListItem::query()->upsert($chunk, ['price_list_id', 'product_variant_id', 'min_qty'], ['price', 'starts_at', 'ends_at', 'updated_at']);
             }
-            if ($user) StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['items', 'count'], ['items' => $existing->values()->toArray()], ['items' => $rows, 'count' => count($rows)], []);
+            if ($user) {
+                if (count($rows) > 100) {
+                    $fileSha = $file->getRealPath() !== false ? @hash_file('sha256', $file->getRealPath()) : null;
+                    StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['count', 'created', 'updated', 'file_sha256'], [], [
+                        'count' => count($rows),
+                        'created' => $report['created'],
+                        'updated' => $report['updated'],
+                        'file_sha256' => $fileSha ?: null,
+                    ], []);
+                } else {
+                    StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['items', 'count'], ['items' => $existing->values()->toArray()], ['items' => $rows, 'count' => count($rows)], []);
+                }
+            }
 
             // Query-builder upsert fires no Eloquent events, so the catalog
             // snapshot observer never sees these writes. Refresh the affected

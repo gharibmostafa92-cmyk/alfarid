@@ -99,32 +99,33 @@ class CartService
      *
      * @param  Customer  $customer  Target authenticated customer
      * @param  string|null  $guestToken  Guest session UUID token
+     * @return bool Whether an existing guest cart was consumed
      */
-    public function mergeGuestCart(Customer $customer, ?string $guestToken): void
+    public function mergeGuestCart(Customer $customer, ?string $guestToken): bool
     {
         $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
         if ($guestToken === null) {
-            return;
+            return false;
         }
 
         // Lock both carts in ID order so concurrent merges share the same lock order.
-        DB::transaction(function () use ($customer, $guestToken): void {
+        return DB::transaction(function () use ($customer, $guestToken): bool {
             $guestId = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->value('id');
             if ($guestId === null) {
-                return;
+                return false;
             }
             $accountId = $this->accountCart($customer)->id;
             $carts = Cart::query()->whereKey([$guestId, $accountId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $guest = $carts->get($guestId);
             $account = $carts->get($accountId);
             if ($guest === null) {
-                return;
+                return false;
             }
             $guestItems = $guest->items()->get();
             if ($guestItems->isEmpty()) {
                 $guest->delete();
 
-                return;
+                return true;
             }
 
             $purchasableIds = $this->retailVariants()->whereKey($guestItems->pluck('product_variant_id')->all())
@@ -181,6 +182,8 @@ class CartService
             }
             $guest->items()->delete();
             $guest->delete();
+
+            return true;
         });
     }
 

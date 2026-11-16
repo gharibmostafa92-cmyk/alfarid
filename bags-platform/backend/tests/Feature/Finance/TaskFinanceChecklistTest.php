@@ -115,8 +115,8 @@ class TaskFinanceChecklistTest extends TestCase
         $payment = $service->createPayment(['supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 300, 'payment_method' => 'cash', 'payment_date' => now()->subDays(2)->toDateString()], $actor, 'before-period');
         $service->voidPayment($payment, $actor, 'checklist');
         $statement = $service->statement($supplier->fresh(), now()->subDay()->toDateString(), now()->toDateString());
-        $this->assertSame(-300.0, $statement['opening_balance']);
-        $this->assertSame(0.0, $statement['closing_balance']);
+        $this->assertSame('-300.00', $statement['opening_balance']);
+        $this->assertSame('0.00', $statement['closing_balance']);
         $this->assertCount(1, $statement['entries']);
         $this->assertSame('payment_void', $statement['entries'][0]['type']);
     }

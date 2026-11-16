@@ -74,7 +74,14 @@ class QuotationController extends Controller
 
     public function accept(Request $request, int $quotation): JsonResponse
     {
-        return (new QuotationResource($this->service->accept($this->ownQuotation($request, $quotation))))->response();
+        $validated = $request->validate([
+            'expected_revision' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        return (new QuotationResource($this->service->accept(
+            $this->ownQuotation($request, $quotation),
+            isset($validated['expected_revision']) ? (int) $validated['expected_revision'] : null,
+        )))->response();
     }
 
     public function reject(Request $request, int $quotation): JsonResponse

@@ -7,6 +7,7 @@ namespace App\Services\Customer;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Notifications\Auth\CustomerPhoneVerificationCode;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -25,18 +26,24 @@ class CustomerPhoneVerificationService
      */
     public function send(string $phone, ?string $networkKey = null): void
     {
+        $phone = Customer::normalizePhone($phone);
         // Silently exit if phone exists to protect SMS gateway budget against automated credit depletion.
-        if (Customer::withTrashed()->where('phone', $phone)->exists()) {
+        if (Customer::query()->where('phone', $phone)->exists()) {
             return;
         }
         $code = (string) random_int(100000, 999999);
         $key = $this->phoneKey($phone);
-        $created = DB::transaction(function () use ($key, $code, $networkKey): bool {
+        $budgetAt = CarbonImmutable::now((string) config('app.business_timezone', 'Africa/Cairo'));
+        $created = DB::transaction(function () use ($key, $code, $networkKey, $budgetAt): bool {
             DB::table('customer_phone_verifications')->insertOrIgnore([
                 'phone_key' => $key, 'code_hash' => '', 'created_at' => now()->subDay(), 'expires_at' => now()->subDay(),
             ]);
             $row = DB::table('customer_phone_verifications')->where('phone_key', $key)->lockForUpdate()->first();
-            if (now()->subSeconds(60)->lt($row->created_at) || ! app(CustomerMessageBudget::class)->claim('verify:'.$key, networkKey: $networkKey)) {
+            if (now()->subSeconds(60)->lt($row->created_at) || ! app(CustomerMessageBudget::class)->claim(
+                'verify:'.$key,
+                networkKey: $networkKey,
+                at: $budgetAt,
+            )) {
                 return false;
             }
             DB::table('customer_phone_verifications')->where('phone_key', $key)->update([
@@ -47,7 +54,7 @@ class CustomerPhoneVerificationService
             return true;
         });
         if ($created) {
-            DB::afterCommit(function () use ($phone, $code, $key): void {
+            DB::afterCommit(function () use ($phone, $code, $key, $networkKey, $budgetAt): void {
                 try {
                     Notification::route('customer_sms', $phone)->notify(new CustomerPhoneVerificationCode($code));
                     logger()->info('Customer OTP delivered.');
@@ -55,6 +62,11 @@ class CustomerPhoneVerificationService
                     DB::table('customer_phone_verifications')->where('phone_key', $key)->update([
                         'created_at' => now()->subMinutes(2),
                     ]);
+                    try {
+                        app(CustomerMessageBudget::class)->releaseVerificationClaim($key, $networkKey, $budgetAt);
+                    } catch (\Throwable $refundException) {
+                        report($refundException);
+                    }
                     logger()->error('Customer OTP delivery failed.', ['exception' => $exception::class]);
                     throw $exception;
                 }
@@ -70,6 +82,7 @@ class CustomerPhoneVerificationService
      */
     public function verify(string $phone, string $code): string
     {
+        $phone = Customer::normalizePhone($phone);
         $proof = DB::transaction(function () use ($phone, $code): ?string {
             $key = $this->phoneKey($phone);
             $row = DB::table('customer_phone_verifications')->where('phone_key', $key)->lockForUpdate()->first();
@@ -137,6 +150,7 @@ class CustomerPhoneVerificationService
      */
     private function validProof(string $phone, string $proof, bool $consume = false): bool
     {
+        $phone = Customer::normalizePhone($phone);
         $query = DB::table('customer_phone_verifications')->where('phone_key', $this->phoneKey($phone));
         $row = ($consume ? $query->lockForUpdate() : $query)->first();
         $stored = $row?->proof_hash ?? '';

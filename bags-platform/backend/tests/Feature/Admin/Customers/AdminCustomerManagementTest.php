@@ -102,7 +102,7 @@ class AdminCustomerManagementTest extends TestCase
     public function test_document_download_is_scoped_and_protected(): void
     {
         $this->fakeUploads();
-        $token = $this->staffToken();
+        $token = $this->staffToken([...self::ALL_CUSTOMER_PERMISSIONS, 'inventory.all_branches']);
         $customer = Customer::factory()->wholesale()->create();
         $other = Customer::factory()->wholesale()->create();
         $path = Storage::disk('r2')->putFileAs("customer_documents/{$customer->id}", UploadedFile::fake()->create('secret.pdf', 50, 'application/pdf'), 'secret.pdf');

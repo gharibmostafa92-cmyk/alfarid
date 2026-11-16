@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Wholesale\WholesaleOrderResource;
 use App\Models\Customer;
@@ -25,6 +27,7 @@ class OrderController extends Controller
     {
         $validated = $request->validate([
             'group' => ['nullable', Rule::in(['active', 'delivered', 'cancelled'])],
+            'returnable' => ['nullable', 'boolean'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
@@ -39,6 +42,14 @@ class OrderController extends Controller
             'cancelled' => $query->where('status', 'cancelled'),
             default => null,
         };
+
+        if ($request->boolean('returnable')) {
+            $query->where('status', OrderStatus::Delivered->value)
+                ->whereDoesntHave('returnRequests', fn ($q) => $q->whereNotIn('status', [
+                    ReturnStatus::Rejected->value,
+                    ReturnStatus::Cancelled->value,
+                ]));
+        }
 
         return WholesaleOrderResource::collection($query->paginate($validated['per_page'] ?? 15));
     }

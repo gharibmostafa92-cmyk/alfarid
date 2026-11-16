@@ -37,6 +37,7 @@ class DashboardController extends Controller
 
         $latestInvoices = Order::query()
             ->where('customer_id', $customer->id)
+            ->whereNotIn('status', [OrderStatus::Cancelled->value, 'draft'])
             ->where(fn ($q) => $q->where('payment_method', 'credit')->orWhere('payment_status', 'paid'))
             ->latest('id')
             ->limit(5)

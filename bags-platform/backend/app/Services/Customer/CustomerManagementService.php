@@ -119,6 +119,11 @@ class CustomerManagementService
             : CustomerStatus::Pending;
 
         $isApproved = in_array($data['status'], [CustomerStatus::Approved, CustomerStatus::Approved->value], true);
+        $isRetail = in_array($data['type'], [CustomerType::Retail, CustomerType::Retail->value], true);
+
+        if ($isRetail && ! $isApproved) {
+            throw new BusinessException('حسابات التجزئة يجب أن تكون معتمدة عند إنشائها.');
+        }
 
         if ($isApproved && $data['type'] !== CustomerType::Retail->value) {
             throw new BusinessException('أنشئ حساب الجملة قيد المراجعة ثم استخدم مسار الاعتماد.');
@@ -386,13 +391,18 @@ class CustomerManagementService
     /**
      * Review supporting customer verification document status (verified/rejected).
      */
-    public function reviewDocument(Customer $customer, CustomerDocument $document, string $status, int $actorId, ?string $note = null, array $via = []): CustomerDocument
+    public function reviewDocument(Customer $customer, CustomerDocument $document, CustomerDocumentStatus|string $status, int $actorId, ?string $note = null, array $via = []): CustomerDocument
     {
+        $status = $status instanceof CustomerDocumentStatus ? $status : CustomerDocumentStatus::tryFrom($status);
+        if (! in_array($status, [CustomerDocumentStatus::Verified, CustomerDocumentStatus::Rejected], true)) {
+            throw new BusinessException('حالة مراجعة المستند يجب أن تكون معتمدًا أو مرفوضًا.');
+        }
+
         return DB::transaction(function () use ($customer, $document, $status, $actorId, $note, $via) {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             $document = $customer->documents()->whereKey($document->id)->lockForUpdate()->firstOrFail();
-            $document->forceFill(['status' => $status, 'reviewed_by' => $actorId, 'reviewed_at' => now(), 'review_note' => $note])->save();
-            CustomerAuditLog::record($customer, 'document_reviewed', $actorId, $this->viaMeta($via, ['document_id' => $document->id, 'status' => $status]));
+            $document->forceFill(['status' => $status->value, 'reviewed_by' => $actorId, 'reviewed_at' => now(), 'review_note' => $note])->save();
+            CustomerAuditLog::record($customer, 'document_reviewed', $actorId, $this->viaMeta($via, ['document_id' => $document->id, 'status' => $status->value]));
 
             return $document;
         });

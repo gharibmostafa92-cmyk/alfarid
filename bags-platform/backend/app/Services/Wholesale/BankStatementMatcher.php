@@ -25,12 +25,30 @@ final class BankStatementMatcher
         $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
         $digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
         $str = str_replace($arabicIndic, $digits, $str);
+
+        // Reject negative or accounting-parenthesized amounts (debits/fees must never match credit notices).
+        if (str_starts_with($str, '-') || str_ends_with($str, '-') || (str_starts_with($str, '(') && str_ends_with($str, ')'))) {
+            return '0.00';
+        }
+
+        // Normalize European decimal commas (e.g. "1.500,50" -> "1500.50" or "1500,50" -> "1500.50") vs US thousands commas ("1,500.00").
+        $lastComma = strrpos($str, ',');
+        $lastDot = strrpos($str, '.');
+        if ($lastComma !== false && ($lastDot === false || $lastComma > $lastDot)) {
+            $afterComma = preg_replace('/\D/', '', substr($str, $lastComma + 1)) ?? '';
+            if (strlen($afterComma) <= 2) {
+                $str = str_replace('.', '', substr($str, 0, $lastComma)).'.'.$afterComma;
+            }
+        }
+
         $str = preg_replace('/[^\d.]/', '', $str) ?? '';
         if ($str === '' || $str === '.') {
             return '0.00';
         }
         try {
-            return (string) BigDecimal::of($str)->toScale(2, RoundingMode::HalfUp);
+            $decimal = BigDecimal::of($str)->toScale(2, RoundingMode::HalfUp);
+
+            return $decimal->isLessThanOrEqualTo('0') ? '0.00' : (string) $decimal;
         } catch (\Throwable) {
             return '0.00';
         }
@@ -61,7 +79,10 @@ final class BankStatementMatcher
         if (count($rows) > 500) {
             throw new \App\Exceptions\BusinessException('كشف البنك يتجاوز 500 حركة؛ قسّمه إلى ملفات أصغر.', [], 422);
         }
-        $amounts = array_values(array_unique(array_map(fn ($row) => self::cleanAmount($row['amount'] ?? 0), $rows)));
+        $amounts = array_values(array_unique(array_filter(
+            array_map(fn ($row) => self::cleanAmount($row['amount'] ?? 0), $rows),
+            static fn (string $amount): bool => BigDecimal::of($amount)->isGreaterThan('0'),
+        )));
         $notices = WholesalePaymentNotice::query()
             ->with('customer:id,name,company_name')
             ->where('status', WholesalePaymentNoticeStatus::PendingReview)
@@ -103,7 +124,7 @@ final class BankStatementMatcher
 
         // Pass 1: classify all exact matches first using amount-indexed buckets.
         foreach ($parsedRows as $index => $parsed) {
-            if ($parsed['reference'] === '') {
+            if ($parsed['reference'] === '' || BigDecimal::of($parsed['amount'])->isLessThanOrEqualTo('0')) {
                 continue;
             }
             foreach ($preparedNoticesByAmount->get($parsed['amount'], collect()) as $prepared) {
@@ -123,6 +144,10 @@ final class BankStatementMatcher
         // Pass 2: match remaining rows as probable or unmatched.
         foreach ($parsedRows as $index => $parsed) {
             if (isset($rowResults[$index])) {
+                continue;
+            }
+            if (BigDecimal::of($parsed['amount'])->isLessThanOrEqualTo('0')) {
+                $rowResults[$index] = ['kind' => 'unmatched', 'model' => null];
                 continue;
             }
             $hit = null;

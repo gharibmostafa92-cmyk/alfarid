@@ -20,6 +20,7 @@ use App\Services\Shared\SettingService;
 use App\Services\Shared\SpokenQuantity;
 use App\Support\ArabicDigits;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
@@ -66,7 +67,13 @@ final class CustomerWholesaleAssistant
         if ($buttonId !== null && str_starts_with($buttonId, 'accept:')) {
             return $this->acceptButton($customer, $buttonId);
         }
+        if ($buttonId !== null && (str_starts_with($buttonId, 'cart:') || str_starts_with($buttonId, 'quote:') || in_array(trim($buttonId), ['سلة', 'عرض سعر'], true))) {
+            return $this->handleOrderLookupButton($customer, trim($buttonId));
+        }
         $text = trim($text);
+        if (in_array($text, ['سلة', 'عرض سعر'], true) && Cache::has($this->latestOrderLookupCacheKey($customer))) {
+            return $this->handleOrderLookupButton($customer, $text);
+        }
         // Prevent prompt injection attempts from triggering staff tools over merchant channel.
         if (preg_match('/\b(approve_payment_notice|price_quotation|set_credit_limit)\b/u', $text) === 1) {
             return 'الأداة دي مش متاحة في قناة التاجر.';
@@ -591,10 +598,87 @@ final class CustomerWholesaleAssistant
         }
         $found = $this->quickOrder->lookup($customer, $resolved);
         $parts = [];
+        $cachedItems = [];
         foreach ($found as $row) {
             $parts[] = ($row['label'] ?? $row['code']).' × '.rtrim(rtrim(number_format((float) $row['qty'], 2, '.', ''), '0'), '.').' بسعر '.($row['unit_price'] ?? '?');
+            if (($row['found'] ?? false) && isset($row['product_variant_id'], $row['sku'])) {
+                $cachedItems[] = [
+                    'product_variant_id' => (int) $row['product_variant_id'],
+                    'sku' => (string) $row['sku'],
+                    'qty' => (float) $row['qty'],
+                ];
+            }
+        }
+        if ($cachedItems !== []) {
+            $token = bin2hex(random_bytes(6));
+            $ttl = now()->addMinutes(15);
+            Cache::put($this->orderLookupCacheKey($customer, $token), $cachedItems, $ttl);
+            Cache::put($this->latestOrderLookupCacheKey($customer), $token, $ttl);
         }
 
         return 'لقيت: '.implode('، ', $parts).'. أضيفهم للسلة ولا أعمل عرض سعر؟ [سلة] [عرض سعر]';
+    }
+
+    private function orderLookupCacheKey(Customer $customer, string $token): string
+    {
+        return "wa:order:{$customer->id}:{$token}";
+    }
+
+    private function latestOrderLookupCacheKey(Customer $customer): string
+    {
+        return "wa:order:latest:{$customer->id}";
+    }
+
+    private function handleOrderLookupButton(Customer $customer, string $action): string
+    {
+        $isCart = str_starts_with($action, 'cart:') || $action === 'سلة';
+        $isQuote = str_starts_with($action, 'quote:') || $action === 'عرض سعر';
+        if (! $isCart && ! $isQuote) {
+            return 'أقدر أساعدك في الرصيد، كشف الحساب، الفاتورة، حالة الطلب، أو إعادة آخر طلب.';
+        }
+
+        $token = str_contains($action, ':')
+            ? substr($action, strpos($action, ':') + 1)
+            : (string) Cache::get($this->latestOrderLookupCacheKey($customer), '');
+
+        $items = $token !== '' ? Cache::pull($this->orderLookupCacheKey($customer, $token)) : null;
+        if (! is_array($items) || $items === []) {
+            return 'انتهت صلاحية اختيار الأصناف. ابعت الأصناف والكميات تاني عشان أضيفهم للسلة أو أعمل عرض سعر.';
+        }
+        Cache::forget($this->latestOrderLookupCacheKey($customer));
+
+        if ($isCart) {
+            $res = $this->quickOrder->importToCart($customer, array_map(
+                static fn (array $item): array => ['sku' => $item['sku'], 'qty' => $item['qty']],
+                $items,
+            ));
+            $addedCount = count($res['added'] ?? []);
+            $skippedCount = count($res['skipped'] ?? []);
+
+            if ($addedCount === 0) {
+                return 'تعذر إضافة الأصناف للسلة؛ الكميات المطلوبة غير متوفرة حالياً.';
+            }
+
+            return $skippedCount > 0
+                ? "تمت إضافة {$addedCount} صنف للسلة وتجاوز {$skippedCount} صنف لعدم توفر الكمية."
+                : "تمت إضافة {$addedCount} صنف إلى السلة بنجاح.";
+        }
+
+        try {
+            $quotation = $this->quotations->create($customer, [
+                'items' => array_map(
+                    static fn (array $item): array => [
+                        'product_variant_id' => (int) $item['product_variant_id'],
+                        'qty' => (float) $item['qty'],
+                    ],
+                    $items,
+                ),
+            ]);
+            $quotation = $this->quotations->submit($quotation);
+
+            return "تم إنشاء وإرسال عرض السعر رقم {$quotation->quotation_number} للإدارة.";
+        } catch (BusinessException $e) {
+            return $e->getMessage();
+        }
     }
 }

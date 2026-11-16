@@ -14,18 +14,21 @@ export default function SessionProbePage() {
       const request = ++generation;
       const token = localStorage.getItem('backoffice_token');
       let authenticated = false;
+      let path: '/dashboard' | '/pos' | null = null;
       if (token) {
         try {
-          await createApiClient({
+          const response = await createApiClient({
             baseURL: resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000'),
             getToken: () => token,
             onUnauthorized: () => {},
           }).get('/api/v1/admin/me', { timeout: 4000 });
-          authenticated = localStorage.getItem('backoffice_token') === token;
+          const destination = response.data?.redirect?.path;
+          path = destination === '/dashboard' || destination === '/pos' ? destination : null;
+          authenticated = path !== null && localStorage.getItem('backoffice_token') === token;
         } catch { /* Expired or unavailable sessions never trigger a redirect. */ }
       }
       if (!disposed && request === generation) {
-        window.parent.postMessage({ type: 'alfarid:staff-session', nonce, authenticated }, origin);
+        window.parent.postMessage({ type: 'alfarid:staff-session', nonce, authenticated, path: authenticated ? path : null }, origin);
       }
     };
     const changed = (event: StorageEvent) => {

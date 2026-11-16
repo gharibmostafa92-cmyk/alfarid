@@ -12,6 +12,7 @@ use App\Services\Auth\StaffAdministration;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -60,6 +61,12 @@ final class UpdateRole
             }
             if ($permissions !== null) {
                 $locked->syncPermissions($permissions);
+                if (array_diff($before['permissions'], $permissions) !== []) {
+                    PersonalAccessToken::query()
+                        ->where('tokenable_type', (new User)->getMorphClass())
+                        ->whereIn('tokenable_id', $locked->users()->select('users.id'))
+                        ->delete();
+                }
                 if (in_array('ai_agent.whatsapp', $before['permissions'], true) && ! in_array('ai_agent.whatsapp', $permissions, true)) {
                     app(WhatsAppIdentityService::class)->revokeUsersOfRole($locked);
                 }

@@ -141,12 +141,21 @@ final class WholesaleInsights
     public function creditSuggestions(): array
     {
         $out = [];
+        $openTotalsSub = DB::table('orders')
+            ->where('payment_method', 'credit')
+            ->where('payment_status', 'unpaid')
+            ->where('status', '!=', OrderStatus::Cancelled->value)
+            ->groupBy('customer_id')
+            ->selectRaw('customer_id, SUM(grand_total) as open_total');
+
         $customers = Customer::query()
             ->commercial()
-            ->where('status', 'approved')
-            ->where('credit_limit', '>', 0)
+            ->where('customers.status', 'approved')
+            ->where('customers.credit_limit', '>', 0)
+            ->joinSub($openTotalsSub, 'open_orders', 'open_orders.customer_id', '=', 'customers.id')
+            ->orderByRaw('(open_orders.open_total / customers.credit_limit) DESC, customers.id ASC')
             ->limit(100)
-            ->get();
+            ->get(['customers.*']);
 
         if ($customers->isEmpty()) {
             return [];
@@ -184,7 +193,9 @@ final class WholesaleInsights
         $allocatedByCustomer = DB::table('wholesale_payment_allocations as a')
             ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
             ->join('orders as o', 'o.id', '=', 'a.order_id')
-            ->whereIn('n.customer_id', $customerIds)->where('o.status', '!=', OrderStatus::Cancelled->value)
+            ->whereIn('n.customer_id', $customerIds)
+            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->where('o.status', '!=', OrderStatus::Cancelled->value)
             ->groupBy('n.customer_id')->selectRaw('n.customer_id, SUM(a.amount) as total')->pluck('total', 'customer_id');
 
         foreach ($customers as $customer) {
@@ -265,11 +276,13 @@ final class WholesaleInsights
             $covered[(int) $orderId] = ($covered[(int) $orderId] ?? 0.0) + (float) $amount;
         }
 
-        $allocated = DB::table('wholesale_payment_allocations')
-            ->whereIn('order_id', $orderIds)
-            ->groupBy('order_id')
-            ->selectRaw('order_id, SUM(amount) as total')
-            ->pluck('total', 'order_id');
+        $allocated = DB::table('wholesale_payment_allocations as a')
+            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+            ->whereIn('a.order_id', $orderIds)
+            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->groupBy('a.order_id')
+            ->selectRaw('a.order_id, SUM(a.amount) as total')
+            ->pluck('total', 'a.order_id');
         foreach ($allocated as $orderId => $amount) {
             $covered[(int) $orderId] = ($covered[(int) $orderId] ?? 0.0) + (float) $amount;
         }

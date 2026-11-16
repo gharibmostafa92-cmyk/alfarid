@@ -215,6 +215,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
                 ->middleware('throttle:admin-heavy')
                 ->name('customers.documents.update');
             Route::get('customers/{customer}/documents/{document}/download', [CustomerController::class, 'downloadDocument'])
+                ->middleware('throttle:admin-heavy')
                 ->name('customers.documents.download');
         });
 

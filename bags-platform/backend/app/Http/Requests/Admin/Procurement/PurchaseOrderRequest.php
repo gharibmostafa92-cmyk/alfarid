@@ -30,7 +30,7 @@ class PurchaseOrderRequest extends FormRequest
             'branch_id' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'integer', 'exists:branches,id'],
             'purchase_request_id' => ['nullable', 'integer', 'exists:purchase_requests,id'],
             'expected_delivery_date' => ['nullable', 'date_format:Y-m-d'],
-            'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            'discount_amount' => ['sometimes', 'numeric', 'min:0', 'max:999999999999.99', 'decimal:0,2'],
             'items' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'array', 'min:1', 'max:50'],
             'items.*.product_variant_id' => ['required', 'integer', 'distinct', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true)],
             'items.*.ordered_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],

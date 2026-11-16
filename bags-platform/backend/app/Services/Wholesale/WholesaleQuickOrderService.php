@@ -45,7 +45,7 @@ class WholesaleQuickOrderService
 
         return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx): array {
             $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
-            $variant = $variants->get($code);
+            $variant = $variants->get(mb_strtoupper(trim($code)));
             $qty = (float) $line['qty'];
 
             if ($variant === null) {
@@ -106,7 +106,7 @@ class WholesaleQuickOrderService
         $items = array_map(fn (array $line) => [
             'sku' => $line['sku'],
             'qty' => $line['qty'],
-            'variant' => $variants->get($line['sku']),
+            'variant' => $variants->get(mb_strtoupper(trim((string) $line['sku']))),
         ], $lines);
 
         return $this->addLinesToCart($customer, $items, $availability, $ctx);
@@ -215,30 +215,37 @@ class WholesaleQuickOrderService
      */
     private function findVariants(array $lines): Collection
     {
-        $skus = collect($lines)->pluck('sku')->filter()->unique()->all();
-        $barcodes = collect($lines)->pluck('barcode')->filter()->unique()->all();
+        $rawCodes = collect($lines)
+            ->flatMap(fn (array $line) => [$line['sku'] ?? null, $line['barcode'] ?? null])
+            ->map(fn ($c) => trim((string) $c))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
-        if ($skus === [] && $barcodes === []) {
+        if ($rawCodes === []) {
             return collect();
         }
 
+        $upperCodes = array_values(array_unique(array_map('mb_strtoupper', $rawCodes)));
+        $placeholders = implode(', ', array_fill(0, count($upperCodes), '?'));
+
         $variants = ProductVariant::query()->with(['product.media', 'media'])
             ->wholesalePurchasable()
-            ->where(function ($q) use ($skus, $barcodes): void {
-                if ($skus !== []) {
-                    $q->orWhereIn('sku', $skus);
-                }
-                if ($barcodes !== []) {
-                    $q->orWhereIn('barcode', $barcodes);
-                }
+            ->where(function ($q) use ($upperCodes, $rawCodes, $placeholders): void {
+                $q->whereRaw("UPPER(sku) IN ({$placeholders})", $upperCodes)
+                    ->orWhereIn('barcode', $rawCodes)
+                    ->orWhereIn('barcode', $upperCodes);
             })
             ->get();
 
         $map = collect();
         foreach ($variants as $variant) {
-            $map->put($variant->sku, $variant);
+            if ($variant->sku !== null && $variant->sku !== '') {
+                $map->put(mb_strtoupper(trim((string) $variant->sku)), $variant);
+            }
             if ($variant->barcode !== null && $variant->barcode !== '') {
-                $map->put($variant->barcode, $variant);
+                $map->put(mb_strtoupper(trim((string) $variant->barcode)), $variant);
             }
         }
 
