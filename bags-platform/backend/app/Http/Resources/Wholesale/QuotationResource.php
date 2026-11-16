@@ -37,6 +37,7 @@ class QuotationResource extends JsonResource
             'customer_notes' => $this->customer_notes,
             'admin_notes' => $this->admin_notes,
             'converted_order_id' => $this->converted_order_id,
+            'converted_order_number' => $this->whenLoaded('convertedOrder', fn () => $this->convertedOrder->order_number, null),
             'items' => QuotationItemResource::collection($this->whenLoaded('items')),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

@@ -29,7 +29,7 @@ class QuotationController extends Controller
 
         $quotations = Quotation::query()
             ->where('customer_id', $request->user()->id)
-            ->with('items.variant.product')
+            ->with(['items.variant.product', 'convertedOrder:id,order_number'])
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->latest('id')
             ->paginate($filters['per_page'] ?? 15);
@@ -50,7 +50,7 @@ class QuotationController extends Controller
     {
         $model = $this->ownQuotation($request, $quotation);
 
-        return (new QuotationResource($model->load('items.variant.product')))->response();
+        return (new QuotationResource($model->load(['items.variant.product', 'convertedOrder:id,order_number'])))->response();
     }
 
     public function update(UpdateQuotationRequest $request, int $quotation): JsonResponse

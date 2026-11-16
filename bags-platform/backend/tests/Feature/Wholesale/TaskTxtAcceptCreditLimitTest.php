@@ -49,6 +49,7 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
             'status' => 'approved',
             'credit_limit' => 1000,
         ]);
+        $this->trader->addresses()->firstOrFail()->city->update(['shipping_cost' => '50.00']);
         $this->traderToken = $this->trader->createToken('portal')->plainTextToken;
 
         $product = Product::factory()->create(['status' => 'published']);
@@ -80,7 +81,7 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
         ]);
     }
 
-    /** Quotation totals 200.00 (2 x 100). */
+    /** Quotation totals 200.00 (2 x 100) and shipping is 50.00. */
     private function pricedQuotation(): Quotation
     {
         $id = $this->asTrader()->postJson('/api/v1/wholesale/quotations', [
@@ -95,7 +96,7 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
 
     public function test_accept_at_exactly_the_credit_limit_succeeds(): void
     {
-        $this->openDebt(800);
+        $this->openDebt(750);
         $quotation = $this->pricedQuotation();
 
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$quotation->id}/accept")
@@ -104,7 +105,7 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
 
     public function test_accept_a_piastre_over_the_limit_rolls_back_everything(): void
     {
-        $this->openDebt(800.01);
+        $this->openDebt(750.01);
         $quotation = $this->pricedQuotation();
         $ordersBefore = Order::query()->where('customer_id', $this->trader->id)->count();
 
@@ -172,7 +173,7 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
 
         $quotation = $this->pricedQuotation();
 
-        // -400 + 200 > 0 is false, so the credit balance covers the order.
+        // The 400 credit balance covers the 250 order total.
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$quotation->id}/accept")
             ->assertOk()->assertJsonPath('data.status', 'converted_to_order');
     }

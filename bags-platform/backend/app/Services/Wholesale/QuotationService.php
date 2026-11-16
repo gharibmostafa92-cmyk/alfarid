@@ -6,7 +6,9 @@ namespace App\Services\Wholesale;
 
 use App\Services\Orders\OrderAllocationService;
 use App\Services\Orders\OrderService;
+use App\Services\Orders\ShippingQuoteService;
 use App\Services\Pricing\PricingService;
+use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
 
@@ -20,6 +22,7 @@ use App\Events\Wholesale\QuotationPriced;
 use App\Events\Wholesale\QuotationSubmitted;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\ProductVariant;
@@ -27,6 +30,7 @@ use App\Models\Quotation;
 use App\Models\StockLevel;
 use App\Models\User;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -40,11 +44,14 @@ use Illuminate\Support\Facades\Log;
  */
 class QuotationService
 {
+    public const MAX_ITEM_QUANTITY = 1_000_000;
+
     public function __construct(
         private readonly SettingService $settings,
         private readonly PricingService $pricing,
         private readonly OrderService $orders,
         private readonly OrderAllocationService $allocation,
+        private readonly ShippingQuoteService $shipping,
     ) {}
 
     /**
@@ -190,22 +197,24 @@ class QuotationService
                 throw new BusinessException('لا يمكن تسعير عرض السعر إلا بعد إرساله من التاجر.');
             }
 
+            $items = $data['items'] ?? [];
+            $sentItemIds = array_map('intval', array_column($items, 'id'));
+            if (count($sentItemIds) !== count(array_unique($sentItemIds))) {
+                throw new BusinessException('لا يمكن تسعير نفس البند أكثر من مرة.');
+            }
+
             $before = ['items' => $quotation->items()->get(['id', 'offered_unit_price', 'line_total'])->toArray(), 'discount_amount' => $quotation->discount_amount, 'tax_amount' => $quotation->tax_amount, 'grand_total' => $quotation->grand_total];
 
-            foreach ($data['items'] ?? [] as $row) {
+            foreach ($items as $row) {
                 $item = $quotation->items()->whereKey($row['id'])->first();
 
                 if ($item === null) {
                     throw new BusinessException('أحد بنود التسعير لا ينتمي لعرض السعر هذا.');
                 }
 
-                $item->update([
-                    'offered_unit_price' => $row['offered_unit_price'],
-                    'line_total' => round((float) $row['offered_unit_price'] * (float) $item->qty, 2),
-                ]);
+                $item->update($this->linePricing($row['offered_unit_price'], $item->qty));
             }
 
-            $sentItemIds = array_map('intval', array_column($data['items'] ?? [], 'id'));
             if ($quotation->items()
                 ->where('offered_unit_price', '<=', 0)
                 ->when($sentItemIds !== [], fn ($q) => $q->whereNotIn('id', $sentItemIds))
@@ -215,8 +224,8 @@ class QuotationService
 
             $quotation->update([
                 'status' => QuotationStatus::PricedByAdmin,
-                'valid_until' => $data['valid_until'] ?? $quotation->valid_until,
-                'admin_notes' => $data['admin_notes'] ?? $quotation->admin_notes,
+                'valid_until' => array_key_exists('valid_until', $data) ? $data['valid_until'] : $quotation->valid_until,
+                'admin_notes' => array_key_exists('admin_notes', $data) ? $data['admin_notes'] : $quotation->admin_notes,
                 'discount_amount' => $data['discount_amount'] ?? $quotation->discount_amount,
                 'tax_amount' => $data['tax_amount'] ?? $quotation->tax_amount,
                 'priced_at' => now(),
@@ -284,6 +293,9 @@ class QuotationService
             if ($quotation->items->contains(fn ($item) => (float) $item->offered_unit_price <= 0)) {
                 throw new BusinessException('يجب أن تكون جميع أسعار بنود العرض موجبة قبل القبول.');
             }
+            foreach ($quotation->items as $item) {
+                $this->assertItemQuantity($item->qty);
+            }
             $customer = $quotation->customer;
 
             // Lock customer account row to serialize concurrent order placements and prevent credit limit race conditions.
@@ -291,8 +303,14 @@ class QuotationService
             if (! $customer->isWholesaleApproved()) {
                 throw new BusinessException('حساب التاجر غير معتمد حاليًا لإتمام الطلب.', [], 403);
             }
+            $shippingAddress = $this->defaultShippingAddress($customer);
+            if ($shippingAddress === null) {
+                throw new BusinessException('يرجى إضافة عنوان شحن لحسابك قبل قبول عرض السعر.', [], 422);
+            }
+            $shippingCost = $this->shippingCost($quotation, $shippingAddress);
+            $orderTotal = BigDecimal::of($quotation->grand_total)->plus($shippingCost);
             $outstanding = BigDecimal::of((string) app(WholesalePaymentNoticeService::class)->outstandingBalance($customer));
-            $newExposure = $outstanding->plus((string) $quotation->grand_total);
+            $newExposure = $outstanding->plus($orderTotal);
             if ($newExposure->compareTo((string) $customer->credit_limit) > 0) {
                 throw new BusinessException(
                     'إجمالي الطلب يتجاوز حد الائتمان المتاح.',
@@ -300,11 +318,6 @@ class QuotationService
                     422,
                     'credit_limit_exceeded',
                 );
-            }
-
-            $shippingAddress = $customer->addresses()->orderByDesc('is_default')->orderByDesc('id')->first();
-            if ($shippingAddress === null) {
-                throw new BusinessException('يرجى إضافة عنوان شحن لحسابك قبل قبول عرض السعر.', [], 422);
             }
 
             $termsDays = (int) ($customer->payment_terms_days ?? $this->settings->get('wholesale_default_payment_terms_days', 30));
@@ -326,10 +339,10 @@ class QuotationService
                 'due_at' => $dueAt,
                 'subtotal' => $quotation->subtotal,
                 'discount_amount' => $quotation->discount_amount,
-                'shipping_cost' => 0,
+                'shipping_cost' => (string) $shippingCost,
                 'cod_fee' => 0,
                 'tax_amount' => $quotation->tax_amount,
-                'grand_total' => $quotation->grand_total,
+                'grand_total' => (string) $orderTotal,
             ]);
 
             // Apportion header-level discount and tax across items using largest remainder to preserve exact penny reconciliation.
@@ -346,8 +359,8 @@ class QuotationService
                     'unit_price' => $item->offered_unit_price,
                     'discount_amount' => $discountShares[$i],
                     'tax_amount' => $taxShares[$i],
-                    'line_total' => (string) \Brick\Math\BigDecimal::of((string) $item->line_total)
-                        ->minus((string) $discountShares[$i])->plus((string) $taxShares[$i])->toScale(2, \Brick\Math\RoundingMode::HalfUp),
+                    'line_total' => (string) BigDecimal::of($item->line_total)
+                        ->minus((string) $discountShares[$i])->plus((string) $taxShares[$i])->toScale(2, RoundingMode::HalfUp),
                 ]);
             }
 
@@ -516,10 +529,7 @@ class QuotationService
                 if ($item === null) {
                     throw new BusinessException('بند التسعير لم يعد موجودًا.');
                 }
-                $item->update([
-                    'offered_unit_price' => $row['offered_unit_price'],
-                    'line_total' => round((float) $row['offered_unit_price'] * (float) $item->qty, 2),
-                ]);
+                $item->update($this->linePricing($row['offered_unit_price'], $item->qty));
             }
             $quotation->update([
                 'status' => QuotationStatus::Requested,
@@ -546,24 +556,32 @@ class QuotationService
         $warnings = [];
         $customer = $quotation->customer;
         if ($customer !== null) {
-            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer);
-            $over = round($outstanding + (float) $quotation->grand_total - (float) $customer->credit_limit, 2);
-            if ($over > 0) {
-                $warnings[] = 'العرض ده لو اتقبل هيعدّي حد الائتمان بـ '.number_format($over, 2, '.', ',').'. التاجر هيشوف خطأ وقت القبول.';
+            $address = $this->defaultShippingAddress($customer);
+            $shipping = $address === null ? BigDecimal::zero() : $this->shippingCost($quotation, $address);
+            $outstanding = (string) app(WholesalePaymentNoticeService::class)->outstandingBalance($customer);
+            $over = BigDecimal::of($quotation->grand_total)->plus($shipping)->plus($outstanding)->minus($customer->credit_limit);
+            if ($over->isPositive()) {
+                $warnings[] = 'العرض ده لو اتقبل هيعدّي حد الائتمان بـ '.number_format((float) (string) $over, 2, '.', ',').'. التاجر هيشوف خطأ وقت القبول.';
             }
         }
 
+        $itemsByVariant = $quotation->items->groupBy('product_variant_id');
+        $availableByVariant = StockLevel::query()
+            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+            ->where('branches.is_active', true)
+            ->whereIn('stock_levels.product_variant_id', $itemsByVariant->keys())
+            ->groupBy('stock_levels.product_variant_id')
+            ->selectRaw('stock_levels.product_variant_id, SUM(stock_levels.available) AS quantity')
+            ->pluck('quantity', 'product_variant_id');
+
         $short = false;
-        foreach ($quotation->items as $item) {
-            $available = (float) StockLevel::query()
-                ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
-                ->where('branches.is_active', true)
-                ->where('stock_levels.product_variant_id', $item->product_variant_id)
-                ->sum('stock_levels.available');
-            if ($available + 0.00001 < (float) $item->qty) {
+        foreach ($itemsByVariant as $variantId => $items) {
+            $available = (float) $availableByVariant->get($variantId, 0);
+            $required = (float) $items->sum('qty');
+            if ($available + 0.00001 < $required) {
                 $short = true;
-                $sku = $item->variant?->sku ?? '#'.$item->product_variant_id;
-                $warnings[] = "الصنف {$sku} متاح منه ".number_format($available, 2, '.', '').' والمطلوب '.number_format((float) $item->qty, 2, '.', '').'. القبول هيفشل لو مفيش توريد.';
+                $sku = $items->first()->variant?->sku ?? '#'.$variantId;
+                $warnings[] = "الصنف {$sku} متاح منه ".number_format($available, 2, '.', '').' والمطلوب '.number_format($required, 2, '.', '').'. القبول هيفشل لو مفيش توريد.';
             }
         }
         if ($short) {
@@ -584,34 +602,73 @@ class QuotationService
      */
     private function syncItems(Quotation $quotation, Customer $customer, array $items): void
     {
-        $variantIds = array_column($items, 'product_variant_id');
+        $quantities = [];
+        foreach ($items as $row) {
+            $this->assertItemQuantity($row['qty']);
+            $id = (int) $row['product_variant_id'];
+            $quantities[$id] = ($quantities[$id] ?? 0) + (int) $row['qty'];
+        }
         $variants = ProductVariant::query()
-            ->whereIn('id', $variantIds)
+            ->whereIn('id', array_keys($quantities))
             ->wholesalePurchasable()
             ->get()
             ->keyBy('id');
 
-        foreach ($items as $row) {
-            $variant = $variants->get($row['product_variant_id']);
-
+        $prices = [];
+        foreach ($quantities as $id => $quantity) {
+            $variant = $variants->get($id);
             if ($variant === null) {
                 throw new BusinessException('أحد المتغيرات المطلوبة غير موجود أو غير نشط.');
             }
 
             try {
-                $offered = $this->pricing->resolve($variant, $customer, (float) $row['qty'])['unit_price'];
+                $prices[$id] = $this->pricing->resolve($variant, $customer, $quantity)['unit_price'];
             } catch (BusinessException) {
-                $offered = 0.0;
+                $prices[$id] = 0.0;
             }
+        }
 
+        foreach ($items as $row) {
+            $id = (int) $row['product_variant_id'];
             $quotation->items()->create([
-                'product_variant_id' => $variant->id,
+                'product_variant_id' => $id,
                 'qty' => $row['qty'],
                 'requested_target_price' => $row['requested_target_price'] ?? null,
-                'offered_unit_price' => $offered,
-                'line_total' => round($offered * (float) $row['qty'], 2),
+                ...$this->linePricing($prices[$id], $row['qty']),
             ]);
         }
+    }
+
+    private function assertItemQuantity(mixed $quantity): void
+    {
+        DiscreteQuantity::assertWhole($quantity);
+        if ((int) $quantity > self::MAX_ITEM_QUANTITY) {
+            throw new BusinessException('الكمية تجاوزت الحد المسموح به للبند.');
+        }
+    }
+
+    /** @return array{offered_unit_price: string, line_total: string} */
+    private function linePricing(int|float|string $unitPrice, int|float|string $quantity): array
+    {
+        $unit = BigDecimal::of((string) $unitPrice)->toScale(2, RoundingMode::HalfUp);
+
+        return [
+            'offered_unit_price' => (string) $unit,
+            'line_total' => (string) $unit->multipliedBy((string) $quantity)->toScale(2, RoundingMode::HalfUp),
+        ];
+    }
+
+    private function defaultShippingAddress(Customer $customer): ?CustomerAddress
+    {
+        return $customer->addresses()->orderByDesc('is_default')->orderByDesc('id')->first();
+    }
+
+    private function shippingCost(Quotation $quotation, CustomerAddress $address): BigDecimal
+    {
+        $merchandiseTotal = BigDecimal::of($quotation->subtotal)->minus($quotation->discount_amount ?? '0');
+        $quote = $this->shipping->quoteForCity($address->city_id, max(0.0, (float) (string) $merchandiseTotal), false);
+
+        return BigDecimal::of((string) $quote['cost'])->toScale(2, RoundingMode::HalfUp);
     }
 
     /**
@@ -622,17 +679,17 @@ class QuotationService
      */
     private function recalculate(Quotation $quotation): void
     {
-        $subtotal = (float) $quotation->items()->sum('line_total');
-        $grandTotal = round($subtotal - (float) $quotation->discount_amount + (float) $quotation->tax_amount, 2);
+        $subtotal = BigDecimal::of((string) $quotation->items()->sum('line_total'))->toScale(2);
+        $grandTotal = $subtotal->minus($quotation->discount_amount ?? '0')->plus($quotation->tax_amount ?? '0');
 
         // Grand total cannot drop below zero; negative sums indicate an excessive discount that violates accounting boundaries.
-        if ($grandTotal < 0) {
+        if ($grandTotal->isNegative()) {
             throw new BusinessException('إجمالي عرض السعر لا يمكن أن يكون سالبًا — راجع الخصم.');
         }
 
         $quotation->update([
-            'subtotal' => $subtotal,
-            'grand_total' => $grandTotal,
+            'subtotal' => (string) $subtotal,
+            'grand_total' => (string) $grandTotal,
         ]);
     }
 }

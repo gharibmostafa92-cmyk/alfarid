@@ -48,7 +48,7 @@ class QuotationController extends Controller implements HasMiddleware
         ]);
 
         $quotations = Quotation::query()
-            ->with(['customer', 'items.variant.product'])
+            ->with(['customer', 'items.variant.product', 'convertedOrder:id,order_number'])
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->when($filters['customer_id'] ?? null, fn ($q, $v) => $q->where('customer_id', $v))
             ->latest('id')
@@ -63,7 +63,7 @@ class QuotationController extends Controller implements HasMiddleware
     public function show(Request $request, int $quotation): JsonResponse
     {
         $this->branchAccess->assertCentralAccess($request->user());
-        $model = Quotation::query()->with(['customer', 'items.variant.product'])->findOrFail($quotation);
+        $model = Quotation::query()->with(['customer', 'items.variant.product', 'convertedOrder:id,order_number'])->findOrFail($quotation);
 
         return QuotationResource::make($model)->response();
     }

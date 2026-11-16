@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
+use App\Enums\Orders\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerChannel;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
+use App\Models\OutboundMessage;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
 use App\Notifications\StaffRecipients;
@@ -19,6 +21,7 @@ use App\Services\Shared\SearchTerm;
 use App\Services\Shared\SettingService;
 use App\Services\Shared\SpokenQuantity;
 use App\Support\ArabicDigits;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +40,12 @@ final class CustomerWholesaleAssistant
     private const MAX_OTP_ATTEMPTS = 5;
 
     private const ORDER_VERBS_REGEX = '/عايز|عاوز|محتاج|اطلب|ابعت/u';
+
+    private const ORDER_QUANTITY_NUMBER = '[+-]?\d+(?:[.,٫]\d+)?';
+
+    private const ORDER_QUANTITY_UNIT = 'دست[ةه]?|قطع[ةه]?|حب[ةه]|حبات|علب[ةه]?|كرتون[ةه]';
+
+    private const ORDER_LOOKUP_BUSY = 'في طلب بيتنفذ دلوقتي. حاول تاني بعد لحظات.';
 
     public function __construct(
         private QuotationService $quotations,
@@ -98,6 +107,9 @@ final class CustomerWholesaleAssistant
             return 'وضح الكمية بعدد القطع الصحيح لكل صنف قبل الطلب.';
         }
         $orderLines = $this->parseOrderLines($text);
+        if ($orderLines === []) {
+            return 'وضح الكمية بعدد القطع الصحيح لكل صنف قبل الطلب.';
+        }
         if ($orderLines !== null) {
             return $this->orderLookup($customer, $orderLines);
         }
@@ -175,11 +187,14 @@ final class CustomerWholesaleAssistant
         if ($this->settings->getBool('ai_wholesale_shadow_mode', true)) {
             return 'التحقق عبر واتساب غير مفعّل حاليًا. استخدم بوابة الجملة أو تواصل مع الدعم.';
         }
-        if ($channel->verification_code_hash !== null && $channel->verification_expires_at?->isFuture()) {
+        $activeChallenge = $channel->verification_code_hash !== null && $channel->verification_expires_at?->isFuture();
+        $isCode = preg_match('/\A[0-9]{6}\z/', $text) === 1;
+        $failedMessageId = $activeChallenge && ! $isCode ? $this->failedOtpId($channel) : null;
+        if ($activeChallenge && $failedMessageId === null) {
             if ($channel->verification_attempts >= self::MAX_OTP_ATTEMPTS) {
                 return 'عدد المحاولات خلص. اطلب رمز جديد بعد انتهاء صلاحية الرمز الحالي.';
             }
-            if (preg_match('/\A[0-9]{6}\z/', $text) !== 1) {
+            if (! $isCode) {
                 return 'ابعت رمز التحقق الحالي المكوّن من 6 أرقام.';
             }
             if (! Hash::check($text, $channel->verification_code_hash)) {
@@ -205,18 +220,34 @@ final class CustomerWholesaleAssistant
             'verification_expires_at' => now()->addMinutes(10),
             'verification_attempts' => 0,
         ])->save();
-        $payload = ['channel_id' => $channel->id, 'expires_at' => $channel->verification_expires_at->timestamp];
-        $payload['code'] = $code;
+        $expiry = $channel->verification_expires_at->timestamp;
+        $key = "customer-otp:{$channel->id}:{$expiry}";
+        if ($failedMessageId !== null) {
+            $key .= ":retry:{$failedMessageId}";
+        }
         $this->outbox->queue(
-            'customer-otp:'.$channel->id.':'.$channel->verification_expires_at->timestamp,
+            $key,
             'customer_whatsapp',
             $channel->customer_id,
             'customer_otp',
-            $payload,
+            ['channel_id' => $channel->id, 'expires_at' => $expiry, 'code' => $code],
             deliver: true,
         );
 
         return 'بعتنا رمز التحقق على واتساب. ابعت الرمز المكوّن من 6 أرقام.';
+    }
+
+    private function failedOtpId(CustomerChannel $channel): ?int
+    {
+        $key = 'customer-otp:'.$channel->id.':'.$channel->verification_expires_at->timestamp;
+        $message = OutboundMessage::query()
+            ->where('customer_id', $channel->customer_id)
+            ->where('template', 'customer_otp')
+            ->where(fn ($query) => $query->where('idempotency_key', $key)->orWhere('idempotency_key', 'like', $key.':retry:%'))
+            ->latest('id')
+            ->first(['id', 'status']);
+
+        return in_array($message?->status, ['error', 'skipped', 'shadow'], true) ? $message->id : null;
     }
 
     private function acceptButton(Customer $customer, string $buttonId): string
@@ -231,7 +262,7 @@ final class CustomerWholesaleAssistant
             return 'السعر اتغير بعد الرسالة. هبعتلك العرض الجديد قبل أي قبول.';
         }
         try {
-            $accepted = $this->quotations->accept($quotation);
+            $accepted = $this->quotations->accept($quotation, (int) $quotation->revision);
         } catch (BusinessException $e) {
             return $e->getMessage();
         }
@@ -245,7 +276,9 @@ final class CustomerWholesaleAssistant
         $available = max(0, round((float) $customer->credit_limit - $debt, 2));
         $due = Order::query()
             ->where('customer_id', $customer->id)
+            ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
+            ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
             ->orderBy('due_at')
             ->value('due_at');
@@ -450,7 +483,7 @@ final class CustomerWholesaleAssistant
     }
 
     /**
-     * @return list<array{qty: float, query: string}>|null Null when the text is not an order request.
+     * @return list<array{qty: float, query: string}>|null Null for other intents, empty for invalid order requests.
      */
     private function parseOrderLines(string $text): ?array
     {
@@ -463,35 +496,61 @@ final class CustomerWholesaleAssistant
         if (! preg_match(self::ORDER_VERBS_REGEX, $text)) {
             return null;
         }
-        $segments = preg_split('/\s+و\s*|\s*،\s*|,\s*|\s+ثم\s+/u', $text) ?: [];
+        $words = strtr(SpokenQuantity::wordsPattern(), ['ا' => '[اأإآٱ]', 'ه' => '[هة]', 'ي' => '[يى]']);
+        $spokenCount = "(?:{$words})(?:\s+(?:و\s*)?(?:{$words}))*";
+        $numberWithUnit = self::ORDER_QUANTITY_NUMBER.'(?:\s+(?:'.self::ORDER_QUANTITY_UNIT.'))?';
+        $count = "(?:{$numberWithUnit}|{$spokenCount})";
+        $segments = preg_split(
+            "/\s*،\s*|(?<!\d),|,(?!\d)|\s+ثم\s+|\s+و\s*(?=[+-]?\d)|\s+و(?!\s*(?:{$words})(?=\s|$))\s+/u",
+            EntityResolver::normalizeDigits($text),
+        ) ?: [];
         $lines = [];
         foreach ($segments as $segment) {
             $clean = trim((string) preg_replace(self::ORDER_VERBS_REGEX, '', $segment));
             if ($clean === '') {
                 continue;
             }
-            $normalized = EntityResolver::normalizeDigits($clean);
-            $qty = null;
-            if (preg_match_all('/(?<![\p{L}\p{N}_])\d+(?:[.,]\d+)?(?![\p{L}\p{N}_])/u', $normalized, $numbers) && $numbers[0] !== []) {
-                $qty = (float) str_replace(',', '.', $numbers[0][0]);
-                // Egyptian trade convention: 'dasta' (دسته) represents a 12-unit batch.
-                if (preg_match('/دست[هة]?/u', $normalized)) {
-                    $qty *= 12;
-                }
-            } else {
-                $spoken = SpokenQuantity::parse($clean);
-                if ($spoken !== null) {
-                    $qty = $spoken;
-                }
+
+            $line = $this->parseOrderLine($clean, $count, $spokenCount);
+            if ($line === null) {
+                return [];
             }
-            $query = SpokenQuantity::stripQuantityTokens($clean);
-            if ($query === '') {
-                continue;
-            }
-            $lines[] = ['qty' => $qty ?? 1.0, 'query' => $query];
+            $lines[] = $line;
         }
 
         return $lines === [] ? null : $lines;
+    }
+
+    /** @return array{qty: float, query: string}|null */
+    private function parseOrderLine(string $text, string $count, string $spokenCount): ?array
+    {
+        $quantityText = null;
+        $query = $text;
+        if (preg_match("/(?:\A|\s)(?:عدد|كمي[ةه])\s+({$count})(?=\s|$)/u", $text, $match, PREG_OFFSET_CAPTURE)) {
+            $quantityText = $match[1][0];
+            $query = trim(substr_replace($text, '', $match[0][1], strlen($match[0][0])));
+        } elseif (preg_match("/\A(.+?)(?:\s*[×*]\s*|\s+[xX]\s+)({$count})\z/u", $text, $match)) {
+            [, $query, $quantityText] = $match;
+        } elseif (preg_match("/\A({$count})\s+(.+)\z/u", $text, $match)) {
+            [, $quantityText, $query] = $match;
+        } elseif (preg_match("/\A(.+?)\s+({$spokenCount})\z/u", $text, $match)) {
+            [, $query, $quantityText] = $match;
+        }
+        if ($quantityText === null) {
+            return ['qty' => 1.0, 'query' => $query];
+        }
+
+        $number = self::ORDER_QUANTITY_NUMBER;
+        if (preg_match("/\A({$number})(?:\s+(.*))?\z/u", $quantityText, $match)) {
+            $qty = (float) str_replace([',', '٫'], '.', $match[1]);
+            if (str_starts_with($match[2] ?? '', 'دست')) {
+                $qty *= 12;
+            }
+        } else {
+            $qty = SpokenQuantity::parse($quantityText);
+        }
+
+        return $qty === null || $query === '' ? null : ['qty' => $qty, 'query' => $query];
     }
 
     /**
@@ -503,18 +562,24 @@ final class CustomerWholesaleAssistant
         if ($clean === '') {
             return [];
         }
-        // Direct single-token match on SKU or barcode avoids expensive fuzzy catalog full-text search.
-        if (! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 2) {
+        $hasCodeLabel = preg_match('/(?:\A|\s)(?:كود|باركود)\s+(\S+)/u', $clean, $code) === 1;
+        if ($hasCodeLabel) {
+            $clean = $code[1];
+        }
+        if ($hasCodeLabel || (! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 2)) {
             $exact = ProductVariant::query()
                 ->wholesalePurchasable()
                 ->where(fn ($q) => $q->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]))
                 ->limit(2)
                 ->get();
-            if ($exact->count() === 1) {
-                $variant = $exact->first();
-                $variant->loadMissing('product:id,name_ar');
+            if ($hasCodeLabel || $exact->count() === 1) {
+                $exact->loadMissing('product:id,name_ar');
 
-                return [['id' => $variant->id, 'sku' => (string) $variant->sku, 'label' => (($variant->product?->name_ar ?? '').' — '.$variant->sku)]];
+                return $exact->map(fn (ProductVariant $variant) => [
+                    'id' => $variant->id,
+                    'sku' => (string) $variant->sku,
+                    'label' => ($variant->product?->name_ar ?? '').' — '.$variant->sku,
+                ])->all();
             }
         }
 
@@ -574,6 +639,9 @@ final class CustomerWholesaleAssistant
         $ambiguous = [];
         $resolved = [];
         foreach ($lines as $line) {
+            if ($line['qty'] < 1 || $line['qty'] > QuotationService::MAX_ITEM_QUANTITY || floor($line['qty']) !== $line['qty']) {
+                return 'وضح الكمية بعدد القطع الصحيح لكل صنف قبل الطلب.';
+            }
             $matches = $this->searchCustomerVariants($line['query']);
             if ($matches === []) {
                 $unmatched[] = $line['query'];
@@ -610,10 +678,17 @@ final class CustomerWholesaleAssistant
             }
         }
         if ($cachedItems !== []) {
-            $token = bin2hex(random_bytes(6));
-            $ttl = now()->addMinutes(15);
-            Cache::put($this->orderLookupCacheKey($customer, $token), $cachedItems, $ttl);
-            Cache::put($this->latestOrderLookupCacheKey($customer), $token, $ttl);
+            $cached = $this->orderLookupLock($customer)->get(function () use ($customer, $cachedItems): bool {
+                $token = bin2hex(random_bytes(6));
+                $ttl = now()->addMinutes(15);
+                Cache::put($this->orderLookupCacheKey($customer, $token), $cachedItems, $ttl);
+                Cache::put($this->latestOrderLookupCacheKey($customer), $token, $ttl);
+
+                return true;
+            });
+            if (! $cached) {
+                return self::ORDER_LOOKUP_BUSY;
+            }
         }
 
         return 'لقيت: '.implode('، ', $parts).'. أضيفهم للسلة ولا أعمل عرض سعر؟ [سلة] [عرض سعر]';
@@ -629,6 +704,11 @@ final class CustomerWholesaleAssistant
         return "wa:order:latest:{$customer->id}";
     }
 
+    private function orderLookupLock(Customer $customer): Lock
+    {
+        return Cache::lock("wa:order:lock:{$customer->id}", 60);
+    }
+
     private function handleOrderLookupButton(Customer $customer, string $action): string
     {
         $isCart = str_starts_with($action, 'cart:') || $action === 'سلة';
@@ -637,48 +717,56 @@ final class CustomerWholesaleAssistant
             return 'أقدر أساعدك في الرصيد، كشف الحساب، الفاتورة، حالة الطلب، أو إعادة آخر طلب.';
         }
 
-        $token = str_contains($action, ':')
-            ? substr($action, strpos($action, ':') + 1)
-            : (string) Cache::get($this->latestOrderLookupCacheKey($customer), '');
-
-        $items = $token !== '' ? Cache::pull($this->orderLookupCacheKey($customer, $token)) : null;
-        if (! is_array($items) || $items === []) {
-            return 'انتهت صلاحية اختيار الأصناف. ابعت الأصناف والكميات تاني عشان أضيفهم للسلة أو أعمل عرض سعر.';
-        }
-        Cache::forget($this->latestOrderLookupCacheKey($customer));
-
-        if ($isCart) {
-            $res = $this->quickOrder->importToCart($customer, array_map(
-                static fn (array $item): array => ['sku' => $item['sku'], 'qty' => $item['qty']],
-                $items,
-            ));
-            $addedCount = count($res['added'] ?? []);
-            $skippedCount = count($res['skipped'] ?? []);
-
-            if ($addedCount === 0) {
-                return 'تعذر إضافة الأصناف للسلة؛ الكميات المطلوبة غير متوفرة حالياً.';
+        return $this->orderLookupLock($customer)->get(function () use ($customer, $action, $isCart): string {
+            $latestKey = $this->latestOrderLookupCacheKey($customer);
+            $token = str_contains($action, ':')
+                ? substr($action, strpos($action, ':') + 1)
+                : (string) Cache::get($latestKey, '');
+            $cacheKey = $this->orderLookupCacheKey($customer, $token);
+            $items = $token !== '' ? Cache::get($cacheKey) : null;
+            if (! is_array($items) || $items === []) {
+                return 'انتهت صلاحية اختيار الأصناف. ابعت الأصناف والكميات تاني عشان أضيفهم للسلة أو أعمل عرض سعر.';
             }
 
-            return $skippedCount > 0
-                ? "تمت إضافة {$addedCount} صنف للسلة وتجاوز {$skippedCount} صنف لعدم توفر الكمية."
-                : "تمت إضافة {$addedCount} صنف إلى السلة بنجاح.";
+            try {
+                $reply = $isCart
+                    ? $this->addOrderLookupToCart($customer, $items)
+                    : $this->submitOrderLookupQuotation($customer, $items);
+            } catch (BusinessException $e) {
+                return $e->getMessage();
+            }
+
+            Cache::forget($cacheKey);
+            if (Cache::get($latestKey) === $token) {
+                Cache::forget($latestKey);
+            }
+
+            return $reply;
+        }) ?: self::ORDER_LOOKUP_BUSY;
+    }
+
+    private function addOrderLookupToCart(Customer $customer, array $items): string
+    {
+        $result = $this->quickOrder->importToCart($customer, $items);
+        $added = count($result['added']);
+        $skipped = count($result['skipped']);
+        if ($added === 0) {
+            throw new BusinessException('تعذر إضافة الأصناف للسلة؛ الكميات المطلوبة غير متوفرة حالياً.');
         }
 
-        try {
-            $quotation = $this->quotations->create($customer, [
-                'items' => array_map(
-                    static fn (array $item): array => [
-                        'product_variant_id' => (int) $item['product_variant_id'],
-                        'qty' => (float) $item['qty'],
-                    ],
-                    $items,
-                ),
-            ]);
-            $quotation = $this->quotations->submit($quotation);
+        return $skipped > 0
+            ? "تمت إضافة {$added} صنف للسلة وتجاوز {$skipped} صنف لعدم توفر الكمية."
+            : "تمت إضافة {$added} صنف إلى السلة بنجاح.";
+    }
 
-            return "تم إنشاء وإرسال عرض السعر رقم {$quotation->quotation_number} للإدارة.";
-        } catch (BusinessException $e) {
-            return $e->getMessage();
-        }
+    private function submitOrderLookupQuotation(Customer $customer, array $items): string
+    {
+        $quotation = DB::transaction(function () use ($customer, $items): Quotation {
+            $draft = $this->quotations->create($customer, ['items' => $items]);
+
+            return $this->quotations->submit($draft);
+        });
+
+        return "تم إنشاء وإرسال عرض السعر رقم {$quotation->quotation_number} للإدارة.";
     }
 }
