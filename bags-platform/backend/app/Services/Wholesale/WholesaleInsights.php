@@ -12,6 +12,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Quotation;
 use App\Models\WholesalePaymentNotice;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -141,69 +142,52 @@ final class WholesaleInsights
     public function creditSuggestions(): array
     {
         $out = [];
-        $openTotalsSub = DB::table('orders')
-            ->where('payment_method', 'credit')
-            ->where('payment_status', 'unpaid')
-            ->where('status', '!=', OrderStatus::Cancelled->value)
-            ->groupBy('customer_id')
-            ->selectRaw('customer_id, SUM(grand_total) as open_total');
+        $openOrdersByOrder = $this->unpaidCreditOrderBalances();
+        $openTotalsSub = DB::query()->fromSub(clone $openOrdersByOrder, 'balances')
+            ->groupBy('balances.customer_id')
+            ->selectRaw('balances.customer_id, SUM(balances.remaining) as open_total');
+        $overdueCustomersSub = DB::query()->fromSub(clone $openOrdersByOrder, 'balances')
+            ->whereNotNull('balances.due_at')
+            ->where('balances.due_at', '<', Carbon::today((string) config('app.business_timezone', 'Africa/Cairo'))->setTimezone('UTC'))
+            ->where('balances.remaining', '>', 0)
+            ->select('balances.customer_id');
+        $freePoolSub = DB::table('wholesale_payment_notices as n')
+            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->where(fn ($q) => $q->whereNull('n.order_id')->orWhereExists(fn ($s) => $s->selectRaw('1')->from('orders as cancelled_order')->whereColumn('cancelled_order.id', 'n.order_id')->where('cancelled_order.status', OrderStatus::Cancelled->value)))
+            ->groupBy('n.customer_id')
+            ->selectRaw('n.customer_id, SUM(n.amount) as free_total');
+        $allocatedFreePoolSub = DB::table('wholesale_payment_allocations as a')
+            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+            ->join('orders as o', 'o.id', '=', 'a.order_id')
+            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->where('o.status', '!=', OrderStatus::Cancelled->value)
+            ->groupBy('n.customer_id')
+            ->selectRaw('n.customer_id, SUM(a.amount) as allocated_total');
 
         $customers = Customer::query()
             ->commercial()
             ->where('customers.status', 'approved')
             ->where('customers.credit_limit', '>', 0)
             ->joinSub($openTotalsSub, 'open_orders', 'open_orders.customer_id', '=', 'customers.id')
-            ->orderByRaw('(open_orders.open_total / customers.credit_limit) DESC, customers.id ASC')
+            ->leftJoinSub($freePoolSub, 'free_pool', 'free_pool.customer_id', '=', 'customers.id')
+            ->leftJoinSub($allocatedFreePoolSub, 'allocated_pool', 'allocated_pool.customer_id', '=', 'customers.id')
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->fromSub(clone $overdueCustomersSub, 'overdue_customers')->whereColumn('overdue_customers.customer_id', 'customers.id'))
+            ->orderByRaw('(GREATEST(open_orders.open_total - GREATEST(COALESCE(free_pool.free_total, 0) - COALESCE(allocated_pool.allocated_total, 0), 0), 0) / NULLIF(customers.credit_limit, 0)) DESC, customers.id ASC')
             ->limit(100)
-            ->get(['customers.*']);
+            ->get([
+                'customers.*',
+                'open_orders.open_total as open_total',
+                'free_pool.free_total as free_total',
+                'allocated_pool.allocated_total as allocated_total',
+            ]);
 
         if ($customers->isEmpty()) {
             return [];
         }
 
-        $customerIds = $customers->pluck('id')->all();
-
-        // Disqualify merchants with any non-cancelled unpaid orders past due_at, regardless of total utilization.
-        $overdueCustomerIds = Order::query()
-            ->whereIn('customer_id', $customerIds)
-            ->where('payment_status', 'unpaid')
-            ->where('status', '!=', OrderStatus::Cancelled->value)
-            ->whereNotNull('due_at')
-            ->where('due_at', '<', now())
-            ->pluck('customer_id')
-            ->flip()
-            ->all();
-
-        $openOrders = Order::query()
-            ->whereIn('customer_id', $customerIds)
-            ->where('payment_method', 'credit')
-            ->where('payment_status', 'unpaid')
-            ->where('status', '!=', OrderStatus::Cancelled->value)
-            ->get(['id', 'customer_id', 'grand_total']);
-        $covered = $this->coveredByOrderIds($openOrders->pluck('id')->all());
-        $usedByCustomer = [];
-        foreach ($openOrders as $order) {
-            $remaining = max(0.0, (float) $order->grand_total - ($covered[$order->id] ?? 0.0));
-            $usedByCustomer[$order->customer_id] = ($usedByCustomer[$order->customer_id] ?? 0.0) + $remaining;
-        }
-        $freeByCustomer = DB::table('wholesale_payment_notices as n')
-            ->whereIn('n.customer_id', $customerIds)->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
-            ->where(fn ($q) => $q->whereNull('n.order_id')->orWhereExists(fn ($s) => $s->selectRaw('1')->from('orders as o')->whereColumn('o.id', 'n.order_id')->where('o.status', OrderStatus::Cancelled->value)))
-            ->groupBy('n.customer_id')->selectRaw('n.customer_id, SUM(n.amount) as total')->pluck('total', 'customer_id');
-        $allocatedByCustomer = DB::table('wholesale_payment_allocations as a')
-            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
-            ->join('orders as o', 'o.id', '=', 'a.order_id')
-            ->whereIn('n.customer_id', $customerIds)
-            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
-            ->where('o.status', '!=', OrderStatus::Cancelled->value)
-            ->groupBy('n.customer_id')->selectRaw('n.customer_id, SUM(a.amount) as total')->pluck('total', 'customer_id');
-
         foreach ($customers as $customer) {
-            if (isset($overdueCustomerIds[$customer->id])) {
-                continue;
-            }
-            $floating = max(0.0, (float) ($freeByCustomer[$customer->id] ?? 0) - (float) ($allocatedByCustomer[$customer->id] ?? 0));
-            $used = max(0.0, (float) ($usedByCustomer[$customer->id] ?? 0.0) - $floating);
+            $floating = max(0.0, (float) ($customer->free_total ?? 0) - (float) ($customer->allocated_total ?? 0));
+            $used = max(0.0, (float) $customer->open_total - $floating);
             $limit = (float) $customer->credit_limit;
             // Target merchants with at least 90% credit utilization to proactively prevent order checkout blockages.
             if ($limit <= 0 || ($used / $limit) < 0.9) {
@@ -218,6 +202,39 @@ final class WholesaleInsights
         }
 
         return $out;
+    }
+
+    /**
+     * Returns one SQL row per unpaid credit order with valid approved payment and return coverage applied.
+     *
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function unpaidCreditOrderBalances(): \Illuminate\Database\Query\Builder
+    {
+        $linkedNotices = DB::table('wholesale_payment_notices')
+            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+            ->whereNotNull('order_id')
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(amount) as total');
+        $allocations = DB::table('wholesale_payment_allocations as a')
+            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->groupBy('a.order_id')
+            ->selectRaw('a.order_id, SUM(a.amount) as total');
+        $creditNotes = DB::table('return_requests')
+            ->where('status', 'refunded')
+            ->where('refund_method', RefundMethod::CreditNote->value)
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(total_refund_amount) as total');
+
+        return DB::table('orders as o')
+            ->leftJoinSub($linkedNotices, 'linked_notices', 'linked_notices.order_id', '=', 'o.id')
+            ->leftJoinSub($allocations, 'approved_allocations', 'approved_allocations.order_id', '=', 'o.id')
+            ->leftJoinSub($creditNotes, 'credit_notes', 'credit_notes.order_id', '=', 'o.id')
+            ->where('o.payment_method', 'credit')
+            ->where('o.payment_status', 'unpaid')
+            ->where('o.status', '!=', OrderStatus::Cancelled->value)
+            ->selectRaw('o.id, o.customer_id, o.due_at, GREATEST(o.grand_total - COALESCE(linked_notices.total, 0) - COALESCE(approved_allocations.total, 0) - COALESCE(credit_notes.total, 0), 0) as remaining');
     }
 
     /**

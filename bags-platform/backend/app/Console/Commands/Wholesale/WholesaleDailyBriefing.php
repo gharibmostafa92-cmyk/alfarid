@@ -15,6 +15,7 @@ use App\Notifications\StaffRecipients;
 use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -44,33 +45,40 @@ class WholesaleDailyBriefing extends Command
             ->where('status', QuotationStatus::Requested)
             ->where('created_at', '<=', now()->subHours(24))
             ->count();
+        $overdueCutoff = Carbon::today($tz)->setTimezone('UTC');
         $overdue = Order::query()
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
             ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
-            ->where('due_at', '<', now($tz)->startOfDay());
+            ->where('due_at', '<', $overdueCutoff);
         $overdueCount = (int) (clone $overdue)->distinct()->count('customer_id');
-        $overdueOrderIds = (clone $overdue)->pluck('id')->all();
-        $grossOverdue = (float) (clone $overdue)->sum('grand_total');
-        $coveredOverdue = 0.0;
-        if ($overdueOrderIds !== []) {
-            $coveredOverdue += (float) DB::table('wholesale_payment_notices')
-                ->whereIn('order_id', $overdueOrderIds)
-                ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-                ->sum('amount');
-            $coveredOverdue += (float) DB::table('wholesale_payment_allocations as a')
-                ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
-                ->whereIn('a.order_id', $overdueOrderIds)
-                ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
-                ->sum('a.amount');
-            $coveredOverdue += (float) DB::table('return_requests')
-                ->whereIn('order_id', $overdueOrderIds)
-                ->where('status', 'refunded')
-                ->where('refund_method', RefundMethod::CreditNote->value)
-                ->sum('total_refund_amount');
-        }
-        $overdueTotal = max(0.0, $grossOverdue - $coveredOverdue);
+        $linkedNotices = DB::table('wholesale_payment_notices')
+            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+            ->whereNotNull('order_id')
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(amount) as total');
+        $allocations = DB::table('wholesale_payment_allocations as a')
+            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+            ->groupBy('a.order_id')
+            ->selectRaw('a.order_id, SUM(a.amount) as total');
+        $creditNotes = DB::table('return_requests')
+            ->where('status', 'refunded')
+            ->where('refund_method', RefundMethod::CreditNote->value)
+            ->groupBy('order_id')
+            ->selectRaw('order_id, SUM(total_refund_amount) as total');
+        $overdueBalances = DB::table('orders as o')
+            ->leftJoinSub($linkedNotices, 'linked_notices', 'linked_notices.order_id', '=', 'o.id')
+            ->leftJoinSub($allocations, 'approved_allocations', 'approved_allocations.order_id', '=', 'o.id')
+            ->leftJoinSub($creditNotes, 'credit_notes', 'credit_notes.order_id', '=', 'o.id')
+            ->where('o.payment_method', 'credit')
+            ->where('o.payment_status', 'unpaid')
+            ->where('o.status', '!=', OrderStatus::Cancelled->value)
+            ->whereNotNull('o.due_at')
+            ->where('o.due_at', '<', $overdueCutoff)
+            ->selectRaw('GREATEST(o.grand_total - COALESCE(linked_notices.total, 0) - COALESCE(approved_allocations.total, 0) - COALESCE(credit_notes.total, 0), 0) as remaining');
+        $overdueTotal = (float) DB::query()->fromSub($overdueBalances, 'overdue_balances')->sum('remaining');
         $worst = (clone $overdue)->with('customer')->orderBy('due_at')->first()?->customer;
 
         $worstText = $worst === null ? '' : ' وأخطرهم '.($worst->company_name ?: $worst->name).'.';

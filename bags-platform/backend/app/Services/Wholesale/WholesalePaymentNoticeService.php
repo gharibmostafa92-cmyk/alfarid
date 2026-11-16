@@ -276,15 +276,22 @@ class WholesalePaymentNoticeService
      */
     public function statement(Customer $customer, ?string $from = null, ?string $to = null): array
     {
-        $todayCairo = Carbon::today(config('app.business_timezone', 'Africa/Cairo'));
-        $toDate = $to !== null ? Carbon::parse($to)->endOfDay() : $todayCairo->copy()->endOfDay();
-        $fromDate = $from !== null ? Carbon::parse($from)->startOfDay() : $toDate->copy()->subDays(89)->startOfDay();
-        if ($fromDate->gt($toDate)) {
+        $businessTimezone = (string) config('app.business_timezone', 'Africa/Cairo');
+        $todayBusiness = Carbon::today($businessTimezone);
+        $toBusiness = $to !== null ? Carbon::parse($to, $businessTimezone)->endOfDay() : $todayBusiness->copy()->endOfDay();
+        $fromBusiness = $from !== null ? Carbon::parse($from, $businessTimezone)->startOfDay() : $toBusiness->copy()->subDays(89)->startOfDay();
+        if ($fromBusiness->gt($toBusiness)) {
             throw new BusinessException('تاريخ بداية الكشف يجب ألا يتجاوز تاريخ النهاية.', [], 422);
         }
-        if ($fromDate->diffInDays($toDate) > 365) {
+        if ($fromBusiness->diffInDays($toBusiness) > 365) {
             throw new BusinessException('نطاق كشف الحساب لا يمكن أن يتجاوز سنة واحدة.', [], 422);
         }
+        // Datetime columns store UTC wall time without a timezone. Convert Cairo
+        // business-day bounds to UTC before comparing them, and treat a DATE
+        // transfer date as midnight in the business timezone in the SQL fallback.
+        $fromDate = $fromBusiness->copy()->setTimezone('UTC');
+        $toDate = $toBusiness->copy()->setTimezone('UTC');
+        $noticeDate = $this->statementNoticeDateExpression();
 
         // Compute all history before the requested window in SQL; never materialize a customer's lifetime ledger.
         $openingOrders = Order::query()->where('customer_id', $customer->id)
@@ -293,11 +300,11 @@ class WholesalePaymentNoticeService
 
         $openingApprovedNotices = WholesalePaymentNotice::query()->where('customer_id', $customer->id)
             ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-            ->whereRaw('COALESCE(approved_at, transfer_date, updated_at) < ?', [$fromDate])->sum('amount');
+            ->whereRaw("{$noticeDate} < ?", [$fromDate])->sum('amount');
 
         $openingReversedNotices = WholesalePaymentNotice::query()->where('customer_id', $customer->id)
             ->where('status', WholesalePaymentNoticeStatus::Reversed->value)
-            ->whereRaw('COALESCE(approved_at, transfer_date, updated_at) < ?', [$fromDate])
+            ->whereRaw("{$noticeDate} < ?", [$fromDate])
             ->where('reversed_at', '>=', $fromDate)->sum('amount');
 
         $openingReturns = ReturnRequest::query()->where('customer_id', $customer->id)
@@ -321,7 +328,7 @@ class WholesalePaymentNoticeService
             ->orderBy('created_at')->orderBy('id')->limit(1501)
             ->get(['id', 'order_number', 'grand_total', 'created_at'])
             ->each(fn (Order $order) => $entries->push([
-                'date' => $order->created_at->copy(),
+                'date' => $order->created_at->copy()->timezone($businessTimezone),
                 'type' => 'debit',
                 'description' => "طلب آجل {$order->order_number}",
                 'reference' => $order->order_number,
@@ -331,11 +338,11 @@ class WholesalePaymentNoticeService
         WholesalePaymentNotice::query()
             ->where('customer_id', $customer->id)
             ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-            ->whereRaw('COALESCE(approved_at, transfer_date, updated_at) BETWEEN ? AND ?', [$fromDate, $toDate])
-            ->orderByRaw('COALESCE(approved_at, transfer_date, updated_at)')->orderBy('id')->limit(1501)
+            ->whereRaw("{$noticeDate} BETWEEN ? AND ?", [$fromDate, $toDate])
+            ->orderByRaw($noticeDate)->orderBy('id')->limit(1501)
             ->get(['id', 'notice_number', 'payment_method', 'amount', 'approved_at', 'transfer_date', 'updated_at'])
             ->each(fn (WholesalePaymentNotice $notice) => $entries->push([
-                'date' => ($notice->approved_at ?? $notice->transfer_date ?? $notice->updated_at)->copy(),
+                'date' => ($notice->approved_at ?? $notice->transfer_date ?? $notice->updated_at)->copy()->timezone($businessTimezone),
                 'type' => 'credit',
                 'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
                 'reference' => $notice->notice_number,
@@ -347,15 +354,16 @@ class WholesalePaymentNoticeService
             ->where('status', WholesalePaymentNoticeStatus::Reversed->value)
             ->where(function ($q) use ($fromDate, $toDate) {
                 $q->whereBetween('reversed_at', [$fromDate, $toDate])
-                    ->orWhereRaw('COALESCE(approved_at, transfer_date, updated_at) BETWEEN ? AND ?', [$fromDate, $toDate]);
+                    ->orWhereRaw($this->statementNoticeDateExpression().' BETWEEN ? AND ?', [$fromDate, $toDate]);
             })
+            ->orderBy('id')
             ->limit(1501)
             ->get(['id', 'notice_number', 'payment_method', 'amount', 'approved_at', 'transfer_date', 'updated_at', 'reversed_at', 'admin_notes'])
-            ->each(function (WholesalePaymentNotice $notice) use ($entries, $fromDate, $toDate): void {
+            ->each(function (WholesalePaymentNotice $notice) use ($entries, $fromDate, $toDate, $businessTimezone): void {
                 $approvedDate = $notice->approved_at ?? $notice->transfer_date ?? $notice->updated_at;
                 if ($approvedDate !== null && $approvedDate->betweenIncluded($fromDate, $toDate)) {
                     $entries->push([
-                        'date' => $approvedDate->copy(),
+                        'date' => $approvedDate->copy()->timezone($businessTimezone),
                         'type' => 'credit',
                         'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
                         'reference' => $notice->notice_number,
@@ -366,7 +374,7 @@ class WholesalePaymentNoticeService
                     $reason = trim((string) $notice->admin_notes);
                     $desc = $reason !== '' ? "عكس سداد {$notice->notice_number}: {$reason}" : "عكس سداد {$notice->notice_number}";
                     $entries->push([
-                        'date' => $notice->reversed_at->copy(),
+                        'date' => $notice->reversed_at->copy()->timezone($businessTimezone),
                         'type' => 'debit',
                         'description' => $desc,
                         'reference' => $notice->notice_number,
@@ -385,7 +393,7 @@ class WholesalePaymentNoticeService
             ->orderBy('refunded_at')->orderBy('id')->limit(1501)
             ->get(['id', 'return_number', 'total_refund_amount', 'refunded_at'])
             ->each(fn (ReturnRequest $return) => $entries->push([
-                'date' => $return->refunded_at->copy(),
+                'date' => $return->refunded_at->copy()->timezone($businessTimezone),
                 'type' => 'credit',
                 'description' => "مرتجع مسترد {$return->return_number}",
                 'reference' => $return->return_number,
@@ -394,9 +402,9 @@ class WholesalePaymentNoticeService
 
         // Standard accounting convention: debits precede credits on identical dates.
         $sorted = $entries->sortBy([
-            fn (array $a, array $b): int => $a['date']->startOfDay() <=> $b['date']->startOfDay(),
-            fn (array $a, array $b): int => $a['date']->timestamp <=> $b['date']->timestamp,
+            fn (array $a, array $b): int => $a['date']->toDateString() <=> $b['date']->toDateString(),
             fn (array $a, array $b): int => ($a['type'] === 'debit' ? 0 : 1) <=> ($b['type'] === 'debit' ? 0 : 1),
+            fn (array $a, array $b): int => $a['date']->timestamp <=> $b['date']->timestamp,
         ])->values();
 
         if ($entries->count() > 1500) {
@@ -430,24 +438,37 @@ class WholesalePaymentNoticeService
 
     public function recentStatementCount(Customer $customer): int
     {
-        $to = Carbon::today(config('app.business_timezone', 'Africa/Cairo'))->endOfDay();
-        $from = $to->copy()->subDays(89)->startOfDay();
+        $businessTimezone = (string) config('app.business_timezone', 'Africa/Cairo');
+        $toBusiness = Carbon::today($businessTimezone)->endOfDay();
+        $fromBusiness = $toBusiness->copy()->subDays(89)->startOfDay();
+        $to = $toBusiness->copy()->setTimezone('UTC');
+        $from = $fromBusiness->setTimezone('UTC');
+        $noticeDate = $this->statementNoticeDateExpression();
 
         return Order::query()->where('customer_id', $customer->id)->where('payment_method', 'credit')
             ->where('status', '!=', OrderStatus::Cancelled->value)->whereBetween('created_at', [$from, $to])->count()
             + WholesalePaymentNotice::query()->where('customer_id', $customer->id)
                 ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-                ->whereRaw('COALESCE(approved_at, transfer_date, updated_at) BETWEEN ? AND ?', [$from, $to])->count()
+                ->whereRaw("{$noticeDate} BETWEEN ? AND ?", [$from, $to])->count()
             + WholesalePaymentNotice::query()->where('customer_id', $customer->id)
                 ->where('status', WholesalePaymentNoticeStatus::Reversed->value)
                 ->where(function ($q) use ($from, $to) {
                     $q->whereBetween('reversed_at', [$from, $to])
-                        ->orWhereRaw('COALESCE(approved_at, transfer_date, updated_at) BETWEEN ? AND ?', [$from, $to]);
+                        ->orWhereRaw($this->statementNoticeDateExpression().' BETWEEN ? AND ?', [$from, $to]);
                 })->count()
             + ReturnRequest::query()->where('customer_id', $customer->id)->where('status', 'refunded')
                 ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
                 ->whereNotNull('refunded_at')
+                ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
                 ->whereBetween('refunded_at', [$from, $to])->count();
+    }
+
+    private function statementNoticeDateExpression(): string
+    {
+        $businessTimezone = str_replace("'", "''", (string) config('app.business_timezone', 'Africa/Cairo'));
+
+        // Explicit zones keep DATE conversion independent of the PostgreSQL session timezone.
+        return "COALESCE(approved_at, (transfer_date::timestamp AT TIME ZONE '{$businessTimezone}') AT TIME ZONE 'UTC', updated_at)";
     }
 
     /**

@@ -89,17 +89,17 @@ class TaskTxtStatementParityTest extends TestCase
 
     public function test_statement_range_keeps_opening_balance_and_orders_same_day_debits_first(): void
     {
-        $this->creditOrder(500)->forceFill(['created_at' => '2026-10-19 23:59:59'])->save();
+        $this->creditOrder(500)->forceFill(['created_at' => '2026-11-09 21:59:59'])->save();
         $start = $this->creditOrder(300);
-        $start->forceFill(['created_at' => '2026-10-20 00:00:00'])->save();
+        $start->forceFill(['created_at' => '2026-11-09 22:00:00'])->save();
         $end = $this->creditOrder(200);
-        $end->forceFill(['created_at' => '2026-10-20 23:59:59'])->save();
-        $this->creditOrder(900)->forceFill(['created_at' => '2026-10-21 00:00:00'])->save();
+        $end->forceFill(['created_at' => '2026-11-10 21:59:59'])->save();
+        $this->creditOrder(900)->forceFill(['created_at' => '2026-11-10 22:00:00'])->save();
         $notice = $this->approveFree(100);
-        $notice->forceFill(['approved_at' => '2026-10-20 00:00:00'])->save();
+        $notice->forceFill(['approved_at' => '2026-11-09 22:00:00'])->save();
 
         $token = $this->customer->createToken('wholesale-statement')->plainTextToken;
-        $entries = $this->withToken($token)->getJson('/api/v1/wholesale/statement?from=2026-10-20&to=2026-10-20')
+        $entries = $this->withToken($token)->getJson('/api/v1/wholesale/statement?from=2026-11-10&to=2026-11-10')
             ->assertOk()
             ->assertJsonPath('data.opening_balance', '500.00')
             ->assertJsonPath('data.closing_balance', '900.00')
@@ -110,7 +110,7 @@ class TaskTxtStatementParityTest extends TestCase
             [$start->order_number, $end->order_number],
             array_column(array_slice($entries, 0, 2), 'reference'),
         );
-        $this->getJson('/api/v1/wholesale/statement?from=2026-10-21&to=2026-10-20')
+        $this->getJson('/api/v1/wholesale/statement?from=2026-11-11&to=2026-11-10')
             ->assertUnprocessable()->assertJsonValidationErrors('to');
         $this->getJson('/api/v1/wholesale/invoices?per_page=101')
             ->assertUnprocessable()->assertJsonValidationErrors('per_page');
