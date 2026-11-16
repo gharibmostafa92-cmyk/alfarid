@@ -21,6 +21,7 @@ Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes b
 - Pending forward migration: `2026_11_16_000004_scope_credit_note_coverage_to_credit_orders.php`. Review and apply it before or with the backend deploy so the database allocation guard matches application credit-note accounting.
 - Pending deploy actions: deploy the backend revision containing the wholesale statement, credit suggestion, and daily briefing fixes; then verify the scheduled `wholesale:daily-briefing` command runs the deployed revision. No environment variable or queue schema change is required.
 - Local verification used the isolated database `alfarid_task1_20261116_verify`; that result does not establish live deployment status.
+- TDD evidence (local only / not deployed): baseline `24b112a` ran 9 tests (2 passed, 6 failed, 1 expected DB constraint error); the current Task 1 suite passed 35/35 tests with 116 assertions. The baseline candidate test stopped at its Cairo overdue-today assertion, before its ranking and query-ceiling assertions; those later checks are not established by that red run. Detailed per-test output: `.superpowers/sdd/2026-11-16-wholesale-roadmap-hardening/task-1-report.md`.
 
 ### 2026-11-12 procurement, returns, and Cloud Run close-out (local only)
 
