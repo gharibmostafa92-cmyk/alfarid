@@ -17,6 +17,8 @@ use App\Http\Resources\Admin\Pricing\CustomerResource;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
+use App\Rules\MaxImagePixels;
+use App\Rules\RejectExecutableSignature;
 use App\Services\Customer\CustomerManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,13 +39,13 @@ class CustomerController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:customers.view', only: ['index', 'show', 'history']),
-            new Middleware('can:customers.documents.view', only: ['downloadDocument', 'reviewDocument', 'storeDocument']),
-            new Middleware('can:customers.update', only: ['storeDocument']),
-            new Middleware('can:customers.create', only: ['store']),
-            new Middleware('can:customers.update', only: ['update']),
-            new Middleware('can:customers.delete', only: ['destroy', 'restore']),
-            new Middleware('can:customers.approve', only: ['approve', 'reject', 'suspend', 'reactivate', 'reviewDocument']),
+            new Middleware('permission:customers.view|customers.manage', only: ['index', 'show', 'history']),
+            new Middleware('permission:customers.documents.view|customers.manage', only: ['downloadDocument', 'reviewDocument', 'storeDocument']),
+            new Middleware('permission:customers.update|customers.manage', only: ['storeDocument']),
+            new Middleware('permission:customers.create|customers.manage', only: ['store']),
+            new Middleware('permission:customers.update|customers.manage', only: ['update']),
+            new Middleware('permission:customers.delete|customers.manage', only: ['destroy', 'restore']),
+            new Middleware('permission:customers.approve|customers.manage', only: ['approve', 'reject', 'suspend', 'reactivate', 'reviewDocument']),
         ];
     }
 
@@ -170,7 +172,23 @@ class CustomerController extends Controller implements HasMiddleware
         abort_unless(Storage::disk('r2')->exists($document->file_path), 404, 'المستند غير موجود.');
         CustomerAuditLog::record($customer, 'document_downloaded', request()->user()->id, ['document_id' => $document->id]);
 
-        return Storage::disk('r2')->download($document->file_path, CustomerDocument::safeName($document->original_name));
+        $mimeMap = [
+            'application/pdf' => 'pdf',
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+        ];
+        $mime = array_key_exists((string) $document->mime_type, $mimeMap)
+            ? (string) $document->mime_type
+            : 'application/octet-stream';
+        $ext = $mimeMap[$mime] ?? 'bin';
+        $base = pathinfo(CustomerDocument::safeName($document->original_name), PATHINFO_FILENAME) ?: 'document';
+        $safeFilename = $base.'.'.$ext;
+
+        return Storage::disk('r2')->download($document->file_path, $safeFilename, [
+            'Content-Type' => $mime,
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Disposition' => 'attachment; filename="'.$safeFilename.'"',
+        ]);
     }
 
     /**
@@ -200,7 +218,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function storeDocument(Request $request, Customer $customer): JsonResponse
     {
-        $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120']]);
+        $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120', new MaxImagePixels, new RejectExecutableSignature]]);
         $document = $this->customers->uploadDocument($customer, $request->file('document'), (int) $request->user()->id);
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]], 201);

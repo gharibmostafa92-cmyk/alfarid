@@ -76,8 +76,8 @@ class TaskFinanceChecklistTest extends TestCase
         for ($sample = 1; $sample <= 20; $sample++) {
             $supplier = Supplier::factory()->create(['opening_balance' => 17.25, 'current_balance' => 17.25]);
             $total = 100 + $sample * 1.13;
-            $invoice = $service->createInvoice(['supplier_id' => $supplier->id, 'supplier_invoice_no' => 'PROPERTY-'.$sample, 'issue_date' => now()->toDateString(), 'subtotal' => $total]);
-            $service->postInvoice($invoice);
+            $invoice = $service->createInvoice(['supplier_id' => $supplier->id, 'supplier_invoice_no' => 'PROPERTY-'.$sample, 'issue_date' => now()->toDateString(), 'subtotal' => $total], actor: $actor);
+            $service->postInvoice($invoice, $actor);
             $check = function () use ($service, $supplier): void {
                 $statement = $service->statement($supplier->fresh(), now()->subDay()->toDateString(), now()->toDateString());
                 $this->assertEqualsWithDelta((float) $supplier->fresh()->current_balance, $statement['closing_balance'], 0.00001);
@@ -93,12 +93,12 @@ class TaskFinanceChecklistTest extends TestCase
             $check();
             $free = $service->createPayment([...$data, 'amount' => $total], $actor, 'free-'.$sample);
             $check();
-            $service->allocatePayment($free, $invoice->id);
+            $service->allocatePayment($free, $invoice->id, $actor);
             $this->assertSame(SupplierInvoiceStatus::Paid, $invoice->fresh()->status);
             $check();
             $service->voidPayment($free, $actor, 'checklist');
             $check();
-            $service->cancelInvoice($invoice->fresh());
+            $service->cancelInvoice($invoice->fresh(), $actor);
             $check();
             $this->assertSame('17.25', $supplier->fresh()->current_balance);
         }

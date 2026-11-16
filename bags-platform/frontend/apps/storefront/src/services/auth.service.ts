@@ -2,21 +2,21 @@ import { authEndpoints, createApiClient, defaultApiClient, resolveServiceUrl } f
 import { useAuthStore } from '@/store/auth.store';
 import { getCartSession, restoreGuestCartSession, clearGuestCartSession } from '@/stores/cart-store';
 
-async function revokePreviousSession(nextToken?: string | null) {
-  const previous = useAuthStore.getState().token;
+async function revokePreviousSession(previous: string | null | undefined, nextToken?: string | null, timeoutMs = 3000) {
   if (!previous || previous === nextToken) return;
   try {
     await createApiClient({ getToken: () => previous, onUnauthorized: () => {} })
-      .post('/api/v1/auth/logout', {}, { timeout: 10000 });
+      .post('/api/v1/auth/logout', {}, { timeout: timeoutMs });
   } catch { /* The previous session may already have expired. */ }
 }
 
 export async function loginUnified(login: string, password: string, redirect?: string | null, turnstileToken?: string | null) {
   const guestSession = getCartSession();
+  const previousToken = useAuthStore.getState().token;
   const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) }, guestSession);
-  await revokePreviousSession(res.token);
 
   if (res.redirect.app === 'backoffice') {
+    await revokePreviousSession(previousToken, res.token, 1500);
     // Clear local state after revoking previous active session when switching to backoffice.
     useAuthStore.getState().clear();
     // Pass single-use handoff code in URL fragment to prevent exposure in HTTP logs or Referers.
@@ -24,6 +24,8 @@ export async function loginUnified(login: string, password: string, redirect?: s
     window.location.assign(url);
     return null;
   }
+
+  void revokePreviousSession(previousToken, res.token, 3000);
 
   useAuthStore.getState().setSession({
     token: res.token!, actorType: res.actor.type as 'customer' | 'supplier',
@@ -78,7 +80,8 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     } },
   );
   const home = wholesale ? '/wholesale/application-status' : '/shop';
-  await revokePreviousSession(response.data.token);
+  const previousToken = useAuthStore.getState().token;
+  void revokePreviousSession(previousToken, response.data.token, 3000);
   useAuthStore.getState().setSession({
     token: response.data.token, actorType: 'customer',
     destination: wholesale ? 'wholesale_pending' : 'retail', home, user: response.data.data,

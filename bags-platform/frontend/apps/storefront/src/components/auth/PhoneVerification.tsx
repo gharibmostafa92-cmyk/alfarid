@@ -14,8 +14,8 @@ function normalizeCode(value: string) {
 
 function normalizePhone(value: string) {
   const compact = value.trim().replace(/[\s().-]/g, '');
-  if (/^\+?20(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
-  if (/^0020(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
+  if (/^\+?200?(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
+  if (/^00200?(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
   return compact;
 }
 

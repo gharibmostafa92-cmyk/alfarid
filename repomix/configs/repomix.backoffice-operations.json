@@ -45,7 +45,17 @@
                     "bags-platform/backend/app/Rules/RejectExecutableSignature.php",
                     "bags-platform/frontend/packages/ui/src/wholesale-portal/auth-screens.jsx",
                     "bags-platform/backend/app/Http/Middleware/EnsureStaffAuthenticated.php",
-                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/http.ts"
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/http.ts",
+                    "bags-platform/backend/app/Actions/Staff/UpdateStaffUser.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Auth/UserController.php",
+                    "bags-platform/backend/app/Http/Requests/Admin/Auth/UpdateUserRequest.php",
+                    "bags-platform/backend/app/Rules/TurnstileToken.php",
+                    "bags-platform/backend/app/Services/Auth/AuthenticationAlerts.php",
+                    "bags-platform/backend/app/Services/Auth/StaffHandoffService.php",
+                    "bags-platform/backend/app/Services/Auth/StaffTokenService.php",
+                    "bags-platform/backend/app/Http/Middleware/AuditStaffAdministration.php",
+                    "bags-platform/backend/app/Rules/MaxImagePixels.php",
+                    "bags-platform/backend/app/Rules/UniqueCustomerEmail.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

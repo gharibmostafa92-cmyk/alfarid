@@ -23,6 +23,7 @@ use App\Services\Shared\SettingService;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -35,7 +36,10 @@ use Illuminate\Support\Facades\DB;
  */
 class SupplierFinanceService
 {
-    public function __construct(protected SettingService $settings) {}
+    public function __construct(
+        protected SettingService $settings,
+        protected BranchAccess $branchAccess,
+    ) {}
 
     /**
      * Create a draft supplier invoice with optional PDF attachment.
@@ -44,15 +48,15 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function createInvoice(array $data, ?UploadedFile $attachment = null): SupplierInvoice
+    public function createInvoice(array $data, ?UploadedFile $attachment = null, ?User $actor = null): SupplierInvoice
     {
-        $invoice = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($data, $attachment): SupplierInvoice {
+        $invoice = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($data, $attachment, $actor): SupplierInvoice {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail((int) $data['supplier_id']);
             if (! $supplier->is_active) {
                 throw new BusinessException('المورد غير نشط.');
             }
             $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no']);
-            $poId = $this->assertOrderBelongsToSupplier($data['purchase_order_id'] ?? null, $supplier);
+            $poId = $this->assertOrderBelongsToSupplier($data['purchase_order_id'] ?? null, $supplier, $actor);
             $subtotal = BigDecimal::of((string) $data['subtotal'])->toScale(2, RoundingMode::HalfUp);
             $tax = BigDecimal::of((string) ($data['tax_amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
             $total = $subtotal->plus($tax)->toScale(2, RoundingMode::HalfUp);
@@ -95,18 +99,23 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function updateInvoice(SupplierInvoice $invoice, array $data, ?UploadedFile $attachment = null): SupplierInvoice
+    public function updateInvoice(SupplierInvoice $invoice, array $data, ?UploadedFile $attachment = null, ?User $actor = null): SupplierInvoice
     {
-        $invoice = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($invoice, $data, $attachment): SupplierInvoice {
+        $invoice = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($invoice, $data, $attachment, $actor): SupplierInvoice {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
             $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
+            $this->assertInvoiceBranchAccess($actor, $invoice);
+            if (! $supplier->is_active) {
+                throw new BusinessException('لا يمكن تعديل فاتورة لمورد غير نشط.');
+            }
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
-                throw new BusinessException('لا يمكن تعديل فاتورة مورد إلا وهي مسودة.');
+                throw new BusinessException('لا يمكن تعديل فاتورة إلا وهي مسودة.');
             }
             if (array_key_exists('purchase_order_id', $data)) {
                 $data['purchase_order_id'] = $this->assertOrderBelongsToSupplier(
                     $data['purchase_order_id'],
                     $invoice->supplier()->firstOrFail(),
+                    $actor,
                 );
             }
             $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no'] ?? $invoice->supplier_invoice_no, $invoice->id);
@@ -153,13 +162,17 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function postInvoice(SupplierInvoice $invoice): SupplierInvoice
+    public function postInvoice(SupplierInvoice $invoice, ?User $actor = null): SupplierInvoice
     {
-        return DB::transaction(function () use ($invoice): SupplierInvoice {
+        return DB::transaction(function () use ($invoice, $actor): SupplierInvoice {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
             $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
+            $this->assertInvoiceBranchAccess($actor, $invoice);
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
                 throw new BusinessException('لا يمكن اعتماد فاتورة إلا وهي مسودة.');
+            }
+            if (! $supplier->is_active) {
+                throw new BusinessException('لا يمكن اعتماد فاتورة لمورد غير نشط.');
             }
             if (BigDecimal::of((string) $invoice->total_amount)->compareTo('0') <= 0) {
                 throw new BusinessException('إجمالي الفاتورة يجب أن يكون أكبر من صفر.');
@@ -180,11 +193,12 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function cancelInvoice(SupplierInvoice $invoice): SupplierInvoice
+    public function cancelInvoice(SupplierInvoice $invoice, ?User $actor = null): SupplierInvoice
     {
-        return DB::transaction(function () use ($invoice): SupplierInvoice {
+        return DB::transaction(function () use ($invoice, $actor): SupplierInvoice {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
             $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
+            $this->assertInvoiceBranchAccess($actor, $invoice);
             if ($invoice->status === SupplierInvoiceStatus::Draft) {
                 $invoice->update(['status' => SupplierInvoiceStatus::Cancelled]);
 
@@ -207,11 +221,12 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function deleteInvoice(SupplierInvoice $invoice): void
+    public function deleteInvoice(SupplierInvoice $invoice, ?User $actor = null): void
     {
-        DB::transaction(function () use ($invoice): void {
+        DB::transaction(function () use ($invoice, $actor): void {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
             $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
+            $this->assertInvoiceBranchAccess($actor, $invoice);
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
                 throw new BusinessException('يمكن حذف الفواتير المسودة فقط؛ يحتفظ بالسجلات الأخرى للتدقيق.');
             }
@@ -246,6 +261,9 @@ class SupplierFinanceService
     {
         return DB::transaction(function () use ($data, $creator, $idempotencyKey): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail((int) $data['supplier_id']);
+            if (! $supplier->is_active) {
+                throw new BusinessException('لا يمكن تسجيل دفعة لمورد غير نشط.');
+            }
             if (empty($data['treasury_id'])) {
                 throw new BusinessException('يجب تحديد خزينة لصرف دفعة المورد.');
             }
@@ -256,7 +274,7 @@ class SupplierFinanceService
                 throw new BusinessException('اختر خزينة نقدية للدفع النقدي أو حسابًا بنكيًا للتحويل والشيك.');
             }
             $amount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
-            if ($amount->compareTo('0') <= 0 || $amount->compareTo('19999999999.98') > 0) {
+            if ($amount->compareTo('0') <= 0 || $amount->compareTo('999999999999999999.99') > 0) {
                 throw new BusinessException('مبلغ الدفعة يجب أن يكون أكبر من صفر.');
             }
 
@@ -268,6 +286,7 @@ class SupplierFinanceService
                 if ($invoice === null) {
                     throw new BusinessException('الفاتورة المرتبطة غير موجودة لهذا المورد.');
                 }
+                $this->assertInvoiceBranchAccess($creator, $invoice);
                 if (! in_array($invoice->status, [SupplierInvoiceStatus::Posted, SupplierInvoiceStatus::PartiallyPaid], true)) {
                     throw new BusinessException('لا يمكن سداد فاتورة إلا وهي معتمدة أو مسددة جزئيًا.');
                 }
@@ -275,24 +294,26 @@ class SupplierFinanceService
                 if ($amount->compareTo($remaining) > 0) {
                     throw new BusinessException("مبلغ الدفعة ({$amount}) أكبر من المتبقي على الفاتورة ({$remaining}).");
                 }
-            } elseif (! $supplier->is_active) {
-                throw new BusinessException('لا يمكن تسجيل دفعة غير مرتبطة بفاتورة لمورد غير نشط.');
             }
 
             $reference = $this->paymentReference($supplier->id, $data['payment_method'], $data['reference_no'] ?? null);
-            $payment = SupplierPayment::create([
-                'payment_number' => $this->settings->generateNextNumber('supplier_payment'),
-                'idempotency_key' => $idempotencyKey,
-                'supplier_id' => $supplier->id,
-                'treasury_id' => $treasury->id,
-                'supplier_invoice_id' => $invoice?->id,
-                'amount' => (string) $amount,
-                'payment_method' => $data['payment_method'],
-                'reference_no' => $reference,
-                'payment_date' => $data['payment_date'],
-                'notes' => $data['notes'] ?? null,
-                'created_by' => $creator->id,
-            ]);
+            try {
+                $payment = SupplierPayment::create([
+                    'payment_number' => $this->settings->generateNextNumber('supplier_payment'),
+                    'idempotency_key' => $idempotencyKey,
+                    'supplier_id' => $supplier->id,
+                    'treasury_id' => $treasury->id,
+                    'supplier_invoice_id' => $invoice?->id,
+                    'amount' => (string) $amount,
+                    'payment_method' => $data['payment_method'],
+                    'reference_no' => $reference,
+                    'payment_date' => $data['payment_date'],
+                    'notes' => $data['notes'] ?? null,
+                    'created_by' => $creator->id,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('رقم مرجع الدفعة مستخدم بالفعل.', [], 409);
+            }
 
             app(TreasuryService::class)->record([
                 'treasury_id' => $treasury->id,
@@ -320,21 +341,26 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function updatePayment(SupplierPayment $payment, array $data): SupplierPayment
+    public function updatePayment(SupplierPayment $payment, array $data, ?User $actor = null): SupplierPayment
     {
-        return DB::transaction(function () use ($payment, $data): SupplierPayment {
+        return DB::transaction(function () use ($payment, $data, $actor): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
             $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
+            $this->assertPaymentBranchAccess($actor, $payment);
             if ($payment->voided_at !== null) {
                 throw new BusinessException('لا يمكن تعديل دفعة ملغاة.');
             }
             $method = $data['payment_method'] ?? $payment->payment_method->value;
-            if ($payment->treasury_id !== null && $method !== $payment->payment_method->value) {
-                throw new BusinessException('وسيلة الدفعة المرتبطة بالخزينة لا تتغير؛ ألغِ الدفعة وسجّلها من جديد.');
+            if ($method !== $payment->payment_method->value) {
+                throw new BusinessException('وسيلة الدفع لا تتغير بعد التسجيل؛ ألغِ الدفعة وسجّلها من جديد.');
             }
             $reference = array_key_exists('reference_no', $data) ? $data['reference_no'] : $payment->reference_no;
             $data['reference_no'] = $this->paymentReference($supplier->id, $method, $reference, $payment->id);
-            $payment->update(array_intersect_key($data, array_flip(['payment_method', 'reference_no', 'notes'])));
+            try {
+                $payment->update(array_intersect_key($data, array_flip(['payment_method', 'reference_no', 'notes'])));
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('رقم مرجع الدفعة مستخدم بالفعل.', [], 409);
+            }
 
             return $payment->fresh();
         });
@@ -381,6 +407,7 @@ class SupplierFinanceService
             if ($payment->voided_at !== null) {
                 throw new BusinessException('هذه الدفعة ملغاة سابقًا.');
             }
+            $this->assertPaymentBranchAccess($actor, $payment);
             if ($payment->treasury_id !== null) {
                 if ($actor === null) {
                     throw new BusinessException('يجب تحديد الموظف الذي يلغي الدفعة.');
@@ -421,11 +448,12 @@ class SupplierFinanceService
      *
      * @throws BusinessException
      */
-    public function allocatePayment(SupplierPayment $payment, int $invoiceId): SupplierPayment
+    public function allocatePayment(SupplierPayment $payment, int $invoiceId, ?User $actor = null): SupplierPayment
     {
-        return DB::transaction(function () use ($payment, $invoiceId): SupplierPayment {
+        return DB::transaction(function () use ($payment, $invoiceId, $actor): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
             $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
+            $this->assertPaymentBranchAccess($actor, $payment);
             if ($payment->voided_at !== null) {
                 throw new BusinessException('لا يمكن تخصيص دفعة ملغاة.');
             }
@@ -438,6 +466,7 @@ class SupplierFinanceService
             if ($invoice === null) {
                 throw new BusinessException('الفاتورة المرتبطة غير موجودة لهذا المورد.');
             }
+            $this->assertInvoiceBranchAccess($actor, $invoice);
             if (! in_array($invoice->status, [SupplierInvoiceStatus::Posted, SupplierInvoiceStatus::PartiallyPaid], true)) {
                 throw new BusinessException('لا يمكن تخصيص دفعة إلا لفاتورة معتمدة أو مسددة جزئيًا.');
             }
@@ -499,9 +528,11 @@ class SupplierFinanceService
         }
     }
 
-    private function assertOrderBelongsToSupplier(mixed $poId, Supplier $supplier): ?int
+    private function assertOrderBelongsToSupplier(mixed $poId, Supplier $supplier, ?User $actor = null): ?int
     {
         if ($poId === null || $poId === '') {
+            $this->assertOrderBranchAccess($actor, null);
+
             return null;
         }
         // Serialize invoice checks with order edits, cancellation and closeShort.
@@ -516,7 +547,58 @@ class SupplierFinanceService
             throw new BusinessException('لا يمكن ربط فاتورة بأمر شراء لم يُرسل بعد.');
         }
 
+        $this->assertOrderBranchAccess($actor, $po);
+
         return $po->id;
+    }
+
+    private function resolveActor(?User $actor): User
+    {
+        $actor ??= auth()->user();
+        if (! $actor instanceof User) {
+            throw new AuthorizationException('يلزم تحديد موظف مخول لتنفيذ عمليات الموردين.');
+        }
+
+        return $actor;
+    }
+
+    private function assertOrderBranchAccess(?User $actor, ?PurchaseOrder $po): void
+    {
+        $actor = $this->resolveActor($actor);
+        if ($po === null) {
+            $this->branchAccess->assertCentralAccess($actor);
+
+            return;
+        }
+        $this->branchAccess->assertBranch($actor->id, (int) $po->branch_id);
+    }
+
+    private function assertInvoiceBranchAccess(?User $actor, SupplierInvoice $invoice): void
+    {
+        $actor = $this->resolveActor($actor);
+        $po = $invoice->purchase_order_id === null
+            ? null
+            : PurchaseOrder::query()->find($invoice->purchase_order_id);
+        $this->assertOrderBranchAccess($actor, $po);
+    }
+
+    private function assertPaymentBranchAccess(?User $actor, SupplierPayment $payment): void
+    {
+        $actor = $this->resolveActor($actor);
+        if ($payment->treasury_id === null) {
+            $this->branchAccess->assertCentralAccess($actor);
+        } else {
+            $this->branchAccess->assertTreasury(
+                $actor->id,
+                Treasury::query()->findOrFail($payment->treasury_id),
+            );
+        }
+        if ($payment->supplier_invoice_id !== null) {
+            $invoice = SupplierInvoice::query()->find($payment->supplier_invoice_id);
+            if ($invoice !== null) {
+                $this->assertInvoiceBranchAccess($actor, $invoice);
+            }
+        }
     }
 
     private function assertInvoiceDoesNotExceedOrder(?int $poId, string $thisTotal, ?int $exceptInvoiceId = null): void
@@ -538,15 +620,19 @@ class SupplierFinanceService
         }
     }
 
-    /**
-     * Ordered grand total until the order is closed; after completion the ceiling is the received value.
-     */
+    /** Invoice ceiling is based on received goods, or the stored total when fully received. */
     private function invoiceCeiling(PurchaseOrder $po): BigDecimal
     {
-        if ($po->status !== PurchaseOrderStatus::Completed) {
+        $po->loadMissing('items');
+        $fullyReceived = $po->items->isNotEmpty() && $po->items->every(
+            fn ($item): bool => BigDecimal::of((string) $item->received_qty)
+                ->compareTo((string) $item->ordered_qty) === 0,
+        );
+        // A fully received order must match the stored grand total exactly; recalculating
+        // from rounded line values can drift by a cent and reject a matching invoice.
+        if ($fullyReceived) {
             return BigDecimal::of((string) $po->grand_total)->toScale(2);
         }
-        $po->loadMissing('items');
         $receivedSubtotalExact = BigDecimal::zero();
         $taxBaseWeights = [];
         foreach ($po->items as $item) {
@@ -585,7 +671,11 @@ class SupplierFinanceService
         $ceiling = $this->invoiceCeiling($po);
         $invoiced = BigDecimal::of((string) SupplierInvoice::query()
             ->where('purchase_order_id', $po->id)
-            ->where('status', '!=', SupplierInvoiceStatus::Cancelled)
+            ->whereIn('status', [
+                SupplierInvoiceStatus::Posted->value,
+                SupplierInvoiceStatus::PartiallyPaid->value,
+                SupplierInvoiceStatus::Paid->value,
+            ])
             ->sum('total_amount'))->toScale(2);
 
         if ($invoiced->compareTo($ceiling) > 0) {
@@ -603,6 +693,18 @@ class SupplierFinanceService
      * @throws BusinessException
      */
     public function statement(Supplier $supplier, ?string $fromDate = null, ?string $toDate = null, bool $internal = false): array
+    {
+        return DB::transaction(function () use ($supplier, $fromDate, $toDate, $internal): array {
+            if (DB::getDriverName() === 'pgsql') {
+                DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+            }
+
+            return $this->buildStatementSnapshot($supplier, $fromDate, $toDate, $internal);
+        });
+    }
+
+    /** Read all ledger rows and the current balance from the same database snapshot. */
+    private function buildStatementSnapshot(Supplier $supplier, ?string $fromDate, ?string $toDate, bool $internal): array
     {
         $zone = (string) config('app.timezone');
         $to = $toDate !== null ? Carbon::parse($toDate, $zone)->toDateString() : Carbon::now($zone)->toDateString();

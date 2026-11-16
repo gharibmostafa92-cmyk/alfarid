@@ -96,10 +96,12 @@ final class QuoteAdvisor
 
         // Net available stock excludes both reserved units and damaged inventory.
         return StockLevel::query()
-            ->whereIn('product_variant_id', $variantIds)
-            ->groupBy('product_variant_id')
-            ->selectRaw('product_variant_id, COALESCE(SUM(COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)), 0) as available')
-            ->pluck('available', 'product_variant_id')
+            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+            ->where('branches.is_active', true)
+            ->whereIn('stock_levels.product_variant_id', $variantIds)
+            ->groupBy('stock_levels.product_variant_id')
+            ->selectRaw('stock_levels.product_variant_id, SUM(stock_levels.available) AS total_available')
+            ->pluck('total_available', 'product_variant_id')
             ->map(fn ($v) => round((float) $v, 2))
             ->all();
     }

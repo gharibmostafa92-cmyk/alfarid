@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Procurement;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * Create or update purchase order: explicit line items or linked approved purchase request.
@@ -31,7 +32,7 @@ class PurchaseOrderRequest extends FormRequest
             'expected_delivery_date' => ['nullable', 'date_format:Y-m-d'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             'items' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'array', 'min:1', 'max:50'],
-            'items.*.product_variant_id' => ['required', 'integer', 'distinct', 'exists:product_variants,id'],
+            'items.*.product_variant_id' => ['required', 'integer', 'distinct', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true)],
             'items.*.ordered_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
             'items.*.unit_cost' => ['required', 'numeric', 'min:0', 'max:99999999.9999'],
             'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],

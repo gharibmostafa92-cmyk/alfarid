@@ -125,7 +125,14 @@
                     "bags-platform/infrastructure/.env.example",
                     "docs/TASK4_INFRA_SECURITY_DEPLOYMENT_STATUS.md",
                     "bags-platform/backend/database/migrations/2026_11_15_000005_guard_credit_note_order_totals.php",
-                    "bags-platform/backend/database/migrations/2026_11_15_000006_expand_procurement_money_capacity.php"
+                    "bags-platform/backend/database/migrations/2026_11_15_000006_expand_procurement_money_capacity.php",
+                    "bags-platform/backend/database/factories/CustomerFactory.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000007_fix_supplier_payment_reference_uniqueness.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000008_harden_customer_audit_prune_and_token_index.php",
+                    "bags-platform/backend/database/migrations/2026_10_19_073459_harden_returns_and_procurement_operations.php",
+                    "bags-platform/backend/database/seeders/RolePermissionSeeder.php",
+                    "bags-platform/backend/database/migrations/2026_11_15_000009_add_procurement_search_trigram_indexes.php",
+                    "docs/TASK5_AUTH_SECURITY_DEPLOYMENT_STATUS.md"
                 ],
     "ignore":  {
                    "useGitignore":  true,

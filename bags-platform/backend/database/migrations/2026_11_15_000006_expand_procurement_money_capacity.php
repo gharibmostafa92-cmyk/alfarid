@@ -15,9 +15,11 @@ return new class extends Migration
 
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '3s'");
-            DB::statement('ALTER TABLE supplier_payments ALTER COLUMN amount TYPE numeric(14,2)');
+            DB::statement('ALTER TABLE supplier_payments ALTER COLUMN amount TYPE numeric(20,2)');
             DB::statement('ALTER TABLE purchase_order_items ALTER COLUMN line_total TYPE numeric(20,4)');
             DB::statement('ALTER TABLE purchase_orders ALTER COLUMN subtotal TYPE numeric(20,2), ALTER COLUMN discount_amount TYPE numeric(20,2), ALTER COLUMN tax_amount TYPE numeric(20,2), ALTER COLUMN grand_total TYPE numeric(20,2)');
+            DB::statement('ALTER TABLE suppliers ALTER COLUMN opening_balance TYPE numeric(20,2), ALTER COLUMN current_balance TYPE numeric(20,2)');
+            DB::statement('ALTER TABLE supplier_invoices ALTER COLUMN subtotal TYPE numeric(20,2), ALTER COLUMN tax_amount TYPE numeric(20,2), ALTER COLUMN total_amount TYPE numeric(20,2), ALTER COLUMN paid_amount TYPE numeric(20,2)');
         });
     }
 

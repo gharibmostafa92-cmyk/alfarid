@@ -333,11 +333,11 @@ class PhaseNineTenHardeningTest extends TestCase
 
     public function test_cancelled_or_posted_invoice_cannot_be_deleted_through_stale_draft(): void
     {
-        $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'DELETE-1', 'issue_date' => '2026-10-19', 'subtotal' => 100]);
+        $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'DELETE-1', 'issue_date' => '2026-10-19', 'subtotal' => 100], actor: $this->admin);
         $stale = clone $invoice;
-        app(SupplierFinanceService::class)->postInvoice($invoice);
+        app(SupplierFinanceService::class)->postInvoice($invoice, $this->admin);
         try {
-            app(SupplierFinanceService::class)->deleteInvoice($stale);
+            app(SupplierFinanceService::class)->deleteInvoice($stale, $this->admin);
             $this->fail('Posted invoice must not be deleted.');
         } catch (BusinessException $exception) {
             $this->assertSame(422, $exception->status);
@@ -521,8 +521,8 @@ class PhaseNineTenHardeningTest extends TestCase
     public function test_supplier_invoice_and_delivery_downloads_are_scoped_to_supplier(): void
     {
         $this->fakeUploads();
-        $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'ATTACH-1', 'issue_date' => '2026-10-19', 'subtotal' => 100], UploadedFile::fake()->create('invoice.pdf', 5, 'application/pdf'));
-        app(SupplierFinanceService::class)->postInvoice($invoice);
+        $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'ATTACH-1', 'issue_date' => '2026-10-19', 'subtotal' => 100], UploadedFile::fake()->create('invoice.pdf', 5, 'application/pdf'), $this->admin);
+        app(SupplierFinanceService::class)->postInvoice($invoice, $this->admin);
         $po = $this->po();
         $delivery = SupplierDelivery::factory()->create(['supplier_id' => $this->supplier->id, 'purchase_order_id' => $po->id, 'invoice_file_path' => $invoice->attachment_path]);
         $owner = SupplierUser::factory()->create(['supplier_id' => $this->supplier->id]);

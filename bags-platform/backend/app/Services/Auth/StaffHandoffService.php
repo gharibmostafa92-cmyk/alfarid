@@ -27,6 +27,7 @@ final class StaffHandoffService
             'user_id' => $user->id,
             'credentials' => self::credentialFingerprint($user),
             'browser' => $this->browserFingerprint($request),
+            'network' => NetworkIdentity::forRequest($request),
         ], now()->addSeconds(self::TTL_SECONDS));
 
         return $code;
@@ -37,7 +38,7 @@ final class StaffHandoffService
      */
     public static function credentialFingerprint(User $user): string
     {
-        return hash_hmac('sha256', json_encode([$user->id, $user->email, $user->password], JSON_THROW_ON_ERROR), (string) config('app.key'));
+        return hash_hmac('sha256', json_encode([$user->id, $user->email, $user->password], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE), (string) config('app.key'));
     }
 
     /**
@@ -53,13 +54,28 @@ final class StaffHandoffService
             $key = $this->key($code);
 
             return Cache::lock($key.':lock', 10)->block(5, function () use ($key, $request): ?array {
-                $payload = Cache::get($key);
-                if (! is_string($payload['browser'] ?? null)
-                    || ! hash_equals($payload['browser'], $this->browserFingerprint($request))) {
+                $payload = Cache::pull($key);
+                if (! is_array($payload)) {
                     return null;
                 }
 
-                return Cache::forget($key) ? $payload : null;
+                if (! is_string($payload['browser'] ?? null)
+                    || ! hash_equals($payload['browser'], $this->browserFingerprint($request))) {
+                    logger()->warning('staff.handoff.fingerprint_mismatch', [
+                        'user_id' => $payload['user_id'] ?? null,
+                        'ip' => $request->ip(),
+                    ]);
+
+                    return null;
+                }
+
+                if (isset($payload['network']) && $payload['network'] !== NetworkIdentity::forRequest($request)) {
+                    logger()->info('staff.handoff.network_changed', [
+                        'user_id' => $payload['user_id'] ?? null,
+                    ]);
+                }
+
+                return $payload;
             });
         } catch (LockTimeoutException $exception) {
             report($exception);
@@ -70,7 +86,7 @@ final class StaffHandoffService
 
     private function browserFingerprint(Request $request): string
     {
-        return hash_hmac('sha256', NetworkIdentity::forRequest($request)."\0".$request->userAgent(), (string) config('app.key'));
+        return hash_hmac('sha256', (string) $request->userAgent(), (string) config('app.key'));
     }
 
     private function key(string $code): string

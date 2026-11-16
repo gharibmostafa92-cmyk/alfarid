@@ -104,8 +104,8 @@ class Task3SupplierAuditTest extends TestCase
             'issue_date' => now()->toDateString(),
             'subtotal' => '9999999999.99',
             'tax_amount' => '1.00',
-        ]);
-        $finance->postInvoice($invoice);
+        ], actor: $this->admin);
+        $finance->postInvoice($invoice, $this->admin);
         $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(
             ['name' => 'Large pay', 'code' => 'SUP-LARGE', 'type' => 'main_safe', 'is_active' => true],
             $this->admin,
@@ -256,7 +256,7 @@ class Task3SupplierAuditTest extends TestCase
         ])->assertUnprocessable();
     }
 
-    public function test_weighted_average_cost_counts_damaged_owned_units(): void
+    public function test_weighted_average_cost_excludes_damaged_owned_units(): void
     {
         StockLevel::forceCreate([
             'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
@@ -274,7 +274,7 @@ class Task3SupplierAuditTest extends TestCase
             'damaged-wac',
         );
 
-        $this->assertSame('66.6667', $this->variant->fresh()->cost_price);
+        $this->assertSame('75.0000', $this->variant->fresh()->cost_price);
     }
 
     public function test_empty_purchase_order_update_is_rejected_instead_of_laundering_last_editor(): void

@@ -127,7 +127,10 @@ export function WholesalePortal({
 
   useEffect(() => {
     const interceptor = defaultApiClient.interceptors.response.use((r) => r, (e) => {
-      if (apiError(e).status === 403 && e.config?.url?.startsWith('/api/v1/wholesale/')) forbidden();
+      const err = apiError(e);
+      if (err.status === 403 && e.config?.url?.startsWith('/api/v1/wholesale/') && err.code === 'wholesale_not_approved') {
+        forbidden();
+      }
       return Promise.reject(e);
     });
     return () => defaultApiClient.interceptors.response.eject(interceptor);
@@ -149,7 +152,8 @@ export function WholesalePortal({
       const c = await cartEndpoints.get(null);
       setCartState(mapCart(c));
     } catch (e) {
-      if (apiError(e).status === 403) forbidden();
+      const err = apiError(e);
+      if (err.status === 403 && err.code === 'wholesale_not_approved') forbidden();
     }
   }, [forbidden, setCartState]);
 
@@ -159,10 +163,15 @@ export function WholesalePortal({
       if (lines.length > 0 && lines.every((l) => l.sku)) {
         const res = await wholesaleEndpoints.quickAddToCart(lines.map((l) => ({ sku: l.sku, qty: l.qty })));
         if (res?.cart) last = res.cart;
+        if (res?.skipped?.length > 0) {
+          toast(res?.added?.length > 0 ? 'تمت إضافة بعض الأصناف وتجاوز الأصناف غير المتوفرة' : 'لم تتم الإضافة؛ الكميات المطلوبة غير متوفرة حالياً');
+        } else {
+          toast('تمت الإضافة إلى سلة المشتريات بنجاح');
+        }
       } else {
         for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
+        toast('تمت الإضافة إلى سلة المشتريات بنجاح');
       }
-      toast('تمت الإضافة إلى سلة المشتريات بنجاح');
     } catch (e) { toast(apiError(e).message); }
     finally {
       if (last) setCartState(mapCart(last));
@@ -204,7 +213,7 @@ export function WholesalePortal({
     else toast('تم تسجيل الخروج');
   }, [onLogout, toast]);
 
-  const cartTotalQty = cart?.lines.reduce((s, l) => s + l.qty, 0) ?? 0;
+  const cartTotalQty = cart?.lines?.reduce((s, l) => s + (l?.qty ?? 0), 0) ?? 0;
 
   const contextValue = {
     go,
@@ -350,7 +359,7 @@ export function WholesalePortal({
               onClick={() => go('account')}
               title="الملف التجاري"
             >
-              {String(account.name || '').split(' ').map((s) => s[0]).slice(0, 2).join('')}
+              {String(account?.name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—'}
             </button>
           </div>
         </header>

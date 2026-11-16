@@ -18,6 +18,7 @@ final class UniqueCustomerEmail implements ValidationRule
             return;
         }
         $exists = DB::table('customers')->whereNull('deleted_at')
+            ->where(fn ($q) => $q->whereNotNull('email_verified_at')->orWhereIn('type', ['wholesale', 'distributor']))
             ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($value))])
             ->when($this->ignoreId, fn ($q) => $q->where('id', '!=', $this->ignoreId))
             ->exists();

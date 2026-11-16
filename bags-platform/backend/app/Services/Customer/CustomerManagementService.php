@@ -175,8 +175,13 @@ class CustomerManagementService
                     || (isset($data['email']) && $data['email'] !== $customer->email)
                     || (isset($data['phone']) && $data['phone'] !== $customer->phone)
                     || (array_key_exists('email', $data) && $data['email'] === null && $customer->email !== null);
+                $phoneChanged = (isset($data['phone']) && $data['phone'] !== $customer->phone)
+                    || (array_key_exists('whatsapp_phone', $data) && $data['whatsapp_phone'] !== $customer->whatsapp_phone);
                 if (isset($data['phone']) && $data['phone'] !== $customer->phone) {
                     $customer->forceFill(['phone_verified_at' => null]);
+                }
+                if ($phoneChanged) {
+                    DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
                 }
 
                 // Track previous and new values for financial attributes in the audit payload.
@@ -227,6 +232,7 @@ class CustomerManagementService
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             $customer->tokens()->delete();
             DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
+            DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
             CustomerAuditLog::record($customer, 'deleted', $actorId);
             $customer->delete();
         });
@@ -343,6 +349,7 @@ class CustomerManagementService
     {
         $customer->tokens()->delete();
         DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
+        DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
     }
 
     /**
@@ -362,7 +369,14 @@ class CustomerManagementService
             } catch (ValidationException) {
                 throw new BusinessException('لا يمكن الاستعادة: البريد '.$customer->email.' مستخدم الآن بحساب نشط آخر. غيّر بريد الحساب الآخر أولاً.');
             }
-            $customer->restore();
+            if ($customer->phone !== null && Customer::query()->whereNull('deleted_at')->where('phone', $customer->phone)->where('id', '!=', $customer->id)->exists()) {
+                throw new BusinessException('لا يمكن الاستعادة: رقم الهاتف '.$customer->phone.' مستخدم الآن بحساب نشط آخر.');
+            }
+            try {
+                $customer->restore();
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('لا يمكن الاستعادة: بيانات الحساب تتعارض مع حساب نشط آخر.');
+            }
             CustomerAuditLog::record($customer, 'restored', $actorId, $this->viaMeta($via));
 
             return $customer->load('customerGroup');

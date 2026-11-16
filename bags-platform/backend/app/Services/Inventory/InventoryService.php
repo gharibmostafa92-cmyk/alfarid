@@ -557,18 +557,18 @@ class InventoryService
         string|float|int $incomingQty,
         string|float|int $incomingUnitCost
     ): string {
-        $safeCurrent = bccomp((string) $currentStock, '0', 4) < 0 ? '0' : (string) $currentStock;
-        $qtyStr = (string) $incomingQty;
-        $totalCost = bcadd(
-            bcmul($safeCurrent, (string) $currentCost, 8),
-            bcmul($qtyStr, (string) $incomingUnitCost, 8),
-            8
-        );
-        $denominator = bcadd($safeCurrent, $qtyStr, 4);
-        if (bccomp($denominator, '0', 4) === 0) {
-            return bcadd((string) $currentCost, '0', 4);
+        $safeCurrent = BigDecimal::of((string) $currentStock);
+        if ($safeCurrent->isNegative()) {
+            $safeCurrent = BigDecimal::zero();
+        }
+        $incoming = BigDecimal::of((string) $incomingQty);
+        $totalCost = $safeCurrent->multipliedBy((string) $currentCost)
+            ->plus($incoming->multipliedBy((string) $incomingUnitCost));
+        $denominator = $safeCurrent->plus($incoming);
+        if ($denominator->isZero()) {
+            return BigDecimal::of((string) $currentCost)->toScale(4, RoundingMode::HalfUp)->__toString();
         }
 
-        return bcadd(bcdiv($totalCost, $denominator, 5), '0.00005', 4);
+        return $totalCost->dividedBy($denominator, 4, RoundingMode::HalfUp)->__toString();
     }
 }

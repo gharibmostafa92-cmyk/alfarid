@@ -53,18 +53,61 @@ const mapSupplier = (x: SupplierApi) => ({ demo: !!(x as any).__demo, id: x.id, 
 const mapPR = (x: PRApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.request_number, branch: x.branch?.name ?? '', branchId: x.branch_id, status: x.status, by: x.requested_by ? `#${x.requested_by}` : '—', date: toDate(x.created_at), items: x.items?.length ?? 0, raw: x });
 const poStatus: Record<string, string> = { sent_to_supplier: 'sent', supplier_accepted: 'accepted', change_requested: 'revision', partially_received: 'partial' };
 const toPOStatus = (v: string) => Object.entries(poStatus).find(([, ui]) => ui === v)?.[0] ?? v;
-const mapPO = (x: POApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.po_number, sup: x.supplier_id, branch: x.branch?.name ?? '', branchId: x.branch_id, status: poStatus[x.status] ?? x.status, eta: x.expected_delivery_date, total: num(x.grand_total), raw: x });
-const mapInvoice = (x: InvoiceApi) => ({ demo: !!(x as any).__demo, id: x.id, sys: x.invoice_number, supNo: x.supplier_invoice_no ?? '', sup: x.supplier_id, po: x.purchase_order?.po_number ?? null, poId: x.purchase_order_id, issue: x.issue_date ?? '', due: x.due_date, subtotal: num(x.subtotal), tax: num(x.tax_amount), paid: num(x.paid_amount), remaining: num(x.remaining_amount), status: x.status === 'partially_paid' ? 'partial' : x.status, file: !!x.attachment_url, raw: x });
+const mapPO = (x: POApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.po_number, sup: x.supplier_id, supName: x.supplier?.name ?? '', branch: x.branch?.name ?? '', branchId: x.branch_id, status: poStatus[x.status] ?? x.status, eta: x.expected_delivery_date, total: num(x.grand_total), raw: x });
+const mapInvoice = (x: InvoiceApi) => ({ demo: !!(x as any).__demo, id: x.id, sys: x.invoice_number, supNo: x.supplier_invoice_no ?? '', sup: x.supplier_id, supName: x.supplier?.name ?? '', po: x.purchase_order?.po_number ?? null, poId: x.purchase_order_id, issue: x.issue_date ?? '', due: x.due_date, subtotal: num(x.subtotal), tax: num(x.tax_amount), paid: num(x.paid_amount), remaining: num(x.remaining_amount), status: x.status === 'partially_paid' ? 'partial' : x.status, file: !!x.attachment_url, raw: x });
 const paymentMethod = (m: string): 'cash' | 'bank_transfer' | 'check' => m === 'bank' ? 'bank_transfer' : m === 'cheque' ? 'check' : 'cash';
-const mapPayment = (x: SupplierPaymentApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.payment_number, sup: x.supplier_id, inv: x.invoice?.invoice_number ?? null, invId: x.supplier_invoice_id, amount: num(x.amount), method: x.payment_method === 'bank_transfer' ? 'bank' : x.payment_method === 'check' ? 'cheque' : 'cash', ref: x.reference_no, date: x.payment_date, notes: x.notes, void: x.voided_at ? { reason: x.void_reason ?? '', by: x.voided_by ? `#${x.voided_by}` : '—', at: x.voided_at } : null });
+const mapPayment = (x: SupplierPaymentApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.payment_number, sup: x.supplier_id, supName: x.supplier?.name ?? '', inv: x.invoice?.invoice_number ?? null, invId: x.supplier_invoice_id, amount: num(x.amount), method: x.payment_method === 'bank_transfer' ? 'bank' : x.payment_method === 'check' ? 'cheque' : 'cash', ref: x.reference_no, date: x.payment_date, notes: x.notes, void: x.voided_at ? { reason: x.void_reason ?? '', by: x.voided_by ? `#${x.voided_by}` : '—', at: x.voided_at } : null });
 const mockSuppliers = SUPPLIERS.map(s => ({ id: s.id, code: s.code, name: s.name, company_name: s.company, email: s.email, phone: s.phone, payment_terms_days: s.terms, opening_balance: '0', current_balance: String(s.balance), is_active: s.active, tax_number: null, commercial_register: null, address: null, users: [] } as SupplierApi)).map(row => Object.assign(row, { __demo: true }) as SupplierApi);
 const mockPRs = PRS.map(p => ({ id: p.id, request_number: p.no, branch_id: 0, branch: { id: 0, name: p.branch }, requested_by: null, status: p.status, notes: null, items: [], created_at: p.date } as PRApi)).map(row => Object.assign(row, { __demo: true }) as PRApi);
 const mockPOs = POS.map(p => ({ id: p.id, po_number: p.no, supplier_id: p.sup, branch_id: 0, branch: { id: 0, name: p.branch }, purchase_request_id: null, status: toPOStatus(p.status), expected_delivery_date: p.eta, grand_total: String(p.total), approved_by: null, supplier_change_notes: null, subtotal: String(p.total), tax_amount: '0', discount_amount: '0', items: [], deliveries: [] } as POApi)).map(row => Object.assign(row, { __demo: true }) as POApi);
 const mockInvoices = INVOICES.map(i => ({ id: i.id, invoice_number: i.sys, supplier_invoice_no: i.supNo, supplier_id: i.sup, purchase_order_id: null, issue_date: i.issue, due_date: i.due, subtotal: String(i.subtotal), tax_amount: String(i.tax), total_amount: String(i.subtotal + i.tax), paid_amount: String(i.paid), remaining_amount: String(i.subtotal + i.tax - i.paid), status: i.status === 'partial' ? 'partially_paid' : i.status, attachment_url: null } as InvoiceApi)).map(row => Object.assign(row, { __demo: true }) as InvoiceApi);
 const mockPayments = SPAYMENTS.map(p => ({ id: p.id, payment_number: p.no, supplier_id: p.sup, supplier_invoice_id: null, invoice: p.inv ? { id: 0, invoice_number: p.inv, supplier_invoice_no: null } : null, amount: String(p.amount), payment_method: paymentMethod(p.method), reference_no: p.ref, payment_date: p.date, notes: p.notes, voided_at: p.void?.at ?? null, void_reason: p.void?.reason ?? null, voided_by: null } as SupplierPaymentApi)).map(row => Object.assign(row, { __demo: true }) as SupplierPaymentApi);
 const pageOf = <T,>(data: T[]) => ({ data, meta: { current_page: 1, last_page: 1, per_page: 20, total: data.length, from: data.length ? 1 : null, to: data.length || null } });
-function useSupplierLookup() {
-  return useRemote((signal) => allPages((page) => suppliersApi.list({ page }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapSupplier)), [], { mock: () => mockSuppliers.map(mapSupplier) });
+function SupplierPicker({
+  value,
+  onChange,
+  disabled,
+  activeOnly = true,
+  placeholder = 'اختر المورد',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  activeOnly?: boolean;
+  placeholder?: string;
+}) {
+  const [q, setQ] = useState('');
+  const dq = useDebounced(q);
+  const results = useRemote(
+    signal => suppliersApi.list({ page: 1, search: dq || undefined, is_active: activeOnly || undefined }, signal)
+      .then(r => r.data.map(mapSupplier)),
+    [dq, activeOnly],
+    {
+      mock: () => mockSuppliers
+        .filter(s => (!activeOnly || s.is_active) && (!dq || `${s.name} ${s.code} ${s.company_name ?? ''}`.includes(dq)))
+        .slice(0, 20)
+        .map(mapSupplier),
+    },
+  );
+  const selected = useRemote(
+    signal => value ? suppliersApi.show(Number(value), signal).then(mapSupplier) : Promise.resolve(null),
+    [value],
+    { enabled: !!value, mock: () => mockSuppliers.find(s => s.id === Number(value)) ? mapSupplier(mockSuppliers.find(s => s.id === Number(value))!) : null },
+  );
+  const options = results.data ?? [];
+  const selectedOption = selected.data && !options.some(s => s.id === selected.data!.id) ? selected.data : null;
+  return (
+    <div className="space-y-2">
+      <SearchPill value={q} onChange={setQ} placeholder="ابحث باسم المورد أو الكود" w="w-full" />
+      <select className="inp" disabled={disabled} value={value} onChange={e => onChange(e.target.value)}>
+        <option value="">{placeholder}</option>
+        {selectedOption && <option value={selectedOption.id}>{selectedOption.company || selectedOption.name}</option>}
+        {options.map(s => (
+          <option key={s.id} value={s.id}>{s.company || s.name}</option>
+        ))}
+      </select>
+    </div>
+  );
 }
 function useVariants() {
   return useRemote(signal => commerceLookupsApi.variants(signal).then(rows => rows.map(v => ({ id: v.id, name: v.label, sku: '' }))), [], { mock: () => VARIANTS.map((v, id) => ({ id: id + 1, name: v.name, sku: v.sku })) });
@@ -161,6 +204,8 @@ export function ItemsEditor({
 
 /* ---------------- Suppliers list ---------------- */
 export function SuppliersList({ go }: { go: (r: { m: string; id?: any; sub?: any }) => void }) {
+  const canCreateSupplier = useCan('suppliers.create');
+  const canUpdateSupplier = useCan('suppliers.update');
   const toast = useToast();
   const [q, setQ] = useState('');
   const [form, setForm] = useState<SupplierRow | { id?: any } | null>(null);
@@ -169,9 +214,8 @@ export function SuppliersList({ go }: { go: (r: { m: string; id?: any; sub?: any
   useEffect(() => setPage(1), [dq]);
   const list = useRemote((signal) => suppliersApi.list({ page, search: dq || undefined }, signal), [page, dq], { mock: () => pageOf(mockSuppliers.filter(s => !dq || (s.name + s.code + s.company_name).includes(dq))) });
   const rows = (list.data?.data ?? []).map(mapSupplier);
-  const invoices = useRemote(signal => supplierInvoicesApi.list({}, signal), [], { mock: () => pageOf(mockInvoices) });
-  const orders = useRemote(signal => purchaseOrdersApi.list({}, signal), [], { mock: () => pageOf(mockPOs) });
   const totalDue = rows.reduce((a, s) => a + Math.max(0, s.balance), 0);
+  const inactiveOnPage = rows.filter((s) => !s.active).length;
 
   return (
     <div className="space-y-5">
@@ -179,7 +223,7 @@ export function SuppliersList({ go }: { go: (r: { m: string; id?: any; sub?: any
         title="الموردون"
         sub="بيانات الموردين وأرصدتهم وحسابات موظفيهم على بوابة الموردين."
         actions={
-          <button className="btn btn-dark" onClick={() => setForm({})}>
+          canCreateSupplier && <button className="btn btn-dark" onClick={() => setForm({})}>
             <Icon name="plus" size={14} />
             مورد جديد
           </button>
@@ -201,16 +245,16 @@ export function SuppliersList({ go }: { go: (r: { m: string; id?: any; sub?: any
           foot={<>من أصل <Num>{list.data?.meta.total ?? 0}</Num></>}
         />
         <KPI
-          label="فواتير غير مسددة"
+          label="إجمالي الموردين"
           icon="receipt"
-          value={invoices.data?.data.filter((i) => ['posted', 'partially_paid'].includes(i.status)).length ?? 0}
-          foot="في الصفحة المحمّلة"
+          value={<Num>{list.data?.meta.total ?? 0}</Num>}
+          foot="كل الموردين المسجّلين"
         />
         <KPI
-          label="أوامر شراء مفتوحة"
+          label="غير المفعّلين في الصفحة الحالية"
           icon="cart"
-          value={orders.data?.data.filter((p) => ['sent_to_supplier', 'supplier_accepted', 'partially_received', 'change_requested'].includes(p.status)).length ?? 0}
-          foot="في الصفحة المحمّلة"
+          value={<Num>{inactiveOnPage}</Num>}
+          foot="من الصفحة المحمّلة فقط"
         />
       </div>
       <Card stg={3}>
@@ -278,9 +322,9 @@ export function SuppliersList({ go }: { go: (r: { m: string; id?: any; sub?: any
               h: '',
               r: (s: SupplierRow) => (
                 <RowActions>
-                  <button className="icon-btn !w-7 !h-7" onClick={() => setForm(s)}>
+                  {canUpdateSupplier && <button className="icon-btn !w-7 !h-7" aria-label="تعديل المورد" onClick={() => setForm(s)}>
                     <Icon name="edit" size={13} />
-                  </button>
+                  </button>}
                   <button
                     className="icon-btn !w-7 !h-7"
                     title="كشف حساب"
@@ -385,22 +429,28 @@ export function SupplierForm({ row, onClose, onSaved, blocked }: { row: Supplier
 }
 
 export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id?: any; sub?: any }) => void }) {
+  const canUpdateSupplier = useCan('suppliers.update');
+  const canDeleteSupplier = useCan('suppliers.delete');
   const toast = useToast();
   const { busy, run } = useAction();
   const [tab, setTab] = useState<'info' | 'users' | 'pos' | 'invs' | 'pays' | 'statement'>('info');
+  const [posPage, setPosPage] = useState(1);
+  const [invPage, setInvPage] = useState(1);
+  const [payPage, setPayPage] = useState(1);
   const sup = useRemote(signal => suppliersApi.show(id, signal).then(mapSupplier), [id], { mock: () => mapSupplier(mockSuppliers.find(s => s.id === id) ?? mockSuppliers[0]) });
   const usersRemote = useRemote(signal => suppliersApi.users(id, signal), [id], { mock: () => [] });
-  const posRemote = useRemote(signal => allPages(page => purchaseOrdersApi.list({ page, supplier_id: id }, signal), undefined, { maxPages: 50 }).then(p => p.map(mapPO)), [id], { enabled: tab === 'pos', mock: () => mockPOs.filter(p => p.supplier_id === id).map(mapPO) });
-  const invRemote = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: id }, signal), undefined, { maxPages: 50 }).then(p => p.map(mapInvoice)), [id], { enabled: tab === 'invs', mock: () => mockInvoices.filter(p => p.supplier_id === id).map(mapInvoice) });
-  const payRemote = useRemote(signal => allPages(page => supplierPaymentsApi.list({ page, supplier_id: id }, signal), undefined, { maxPages: 50 }).then(p => p.map(mapPayment)), [id], { enabled: tab === 'pays', mock: () => mockPayments.filter(p => p.supplier_id === id).map(mapPayment) });
+  const posRemote = useRemote(signal => purchaseOrdersApi.list({ page: posPage, supplier_id: id }, signal).then(r => ({ ...r, data: r.data.map(mapPO) })), [id, posPage], { enabled: tab === 'pos', mock: () => pageOf(mockPOs.filter(p => p.supplier_id === id).map(mapPO)) });
+  const invRemote = useRemote(signal => supplierInvoicesApi.list({ page: invPage, supplier_id: id }, signal).then(r => ({ ...r, data: r.data.map(mapInvoice) })), [id, invPage], { enabled: tab === 'invs', mock: () => pageOf(mockInvoices.filter(p => p.supplier_id === id).map(mapInvoice)) });
+  const payRemote = useRemote(signal => supplierPaymentsApi.list({ page: payPage, supplier_id: id }, signal).then(r => ({ ...r, data: r.data.map(mapPayment) })), [id, payPage], { enabled: tab === 'pays', mock: () => pageOf(mockPayments.filter(p => p.supplier_id === id).map(mapPayment)) });
   const statementRemote = useRemote(signal => suppliersApi.statement(id, undefined, signal), [id], { enabled: tab === 'statement', mock: () => ({ supplier: { id, code: '', name: '', current_balance: '0.00' }, from_date: '', to_date: '', opening_balance: '0.00', entries: [], total_credit: '0.00', total_debit: '0.00', closing_balance: '0.00' }) });
+  useEffect(() => { setPosPage(1); setInvPage(1); setPayPage(1); }, [id]);
   const [uform, setUform] = useState<any>(null);
   const [udel, setUdel] = useState<any>(null);
   const [edit, setEdit] = useState(false);
   const [deleteSupplier, setDeleteSupplier] = useState(false);
   const [userErrors, setUserErrors] = useState<Record<string, string>>({});
   const users = (usersRemote.data ?? []).map(u => ({ ...u, active: u.is_active }));
-  const pos = posRemote.data ?? [], invs = invRemote.data ?? [], pays = payRemote.data ?? [];
+  const pos = posRemote.data?.data ?? [], invs = invRemote.data?.data ?? [], pays = payRemote.data?.data ?? [];
   const saveUser = async () => {
     if (sup.usingMock || usersRemote.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     const body = { name: uform.name ?? '', email: uform.email ?? '', phone: uform.phone || null, is_active: uform.active ?? true, ...(uform.password ? { password: uform.password } : {}) };
@@ -425,10 +475,10 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
           </span>
         }
         actions={
-          <><button className="btn btn-soft" onClick={() => setEdit(true)}>
+          <>{canUpdateSupplier && <button className="btn btn-soft" onClick={() => setEdit(true)}>
             <Icon name="edit" size={14} />
             تعديل
-          </button><button className="btn btn-danger" disabled={busy || sup.usingMock} onClick={() => setDeleteSupplier(true)}><Icon name="trash" size={13} />حذف</button></>
+          </button>}{canDeleteSupplier && <button className="btn btn-danger" disabled={busy || sup.usingMock} onClick={() => setDeleteSupplier(true)}><Icon name="trash" size={13} />حذف</button>}</>
         }
       />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -445,15 +495,15 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
           <div className="grid grid-cols-3 gap-2 mt-3">
             <div className="v-sub p-3 text-center">
               <div className="text-[10.5px] tx3">أوامر</div>
-              <Num className="font-display text-[18px] font-bold">{posRemote.data ? pos.length : '—'}</Num>
+              <Num className="font-display text-[18px] font-bold">{posRemote.data ? posRemote.data.meta.total : '—'}</Num>
             </div>
             <div className="v-sub p-3 text-center">
               <div className="text-[10.5px] tx3">فواتير</div>
-              <Num className="font-display text-[18px] font-bold">{invRemote.data ? invs.length : '—'}</Num>
+              <Num className="font-display text-[18px] font-bold">{invRemote.data ? invRemote.data.meta.total : '—'}</Num>
             </div>
             <div className="v-sub p-3 text-center">
               <div className="text-[10.5px] tx3">مدفوعات</div>
-              <Num className="font-display text-[18px] font-bold">{payRemote.data ? pays.length : '—'}</Num>
+              <Num className="font-display text-[18px] font-bold">{payRemote.data ? payRemote.data.meta.total : '—'}</Num>
             </div>
           </div>
         </div>
@@ -464,9 +514,9 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
             tabs={[
               { value: 'info', label: 'البيانات الأساسية' },
               { value: 'users', label: 'حسابات الموظفين', count: users.length },
-              { value: 'pos', label: 'أوامر الشراء', count: posRemote.data ? pos.length : undefined },
-              { value: 'invs', label: 'الفواتير', count: invRemote.data ? invs.length : undefined },
-              { value: 'pays', label: 'المدفوعات', count: payRemote.data ? pays.length : undefined },
+              { value: 'pos', label: 'أوامر الشراء', count: posRemote.data?.meta.total },
+              { value: 'invs', label: 'الفواتير', count: invRemote.data?.meta.total },
+              { value: 'pays', label: 'المدفوعات', count: payRemote.data?.meta.total },
               { value: 'statement', label: 'كشف الحساب' },
             ]}
           />
@@ -525,12 +575,10 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
               <CardHead
                 title="حسابات موظفي المورد"
                 sub="للدخول إلى بوابة الموردين"
-                right={
-                  <button className="btn btn-dark btn-sm" onClick={() => { setUserErrors({}); setUform({}); }}>
+                right={canUpdateSupplier && <button className="btn btn-dark btn-sm" onClick={() => { setUserErrors({}); setUform({}); }}>
                     <Icon name="plus" size={13} />
                     حساب جديد
-                  </button>
-                }
+                  </button>}
               />
               <DataTable
                 rows={users}
@@ -554,12 +602,12 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
                     h: '',
                     r: (u: any) => (
                       <RowActions>
-                        <button className="icon-btn !w-7 !h-7" onClick={() => { setUserErrors({}); setUform(u); }}>
+                        {canUpdateSupplier && <button className="icon-btn !w-7 !h-7" aria-label="تعديل حساب المورد" onClick={() => { setUserErrors({}); setUform(u); }}>
                           <Icon name="edit" size={13} />
-                        </button>
-                        <button className="icon-btn !w-7 !h-7" onClick={() => setUdel(u)}>
+                        </button>}
+                        {canDeleteSupplier && <button className="icon-btn !w-7 !h-7" aria-label="حذف حساب المورد" onClick={() => setUdel(u)}>
                           <Icon name="trash" size={13} />
-                        </button>
+                        </button>}
                       </RowActions>
                     ),
                   },
@@ -581,6 +629,7 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
                 ]}
                 empty="لا توجد أوامر شراء لهذا المورد"
               />
+              <Pager total={posRemote.data?.meta.total ?? 0} per={20} page={posPage} onPage={setPosPage} />
             </Card>
           )}
           {tab === 'invs' && (
@@ -600,6 +649,7 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
                 ]}
                 empty="لا توجد فواتير"
               />
+              <Pager total={invRemote.data?.meta.total ?? 0} per={20} page={invPage} onPage={setInvPage} />
             </Card>
           )}
           {tab === 'pays' && (
@@ -615,6 +665,7 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
                 ]}
                 empty="لا توجد مدفوعات"
               />
+              <Pager total={payRemote.data?.meta.total ?? 0} per={20} page={payPage} onPage={setPayPage} />
             </Card>
           )}
         </div>
@@ -715,6 +766,9 @@ export function PurchasingPage({ sub = 'pr' }: { sub?: string }) {
 }
 
 export function PRModule() {
+  const canCreate = useCan('purchases.create');
+  const canUpdate = useCan('purchases.update');
+  const canDelete = useCan('purchases.delete');
   const canApprove = useCan('purchase_requests.approve');
   const toast = useToast();
   const { busy, run } = useAction();
@@ -735,6 +789,8 @@ export function PRModule() {
   const setItem = (index: number, key: string, value: string) => setForm({ ...form, items: form.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) });
   const doAction = async (id: number, fn: (id: number) => Promise<unknown>, msg: string) => {
     if ((fn === purchaseRequestsApi.approve || fn === purchaseRequestsApi.reject) && !canApprove) return toast('ليست لديك صلاحية اعتماد طلبات الشراء', 'red');
+    if (fn === purchaseRequestsApi.submit && !canUpdate) return toast('ليست لديك صلاحية تعديل طلبات الشراء', 'red');
+    if (fn === purchaseRequestsApi.remove && !canDelete) return toast('ليست لديك صلاحية حذف طلبات الشراء', 'red');
     if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     const r = await run(() => fn(id), { toast, success: msg });
     if (r) { list.reload(); setView(null); }
@@ -762,10 +818,10 @@ export function PRModule() {
             />
             <FSelect value={br} onChange={setBr} placeholder="كل الفروع" options={(branches.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
           </div>
-          <button className="btn btn-dark btn-sm" onClick={() => openForm()}>
+          {canCreate && <button className="btn btn-dark btn-sm" onClick={() => openForm()}>
             <Icon name="plus" size={13} />
             طلب شراء
-          </button>
+          </button>}
         </div>
         <RemoteFeedback state={list} />
         <DataTable
@@ -796,15 +852,15 @@ export function PRModule() {
                 <RowActions>
                   {p.status === 'draft' && (
                     <>
-                      <button className="btn btn-soft btn-xs" onClick={() => openForm(p)}>
+                      {canUpdate && <button className="btn btn-soft btn-xs" onClick={() => openForm(p)}>
                         تعديل
-                      </button>
-                      <button className="btn btn-dark btn-xs" disabled={busy} onClick={() => doAction(p.id, purchaseRequestsApi.submit, 'أُرسل للاعتماد')}>
+                      </button>}
+                      {canUpdate && <button className="btn btn-dark btn-xs" disabled={busy} onClick={() => doAction(p.id, purchaseRequestsApi.submit, 'أُرسل للاعتماد')}>
                         إرسال للاعتماد
-                      </button>
-                      <button className="icon-btn !w-7 !h-7" disabled={busy} onClick={() => doAction(p.id, purchaseRequestsApi.remove, 'تم حذف المسودة')}>
+                      </button>}
+                      {canDelete && <button className="icon-btn !w-7 !h-7" disabled={busy} onClick={() => doAction(p.id, purchaseRequestsApi.remove, 'تم حذف المسودة')}>
                         <Icon name="trash" size={12} />
-                      </button>
+                      </button>}
                     </>
                   )}
                   {p.status === 'pending' && canApprove && (
@@ -838,13 +894,13 @@ export function PRModule() {
               </button>
               <button
                 className="btn btn-soft"
-                disabled={busy} onClick={() => save(false)}
+                disabled={busy || (form.id ? !canUpdate : !canCreate)} onClick={() => save(false)}
               >
                 حفظ كمسودة
               </button>
               <button
                 className="btn btn-dark"
-                disabled={busy} onClick={() => save(true)}
+                disabled={busy || (form.id ? !canUpdate : !canCreate)} onClick={() => save(true)}
               >
                 حفظ وإرسال للاعتماد
               </button>
@@ -1015,6 +1071,9 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
 }
 
 export function POModule() {
+  const canCreate = useCan('purchases.create');
+  const canUpdate = useCan('purchases.update');
+  const canDelete = useCan('purchases.delete');
   const canApprove = useCan('purchases.approve');
   const canReceive = useCan('purchases.receive');
   const toast = useToast();
@@ -1034,19 +1093,21 @@ export function POModule() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   useEffect(() => setPage(1), [dq, st, sp, br]);
   const list = useRemote(signal => purchaseOrdersApi.list({ page, search: dq || undefined, status: st ? toPOStatus(st) as any : undefined, supplier_id: sp ? Number(sp) : undefined, branch_id: br ? Number(br) : undefined }, signal), [page, dq, st, sp, br], { mock: () => pageOf(mockPOs.filter(p => (!st || p.status === toPOStatus(st)) && (!sp || p.supplier_id === Number(sp)))) });
-  const suppliers = useSupplierLookup();
   const branches = useRemote((signal) => branchesApi.list({}, signal).then(r => r.data), []);
   const approvedPRs = useRemote(signal => allPages(page => purchaseRequestsApi.list({ page, status: 'approved' }, signal), undefined, { maxPages: 20 }), [], { enabled: !!form });
   const variants = useVariants();
   const rows = (list.data?.data ?? []).map(mapPO);
   const detail = useRemote(signal => purchaseOrdersApi.show(view.id, signal), [view?.id], { enabled: !!view, mock: () => mockPOs.find(p => p.id === view.id)! });
-  const supName = (id: number) => suppliers.data?.find(x => x.id === id)?.company || suppliers.data?.find(x => x.id === id)?.name || `#${id}`;
   const openForm = (po?: any) => { const raw = po?.raw; setErrors({}); setFromPR(raw?.purchase_request_id ? String(raw.purchase_request_id) : ''); setForm({ demo: list.usingMock || po?.demo, id: po?.id, sup: raw?.supplier_id ?? '', branch: raw?.branch_id ?? '', eta: raw?.expected_delivery_date ?? '', discount: num(raw?.discount_amount), items: raw?.items?.map((it: any) => ({ product_variant_id: it.product_variant_id, qty: it.ordered_qty, cost: it.unit_cost, tax: it.tax_rate })) ?? [blankItem()] }); };
   const setItem = (index: number, key: string, value: string) => setForm({ ...form, items: form.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) });
   const act = async (id: number, fn: (id: number) => Promise<unknown>, msg: string) => { if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red'); const result = await run(() => fn(id), { toast, success: msg }); if (result) { setView(null); list.reload(); return true; } return false; };
   const actionsFor = (p: any): string[] => {
-    if (['draft', 'revision'].includes(p.status)) return ['edit', ...(p.raw?.approved_by ? ['send'] : canApprove ? ['approve'] : []), ...(p.status === 'draft' ? ['delete'] : []), 'cancel'];
-    return (({ accepted: ['receive', 'cancel'], sent: ['receive', 'cancel'], partial: ['receive', 'close'] } as Record<string, string[]>)[p.status] ?? []).filter(action => canReceive || !['receive', 'close'].includes(action));
+    if (['draft', 'revision'].includes(p.status)) return [
+      ...(canUpdate ? ['edit', ...(p.raw?.approved_by ? ['send'] : canApprove ? ['approve'] : []), 'cancel'] : []),
+      ...(canDelete && p.status === 'draft' ? ['delete'] : []),
+    ];
+    return (({ accepted: ['receive', 'cancel'], sent: ['receive', 'cancel'], partial: ['receive', 'close'] } as Record<string, string[]>)[p.status] ?? [])
+      .filter(action => action === 'receive' || action === 'close' ? canReceive : canUpdate);
   };
   const lines = (detail.data?.items ?? []).map(it => ({ id: it.id, v: { name: it.variant?.sku ?? `#${it.product_variant_id}`, sku: it.variant?.sku ?? '' }, ord: num(it.ordered_qty), rec: num(it.received_qty), cost: num(it.unit_cost), tax: num(it.tax_rate) }));
   const estimateTotal = () => {
@@ -1062,7 +1123,7 @@ export function POModule() {
     if (r) { detail.reload(); list.reload(); }
   };
   const save = async () => {
-    if (form.demo || list.usingMock || suppliers.usingMock || variants.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    if (form.demo || list.usingMock || variants.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (!form.sup || !form.branch || form.items.some((it: any) => !it.product_variant_id || !Number.isInteger(Number(it.qty)) || Number(it.qty) <= 0)) return toast('أكمل المورد والفرع والبنود بكميات صحيحة', 'red');
     const body = { supplier_id: Number(form.sup), ...(form.id ? {} : { purchase_request_id: fromPR ? Number(fromPR) : null }), branch_id: Number(form.branch), items: form.items.map((it: any) => ({ product_variant_id: Number(it.product_variant_id), ordered_qty: Number(it.qty), unit_cost: Number(it.cost), tax_rate: Number(it.tax) })), expected_delivery_date: form.eta || null, discount_amount: Number(form.discount || 0) };
     const result = await run(() => form.id ? purchaseOrdersApi.update(form.id, body) : purchaseOrdersApi.create(body), { toast, success: 'تم حفظ الأمر كمسودة', onFieldErrors: setErrors });
@@ -1081,18 +1142,15 @@ export function POModule() {
               placeholder="الحالة"
               options={Object.entries(PO_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
             />
-            <FSelect
-              value={sp}
-              onChange={setSp}
-              placeholder="المورد"
-              options={(suppliers.data ?? []).map((s: { id: number; name: string }) => ({ value: String(s.id), label: s.name }))}
-            />
+            <div className="w-64">
+              <SupplierPicker value={sp} onChange={setSp} activeOnly={false} placeholder="كل الموردين" />
+            </div>
             <FSelect value={br} onChange={setBr} placeholder="الفرع" options={(branches.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
           </div>
-          <button className="btn btn-dark btn-sm" onClick={() => openForm()}>
+          {canCreate && <button className="btn btn-dark btn-sm" onClick={() => openForm()}>
             <Icon name="plus" size={13} />
             أمر شراء
-          </button>
+          </button>}
         </div>
         <RemoteFeedback state={list} />
         <DataTable
@@ -1104,8 +1162,8 @@ export function POModule() {
               h: 'المورد',
               r: (p: PurchaseOrder) => (
                 <div className="flex items-center gap-2">
-                  <Avatar name={supName(p.sup)} tone={p.sup} size={24} />
-                  <span className="font-medium">{supName(p.sup)}</span>
+                  <Avatar name={p.supName || `#${p.sup}`} tone={p.sup} size={24} />
+                  <span className="font-medium">{p.supName || `#${p.sup}`}</span>
                 </div>
               ),
             },
@@ -1137,7 +1195,7 @@ export function POModule() {
           }
           sub={
             <>
-              {supName(view.sup)} · {view.branch}
+              {view.supName || `#${view.sup}`} · {view.branch}
             </>
           }
           footer={
@@ -1312,12 +1370,7 @@ export function POModule() {
             {Object.keys(errors).length > 0 && <Note tone="red">{Object.values(errors).join(' · ')}</Note>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="المورد" req>
-                <select className="inp" value={form.sup} onChange={e => setForm({ ...form, sup: e.target.value })}>
-                  <option value="">اختر المورد</option>
-                  {(suppliers.data ?? []).filter((s) => s.active).map((s) => (
-                    <option key={s.id} value={s.id}>{s.company || s.name}</option>
-                  ))}
-                </select>
+                <SupplierPicker value={form.sup} onChange={sup => setForm({ ...form, sup })} />
               </Field>
               <Field label="ربط بطلب شراء" hint="اختياري — يملأ الفرع والبنود من الطلب">
                 <select className="inp" value={fromPR} disabled={!!form.id} onChange={(e) => { const value = e.target.value; setFromPR(value); const pr = approvedPRs.data?.find(p => p.id === Number(value)); if (pr) setForm({ ...form, branch: pr.branch_id, items: (pr.items ?? []).map(it => ({ product_variant_id: it.product_variant_id, qty: it.requested_qty, cost: num(it.variant?.cost_price), tax: 0, notes: '' })) }); }}>
@@ -1368,6 +1421,10 @@ export function POModule() {
 }
 
 export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void }) {
+  const canCreate = useCan('purchases.create');
+  const canUpdate = useCan('purchases.update');
+  const canDelete = useCan('purchases.delete');
+  const canCreatePayment = useCan('supplier_payments.create');
   const canPost = useCan('supplier_invoices.post');
   const canCancel = useCan('supplier_invoices.cancel');
   const toast = useToast();
@@ -1377,15 +1434,15 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
   const [page, setPage] = useState(1);
   const [postConfirm, setPostConfirm] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const suppliers = useSupplierLookup();
-  const orders = useRemote(signal => allPages(page => purchaseOrdersApi.list({ page, supplier_id: Number(form?.sup) }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapPO)), [form?.sup], { enabled: !!form?.sup });
+  const [poq, setPoq] = useState('');
+  const poDq = useDebounced(poq);
+  const orders = useRemote(signal => purchaseOrdersApi.list({ page: 1, search: poDq || undefined, supplier_id: Number(form?.sup) }, signal).then(r => r.data.map(mapPO)), [form?.sup, poDq], { enabled: !!form?.sup });
   const list = useRemote(signal => supplierInvoicesApi.list({ page }, signal), [page], { mock: () => pageOf(mockInvoices) });
   const rows = (list.data?.data ?? []).map(mapInvoice);
-  const supName = (id: number) => suppliers.data?.find(x => x.id === id)?.company || suppliers.data?.find(x => x.id === id)?.name || `#${id}`;
-  const openForm = (invoice?: any) => { setErrors({}); setForm({ demo: list.usingMock || invoice?.demo, id: invoice?.id, sys: invoice?.sys, sup: invoice?.sup ?? '', supNo: invoice?.supNo ?? '', poId: invoice?.poId ?? '', issue: invoice?.issue || new Date().toISOString().slice(0, 10), due: invoice?.due ?? '', subtotal: invoice?.subtotal ?? 0, tax: invoice?.tax ?? 0, attachment: undefined }); };
+  const openForm = (invoice?: any) => { setErrors({}); setPoq(''); setForm({ demo: list.usingMock || invoice?.demo, id: invoice?.id, sys: invoice?.sys, sup: invoice?.sup ?? '', supNo: invoice?.supNo ?? '', poId: invoice?.poId ?? '', poNo: invoice?.po ?? '', issue: invoice?.issue || new Date().toISOString().slice(0, 10), due: invoice?.due ?? '', subtotal: invoice?.subtotal ?? 0, tax: invoice?.tax ?? 0, attachment: undefined }); };
   const action = async (fn: () => Promise<unknown>, success: string) => { if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red'); const r = await run(fn, { toast, success }); if (r) { setView(null); setPostConfirm(false); list.reload(); return true; } return false; };
   const save = async () => {
-    if (form.demo || list.usingMock || suppliers.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    if (form.demo || list.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     const body = { supplier_invoice_no: form.supNo ?? '', purchase_order_id: form.poId ? Number(form.poId) : null, issue_date: form.issue, due_date: form.due || null, subtotal: Number(form.subtotal), tax_amount: Number(form.tax || 0), ...(form.attachment ? { attachment: form.attachment } : {}) };
     const r = await run(() => form.id ? supplierInvoicesApi.update(form.id, body) : supplierInvoicesApi.create({ ...body, supplier_id: Number(form.sup) }), { toast, success: 'تم حفظ الفاتورة كمسودة', onFieldErrors: setErrors });
     if (r) { setForm(null); list.reload(); }
@@ -1396,12 +1453,10 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
       <Card stg={3}>
         <CardHead
           title="فواتير الموردين"
-          right={
-            <button className="btn btn-dark btn-sm" onClick={() => openForm()}>
+          right={canCreate && <button className="btn btn-dark btn-sm" onClick={() => openForm()}>
               <Icon name="plus" size={13} />
               فاتورة
-            </button>
-          }
+            </button>}
         />
         <RemoteFeedback state={list} />
         <DataTable
@@ -1410,7 +1465,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
           cols={[
             { h: 'رقم النظام', r: (i: SupplierInvoice) => <span className="num font-semibold tx1">{i.sys}</span> },
             { h: 'رقم فاتورة المورد', r: (i: SupplierInvoice) => <Num className="tx2">{i.supNo}</Num> },
-            { h: 'المورد', r: (i: SupplierInvoice) => <span className="font-medium">{supName(i.sup)}</span> },
+            { h: 'المورد', r: (i: SupplierInvoice) => <span className="font-medium">{i.supName || `#${i.sup}`}</span> },
             {
               h: 'الإصدار / الاستحقاق',
               r: (i: SupplierInvoice) => (
@@ -1453,7 +1508,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
               <StatusBadge map={INV_STATUS} value={view.status} />
             </span>
           }
-          sub={supName(view.sup)}
+          sub={view.supName || `#${view.sup}`}
           footer={
             <>
               {canCancel && ['draft', 'posted'].includes(view.status) && (
@@ -1464,9 +1519,9 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
                   إلغاء
                 </button>
               )}
-              {view.status === 'draft' && (
+              {view.status === 'draft' && (canUpdate || canPost) && (
                 <>
-                  <button
+                  {canUpdate && <button
                     className="btn btn-soft"
                     onClick={() => {
                       openForm(view);
@@ -1474,7 +1529,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
                     }}
                   >
                     تعديل
-                  </button>
+                  </button>}
                   <button
                     className="btn btn-dark"
                     disabled={busy || !canPost} onClick={() => setPostConfirm(true)}
@@ -1483,7 +1538,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
                   </button>
                 </>
               )}
-              {['posted', 'partial'].includes(view.status) && (
+              {canCreatePayment && ['posted', 'partial'].includes(view.status) && (
                 <button
                   className="btn btn-accent"
                   onClick={() => { onPayment?.(view); setView(null); }}
@@ -1564,28 +1619,31 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
         >
           <div className="space-y-4">
             {Object.keys(errors).length > 0 && <Note tone="red">{Object.values(errors).join(' · ')}</Note>}
+            <RemoteFeedback state={orders} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <RemoteFeedback state={suppliers} /><RemoteFeedback state={orders} />
               <Field label="المورد" err={errors.supplier_id} req hint={form.id ? 'لا يمكن تغيير المورد بعد الإنشاء' : null}>
-                <select className="inp" disabled={!!form.id} value={form.sup} onChange={e => setForm({ ...form, sup: e.target.value, poId: '' })}>
-                  <option value="">اختر المورد</option>
-                  {(suppliers.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.company || s.name}
-                    </option>
-                  ))}
-                </select>
+                <SupplierPicker
+                  value={form.sup}
+                  onChange={sup => setForm({ ...form, sup, poId: '', poNo: '' })}
+                  disabled={!!form.id}
+                />
               </Field>
               <Field label="رقم فاتورة المورد" err={errors.supplier_invoice_no} req>
                 <input className="inp num" dir="ltr" value={form.supNo} onChange={e => setForm({ ...form, supNo: e.target.value })} />
               </Field>
               <Field label="أمر شراء مرتبط">
-                <select className="inp" value={form.poId || ''} onChange={e => setForm({ ...form, poId: e.target.value })}>
-                  <option value="">بدون</option>
-                  {(orders.data ?? []).map((p) => (
-                    <option key={p.id} value={p.id}>{p.no}</option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <SearchPill value={poq} onChange={setPoq} placeholder="ابحث برقم أمر الشراء" w="w-full" />
+                  <select className="inp" value={form.poId || ''} onChange={e => setForm({ ...form, poId: e.target.value })}>
+                    <option value="">بدون</option>
+                    {form.poId && form.poNo && !(orders.data ?? []).some(p => String(p.id) === String(form.poId)) && (
+                      <option value={form.poId}>{form.poNo}</option>
+                    )}
+                    {(orders.data ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>{p.no}</option>
+                    ))}
+                  </select>
+                </div>
               </Field>
               <div></div>
               <Field label="تاريخ الإصدار" err={errors.issue_date} req>
@@ -1613,6 +1671,9 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
 }
 
 export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
+  const canCreate = useCan('supplier_payments.create');
+  const canUpdate = useCan('supplier_payments.update');
+  const canDelete = useCan('supplier_payments.delete');
   const toast = useToast();
   const { busy, run } = useAction();
   const [form, setForm] = useState<any>(null);
@@ -1626,16 +1687,14 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
   const [voidReason, setVoidReason] = useState('');
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [allocateId, setAllocateId] = useState('');
-  const suppliers = useSupplierLookup();
   const treasuries = useRemote(signal => allPages(page => supplierPaymentsApi.treasuries(page, signal), undefined, { maxPages: 10 }), [], { enabled: !!form && !form.id });
-  const invoices = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: Number(form?.sup || view?.sup), open: true }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapInvoice)), [form?.sup, view?.sup], { enabled: !!(form?.sup || view?.sup) });
+  const invoices = useRemote(signal => allPages(page => supplierInvoicesApi.list({ page, supplier_id: Number(form?.sup || view?.sup), open: true }, signal), undefined, { maxPages: 20 }).then(r => r.map(mapInvoice)), [form?.sup, view?.sup, allocateOpen], { enabled: (!!form?.sup && !form?.id) || (allocateOpen && !!view?.sup) });
   const list = useRemote(signal => supplierPaymentsApi.list({ page }, signal), [page], { mock: () => pageOf(mockPayments) });
   const rows = (list.data?.data ?? []).map(mapPayment);
-  const supName = (id: number) => suppliers.data?.find(x => x.id === id)?.company || suppliers.data?.find(x => x.id === id)?.name || `#${id}`;
   const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); lastPayload.current = ''; setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? new Date().toISOString().slice(0, 10), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
-  useEffect(() => { if (initialInvoice) openForm({ demo: initialInvoice.demo, sup: initialInvoice.sup, invId: initialInvoice.id, amount: initialInvoice.remaining }); }, [initialInvoice?.id]);
+  useEffect(() => { if (initialInvoice && canCreate) openForm({ demo: initialInvoice.demo, sup: initialInvoice.sup, invId: initialInvoice.id, amount: initialInvoice.remaining }); }, [initialInvoice?.id, canCreate]);
   const save = async () => {
-    if (form.demo || list.usingMock || suppliers.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    if (form.demo || list.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     const common = { payment_method: paymentMethod(method), reference_no: form.ref || null, notes: form.notes || null };
     const createBody = { ...common, supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date };
     let key = idemKey;
@@ -1648,13 +1707,13 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
       lastPayload.current = payload;
     }
     const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, common) : supplierPaymentsApi.create(createBody, key), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
-    if (r) { setForm(null); list.reload(); invoices.reload(); suppliers.reload(); }
+    if (r) { setForm(null); list.reload(); invoices.reload(); }
   };
   const voidPayment = async () => {
     if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (voidReason.trim().length < 3) return toast('سبب الإلغاء مطلوب (3 أحرف على الأقل)', 'red');
     const r = await run(() => supplierPaymentsApi.void(view.id, voidReason.trim()), { toast, success: 'تم إلغاء الدفعة وعكس أثرها' });
-    if (r) { setVoidM(false); setView(null); setVoidReason(''); list.reload(); invoices.reload(); suppliers.reload(); }
+    if (r) { setVoidM(false); setView(null); setVoidReason(''); list.reload(); invoices.reload(); }
   };
   const allocate = async () => {
     if (list.usingMock || view?.demo || invoices.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
@@ -1668,15 +1727,13 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
       <Card stg={3}>
         <CardHead
           title="مدفوعات الموردين"
-          right={
-            <button
+          right={canCreate && <button
               className="btn btn-dark btn-sm"
               onClick={() => openForm()}
             >
               <Icon name="plus" size={13} />
               دفعة
-            </button>
-          }
+            </button>}
         />
         <RemoteFeedback state={list} />
         <DataTable
@@ -1693,8 +1750,8 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
               h: 'المورد',
               r: (p: SupplierPayment) => (
                 <div className="flex items-center gap-2">
-                  <Avatar name={supName(p.sup)} tone={p.sup} size={24} />
-                  <span className="font-medium">{supName(p.sup)}</span>
+                  <Avatar name={p.supName || `#${p.sup}`} tone={p.sup} size={24} />
+                  <span className="font-medium">{p.supName || `#${p.sup}`}</span>
                 </div>
               ),
             },
@@ -1734,7 +1791,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
         />
       </Card>
       <Pager total={list.data?.meta.total ?? 0} per={20} page={page} onPage={setPage} />
-      <Modal open={allocateOpen} onClose={() => setAllocateOpen(false)} title="تخصيص دفعة لفاتورة" footer={<button className="btn btn-dark" disabled={busy} onClick={allocate}>تخصيص</button>}><RemoteFeedback state={invoices} /><Field label="الفاتورة"><select className="inp" value={allocateId} onChange={e => setAllocateId(e.target.value)}><option value="">اختر فاتورة</option>{(invoices.data ?? []).map(i => <option key={i.id} value={i.id}>{i.sys} · {fmtMoney(i.remaining)}</option>)}</select></Field></Modal>
+      <Modal open={allocateOpen} onClose={() => setAllocateOpen(false)} title="تخصيص دفعة لفاتورة" footer={<button className="btn btn-dark" disabled={busy || !canUpdate} onClick={allocate}>تخصيص</button>}><RemoteFeedback state={invoices} /><Field label="الفاتورة"><select className="inp" value={allocateId} onChange={e => setAllocateId(e.target.value)}><option value="">اختر فاتورة</option>{(invoices.data ?? []).map(i => <option key={i.id} value={i.id}>{i.sys} · {fmtMoney(i.remaining)}</option>)}</select></Field></Modal>
       {view && (
         <Modal
           open
@@ -1742,20 +1799,20 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
           width={540}
           icon="cash"
           title={<span className="num">{view.no}</span>}
-          sub={supName(view.sup)}
+          sub={view.supName || `#${view.sup}`}
           footer={
             !view.void && (
               <>
-                <button className="btn btn-danger me-auto" onClick={() => { setVoidReason(''); setVoidM(true); }}>
+                {canDelete && <button className="btn btn-danger me-auto" onClick={() => { setVoidReason(''); setVoidM(true); }}>
                   إلغاء الدفعة
-                </button>
-                {!view.inv && (
+                </button>}
+                {canUpdate && !view.inv && (
                   <button className="btn btn-soft" onClick={() => { setAllocateId(''); setAllocateOpen(true); }}>
                     <Icon name="link" size={13} />
                     ربط بفاتورة
                   </button>
                 )}
-                <button
+                {canUpdate && <button
                   className="btn btn-dark"
                   onClick={() => {
                     openForm(view);
@@ -1763,7 +1820,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
                   }}
                 >
                   تعديل
-                </button>
+                </button>}
               </>
             )
           }
@@ -1812,12 +1869,12 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
             <button className="btn btn-soft" onClick={() => setVoidM(false)}>
               تراجع
             </button>
-            <button
+            {canDelete && <button
               className="btn btn-danger"
               disabled={busy} onClick={voidPayment}
             >
               إلغاء الدفعة
-            </button>
+            </button>}
           </>
         }
       >
@@ -1839,7 +1896,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
               </button>
               <button
                 className="btn btn-dark"
-                disabled={busy} onClick={save}
+                disabled={busy || (form.id ? !canUpdate : !canCreate)} onClick={save}
               >
                 حفظ
               </button>
@@ -1847,7 +1904,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
           }
         >
           <div className="space-y-4">
-            <RemoteFeedback state={suppliers} /><RemoteFeedback state={invoices} />
+            <RemoteFeedback state={invoices} />
             {!form.id && <><RemoteFeedback state={treasuries} /><Field label="الخزينة أو الحساب البنكي" err={errors.treasury_id} req><select className="inp" value={form.treasury || ''} onChange={e => setForm({ ...form, treasury: e.target.value })}><option value="">اختر الخزينة</option>{(treasuries.data ?? []).filter(t => t.type === (method === 'cash' ? 'main_safe' : 'bank_account')).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field></>}
             {Object.keys(errors).length > 0 && <Note tone="red">{Object.values(errors).join(' · ')}</Note>}
             {form.id && (
@@ -1857,14 +1914,11 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="المورد" err={errors.supplier_id} req>
-                <select className="inp" disabled={!!form.id} value={form.sup} onChange={e => setForm({ ...form, sup: e.target.value, invId: '' })}>
-                  <option value="">اختر المورد</option>
-                  {(suppliers.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.company || s.name}
-                    </option>
-                  ))}
-                </select>
+                <SupplierPicker
+                  value={form.sup}
+                  onChange={sup => setForm({ ...form, sup, invId: '' })}
+                  disabled={!!form.id}
+                />
               </Field>
               <Field label="فاتورة مرتبطة" err={errors.supplier_invoice_id} hint="اختيارية">
                 <select className="inp" value={form.invId || ''} disabled={!!form.id} onChange={e => setForm({ ...form, invId: e.target.value })}>

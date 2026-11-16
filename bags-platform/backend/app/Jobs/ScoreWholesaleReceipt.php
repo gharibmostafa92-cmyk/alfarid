@@ -93,12 +93,13 @@ class ScoreWholesaleReceipt implements ShouldQueue
         } finally {
             @unlink($path);
         }
+        $ocrData = is_array($read['data'] ?? null) ? $read['data'] : (is_array($read) ? $read : []);
         $scored = $scorer->score([
             'amount' => (string) $notice->amount,
             'reference' => (string) $notice->reference_number,
             'date' => $notice->transfer_date?->toDateString() ?? '',
             'bank' => (string) ($notice->bank_name ?? ''),
-        ], is_array($read) ? $read : []);
+        ], $ocrData);
         WholesalePaymentNotice::query()
             ->whereKey($this->noticeId)
             ->where('status', WholesalePaymentNoticeStatus::PendingReview->value)

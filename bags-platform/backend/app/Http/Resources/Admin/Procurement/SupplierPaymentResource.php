@@ -22,6 +22,9 @@ class SupplierPaymentResource extends JsonResource
             'id' => $this->id,
             'payment_number' => $this->payment_number,
             'supplier_id' => $this->supplier_id,
+            'supplier' => $this->whenLoaded('supplier', fn (): ?array => $this->supplier === null ? null : [
+                'id' => $this->supplier->id, 'code' => $this->supplier->code, 'name' => $this->supplier->name,
+            ]),
             'treasury_id' => $this->treasury_id,
             'supplier_invoice_id' => $this->supplier_invoice_id,
             'invoice' => $this->whenLoaded('invoice', fn (): ?array => $this->invoice === null ? null : [

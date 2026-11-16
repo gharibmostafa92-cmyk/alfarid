@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // Moving return attachments to private storage is deferred to an artisan command to minimize DDL lock time.
         DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(14, 4)');
         Schema::create('operation_idempotency_keys', function (Blueprint $table): void {
@@ -60,6 +64,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('DROP INDEX IF EXISTS return_requests_number_pattern_index');
         DB::statement('DROP INDEX IF EXISTS supplier_invoices_supplier_date_index');
         DB::statement('DROP INDEX IF EXISTS supplier_invoices_supplier_no_unique');

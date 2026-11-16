@@ -23,7 +23,8 @@ class NotificationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $page = $user->notifications()->paginate(20);
+        $query = $request->boolean('unread_only') ? $user->unreadNotifications() : $user->notifications();
+        $page = $query->paginate(20);
 
         return response()->json([
             'data' => collect($page->items())->map(fn ($notification) => $this->formatNotification($notification))->all(),

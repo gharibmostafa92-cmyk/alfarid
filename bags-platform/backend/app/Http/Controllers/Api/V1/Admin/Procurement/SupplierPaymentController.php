@@ -9,7 +9,9 @@ use App\Http\Requests\Admin\Procurement\SupplierPaymentRequest;
 use App\Http\Requests\Admin\Procurement\UpdateSupplierPaymentRequest;
 use App\Http\Resources\Admin\Procurement\SupplierPaymentResource;
 use App\Models\SupplierPayment;
+use App\Models\Treasury;
 use App\Models\User;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Procurement\SupplierFinanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,12 +35,15 @@ class SupplierPaymentController extends Controller implements HasMiddleware
         ];
     }
 
-    public function __construct(protected SupplierFinanceService $finance) {}
+    public function __construct(
+        protected SupplierFinanceService $finance,
+        protected BranchAccess $branchAccess,
+    ) {}
 
-    public function treasuries(Request $request, \App\Services\Inventory\BranchAccess $access): JsonResponse
+    public function treasuries(Request $request): JsonResponse
     {
-        $branch = $access->restrictedBranch($request->user());
-        $rows = \App\Models\Treasury::query()->where('is_active', true)
+        $branch = $this->branchAccess->restrictedBranch($request->user());
+        $rows = Treasury::query()->where('is_active', true)
             ->whereIn('type', ['main_safe', 'bank_account'])
             ->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->orderBy('id')->paginate(100, ['id', 'name', 'type', 'branch_id']);
@@ -60,8 +65,13 @@ class SupplierPaymentController extends Controller implements HasMiddleware
             'from_date' => ['nullable', 'date_format:Y-m-d'],
             'to_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from_date'],
         ]);
+        $branch = $this->branchAccess->restrictedBranch($request->user());
         $payments = SupplierPayment::query()
-            ->with(['invoice:id,invoice_number,supplier_invoice_no'])
+            ->with(['invoice:id,invoice_number,supplier_invoice_no', 'supplier:id,code,name'])
+            ->when($branch !== null, fn ($q) => $q->whereHas(
+                'treasury',
+                fn ($treasury) => $treasury->where('branch_id', $branch),
+            ))
             ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', (int) $id))
             ->when($filters['supplier_invoice_id'] ?? null, fn ($q, $id) => $q->where('supplier_invoice_id', (int) $id))
             ->when($filters['from_date'] ?? null, fn ($q, $date) => $q->where('payment_date', '>=', $date))
@@ -83,7 +93,7 @@ class SupplierPaymentController extends Controller implements HasMiddleware
         /** @var User $admin */
         $admin = $request->user();
         $payment = $this->finance->createPayment($request->validated(), $admin, $request->header('Idempotency-Key'));
-        $payment->load(['invoice:id,invoice_number,supplier_invoice_no']);
+        $payment->load(['invoice:id,invoice_number,supplier_invoice_no', 'supplier:id,code,name']);
 
         return SupplierPaymentResource::make($payment)->response()->setStatusCode(201);
     }
@@ -94,9 +104,11 @@ class SupplierPaymentController extends Controller implements HasMiddleware
      * @param SupplierPayment $supplierPayment Target payment
      * @return SupplierPaymentResource Formatted payment resource
      */
-    public function show(SupplierPayment $supplierPayment): SupplierPaymentResource
+    public function show(Request $request, SupplierPayment $supplierPayment): SupplierPaymentResource
     {
-        return SupplierPaymentResource::make($supplierPayment->load(['invoice:id,invoice_number,supplier_invoice_no']));
+        $this->assertVisible($request, $supplierPayment);
+
+        return SupplierPaymentResource::make($supplierPayment->load(['invoice:id,invoice_number,supplier_invoice_no', 'supplier:id,code,name']));
     }
 
     /**
@@ -108,9 +120,10 @@ class SupplierPaymentController extends Controller implements HasMiddleware
      */
     public function update(UpdateSupplierPaymentRequest $request, SupplierPayment $supplierPayment): SupplierPaymentResource
     {
-        $supplierPayment = $this->finance->updatePayment($supplierPayment, $request->validated());
+        $this->assertVisible($request, $supplierPayment);
+        $supplierPayment = $this->finance->updatePayment($supplierPayment, $request->validated(), $request->user());
 
-        return SupplierPaymentResource::make($supplierPayment->fresh(['invoice:id,invoice_number,supplier_invoice_no']));
+        return SupplierPaymentResource::make($supplierPayment->fresh(['invoice:id,invoice_number,supplier_invoice_no', 'supplier:id,code,name']));
     }
 
     /**
@@ -134,6 +147,7 @@ class SupplierPaymentController extends Controller implements HasMiddleware
      */
     public function void(Request $request, SupplierPayment $supplierPayment): JsonResponse
     {
+        $this->assertVisible($request, $supplierPayment);
         $validated = $request->validate([
             'void_reason' => ['required', 'string', 'max:500'],
         ]);
@@ -156,8 +170,27 @@ class SupplierPaymentController extends Controller implements HasMiddleware
         $data = $request->validate([
             'supplier_invoice_id' => ['required', 'integer', 'exists:supplier_invoices,id'],
         ]);
-        $payment = $this->finance->allocatePayment($supplierPayment, (int) $data['supplier_invoice_id']);
+        $this->assertVisible($request, $supplierPayment);
+        $payment = $this->finance->allocatePayment(
+            $supplierPayment,
+            (int) $data['supplier_invoice_id'],
+            $request->user(),
+        );
 
-        return SupplierPaymentResource::make($payment->load(['invoice:id,invoice_number,supplier_invoice_no']));
+        return SupplierPaymentResource::make($payment->load(['invoice:id,invoice_number,supplier_invoice_no', 'supplier:id,code,name']));
+    }
+
+    private function assertVisible(Request $request, SupplierPayment $payment): void
+    {
+        $branch = $this->branchAccess->restrictedBranch($request->user());
+        if ($branch === null) {
+            return;
+        }
+        $treasury = $payment->treasury_id === null
+            ? null
+            : Treasury::query()->find($payment->treasury_id);
+        if ($treasury === null || (int) $treasury->branch_id !== $branch) {
+            abort(404);
+        }
     }
 }

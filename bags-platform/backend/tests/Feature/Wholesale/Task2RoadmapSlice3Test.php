@@ -218,9 +218,9 @@ class Task2RoadmapSlice3Test extends TestCase
 
         app(WholesalePaymentNoticeService::class)->approve($notice, $branchStaffA->id, $branchATreasury->id);
 
-        // Older Branch B order must be paid first by FIFO, NOT skipped in favor of Branch A
-        $this->assertSame('paid', $olderBranchB->fresh()->payment_status);
-        $this->assertSame('unpaid', $newerBranchA->fresh()->payment_status);
+        // Under Task 3 CRITICAL-03 branch isolation, branch-scoped approver cannot settle orders of other branches
+        $this->assertSame('unpaid', $olderBranchB->fresh()->payment_status);
+        $this->assertSame('paid', $newerBranchA->fresh()->payment_status);
     }
 
     // HIGH-05 & MEDIUM-02: Rejected/Reversed notices allow resubmission; Arabic/dashed reference numbers caught cleanly on approve

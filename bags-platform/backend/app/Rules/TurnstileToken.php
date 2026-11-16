@@ -6,6 +6,7 @@ namespace App\Rules;
 
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -40,8 +41,14 @@ final class TurnstileToken implements ValidationRule
 
             return;
         }
+        $consumedKey = 'turnstile:consumed:'.hash('sha256', $value);
+        if (Cache::has($consumedKey)) {
+            $fail('فشل التحقق البشري، حاول مرة أخرى.');
+
+            return;
+        }
         try {
-            $response = Http::asForm()->timeout(2)
+            $response = Http::asForm()->connectTimeout(1)->timeout(2)
                 ->post('https://challenges.cloudflare.com/turnstile/v0/siteverify', [
                     'secret' => $secret, 'response' => $value, 'remoteip' => $this->ip,
                 ]);
@@ -54,6 +61,7 @@ final class TurnstileToken implements ValidationRule
             $ok = false;
         }
         if (! $ok) {
+            Cache::put($consumedKey, 1, now()->addSeconds(30));
             $fail('فشل التحقق البشري، حاول مرة أخرى.');
         }
     }

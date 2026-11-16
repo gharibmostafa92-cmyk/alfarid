@@ -9,11 +9,13 @@ use App\Services\Pricing\PricingService;
 
 use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
+use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Quick-order service for wholesale customers.
@@ -162,44 +164,47 @@ class WholesaleQuickOrderService
      */
     private function addLinesToCart(Customer $customer, array $items, array $availability, array $pricingCtx): array
     {
-        $cart = $this->carts->resolveCart($customer, null);
-        $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
+        return DB::transaction(function () use ($customer, $items, $availability, $pricingCtx): array {
+            $cart = $this->carts->resolveCart($customer, null);
+            Cart::query()->whereKey($cart->id)->lockForUpdate()->first();
+            $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
 
-        $added = [];
-        $skipped = [];
-        foreach ($items as $item) {
-            $variant = $item['variant'];
-            $sku = $item['sku'];
-            $qty = (float) $item['qty'];
+            $added = [];
+            $skipped = [];
+            foreach ($items as $item) {
+                $variant = $item['variant'];
+                $sku = $item['sku'];
+                $qty = (float) $item['qty'];
 
-            if ($variant === null || ! $variant->is_active || $variant->product?->status !== ProductStatus::Published) {
-                $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'not_found_or_inactive'];
+                if ($variant === null || ! $variant->is_active || $variant->product?->status !== ProductStatus::Published) {
+                    $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'not_found_or_inactive'];
 
-                continue;
+                    continue;
+                }
+
+                $alreadyInCart = $inCart[$variant->id] ?? 0.0;
+                if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $qty) {
+                    $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'insufficient_stock'];
+
+                    continue;
+                }
+
+                $cart = $this->carts->addItem($cart, $customer, $variant->id, $qty);
+                $inCart[$variant->id] = $alreadyInCart + $qty;
+                $added[] = [
+                    'sku' => $variant->sku,
+                    'product_variant_id' => $variant->id,
+                    'qty' => $qty,
+                    'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $pricingCtx)['unit_price'],
+                ];
             }
 
-            $alreadyInCart = $inCart[$variant->id] ?? 0.0;
-            if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $qty) {
-                $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'insufficient_stock'];
-
-                continue;
-            }
-
-            $cart = $this->carts->addItem($cart, $customer, $variant->id, $qty);
-            $inCart[$variant->id] = $alreadyInCart + $qty;
-            $added[] = [
-                'sku' => $variant->sku,
-                'product_variant_id' => $variant->id,
-                'qty' => $qty,
-                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $pricingCtx)['unit_price'],
+            return [
+                'added' => $added,
+                'skipped' => $skipped,
+                'cart' => $this->carts->present($cart, $customer),
             ];
-        }
-
-        return [
-            'added' => $added,
-            'skipped' => $skipped,
-            'cart' => $this->carts->present($cart, $customer),
-        ];
+        });
     }
 
     /**
@@ -268,10 +273,12 @@ class WholesaleQuickOrderService
         }
 
         return StockLevel::query()
-            ->whereIn('product_variant_id', $variantIds)
-            ->groupBy('product_variant_id')
-            ->selectRaw('product_variant_id, SUM(available) AS total_available')
-            ->pluck('total_available', 'product_variant_id')
+            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+            ->where('branches.is_active', true)
+            ->whereIn('stock_levels.product_variant_id', $variantIds)
+            ->groupBy('stock_levels.product_variant_id')
+            ->selectRaw('stock_levels.product_variant_id, SUM(stock_levels.available) AS total_available')
+            ->pluck('total_available', 'stock_levels.product_variant_id')
             ->map(fn ($v) => (float) $v)
             ->all();
     }

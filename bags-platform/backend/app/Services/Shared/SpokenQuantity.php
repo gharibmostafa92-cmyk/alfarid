@@ -24,8 +24,13 @@ final class SpokenQuantity
         'تمنتاشر' => 18, 'تسعتاشر' => 19, 'عشرين' => 20, 'تلاتين' => 30,
         'اربعين' => 40, 'خمسين' => 50, 'ستين' => 60, 'سبعين' => 70,
         'تمانين' => 80, 'تسعين' => 90, 'ميه' => 100, 'ميت' => 100,
-        'مايه' => 100, 'مائه' => 100, 'ميتين' => 200, 'الف' => 1000, 'دسته' => 12,
-        'دستة' => 12, 'دست' => 12,
+        'مايه' => 100, 'مائه' => 100, 'ميتين' => 200, 'تلتميه' => 300, 'تلتمية' => 300,
+        'تلاتميه' => 300, 'تلاتمية' => 300, 'ثلاثمائه' => 300, 'ثلاثمائة' => 300,
+        'اربعميه' => 400, 'اربعمية' => 400, 'أربعميه' => 400, 'أربعمية' => 400,
+        'خمسميه' => 500, 'خمسمية' => 500, 'ستميه' => 600, 'ستمية' => 600,
+        'سبعميه' => 700, 'سبعمية' => 700, 'تمنميه' => 800, 'تمنمية' => 800,
+        'تسعميه' => 900, 'تسعمية' => 900, 'الف' => 1000, 'الفين' => 2000, 'ألفين' => 2000,
+        'دسته' => 12, 'دستة' => 12, 'دست' => 12, 'دستتين' => 24,
     ];
 
     /** @var list<string> Dozen spellings act as a ×12 multiplier, not an addition. */
@@ -117,7 +122,7 @@ final class SpokenQuantity
                 // flushing 100 into the total first (which yielded 1100).
                 $group = ($group > 0 ? $group : 1) * $v;
                 $lastSmall = null;
-            } elseif ($v === 1000.0) {
+            } elseif ($v === 1000.0 || $v === 2000.0) {
                 $group = ($group > 0 ? $group : 1) * $v;
                 $total += $group;
                 $group = 0.0;
@@ -127,9 +132,9 @@ final class SpokenQuantity
                 // دسته" = 36), it is never added to it.
                 $group = ($group > 0 ? $group : 1) * $v;
                 $lastSmall = null;
-            } elseif ($v === 200.0) {
-                // M10: "ميتين ألف" = 200 * 1000, not 200 + 1000. Keep the
-                // hundred in the open group so a following thousand multiplies it.
+            } elseif (in_array($v, [200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0], true)) {
+                // Hundreds accumulate in the open group so a following thousand multiplies them
+                // e.g. "خمسميه الف" = 500 * 1000 = 500000.
                 $group += $v;
                 $lastSmall = null;
             } else {

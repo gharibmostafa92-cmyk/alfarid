@@ -13,6 +13,7 @@ const statuses: { value?: SupplierPortalPOStatus; label: string }[] = [
   { value: 'change_requested', label: 'تعديل مطلوب' },
   { value: 'partially_received', label: 'مستلمة جزئيًا' },
   { value: 'completed', label: 'مكتملة' },
+  { value: 'cancelled', label: 'ملغاة' },
 ];
 
 const statusLabel: Record<SupplierPortalPOStatus, string> = {
@@ -39,24 +40,26 @@ function SupplierPurchaseOrdersContent() {
   const requestedStatus = searchParams.get('status') as SupplierPortalPOStatus | null;
   const [status, setStatus] = useState<SupplierPortalPOStatus | undefined>(requestedStatus && statusValues.has(requestedStatus) ? requestedStatus : undefined);
   const [orders, setOrders] = useState<SupplierPortalPO[] | null>(null);
+  const [page, setPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
   const [error, setError] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
     setOrders(null);
     setError('');
-    supplierPortalApi.purchaseOrders({ status }, controller.signal)
-      .then((page) => setOrders(page.data))
+    supplierPortalApi.purchaseOrders({ status, page }, controller.signal)
+      .then((result) => { setOrders(result.data); setLastPage(result.meta.last_page); })
       .catch(() => { if (!controller.signal.aborted) setError('تعذر تحميل أوامر الشراء.'); });
     return () => controller.abort();
-  }, [status]);
+  }, [status, page]);
 
   return (
     <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-5 py-8">
       <h1 className="mb-4 text-2xl font-semibold">أوامر الشراء</h1>
       <div className="mb-5 flex flex-wrap gap-2">
         {statuses.map((item) => (
-          <button key={item.label} type="button" onClick={() => setStatus(item.value)}
+          <button key={item.label} type="button" onClick={() => { setStatus(item.value); setPage(1); }}
             className={`rounded-full px-3 py-1 text-sm ${status === item.value ? 'bg-black text-white' : 'bg-white text-black/70'}`}>
             {item.label}
           </button>
@@ -81,6 +84,13 @@ function SupplierPurchaseOrdersContent() {
           </Link>
         ))}
       </div>
+      <nav aria-label="صفحات أوامر الشراء" className="mt-6 flex items-center justify-between">
+        <button type="button" disabled={page <= 1 || !orders} onClick={() => setPage((current) => Math.max(1, current - 1))}
+          className="rounded border px-4 py-2 disabled:opacity-50">السابق</button>
+        <span aria-live="polite">صفحة {page} من {lastPage}</span>
+        <button type="button" disabled={page >= lastPage || !orders} onClick={() => setPage((current) => Math.min(lastPage, current + 1))}
+          className="rounded border px-4 py-2 disabled:opacity-50">التالي</button>
+      </nav>
     </main>
   );
 }

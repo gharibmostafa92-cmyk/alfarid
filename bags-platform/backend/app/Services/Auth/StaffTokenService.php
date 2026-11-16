@@ -60,10 +60,20 @@ final class StaffTokenService
         $tokenable->tokens()->where(fn ($query) => $query->where('expires_at', '<=', now())
             ->when($expiry, fn ($query) => $query->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
 
-        $limit = max(1, $maxTokens);
-        $old = $tokenable->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
-        if ($old->isNotEmpty()) {
-            $tokenable->tokens()->whereIn('id', $old)->delete();
+        $keepCount = max(0, $maxTokens - 1);
+        if ($keepCount === 0) {
+            $tokenable->tokens()->delete();
+
+            return;
         }
+
+        $keepSubquery = $tokenable->tokens()
+            ->select('id')
+            ->orderByDesc('id')
+            ->limit($keepCount);
+
+        $tokenable->tokens()
+            ->whereNotIn('id', $keepSubquery)
+            ->delete();
     }
 }

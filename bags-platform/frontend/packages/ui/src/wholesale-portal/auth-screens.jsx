@@ -19,7 +19,7 @@ export const AuthFrame = ({ children, wide }) => (
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><polygon points="4,10 10,4 10,13 4,19" fill="#09090b" /><polygon points="11,11 17,5 17,14 11,20" fill="#09090b" /></svg>
             <span className="luxury-brand-tag">SOPHIE · WHOLESALE</span>
           </span>
-          <button className="luxury-lang-btn" lang="en">English</button>
+          <button type="button" className="luxury-lang-btn" lang="en" onClick={() => {}}>English</button>
         </div>
         <div className="luxury-form-wrap" style={wide ? { maxWidth: 460 } : null}>{children}</div>
       </section>
@@ -65,7 +65,7 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
       ) : api.state === 'error' ? (
         <div className="luxury-auth-fields">
           <p className="luxury-form-error" role="alert">تعذر تحميل حالة الطلب. حاول مرة أخرى.</p>
-          <button className="pill-btn-primary" onClick={api.reload}>إعادة المحاولة</button>
+          <button type="button" className="pill-btn-primary" onClick={api.reload}>إعادة المحاولة</button>
         </div>
       ) : (
         <div className="luxury-auth-fields">
@@ -146,10 +146,10 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
 
           {enterError && <p className="luxury-form-error" role="alert">{enterError}</p>}
           {status === 'approved'
-            ? <button className="pill-btn-primary" disabled={entering} onClick={enter}>الدخول إلى بوابة الجملة</button>
-            : <button className="pill-btn-primary" onClick={api.reload}>تحديث حالة الطلب</button>}
+            ? <button type="button" className="pill-btn-primary" disabled={entering} onClick={enter}>الدخول إلى بوابة الجملة</button>
+            : <button type="button" className="pill-btn-primary" onClick={api.reload}>تحديث حالة الطلب</button>}
           <div className="luxury-bottom-switch" style={{ marginTop: 4 }}>
-            <button className="luxury-switch-link" onClick={onLogout}>تسجيل الخروج</button>
+            <button type="button" className="luxury-switch-link" onClick={onLogout}>تسجيل الخروج</button>
           </div>
         </div>
       )}
@@ -186,8 +186,8 @@ export const ForgotPassword = ({ onBack, onGoReset, onForgotSubmit }) => {
       {sent ? (
         <div className="luxury-auth-fields">
           <p className="luxury-success" role="status"><b>تم إرسال الطلب.</b><br />لو الحساب موجود، هيوصلك رابط إعادة التعيين على <span className="num">{login}</span> خلال دقائق. الرابط صالح لمدة 60 دقيقة.</p>
-          <button className="pill-btn-primary" onClick={onGoReset}>عندي الرابط — إعادة التعيين</button>
-          <div className="luxury-bottom-switch"><button className="luxury-switch-link" onClick={() => setSent(false)}>إعادة الإرسال</button><span className="luxury-link-sep">·</span><button className="luxury-switch-link" onClick={onBack}>العودة لتسجيل الدخول</button></div>
+          <button type="button" className="pill-btn-primary" onClick={onGoReset}>عندي الرابط — إعادة التعيين</button>
+          <div className="luxury-bottom-switch"><button type="button" className="luxury-switch-link" onClick={() => setSent(false)}>إعادة الإرسال</button><span className="luxury-link-sep">·</span><button type="button" className="luxury-switch-link" onClick={onBack}>العودة لتسجيل الدخول</button></div>
         </div>
       ) : (
         <form className="luxury-form" onSubmit={submit} noValidate>
@@ -249,8 +249,8 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSu
       <h1 className="luxury-title">{linkState === 'expired' ? 'انتهت صلاحية الرابط' : 'الرابط غير صالح'}</h1>
       <p className="luxury-sub">{linkState === 'expired' ? 'روابط إعادة التعيين صالحة لمدة 60 دقيقة فقط. اطلب رابط جديد.' : 'الرابط ده مستخدم قبل كده أو ناقص. اطلب رابط جديد من صفحة استعادة كلمة المرور.'}</p>
       <p className="luxury-form-error" role="alert">لا يمكن إعادة تعيين كلمة المرور بهذا الرابط.</p>
-      <button className="pill-btn-primary" style={{ marginTop: 22 }} onClick={onForgot}>طلب رابط جديد</button>
-      <div className="luxury-bottom-switch"><button className="luxury-switch-link" onClick={onBack}>العودة لتسجيل الدخول</button></div>
+      <button type="button" className="pill-btn-primary" style={{ marginTop: 22 }} onClick={onForgot}>طلب رابط جديد</button>
+      <div className="luxury-bottom-switch"><button type="button" className="luxury-switch-link" onClick={onBack}>العودة لتسجيل الدخول</button></div>
     </AuthFrame>
   );
   return (
@@ -260,7 +260,7 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSu
       {done ? (
         <div className="luxury-auth-fields">
           <p className="luxury-success" role="status"><span className="luxury-verified-badge">تم التحديث بنجاح</span></p>
-          <button className="pill-btn-primary" onClick={onBack}>تسجيل الدخول</button>
+          <button type="button" className="pill-btn-primary" onClick={onBack}>تسجيل الدخول</button>
         </div>
       ) : (
         <form className="luxury-form" onSubmit={submit} noValidate>

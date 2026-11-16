@@ -44,8 +44,8 @@ class SupplierInvoiceRequest extends FormRequest
             'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
             'issue_date' => [$isStore ? 'required' : 'sometimes', 'date_format:Y-m-d', 'before_or_equal:today'],
             'due_date' => ['nullable', 'date_format:Y-m-d', Rule::when($this->filled('issue_date'), ['after_or_equal:issue_date'])],
-            'subtotal' => [$isStore ? 'required' : 'sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
-            'tax_amount' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
+            'subtotal' => [$isStore ? 'required' : 'sometimes', 'numeric', 'min:0', 'max:999999999999999999.99'],
+            'tax_amount' => ['sometimes', 'numeric', 'min:0', 'max:999999999999999999.99'],
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ];
     }

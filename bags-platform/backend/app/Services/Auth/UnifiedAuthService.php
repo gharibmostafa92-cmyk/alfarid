@@ -55,11 +55,11 @@ final class UnifiedAuthService
         // Reserve the per-identifier+network slot atomically before any bcrypt work (H2).
         // M-1: past the soft limit, demand Turnstile instead of locking the real owner out
         // behind shared NAT/CGNAT; keep a hard ceiling at 5x the limit.
-        $pairHits = RateLimiter::hit($pairKey, 3600);
-        if ($pairHits > $pairLimit * 5) {
+        $pairAttempts = RateLimiter::attempts($pairKey);
+        if ($pairAttempts >= $pairLimit * 5) {
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
-        $pairLimitReached = $pairHits > $pairLimit;
+        $pairLimitReached = $pairAttempts >= $pairLimit;
         $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
         $hourLimitReached = RateLimiter::tooManyAttempts($hourKey, $hourLimit);
         $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
@@ -84,6 +84,10 @@ final class UnifiedAuthService
             if ($validator->fails()) {
                 throw new BusinessException('أكمل التحقق البشري للمتابعة.', [], 429, 'challenge_required');
             }
+        }
+        $pairHits = RateLimiter::hit($pairKey, 3600);
+        if ($pairHits > $pairLimit * 5) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
         try {
             $actor = $this->resolve($identifier, $password, $staff, $suppressAudit, $staffOnly);

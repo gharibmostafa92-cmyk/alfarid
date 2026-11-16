@@ -36,9 +36,6 @@ class CustomerPhoneVerificationService
                 'phone_key' => $key, 'code_hash' => '', 'created_at' => now()->subDay(), 'expires_at' => now()->subDay(),
             ]);
             $row = DB::table('customer_phone_verifications')->where('phone_key', $key)->lockForUpdate()->first();
-            if ($row->verified_at !== null && now()->lt($row->expires_at)) {
-                return false;
-            }
             if (now()->subSeconds(60)->lt($row->created_at) || ! app(CustomerMessageBudget::class)->claim('verify:'.$key, networkKey: $networkKey)) {
                 return false;
             }
@@ -50,11 +47,14 @@ class CustomerPhoneVerificationService
             return true;
         });
         if ($created) {
-            DB::afterCommit(function () use ($phone, $code): void {
+            DB::afterCommit(function () use ($phone, $code, $key): void {
                 try {
                     Notification::route('customer_sms', $phone)->notify(new CustomerPhoneVerificationCode($code));
                     logger()->info('Customer OTP delivered.');
                 } catch (\Throwable $exception) {
+                    DB::table('customer_phone_verifications')->where('phone_key', $key)->update([
+                        'created_at' => now()->subMinutes(2),
+                    ]);
                     logger()->error('Customer OTP delivery failed.', ['exception' => $exception::class]);
                     throw $exception;
                 }

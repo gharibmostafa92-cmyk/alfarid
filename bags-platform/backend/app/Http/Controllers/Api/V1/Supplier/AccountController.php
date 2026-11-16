@@ -24,7 +24,8 @@ class AccountController extends Controller
     {
         /** @var SupplierUser $user */
         $user = $request->user();
-        $supplier = $user->supplier()->firstOrFail();
+        $supplier = $user->supplier;
+        abort_if($supplier === null, 404);
 
         return response()->json(['data' => $this->finance->statement(
             $supplier,

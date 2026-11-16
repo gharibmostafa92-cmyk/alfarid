@@ -47,7 +47,7 @@ Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->grou
     Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('invoices/{order}/pdf', [InvoiceController::class, 'pdf'])->where('order', '[0-9]{1,18}')->middleware('throttle:wholesale-heavy')->name('invoices.pdf');
     Route::get('statement', [InvoiceController::class, 'statement'])->name('statement');
-    Route::post('payment-notices', [InvoiceController::class, 'storePaymentNotice'])->middleware('throttle:wholesale-heavy')->name('payment-notices.store');
+    Route::post('payment-notices', [PaymentNoticeController::class, 'store'])->middleware('throttle:wholesale-heavy')->name('payment-notices.store');
     // Payment notice ledger status and receipt downloads
     Route::get('payment-notices', [PaymentNoticeController::class, 'index'])->name('payment-notices.index');
     Route::get('payment-notices/outstanding', [PaymentNoticeController::class, 'outstanding'])->name('payment-notices.outstanding');

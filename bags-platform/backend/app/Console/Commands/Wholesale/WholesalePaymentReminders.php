@@ -35,22 +35,33 @@ class WholesalePaymentReminders extends Command
                     ->from('outbound_messages')
                     ->whereRaw("outbound_messages.idempotency_key = CONCAT('payment-reminder:', orders.id, ':', CAST(orders.due_at AS DATE))");
             })
+            ->whereRaw('(
+                SELECT COUNT(*) FROM outbound_messages om
+                WHERE om.customer_id = orders.customer_id
+                  AND om.template = ?
+                  AND om.status NOT IN (?, ?)
+                  AND om.created_at >= ?
+            ) < ?', ['payment_reminder', 'skipped', 'error', now()->subWeek(), $cap])
             ->orderBy('due_at')
             ->orderBy('id')
             ->limit(200)
             ->get();
+        $sentCounts = [];
         foreach ($orders as $order) {
             $customer = $order->customer;
             if ($customer === null) {
                 continue;
             }
-            $sent = OutboundMessage::query()
-                ->where('customer_id', $customer->id)
-                ->where('template', 'payment_reminder')
-                ->whereNotIn('status', ['skipped', 'error'])
-                ->where('created_at', '>=', now()->subWeek())
-                ->count();
-            if ($sent >= $cap) {
+            $customerId = (int) $customer->id;
+            if (! isset($sentCounts[$customerId])) {
+                $sentCounts[$customerId] = OutboundMessage::query()
+                    ->where('customer_id', $customerId)
+                    ->where('template', 'payment_reminder')
+                    ->whereNotIn('status', ['skipped', 'error'])
+                    ->where('created_at', '>=', now()->subWeek())
+                    ->count();
+            }
+            if ($sentCounts[$customerId] >= $cap) {
                 continue;
             }
             $due = $order->due_at?->toDateString() ?? '';
@@ -63,6 +74,7 @@ class WholesalePaymentReminders extends Command
                 $outbox->nextContactAt($customer),
                 $outbox->customerAllowsWhatsapp($customer),
             );
+            $sentCounts[$customerId]++;
         }
 
         return self::SUCCESS;

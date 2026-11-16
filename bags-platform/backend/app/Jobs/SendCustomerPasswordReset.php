@@ -16,7 +16,7 @@ class SendCustomerPasswordReset implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 1;
+    public int $tries = 3;
 
     public int $timeout = 30;
 

@@ -26,7 +26,7 @@ export const QUOTE_STATUS = {
   accepted: ['مقبول', 'success'], rejected: ['مرفوض', 'danger'], expired: ['منتهي', 'default'], converted: ['محوّل لطلب', 'accent'],
 };
 
-export const NOTICE_STATUS = { pending: ['قيد المراجعة', 'warning'], approved: ['معتمد', 'success'], rejected: ['مرفوض', 'danger'] };
+export const NOTICE_STATUS = { pending: ['قيد المراجعة', 'warning'], approved: ['معتمد', 'success'], rejected: ['مرفوض', 'danger'], reversed: ['معكوس', 'danger'] };
 
 export const RETURN_STATUS = {
   requested: ['تم تقديم الطلب', 'warning'], approved: ['تمت الموافقة', 'info'], received: ['تم استلام المرتجع', 'accent'],
@@ -35,7 +35,7 @@ export const RETURN_STATUS = {
 
 export const NOTICE_METHOD = { bank_transfer: 'تحويل بنكي', check: 'شيك', deposit: 'إيداع' };
 
-export const REFUND_METHOD = { original_payment: 'نفس وسيلة الدفع', wallet: 'رصيد المحفظة', bank_transfer: 'تحويل بنكي', cash: 'نقدي' };
+export const REFUND_METHOD = { original_payment: 'نفس وسيلة الدفع', wallet: 'رصيد المحفظة', bank_transfer: 'تحويل بنكي', cash: 'نقدي', credit_note: 'إشعار دائن (خصم من المديونية)' };
 
 export const DOC_TYPE = { commercial_register: 'السجل التجاري', tax_card: 'البطاقة الضريبية', national_id: 'البطاقة الشخصية', other: 'مستند آخر' };
 

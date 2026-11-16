@@ -32,7 +32,16 @@ class UpdateUserRequest extends StoreUserRequest
                 'required',
                 'email',
                 'max:255',
-                Rule::unique('users', 'email')->ignore($this->route('user')),
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    $targetId = $this->route('user') instanceof User ? $this->route('user')->getKey() : $this->route('user');
+                    $exists = User::query()
+                        ->when($targetId !== null, fn ($q) => $q->where('id', '!=', $targetId))
+                        ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim((string) $value))])
+                        ->exists();
+                    if ($exists) {
+                        $fail('البريد الإلكتروني مستخدم بالفعل.');
+                    }
+                },
                 new EmailNotUsedByOtherAccountType('users'),
             ],
             'phone' => ['sometimes', 'nullable', 'string', 'max:30'],

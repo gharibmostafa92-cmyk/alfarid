@@ -487,6 +487,7 @@ export interface PurchaseOrder {
   id: number;
   no: string;
   sup: number;
+  supName?: string;
   branch: string;
   status: string;
   eta: string | null;
@@ -508,6 +509,7 @@ export interface SupplierInvoice {
   sys: string;
   supNo: string;
   sup: number;
+  supName?: string;
   po: string | null;
   issue: string;
   due: string | null;
@@ -530,6 +532,7 @@ export interface SupplierPayment {
   id: number;
   no: string;
   sup: number;
+  supName?: string;
   inv: string | null;
   amount: number;
   method: string;

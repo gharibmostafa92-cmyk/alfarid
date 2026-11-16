@@ -99,6 +99,7 @@ export const supplierInvoicesApi = {
 export interface SupplierPaymentApi {
   id: number; payment_number: string; supplier_id: number; supplier_invoice_id: number | null;
   treasury_id: number | null;
+  supplier?: { id: number; code: string; name: string } | null;
   invoice?: { id: number; invoice_number: string; supplier_invoice_no: string | null } | null;
   amount: string; payment_method: 'cash' | 'bank_transfer' | 'check'; reference_no: string | null;
   payment_date: string; notes: string | null; voided_at: string | null; voided_by: number | null; void_reason: string | null;

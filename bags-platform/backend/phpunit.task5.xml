@@ -24,7 +24,6 @@
         <env name="MEDIA_CONVERSIONS_DISK" value="r2" force="true"/>
         <env name="MEDIA_CATALOG_DISK" value="r2_public" force="true"/>
         <env name="APP_LOCALE" value="ar"/>
-        <!-- Compatibility endpoints are explicitly enabled only for their regression suite. -->
         <env name="LEGACY_LOGIN_ENABLED" value="true" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
@@ -33,7 +32,7 @@
         <env name="FILESYSTEM_DISK" value="local" force="true"/>
         <env name="LOG_LEVEL" value="error" force="true"/>
         <env name="DB_CONNECTION" value="pgsql" force="true"/>
-        <env name="DB_DATABASE" value="alfarid_task2_review_26a91" force="true"/>
+        <env name="DB_DATABASE" value="alfarid_testing_task5" force="true"/>
         <env name="DB_URL" value="" force="true"/>
         <env name="MAIL_MAILER" value="array" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync" force="true"/>

@@ -20,6 +20,11 @@ class MaxImagePixels implements ValidationRule
         if (! $value instanceof UploadedFile) {
             return;
         }
+        $head = @file_get_contents($value->getRealPath() ?: $value->getPathname(), false, null, 0, 5);
+        $mime = (string) $value->getMimeType();
+        if ($head === '%PDF-' || (! str_starts_with($mime, 'image/') && ($mime === 'application/pdf' || $value->getClientMimeType() === 'application/pdf'))) {
+            return;
+        }
         // Highly compressed images bypass filesize limits; cap total pixel count to prevent GD memory exhaustion bombs.
         $size = @getimagesize($value->getPathname());
         // M11: an unreadable/corrupt image must fail closed. Previously a

@@ -47,7 +47,7 @@ class UserController extends Controller
                 'string',
                 Rule::exists('roles', 'name')->where('guard_name', 'staff'),
             ],
-            'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'search' => ['sometimes', 'nullable', 'string', 'min:2', 'max:100'],
             'is_active' => ['sometimes', 'boolean'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
@@ -141,7 +141,7 @@ class UserController extends Controller
         $failure = app(UpdateStaffUser::class)(
             $user,
             $user,
-            ['password' => Hash::make($validated['password']), 'expected_version' => $validated['expected_version']],
+            ['password' => $validated['password'], 'expected_version' => $validated['expected_version']],
             ['current_token_id' => $request->user('staff')?->currentAccessToken()?->id],
             verifiedPasswordHash: $user->password,
             selfRotation: true
@@ -187,21 +187,14 @@ class UserController extends Controller
         if ($credentialChange && isset($userAttributes['password']) && $userAttributes['password'] === $validated['current_password']) {
             throw ValidationException::withMessages(['password' => 'اختر كلمة مرور مختلفة عن كلمة المرور الحالية.']);
         }
-        if (isset($userAttributes['password'])) {
-            $userAttributes['password'] = Hash::make($userAttributes['password']);
-        }
 
         $actionData = Arr::except($validated, ['password']);
         if (isset($userAttributes['password'])) {
             $actionData['password'] = $userAttributes['password'];
         }
-        // Self password-only rotation (with verified current password) bypasses the users.update
-        // permission so users flagged with must_change_password can rotate their credentials upon login.
-        $selfRotation = $isCurrentUser && isset($userAttributes['password'])
-            && array_diff(array_keys($validated), ['password', 'current_password', 'expected_version']) === [];
         $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData,
-            ['current_token_id' => $selfRotation ? $request->user('staff')?->currentAccessToken()?->id : null],
-            verifiedPasswordHash: $verifiedPasswordHash, selfRotation: $selfRotation,
+            ['current_token_id' => null],
+            verifiedPasswordHash: $verifiedPasswordHash, selfRotation: false,
             currentPassword: $validated['current_password'] ?? null);
 
         if ($failure !== null) {

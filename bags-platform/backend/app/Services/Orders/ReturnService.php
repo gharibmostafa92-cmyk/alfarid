@@ -378,8 +378,8 @@ class ReturnService
                     throw new BusinessException('الإشعار الدائن مخصص للطلبات الآجلة غير الملغاة.');
                 }
                 $noticeService = app(\App\Services\Wholesale\WholesalePaymentNoticeService::class);
-                $noticeService->releaseExcessAllocationsForCreditNote($order, (string) $return->total_refund_amount, $admin->id);
-                $noticeService->assertCreditNoteCapacity($order, (string) $return->total_refund_amount);
+                $noticeService->releaseExcessAllocationsForCreditNote($order, (string) $return->total_refund_amount, $admin->id, $return->id);
+                $noticeService->assertCreditNoteCapacity($order, (string) $return->total_refund_amount, $return->id);
             } elseif (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
                 throw new BusinessException('لا يمكن رد مبلغ نقدي أو إلى المحفظة لطلب غير مدفوع. يُقيَّد المرتجع كتخفيض للمستحق حتى يُبنى مسار إشعار دائن.');
             }

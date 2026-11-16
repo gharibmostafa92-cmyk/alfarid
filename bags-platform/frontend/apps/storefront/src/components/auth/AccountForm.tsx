@@ -237,9 +237,9 @@ export function AccountForm({
         autoComplete="new-password"
         enterKeyHint="next"
         required
-        minLength={wholesale || resetStep ? 12 : 8}
+        minLength={wholesale ? 12 : 8}
         maxLength={72}
-        placeholder={wholesale || resetStep ? text('12 حرفًا على الأقل', 'At least 12 characters') : text('8 أحرف على الأقل', 'At least 8 characters')}
+        placeholder={wholesale ? text('12 حرفًا على الأقل', 'At least 12 characters') : text('8 أحرف على الأقل', 'At least 8 characters')}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         error={errors.password?.[0]}
@@ -252,7 +252,7 @@ export function AccountForm({
         autoComplete="new-password"
         enterKeyHint={wholesale ? 'next' : 'done'}
         required
-        minLength={wholesale || resetStep ? 12 : 8}
+        minLength={wholesale ? 12 : 8}
         maxLength={72}
         placeholder={text('أعد إدخال كلمة المرور', 'Re-enter your password')}
         value={confirmation}

@@ -146,8 +146,8 @@ class Customer extends Authenticatable
         // Normalize Arabic-Indic and Eastern Arabic digits into ASCII equivalents.
         $phone = ArabicDigits::normalize($trimmed);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
-        if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {
-            return '0'.substr($phone, 2);
+        if (preg_match('/^(?:\+?200?|00200?)(1[0125][0-9]{8})$/', $phone, $matches) === 1) {
+            return '0'.$matches[1];
         }
         if (str_starts_with($phone, '+20')) {
             return '0'.substr($phone, 3);

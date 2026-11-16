@@ -51,8 +51,9 @@ class PhaseNineTenConcurrencyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed(SettingSeeder::class);
+        $this->seed([SettingSeeder::class, RolePermissionSeeder::class]);
         $this->staff = User::factory()->create();
+        $this->staff->assignRole('Super Admin');
         $this->branch = Branch::factory()->create();
         $this->supplier = Supplier::factory()->create();
         $this->variant = ProductVariant::factory()->create(['is_active' => true, 'cost_price' => 100]);
@@ -175,10 +176,10 @@ PHP;
 
     public function test_concurrent_invoice_cancellation_and_payment_keep_balance_consistent(): void
     {
-        $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'RACE-1', 'issue_date' => '2026-10-19', 'subtotal' => 100]);
-        app(SupplierFinanceService::class)->postInvoice($invoice);
+        $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'RACE-1', 'issue_date' => '2026-10-19', 'subtotal' => 100], actor: $this->staff);
+        app(SupplierFinanceService::class)->postInvoice($invoice, $this->staff);
         $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'supplier_invoice_id' => $invoice->id, 'amount' => 40, 'payment_method' => 'cash', 'payment_date' => '2026-10-19'];
-        $cancel = 'app(App\\Services\\SupplierFinanceService::class)->cancelInvoice(App\\Models\\SupplierInvoice::findOrFail('.$invoice->id.'));';
+        $cancel = 'app(App\\Services\\SupplierFinanceService::class)->cancelInvoice(App\\Models\\SupplierInvoice::findOrFail('.$invoice->id.'), App\\Models\\User::findOrFail('.$this->staff->id.'));';
         $pay = 'app(App\\Services\\SupplierFinanceService::class)->createPayment('.var_export($data, true).', App\\Models\\User::findOrFail('.$this->staff->id.'), "race-payment");';
         $this->race([$cancel, $pay], ['OK', 'REJECTED']);
         $invoice->refresh();
@@ -277,8 +278,8 @@ PHP;
     public function test_concurrent_payments_with_different_keys_cannot_overpay_one_invoice(): void
     {
         $service = app(SupplierFinanceService::class);
-        $invoice = $service->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'CAPACITY', 'issue_date' => now()->toDateString(), 'subtotal' => 100]);
-        $service->postInvoice($invoice);
+        $invoice = $service->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'CAPACITY', 'issue_date' => now()->toDateString(), 'subtotal' => 100], actor: $this->staff);
+        $service->postInvoice($invoice, $this->staff);
         $data = ['supplier_id' => $this->supplier->id, 'treasury_id' => $this->paymentTreasury()->id, 'supplier_invoice_id' => $invoice->id, 'amount' => 80, 'payment_method' => 'cash', 'payment_date' => now()->toDateString()];
         $jobs = [];
         foreach (['capacity-a', 'capacity-b'] as $key) {

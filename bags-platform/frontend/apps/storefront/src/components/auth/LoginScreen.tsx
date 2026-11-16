@@ -45,7 +45,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
-    if (view !== 'login' || token) {
+    if (view !== 'login' || token || login !== '' || password !== '') {
       setStaffCheckPending(false);
       return;
     }
@@ -62,6 +62,13 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     frame.title = 'Session verification';
     frame.src = new URL(`/auth/session#nonce=${encodeURIComponent(nonce)}`, office).href;
     setStaffCheckPending(true);
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      window.removeEventListener('message', receive);
+      frame.remove();
+    };
     const receive = (event: MessageEvent) => {
       if (
         event.origin !== office.origin ||
@@ -70,18 +77,21 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
         event.data?.nonce !== nonce
       )
         return;
+      cleanup();
       if (event.data.authenticated === true) window.location.replace(new URL('/dashboard', office).href);
       else setStaffCheckPending(false);
     };
     window.addEventListener('message', receive);
     document.body.appendChild(frame);
-    const timer = window.setTimeout(() => setStaffCheckPending(false), 800);
+    const timer = window.setTimeout(() => {
+      cleanup();
+      setStaffCheckPending(false);
+    }, 800);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener('message', receive);
-      frame.remove();
+      cleanup();
     };
-  }, [view, token]);
+  }, [view, token, login, password]);
 
   // If already authenticated, redirect to the intended destination or default home path.
   useEffect(() => {

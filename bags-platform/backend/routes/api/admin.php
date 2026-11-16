@@ -250,6 +250,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::get('payment-notices/{payment_notice}', [WholesalePaymentNoticeController::class, 'show'])->where('payment_notice', '[0-9]{1,18}')->name('payment-notices.show');
         Route::post('payment-notices/{payment_notice}/approve', [WholesalePaymentNoticeController::class, 'approve'])->where('payment_notice', '[0-9]{1,18}')->middleware('permission:payment_notices.approve')->name('payment-notices.approve');
         Route::post('payment-notices/{payment_notice}/reject', [WholesalePaymentNoticeController::class, 'reject'])->where('payment_notice', '[0-9]{1,18}')->middleware('permission:payment_notices.reject')->name('payment-notices.reject');
+        Route::post('payment-notices/{payment_notice}/reverse', [WholesalePaymentNoticeController::class, 'reverse'])->where('payment_notice', '[0-9]{1,18}')->middleware('permission:payment_notices.approve')->name('payment-notices.reverse');
         Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->where('notice', '[0-9]{1,18}')->name('payment-notices.receipt');
 
         // Return requests (RMA)

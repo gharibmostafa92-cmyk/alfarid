@@ -73,7 +73,7 @@ class NormalizeCustomerPhones extends Command
             )
             SELECT id, before, CASE
                 WHEN trimmed ~ '^legacy-[0-9]+$' THEN trimmed
-                WHEN value ~ '^201[0125][0-9]{8}$' THEN '0' || SUBSTRING(value FROM 3)
+                WHEN value ~ '^(\+?200?|00200?)1[0125][0-9]{8}$' THEN regexp_replace(value, '^(\+?200?|00200?)(1[0125][0-9]{8})$', '0\\2')
                 WHEN value LIKE '+20%' THEN '0' || SUBSTRING(value FROM 4)
                 WHEN value LIKE '0020%' THEN '0' || SUBSTRING(value FROM 5)
                 ELSE value END AS after FROM cleaned");

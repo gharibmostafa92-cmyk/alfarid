@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Models\SupplierUser;
+use App\Models\Supplier;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -28,12 +29,19 @@ class EnsureSupplierAuthenticated
         // by token pruning and always reports every ability as granted.
         if (! $user instanceof SupplierUser || ! $token instanceof PersonalAccessToken
             || ! $user->is_active || $user->supplier_id === null
-            || ! $user->supplier()->where('is_active', true)->exists()
             || ! $token->can('supplier')) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كمستخدم مورد أو الحساب غير نشط.',
             ], 403);
         }
+
+        $supplier = Supplier::query()->whereKey($user->supplier_id)->where('is_active', true)->first();
+        if ($supplier === null) {
+            return response()->json([
+                'message' => 'غير مصرح لك بالدخول كمستخدم مورد أو الحساب غير نشط.',
+            ], 403);
+        }
+        $user->setRelation('supplier', $supplier);
 
         Auth::guard('supplier')->setUser($user);
         Auth::shouldUse('supplier');

@@ -266,7 +266,7 @@ export const NoticeForm = () => {
               <select className="line-input" value={f.order} onChange={(e) => pickOrder(e.target.value)}>
                 <option value="">بدون — سداد على الحساب</option>{orders.map((o) => <option key={o.id} value={o.id}>{o.number} · {fmt(o.total)} EGP</option>)}
               </select></Async></DataBoundary></Field>
-            <Field label="المبلغ" req error={errs.amount}><div style={{ position: 'relative' }}><input className={`line-input ltr${errs.amount ? ' is-invalid' : ''}`} style={{ textAlign: 'right', paddingLeft: 40 }} inputMode="decimal" placeholder="0.00" value={f.amount} onChange={(e) => set('amount', e.target.value.replace(/[^\d.]/g, ''))} /><span className="soft small" style={{ position: 'absolute', left: 0, top: 12 }}>EGP</span></div></Field>
+            <Field label="المبلغ" req error={errs.amount}><div style={{ position: 'relative' }}><input className={`line-input ltr${errs.amount ? ' is-invalid' : ''}`} style={{ textAlign: 'right', paddingLeft: 40 }} inputMode="decimal" placeholder="0.00" value={f.amount} onChange={(e) => { const v = e.target.value; if (/^\d*(\.\d{0,2})?$/.test(v)) set('amount', v); }} /><span className="soft small" style={{ position: 'absolute', left: 0, top: 12 }}>EGP</span></div></Field>
             <Field label="تاريخ التحويل" req error={errs.date}><input type="date" max={today()} className={`line-input ltr${errs.date ? ' is-invalid' : ''}`} value={f.date} onChange={(e) => set('date', e.target.value)} /></Field>
             <Field label="طريقة السداد" req span error={errs.method}>
               <div className="chips">{Object.entries(NOTICE_METHOD).map(([k, l]) => <button key={k} type="button" className={`chip${f.method === k ? ' is-on' : ''}`} onClick={() => set('method', k)}><i className={`fa-solid ${{ bank_transfer: 'fa-building-columns', check: 'fa-money-check', deposit: 'fa-piggy-bank' }[k]}`} />{l}</button>)}</div></Field>
@@ -307,8 +307,16 @@ export const Notices = () => {
   const [f, setF] = useState('all');
   const [page, setPage] = useState(1);
 
+  const filterStatusMap = {
+    all: undefined,
+    pending: 'pending_review',
+    approved: 'approved',
+    rejected: 'rejected',
+    reversed: 'reversed',
+  };
+
   const api = useApi((signal) => wholesaleEndpoints
-    .notices({ status: f === 'all' ? undefined : 'pending_review', page }, signal)
+    .notices({ status: filterStatusMap[f], page }, signal)
     .then((r) => ({ items: (r.data || []).map(mapNotice), meta: pageMeta(r.meta) })), [f, page]);
 
   const list = api.data?.items || [];
@@ -318,7 +326,13 @@ export const Notices = () => {
     <>
       <PageHead en="Payment Notices" ar="إشعارات السداد المرسلة وحالة مراجعتها"><button className="btn-pill is-dark" onClick={() => go('noticeNew')}><i className="fa-solid fa-plus" /> إشعار جديد</button></PageHead>
       <section className="panel">
-        <div className="toolbar"><Seg value={f} onChange={(v) => { setF(v); setPage(1); }} options={[{ value: 'all', label: 'الكل' }, { value: 'pending', label: 'قيد المراجعة' }]} /></div>
+        <div className="toolbar"><Seg value={f} onChange={(v) => { setF(v); setPage(1); }} options={[
+          { value: 'all', label: 'الكل' },
+          { value: 'pending', label: 'قيد المراجعة' },
+          { value: 'approved', label: 'معتمد' },
+          { value: 'rejected', label: 'مرفوض' },
+          { value: 'reversed', label: 'معكوس' },
+        ]} /></div>
         <DataBoundary api={api}>
           <Async rows={5} cols={6} isEmpty={!list.length} empty={<Empty icon="fa-money-check" title="لا توجد إشعارات سداد" action={<button className="btn-pill is-dark" onClick={() => go('noticeNew')}>تسجيل إشعار</button>} />}>
             <div className="tbl-wrap"><table className="tbl">
@@ -363,6 +377,7 @@ export const NoticeDetail = ({ id }) => {
           {n && (
           <>
             {n.status === 'rejected' && <div className="mb-24"><Banner kind="error" action={<button className="btn-pill sm" onClick={() => go('noticeNew')}>إرسال إشعار جديد</button>}>تم رفض الإشعار. راجع ملاحظة الإدارة وأرسل إشعار جديد بالبيانات الصحيحة.</Banner></div>}
+            {n.status === 'reversed' && <div className="mb-24"><Banner kind="error">تم عكس اعتماد هذا الإشعار من قِبل الإدارة المالية، وأُعيدت المبالغ إلى المديونية القائمة. راجع ملاحظات الإدارة أدناه.</Banner></div>}
             {n.status === 'pending' && <div className="mb-24"><Banner kind="warn" icon="fa-hourglass-half">الإشعار قيد المراجعة من الإدارة. المبلغ لن يُخصم من المديونية قبل الاعتماد.</Banner></div>}
             <div className="grid-2e">
               <Panel title="بيانات السداد" en="DETAILS">
@@ -438,12 +453,11 @@ export const Notifications = () => {
   const [f, setF] = useState('all');
   const [page, setPage] = useState(1);
 
-  const api = useApi((signal) => wholesaleEndpoints.notifications(page, signal)
-    .then((r) => ({ items: (r.data || []).map(mapNotif), meta: r.meta })), [page]);
+  const api = useApi((signal) => wholesaleEndpoints.notifications(page, signal, f === 'unread')
+    .then((r) => ({ items: (r.data || []).map(mapNotif), meta: r.meta })), [page, f]);
 
-  const all = api.data?.items || [];
+  const list = api.data?.items || [];
   const unreadCount = api.data?.meta?.unread_count ?? unread;
-  const list = f === 'all' ? all : all.filter((n) => n.unread);
 
   const read = async (n) => {
     try {
@@ -511,7 +525,7 @@ export const Account = () => {
         <button className="btn-pill" onClick={logout}><i className="fa-solid fa-arrow-right-from-bracket" /> تسجيل الخروج</button>
       </PageHead>
       <div className="acct-hero">
-        <div className="wp-avatar" style={{ width: 64, height: 64, fontSize: 20 }}>{String(account?.name || '').split(' ').map((s) => s[0]).slice(0, 2).join('')}</div>
+        <div className="wp-avatar" style={{ width: 64, height: 64, fontSize: 20 }}>{String(account?.name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—'}</div>
         <div style={{ flex: 1 }}><div className="acct-name">{account?.name}</div><div className="muted small">{account?.company}</div></div>
         <div style={{ textAlign: 'left' }}><Badge map={{ approved: ['حساب معتمد', 'success'] }} k="approved" lg /><div className="soft small mt-8">منذ <span className="num">{account?.approved_at}</span></div></div>
       </div>

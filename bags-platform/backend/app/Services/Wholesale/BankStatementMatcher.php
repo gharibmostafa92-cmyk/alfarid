@@ -7,6 +7,8 @@ namespace App\Services\Wholesale;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 
 /**
@@ -14,6 +16,40 @@ use Carbon\Carbon;
  */
 final class BankStatementMatcher
 {
+    public static function cleanAmount(mixed $amount): string
+    {
+        if ($amount === null || $amount === '') {
+            return '0.00';
+        }
+        $str = trim((string) $amount);
+        $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        $digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+        $str = str_replace($arabicIndic, $digits, $str);
+        $str = preg_replace('/[^\d.]/', '', $str) ?? '';
+        if ($str === '' || $str === '.') {
+            return '0.00';
+        }
+        try {
+            return (string) BigDecimal::of($str)->toScale(2, RoundingMode::HalfUp);
+        } catch (\Throwable) {
+            return '0.00';
+        }
+    }
+
+    public static function cleanReference(?string $reference): string
+    {
+        if ($reference === null) {
+            return '';
+        }
+        $ref = mb_strtolower(trim($reference));
+        $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', 'أ', 'إ', 'آ', 'ة', 'ى'];
+        $replacements = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'ا', 'ا', 'ا', 'ه', 'ي'];
+        $ref = str_replace($arabicIndic, $replacements, $ref);
+        $ref = preg_replace('/[\s.,_()\/#\\-]+/u', '', $ref) ?? '';
+
+        return $ref;
+    }
+
     /**
      * Classifies statement credit transactions into exact, probable, or unmatched buckets against pending payment notices.
      *
@@ -25,7 +61,7 @@ final class BankStatementMatcher
         if (count($rows) > 500) {
             throw new \App\Exceptions\BusinessException('كشف البنك يتجاوز 500 حركة؛ قسّمه إلى ملفات أصغر.', [], 422);
         }
-        $amounts = array_values(array_unique(array_map(fn ($row) => number_format((float) ($row['amount'] ?? 0), 2, '.', ''), $rows)));
+        $amounts = array_values(array_unique(array_map(fn ($row) => self::cleanAmount($row['amount'] ?? 0), $rows)));
         $notices = WholesalePaymentNotice::query()
             ->with('customer:id,name,company_name')
             ->where('status', WholesalePaymentNoticeStatus::PendingReview)
@@ -39,8 +75,8 @@ final class BankStatementMatcher
 
         $preparedNoticesByAmount = $notices->map(fn ($n) => [
             'model' => $n,
-            'amount' => number_format((float) $n->amount, 2, '.', ''),
-            'reference' => mb_strtolower(trim((string) $n->reference_number)),
+            'amount' => self::cleanAmount($n->amount),
+            'reference' => self::cleanReference($n->reference_number),
             'date' => $n->transfer_date?->copy()->startOfDay(),
         ])->groupBy('amount');
 
@@ -55,8 +91,8 @@ final class BankStatementMatcher
             }
             $parsedRows[$index] = [
                 'index' => $index,
-                'amount' => number_format((float) ($row['amount'] ?? 0), 2, '.', ''),
-                'reference' => mb_strtolower(trim((string) ($row['reference'] ?? ''))),
+                'amount' => self::cleanAmount($row['amount'] ?? 0),
+                'reference' => self::cleanReference((string) ($row['reference'] ?? '')),
                 'raw_reference' => (string) ($row['reference'] ?? ''),
                 'date' => $date,
             ];
@@ -94,7 +130,12 @@ final class BankStatementMatcher
                 if (isset($claimedNoticeIds[$prepared['model']->id])) {
                     continue;
                 }
-                $sameReference = $parsed['reference'] !== '' && $prepared['reference'] === $parsed['reference'];
+                $bothHaveRef = $parsed['reference'] !== '' && $prepared['reference'] !== '';
+                $refConflict = $bothHaveRef && ($parsed['reference'] !== $prepared['reference']);
+                if ($refConflict) {
+                    continue;
+                }
+                $sameReference = $bothHaveRef && ($prepared['reference'] === $parsed['reference']);
                 $closeDate = $parsed['date'] !== null && abs($parsed['date']->diffInDays($prepared['date'] ?? $parsed['date'], true)) <= 1;
                 if ($sameReference || $closeDate) {
                     $hit = $prepared['model'];
@@ -137,10 +178,11 @@ final class BankStatementMatcher
         }
         if ($descriptions !== []) {
             foreach (Customer::query()->commercial()->orderBy('id')->cursor(['id', 'name', 'company_name']) as $customer) {
-                $name = mb_strtolower((string) ($customer->company_name ?: $customer->name));
-                if ($name === '') continue;
+                $name = mb_strtolower(trim((string) ($customer->company_name ?: $customer->name)));
+                if ($name === '' || mb_strlen($name) < 4) continue;
+                $pattern = '/(?<![\p{L}\p{N}])'.preg_quote($name, '/').'(?![\p{L}\p{N}])/u';
                 foreach ($descriptions as $index => $description) {
-                    if (str_contains($description, $name)) {
+                    if (preg_match($pattern, $description) === 1) {
                         $unmatched[$index]['suggestion'] = ['customer_id' => $customer->id, 'name' => $customer->company_name ?: $customer->name];
                         unset($descriptions[$index]);
                     }

@@ -119,6 +119,19 @@ class PriceListService
             $priceList->update($data);
             if ($user) StaffAdministration::audit($user, 'price_list.updated', 'price_list', $priceList->id, array_keys($data), $before, $priceList->only(array_keys($data)), []);
 
+            $impactedFields = ['is_active', 'type', 'starts_at', 'ends_at', 'branch_id', 'priority'];
+            if (array_intersect(array_keys($data), $impactedFields) !== []) {
+                $productIds = ProductVariant::query()->withTrashed()
+                    ->whereIn('id', $priceList->items()->select('product_variant_id'))
+                    ->distinct()
+                    ->pluck('product_id')
+                    ->map(fn ($id): int => (int) $id)
+                    ->all();
+                if ($productIds !== []) {
+                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
+                }
+            }
+
             return $priceList->load(['customer', 'customerGroup', 'branch']);
         });
     }

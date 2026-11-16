@@ -30,7 +30,7 @@ export const wholesaleEndpoints = {
   submitQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/submit`).then((r) => r.data.data),
   acceptQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/accept`).then((r) => r.data.data),
   rejectQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/reject`).then((r) => r.data.data),
-  notifications: (page = 1, signal?: AbortSignal) => apiClient.get(`${W}/notifications`, { params: { page }, signal }).then((r) => r.data),
+  notifications: (page = 1, signal?: AbortSignal, unreadOnly?: boolean) => apiClient.get(`${W}/notifications`, { params: { page, ...(unreadOnly ? { unread_only: 1 } : {}) }, signal }).then((r) => r.data),
   readNotification: (id: string) => apiClient.post(`${W}/notifications/${id}/read`).then((r) => r.data),
   readAllNotifications: () => apiClient.post(`${W}/notifications/read-all`).then((r) => r.data),
 };

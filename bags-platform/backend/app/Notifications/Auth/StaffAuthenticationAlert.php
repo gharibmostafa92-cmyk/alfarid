@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Notifications\Auth;
 
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-final class StaffAuthenticationAlert extends Notification
+final class StaffAuthenticationAlert extends Notification implements ShouldQueue
 {
+    use Queueable;
     public function __construct(private readonly string $reason, private readonly ?int $staffId) {}
 
     public function via(object $notifiable): array

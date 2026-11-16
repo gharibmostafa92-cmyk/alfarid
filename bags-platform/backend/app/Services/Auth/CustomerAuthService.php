@@ -174,6 +174,10 @@ class CustomerAuthService
             );
         }
 
+        if ((bool) config('auth.require_phone_verification', false) && $customer->phone_verified_at === null) {
+            throw new BusinessException('يرجى توثيق رقم الهاتف أولاً.', [], 403, 'phone_verification_required');
+        }
+
         if (Hash::needsRehash($customer->password)) {
             $original = $customer->password;
             $replacement = Hash::make($password);

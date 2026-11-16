@@ -57,6 +57,12 @@ class SupplierPayment extends Model
         return $this->belongsTo(SupplierInvoice::class, 'supplier_invoice_id');
     }
 
+    /** @return BelongsTo<Treasury, $this> */
+    public function treasury(): BelongsTo
+    {
+        return $this->belongsTo(Treasury::class);
+    }
+
     /** @return BelongsTo<User, $this> */
     public function creator(): BelongsTo
     {

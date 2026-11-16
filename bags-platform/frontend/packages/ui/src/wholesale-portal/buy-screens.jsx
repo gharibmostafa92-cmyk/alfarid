@@ -36,7 +36,7 @@ export const Dashboard = () => {
   ];
   return (
     <>
-      <PageHead en="Dashboard" ar={<>أهلًا {String(account?.name || '').split(' ')[0]} — {account?.company}</>} />
+      <PageHead en="Dashboard" ar={<>أهلًا {String(account?.name || '').trim().split(/\s+/).filter(Boolean)[0] || 'تاجرنا'} — {account?.company || ''}</>} />
       <Async rows={3} cols={4} empty={<Empty title="لا توجد بيانات بعد" />}>
         <div className="kpis">
           <div className="kpi is-ink">
@@ -576,6 +576,7 @@ export const Checkout = () => {
     checkoutEndpoints.shippingOptions({ city_id: Number(f.city_id), payment_method: pay }, null, ctrl.signal)
       .then(mapShippingOptions)
       .then((r) => { if (!ctrl.signal.aborted) { setPreview(r.preview); setOptions(r.options || []); setMethods(r.payment_methods || []); setPreviewState('ready');
+        if (r.options?.length && !r.options.some((o) => o.key === ship)) setShip(r.options[0].key);
         if (r.payment_methods?.length && !r.payment_methods.includes(pay)) setPay(r.payment_methods[0]);
       } })
       .catch(() => { if (!ctrl.signal.aborted) setPreviewState('error'); });
@@ -616,6 +617,7 @@ export const Checkout = () => {
     const payload = {
       recipient_name: f.name, recipient_phone: f.phone, recipient_email: f.email || undefined,
       city_id: Number(f.city_id), shipping_address_line: f.address, shipping_notes: f.notes || undefined,
+      shipping_option_key: ship || options[0]?.key || 'standard',
       payment_method: pay, expected_total: preview.grand_total,
     };
     try {
@@ -692,7 +694,7 @@ export const Checkout = () => {
             <h2 className="checkout-heading">خيارات الشحن</h2>
             {previewState === 'error' && <Banner kind="error" action={<button className="btn-pill sm" onClick={() => setPreviewAttempt((n) => n + 1)}>إعادة المحاولة</button>}>تعذر تحميل تكلفة الشحن.</Banner>}
             <div className="radio-list">
-              {(options.length ? options : [{ key: 'standard', label: 'شحن قياسي', cost: preview?.shipping }]).filter((o) => o.key === 'standard').map((o) => (
+              {(options.length ? options : [{ key: 'standard', label: 'شحن قياسي', cost: preview?.shipping }]).map((o) => (
                 <label key={o.key} className="radio-row"><span className="radio-left"><input type="radio" checked={ship === o.key} onChange={() => setShip(o.key)} /><span><span className="radio-title">{o.label || 'شحن قياسي'}</span><span className="radio-desc">{o.estimated_days || ''}</span></span></span><span className="radio-price num">{fmt(o.cost)}</span></label>))}
             </div>
           </fieldset>

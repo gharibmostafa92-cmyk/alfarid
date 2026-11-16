@@ -241,15 +241,20 @@ class UnifiedLoginTest extends TestCase
             ->postJson('/api/v1/auth/login', ['login' => $staff->email, 'password' => 'secret123'], ['User-Agent' => 'Staff browser'])
             ->assertOk()->json('handoff_code');
 
+        // Different User-Agent fails and immediately burns the single-use code.
         $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code], ['User-Agent' => 'Different browser'])
             ->assertUnauthorized();
-        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.11'])
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
             ->postJson('/api/v1/auth/handoff/exchange', ['code' => $code], ['User-Agent' => 'Staff browser'])
             ->assertUnauthorized();
         $this->assertSame(0, $staff->tokens()->count());
 
-        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
-            ->postJson('/api/v1/auth/handoff/exchange', ['code' => $code], ['User-Agent' => 'Staff browser'])
+        // Dual-stack / CGNAT IP change with matching User-Agent succeeds.
+        $freshCode = $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->postJson('/api/v1/auth/login', ['login' => $staff->email, 'password' => 'secret123'], ['User-Agent' => 'Staff browser'])
+            ->assertOk()->json('handoff_code');
+        $this->withServerVariables(['REMOTE_ADDR' => '2001:db8::1'])
+            ->postJson('/api/v1/auth/handoff/exchange', ['code' => $freshCode], ['User-Agent' => 'Staff browser'])
             ->assertOk();
         $this->assertSame(1, $staff->tokens()->count());
     }

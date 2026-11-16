@@ -34,7 +34,7 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
     {
         return [
             new Middleware('can:payment_notices.view', only: ['index', 'show']),
-            new Middleware('can:payment_notices.approve', only: ['approve']),
+            new Middleware('can:payment_notices.approve', only: ['approve', 'reverse']),
             new Middleware('can:payment_notices.reject', only: ['reject']),
         ];
     }
@@ -90,7 +90,7 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
      */
     public function approve(ReviewPaymentNoticeRequest $request, int $paymentNotice): JsonResponse
     {
-        $notice = WholesalePaymentNotice::query()->findOrFail($paymentNotice);
+        $notice = WholesalePaymentNotice::query()->with('order')->findOrFail($paymentNotice);
         $this->assertNoticeAccess($request->user(), $notice);
         $data = $request->validated();
         if (isset($data['treasury_id'])) {
@@ -122,12 +122,39 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
      */
     public function reject(ReviewPaymentNoticeRequest $request, int $paymentNotice): JsonResponse
     {
-        $notice = WholesalePaymentNotice::query()->findOrFail($paymentNotice);
+        $notice = WholesalePaymentNotice::query()->with('order')->findOrFail($paymentNotice);
         $this->assertNoticeAccess($request->user(), $notice);
 
         $rejected = $this->service->reject($notice, (int) $request->user()->id, $request->validated('admin_notes'));
 
         return WholesalePaymentNoticeResource::make($rejected)->response();
+    }
+
+    /**
+     * Reverses an approved wholesale payment notice with reason and treasury reversal.
+     *
+     * @param Request $request Reverse request containing reason
+     * @param int $paymentNotice Notice ID to reverse
+     * @return JsonResponse Reversed notice response
+     */
+    public function reverse(Request $request, int $paymentNotice): JsonResponse
+    {
+        $notice = WholesalePaymentNotice::query()->with(['order', 'treasury'])->findOrFail($paymentNotice);
+        $this->assertNoticeAccess($request->user(), $notice);
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        if ($notice->treasury !== null) {
+            $this->branchAccess->assertTreasury($request->user()->id, $notice->treasury);
+        } else {
+            $this->branchAccess->assertCentralAccess($request->user());
+        }
+
+        $reversed = $this->service->reverse($notice, (int) $request->user()->id, $data['reason']);
+
+        return WholesalePaymentNoticeResource::make($reversed)->response();
     }
 
     private function assertNoticeAccess(User $user, WholesalePaymentNotice $notice): void

@@ -31,7 +31,7 @@ class StoreCustomerRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail],
-            'phone' => ['required', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')],
+            'phone' => ['required', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->whereNull('deleted_at')],
             'password' => ['required', 'string', new PasswordByteLimit, 'min:12', 'max:72'],
             'type' => ['nullable', Rule::enum(CustomerType::class)],
             'status' => ['nullable', Rule::in([CustomerStatus::Pending->value, CustomerStatus::Approved->value])],

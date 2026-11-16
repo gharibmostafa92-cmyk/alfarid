@@ -154,3 +154,15 @@ test('cancelled order history follows time order even when Laravel returns lates
     ['pending', 'done'], ['confirmed', 'done'], ['cancelled', 'now'],
   ]);
 });
+
+test('notice status constants include reversed and initials safely parse single names', () => {
+  const { NOTICE_STATUS } = load(`${root}constants.js`);
+  assert.deepEqual(NOTICE_STATUS.reversed, ['معكوس', 'danger']);
+
+  const getInitials = (name) => String(name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—';
+  assert.equal(getInitials(''), '—');
+  assert.equal(getInitials(null), '—');
+  assert.equal(getInitials('   '), '—');
+  assert.equal(getInitials('  أحمد  '), 'أ');
+  assert.equal(getInitials('محمد   علي  '), 'مع');
+});

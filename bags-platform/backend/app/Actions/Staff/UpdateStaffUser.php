@@ -11,10 +11,10 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
 use App\Services\Auth\StaffAdministration;
 use App\Services\Inventory\BranchAccess;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 
@@ -66,6 +66,10 @@ final class UpdateStaffUser
             $verifiedPasswordHash, $via, $selfRotation, $currentPassword,
         ): ?string {
             StaffAdministration::lock();
+            $lockEmail = mb_strtolower(trim((string) ($userAttributes['email'] ?? '')));
+            if ($lockEmail !== '' && DB::getDriverName() === 'pgsql') {
+                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
+            }
             if (! $selfRotation) {
                 StaffAdministration::authorize($currentUser, ['users.update', 'users.manage']);
             } else {
@@ -102,7 +106,7 @@ final class UpdateStaffUser
                 // Reassigning staff to a deactivated branch is disallowed to prevent locking the user out.
                 $newBranchId = (int) ($userAttributes['branch_id'] ?? 0);
                 if ($newBranchId > 0 && $newBranchId !== (int) $lockedUser->branch_id) {
-                    abort_unless((bool) (Branch::query()->find($newBranchId)?->is_active), 422, 'لا يمكن تعيين موظف على فرع متوقف.');
+                    abort_unless((bool) Branch::query()->whereKey($newBranchId)->lockForUpdate()->value('is_active'), 422, 'لا يمكن تعيين موظف على فرع متوقف.');
                 }
             }
             if ($roles !== null) {
@@ -134,10 +138,21 @@ final class UpdateStaffUser
             }
 
             // Re-validate email uniqueness under lock to prevent unique index collisions from concurrent edits.
-            if (isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email) {
+            if (isset($userAttributes['email']) && mb_strtolower((string) $userAttributes['email']) !== mb_strtolower((string) $lockedUser->email)) {
+                $normalizedEmail = mb_strtolower(trim((string) $userAttributes['email']));
                 Validator::make(
-                    ['email' => $userAttributes['email']],
-                    ['email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($lockedUser->getKey()), new EmailNotUsedByOtherAccountType('users')]]
+                    ['email' => $normalizedEmail],
+                    ['email' => [
+                        'required',
+                        'email',
+                        'max:255',
+                        function (string $attribute, mixed $value, \Closure $fail) use ($lockedUser): void {
+                            if (User::query()->where('id', '!=', $lockedUser->getKey())->whereRaw('LOWER(email) = ?', [mb_strtolower((string) $value)])->exists()) {
+                                $fail('البريد الإلكتروني مستخدم بالفعل.');
+                            }
+                        },
+                        new EmailNotUsedByOtherAccountType('users'),
+                    ]]
                 )->validate();
             }
             $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
@@ -146,7 +161,13 @@ final class UpdateStaffUser
                 // Self-rotation clears the reset requirement, while admin resets mandate rotation on next login.
                 $userAttributes['must_change_password'] = ! $currentUser->is($lockedUser);
             }
-            $lockedUser->update($userAttributes);
+            try {
+                $lockedUser->update($userAttributes);
+            } catch (UniqueConstraintViolationException) {
+                throw ValidationException::withMessages([
+                    'email' => 'هذا البريد مستخدم بحساب آخر في النظام.',
+                ]);
+            }
 
             $rolesChanged = false;
             if ($roles !== null) {

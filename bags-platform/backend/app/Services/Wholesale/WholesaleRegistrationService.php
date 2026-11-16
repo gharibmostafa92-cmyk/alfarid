@@ -48,7 +48,6 @@ class WholesaleRegistrationService
         $documentTypes = array_values($documentTypes);
         $storedPaths = [];
         $staged = [];
-        $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
         $disk = Storage::disk('r2');
 
         // Assert proof existence and uniqueness upfront before expensive cloud file I/O; actual token consumption happens in DB transaction.
@@ -65,33 +64,28 @@ class WholesaleRegistrationService
         }
         $this->phoneVerification->assertProofPresent($data);
 
+        // Pre-allocate Postgres sequence ID to establish customer document directory path directly without S3/R2 move operations.
+        $customerId = DB::connection()->getDriverName() === 'pgsql'
+            ? (int) DB::selectOne("SELECT nextval(pg_get_serial_sequence('customers', 'id')) AS id")->id
+            : (int) (Customer::query()->max('id') ?? 0) + 1;
+        $customerDirectory = "customer_documents/{$customerId}";
+
         try {
             foreach ($files as $i => $file) {
                 $filename = Str::uuid().'.'.($file->extension() ?: 'bin');
-                $path = $disk->putFileAs($stagingDirectory, $file, $filename);
+                $path = $disk->putFileAs($customerDirectory, $file, $filename);
                 if ($path === false) {
                     throw new \RuntimeException('تعذر حفظ مستند العميل.');
                 }
                 $storedPaths[] = $path;
                 $staged[] = [
-                    'filename' => $filename, 'path' => $path,
+                    'filename' => $filename,
+                    'path' => $path,
                     'document_type' => $documentTypes[$i] ?? CustomerDocumentType::Other->value,
                     'original_name' => CustomerDocument::safeName($file->getClientOriginalName()),
                     'mime_type' => $file->getMimeType() ?? 'application/octet-stream',
                 ];
             }
-
-            // Pre-allocate Postgres sequence ID to establish customer document directory path without holding row locks during S3/R2 copy operations.
-            $customerId = (int) DB::selectOne("SELECT nextval(pg_get_serial_sequence('customers', 'id')) AS id")->id;
-            foreach ($staged as &$document) {
-                $path = "customer_documents/{$customerId}/".$document['filename'];
-                $storedPaths[] = $path;
-                if (! $disk->move($document['path'], $path)) {
-                    throw new \RuntimeException('تعذر حفظ مستند العميل.');
-                }
-                $document['path'] = $path;
-            }
-            unset($document);
 
             $registration = DB::transaction(function () use ($data, $staged, $customerId): array {
                 $this->auth->lockRegistrationEmail($data['email'] ?? null);
@@ -135,14 +129,12 @@ class WholesaleRegistrationService
                 ];
             });
         } catch (\Throwable $e) {
-            // Purge staged and committed cloud assets on rollback to prevent orphaned KYC files in storage bucket.
-            $this->purgePathsAndDirectory($stagingDirectory, $storedPaths);
+            // Purge uploaded cloud assets on rollback to prevent orphaned KYC files in storage bucket.
+            $this->purgePathsAndDirectory($customerDirectory, $storedPaths);
 
             // Map PostgreSQL unique constraint violations (e.g. duplicate tax/phone/email) to friendly HTTP 422 validation errors.
             throw Customer::translateUniqueViolation($e);
         }
-
-        $this->deleteDirectorySilently($stagingDirectory);
 
         return $registration;
     }
@@ -150,7 +142,7 @@ class WholesaleRegistrationService
     /**
      * @param  list<string>  $storedPaths
      */
-    private function purgePathsAndDirectory(string $stagingDirectory, array $storedPaths): void
+    private function purgePathsAndDirectory(string $customerDirectory, array $storedPaths): void
     {
         $disk = Storage::disk('r2');
         foreach ($storedPaths as $path) {

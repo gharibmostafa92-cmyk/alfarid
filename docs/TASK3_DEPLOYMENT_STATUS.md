@@ -1,8 +1,9 @@
-# Task3 — POS Terminal, Inventory, Financial Invariants & Concurrency Roadmap
+# Task3 — Wholesale Portal, Financial Invariants, Pricing & Concurrency Roadmap
 
-Source roadmap: `task3.txt` (19 roadmap items: 3 Critical, 7 High, 7 Medium, 2 Low).
-Date of Execution: 2026-11-13
-Status: 100% Implemented & Verified in local repository (`task3.txt` all marked `✅`).
+Source roadmap: `_archive_unused/tasks_execution/task3.txt` (21 roadmap items: 4 Critical, 8 High, 7 Medium, 1 Low).
+Date of Execution: 2026-11-15
+Branch: `fixes/task-audit-roadmap`
+Status: 100% Implemented & Verified in local repository (`_archive_unused/tasks_execution/task3.txt` all marked `✅`).
 
 ---
 
@@ -11,85 +12,95 @@ Status: 100% Implemented & Verified in local repository (`task3.txt` all marked 
 ## A. Already Deployed on Server
 
 > [!IMPORTANT]
-> Live server deployment status is **unverified / not deployed**. All fixes below have been implemented, tested with TDD and verified locally: Task3 POS regression suites `25 passed / 114 assertions`, Unit suite `212 passed / 40,322 assertions`, `pnpm -r typecheck` and `pnpm -r build` both exit `0`. The repository-wide `php artisan test` run is not green because of pre-existing failures in unrelated Customer/Admin/Ai/Attachments suites and legacy POS fixtures; those are outside the task3 scope. None of these changes have been pushed or applied to the production server.
+> Live server deployment status is **unverified / not deployed**. All 21 roadmap findings below have been implemented, tested with strict TDD (RED → GREEN → REFACTOR), and verified locally. None of these changes have been pushed or deployed to the production environment.
 
 - **Current Live Server Baseline Commit:** `25ee590` (refer to `docs/.last-deployed`)
-- **Confirmed Live Code:** Pre-task3 codebase.
-- **Active Production Migrations:** Applied up to migration `2026_11_12_000082_*`. Migration `83` is NOT yet applied to production.
+- **Confirmed Live Code:** Pre-task3 wholesale codebase.
+- **Active Production Migrations:** Applied up to migration `2026_11_15_000005_*`. Migrations `2026_11_15_000006_*` and `2026_11_15_000007_*` are NOT yet applied to production.
+- **Server Services:** Queue workers and web servers are currently running pre-task3 worker code.
 
 ---
 
 ## B. Ready / Pending Server Deployment
 
-The following 19 roadmap items are fully tested, verified, and ready for deployment:
+The following 21 roadmap items are fully implemented, regression tested, and ready for deployment:
 
-### 1. Critical Backend & Financial Integrity Fixes
-- **CRITICAL-01:** Net-zero and negative net exchange transaction crashes resolved.
-  - Non-cash (card) payment refunded first on negative exchange balance to protect cash drawer balance.
-  - Return order tender breakdown contract synchronized across backend and both frontend POS apps.
-- **CRITICAL-02:** Cart price override corruption fixed.
-  - Manual price overrides strictly scoped to modified items (`manualItemIds`), preventing corruption of wholesale/tiered prices on other lines.
-- **CRITICAL-03:** Petty expense path traversal and unbounded notes hardened.
-  - Expense attachment paths strictly validated via `ExpenseService::validateAttachmentPath`.
-  - Date pinned to business timezone (`today(config('app.business_timezone'))`).
-  - Strict length limits: `category <= 100`, `notes <= 500`.
+### 1. Slice 1: Finance & Ledger Integrity
+- **CRITICAL-02:** `WholesalePaymentNoticeService::balanceBreakdown()` Ledger Invariant
+  - Unified mathematical ledger invariant: `Net Outstanding = ∑Credit Orders (non-cancelled) - ∑Approved Notices - ∑Refunded Credit Notes (on credit non-cancelled orders)`.
+  - Added safe credit note handling for paid orders without double-counting floating credit.
+  - Matches 100% with `statement()` closing balance.
+- **CRITICAL-04:** `releaseExcessAllocationsForCreditNote()` & `assertCreditNoteCapacity()`
+  - Accepts `$excludeReturnRequestId` to prevent double-counting refunded credit note amounts during transaction commit.
+  - Fixed order of operations in `ReturnService::processRefund` so allocations are released before the credit note is marked `refunded`.
+- **HIGH-01:** `previewNoticeAllocation()` Read-Only Notice Allocation Preview
+  - Replaced heavy and destructive transaction simulation with a non-mutating preview.
+  - Recomputed remaining amounts on linked orders taking credit notes and existing approved notices into account.
+- **MEDIUM-02:** `QuotationService::accept()` Credit & Address Enforcement
+  - Added strict customer credit limit check before allowing quotation acceptance.
+  - Validates that shipping address exists and belongs to the customer before transitioning to order.
 
-### 2. High Priority Shift & Inventory Concurrency Fixes
-- **HIGH-01:** Blind-close drawer balance leak plugged.
-  - `PosService::getAvailableDrawers`, `PosShiftController::availableDrawers`, and `PosBootstrapController::show` hide `balance` (`null`) for busy drawers unless caller holds `pos_shifts.view_expected`.
-- **HIGH-02:** Exchange failure for suspended or soft-deleted customers resolved.
-  - Suspended/deleted customers detached from replacement cart to allow legal retail exchange without permission burn.
-  - Checked `pos.discount` before idempotency runner in `PosSaleController::processExchange`.
-- **HIGH-03:** Held sale multi-cart merge and discount retention.
-  - Multiple held cart IDs persisted in localStorage (`heldSaleIds: number[]`).
-  - Atomic server consumption via `held_sale_ids` in `PosSaleController::store`.
-  - Line discounts aggregated into cart discount on resume.
-- **HIGH-04:** PostgreSQL syntax in `PruneHeldSales.php` & held deletion race condition.
-  - Replaced illegal Postgres `DELETE ... ORDER BY ... LIMIT` with `whereIn('id', $ids)->delete()`.
-  - Excluded actively resumed carts (`resumed_at > now() - 10 min`).
-  - Added `DB::transaction` with `lockForUpdate()` in `deleteHeld` (returns 409 if active).
-  - Restricted `held_count` in `PosBootstrapController` by `user_id` when missing `pos.held.view_all`.
-- **HIGH-05:** Multiple open shifts invariant violation on recount reopen prevented.
-  - `PosService::reopenShiftForRecount` locks user and drawer rows.
-  - Throws 409 `BusinessException` if the cashier or the drawer has an active shift.
-- **HIGH-06:** Catalog version cache invalidation on transactions.
-  - `PosService::invalidateCatalogVersionCache` uses `DB::afterCommit` inside transactions.
-  - Invalidation hooked into `createSale`, `processReturn`, and `PosStockController::receiveTransfer` (both source and destination branches).
-- **HIGH-07:** Migration `2026_11_12_000083_pos_tender_includes_exchange_credit.php` guarded for production deployment.
-  - Guarded with `if (DB::getDriverName() !== 'pgsql') return;`.
-  - Scoped check constraint to `channel <> 'pos' OR ...`.
-  - Prevented rollback failure on existing exchange orders with `exchange_credit > 0`.
+### 2. Slice 2: Security Boundaries, Category Hierarchy & Branch Isolation
+- **CRITICAL-01:** `ProductController::index` Category Ancestor Filtering
+  - Replaced ambiguous/reversed `orWhereHas` with scoped `whereDoesntHave('parent', fn ($p) => $p->where('is_active', false)->orWhereHas('parent', ...))` ensuring active category hierarchy up to 3 levels.
+  - Prevents inactive parent/grandparent categories from leaking products to the wholesale catalog.
+- **CRITICAL-03:** Branch Access Control on Notices & Reverse Endpoint
+  - Eager-loaded `order` relation in `approve()`, `reject()`, and `reverse()` to prevent `LazyLoadingViolationException` under `Model::preventLazyLoading(true)`.
+  - Registered `POST /api/v1/admin/payment-notices/{payment_notice}/reverse` endpoint protected by `can:payment_notices.approve`.
+  - Added `assertTreasury` permission check inside `WholesalePaymentNoticeService::reverse()`.
+  - Enforced branch approver scoping in `approve()`, passing `$restrictedBranchId` to `settleFreeNoticeFifo()` to prevent branch approvers from settling orders of other branches.
+- **MEDIUM-01:** `RejectExecutableSignature` Magic Bytes Enforcement
+  - Inspects 8-byte file header to strictly reject Windows PE (`MZ`), Linux ELF (`\x7FELF`), macOS Mach-O (32-bit, 64-bit, FAT), PHP tags (`<?`), and Shebang (`#!`).
+- **MEDIUM-05:** `WholesaleRegistrationService` Direct S3/R2 Uploads
+  - Pre-allocates sequence `$customerId` upfront and uploads documents directly to `customer_documents/{$customerId}/` in a single pass, eliminating intermediate staging and expensive storage copy/move calls.
 
-### 3. Medium & Low Priority POS UI & Hardware Fixes
-- **MEDIUM-01 (`ReceiveTab.tsx`):**
-  - Added `submittingRef` and `busy` state to prevent double clicks on "تأكيد الاستلام ورفع الرصيد".
-  - Wrapped `pos.receiveTransfer` in `try / catch / finally` with `toast(normalizeError(err).message, 'bad')`.
-  - Validated received quantities: required non-empty, `>= 0`, and `<= shipped_qty`. Added `.catch()` to `getTransfersIn`.
-- **MEDIUM-02 (`StocktakePage.tsx`):**
-  - Tracked `lastScanned` state in component when scanning barcodes.
-  - Removed dangerous fallback `|| scope[0]` in voice counting; alerts cashier if no item was scanned first.
-  - Updated draft submit action to clearly indicate that draft is saved continuously and final approval occurs in backoffice.
-- **MEDIUM-03 (`CheckoutModal.tsx`, `ReceiptDone.tsx`, `pos.css`, `PosBootstrapController.php`):**
-  - Calculated split payment percentages in cents: `fromCents(Math.min(Math.max(1, Math.round(totalCents * r)), Math.max(1, totalCents - 1)))`.
-  - Added dynamic `return_window_days` from POS bootstrap settings to receipt print.
-  - Fixed thermal printing `@media print` rules: hid `.app` and modals to avoid feeding blank paper rolls.
-- **MEDIUM-04 (`PosCustomerController.php` & `CustomerBar.tsx`):**
-  - Immediate empty array returned if query is empty or `< 2` characters, protecting customer phone numbers and reducing query load by >70%.
-  - Added debounce (250ms) and minimum 2 characters in `CustomerBar.tsx`.
-  - Informative validation error if customer phone is soft-deleted or suspended.
-- **MEDIUM-05 (`barcode-scanner.ts`, `PosApp.tsx`):**
-  - `defaultScanIgnore` ignores focused `INPUT`, `TEXTAREA`, `SELECT`, and `contenteditable`.
-  - `PosApp.tsx` suppresses global scanner listener when modals (`isReturnOpen`, `isHoldOpen`, `isHeldOpen`, `isCheckoutOpen`, `closingShift`, `hasTabConflict`) are open.
-- **MEDIUM-06 (`SharedUI.tsx`, `StocktakePage.tsx`, `ReceiveTab.tsx`):**
-  - `toAsciiNum` supports Persian/Urdu digits (`۰-۹`) and Arabic decimal separators (`،` and `٫`).
-  - Added optional `maxDecimals` parameter; stocktake quantity input and inventory transfers now parse 4 decimal places, matching the backend `decimal:0,4` validation.
-- **MEDIUM-07 (Code Drift):**
-  - Extracted the shared POS implementation into `bags-platform/frontend/packages/pos-core`; `apps/pos` and `apps/backoffice` now consume the same package instead of maintaining duplicated component/store/lib/type/style trees.
-- **LOW-01 (`sound.ts`):**
-  - Disconnected `osc` and `gain` inside `osc.onended` to prevent memory leaks in Web Audio API.
-- **LOW-02 (`tab-coordinator.ts`, `PosApp.tsx`):**
-  - Added `claim()` method to broadcast `takeover` message on "الاستمرار في هذه النافذة".
-  - Old tabs immediately show tab conflict overlay, preventing dual-tab race conditions.
+### 3. Slice 3: Catalog Pricing, Availability & Import DOS Protection
+- **HIGH-02:** Unified Branch Stock Availability Query
+  - Unified stock calculation across `WholesaleQuickOrderService`, `WholesalePriceListService`, `QuotationService`, and `QuoteAdvisor`.
+  - Inner joins `branches` and filters `where('branches.is_active', true)`.
+  - Aliased aggregate as `total_available` to prevent Eloquent accessor shadowing by `StockLevel::getAvailableAttribute()`.
+- **HIGH-03:** Catalog Retail Price Cache Invalidation
+  - Dispatches `RefreshCatalogRetailPrices::dispatch($productIds)` inside `DB::afterCommit` in `PriceListService::update()` whenever price list status, branch, or priority headers are modified.
+  - Added `where('is_active', true)` for customer-specific price lists and implemented `PricingService::flushCatalogContexts()`.
+- **HIGH-05:** Excel Quick Order Import Memory & Column DOS Protection
+  - Implemented `WithMultipleSheets` (returning sheet 0 only) and `WithColumnLimit('D')` in `WholesaleQuickOrderImport`.
+
+### 4. Slice 4: Reconciliation, Statement Dual Entries & Spoken Arabic
+- **HIGH-04:** `WholesalePaymentNoticeService::statement()` Append-Only Ledger Semantics
+  - Pinned statement dates and defaults to `config('app.business_timezone', 'Africa/Cairo')`.
+  - Included reversed notices as dual entries (credit on approval date, debit on reversal date with reason) to preserve strict append-only ledger accounting without retrospective alteration of closed statements.
+  - Opening balance accurately accounts for active vs reversed notices across temporal boundaries.
+- **HIGH-08:** `ScoreWholesaleReceipt` Gemini Structured Output Unpacking
+  - Unpacks `$read['data']` payload returned by `GeminiClient::generateStructured()`, preventing 0.0 receipt match scores.
+- **MEDIUM-03:** `WholesalePaymentReminders` Weekly Cap SQL Subquery
+  - Filters out customers who have already reached their weekly reminder cap directly in the SQL query, preventing order starvation and eliminating N+1 queries.
+- **MEDIUM-04:** `BankStatementMatcher` Normalization & Collision Prevention
+  - Added `cleanAmount()` converting Eastern Arabic numerals and sanitizing thousand separators via `BigDecimal`.
+  - Added `cleanReference()` mirroring PostgreSQL `wholesale_reference_identity` rules.
+  - Disqualifies probable matches when statement and notice have explicit, conflicting references.
+  - Requires customer company names to have `>= 4` characters for statement description matching.
+- **MEDIUM-07 (SpokenQuantity):** Spoken Arabic Number Parsing
+  - Added compound hundreds (`300` through `900`), dual forms (`دستتين` = 24, `الفين` = 2000), and dozen multipliers.
+
+### 5. Slice 5: Frontend Experience, Contracts & Edge Cases
+- **HIGH-06:** Reversed Notice Status Mapping
+  - Added `reversed: ['معكوس', 'danger']` to `NOTICE_STATUS` in `constants.js`.
+  - Added informative reversal explanation banner in `NoticeDetail` (`finance-screens.jsx`).
+  - Added filter options (`all`, `pending`, `approved`, `rejected`, `reversed`) in `Notices` screen.
+- **HIGH-07:** `WholesaleQuickOrderService::addLinesToCart` Cart Row Locking
+  - Wrapped cart line additions in `DB::transaction()` with `Cart::query()->whereKey($cart->id)->lockForUpdate()->first()`, eliminating concurrency races on cart line quantities.
+- **MEDIUM-06:** `WholesalePortal.jsx` Robustness
+  - Handled partial stock skips in `addToCart`: shows warning alert when lines are skipped due to insufficient stock instead of false success toast.
+  - Safe navigation on cart lines total: `cart?.lines?.reduce((s, l) => s + (l?.qty ?? 0), 0) ?? 0`.
+  - Guarded 403 response interceptor with `err.code === 'wholesale_not_approved'` so general 403s do not forcibly trigger portal unapproved redirect.
+  - Safe avatar initials splitting: `String(name).trim().split(/\s+/).filter(Boolean)...` handles leading spaces and single names cleanly.
+- **MEDIUM-07 (UI):** Checkout & Notifications
+  - Included selected `shipping_option_key` in `checkoutEndpoints.place` payload.
+  - Added name fallback in quotation line mappers.
+  - Added `type="button"` on all non-submit auth buttons.
+  - Added server-side `unread_only` filtering support to `NotificationController::index` and wired to `Notifications` screen.
+- **LOW-01:** Cleaned Dead Duplicate Controller Action
+  - Removed duplicate `InvoiceController::storePaymentNotice`, binding `payment-notices.store` route directly to `PaymentNoticeController::store`.
 
 ---
 
@@ -99,39 +110,42 @@ When authorized to deploy to the live server, execute the following operational 
 
 ### 1. Pre-Deployment Database Backup
 ```bash
-pg_dump -U postgres -h localhost -d alfarid -F c -b -v -f "/backups/alfarid_pre_task3_$(date +%Y%m%d_%H%M%S).dump"
+pg_dump -U postgres -d alfarid_production -F c -b -v -f /backups/alfarid_pre_task3_$(date +%Y%m%d_%H%M%S).dump
 ```
 
-### 2. Code Pull
+### 2. Git Pull Code
 ```bash
-git checkout main
-git pull origin main
+git pull origin fixes/task-audit-roadmap
 ```
 
-### 3. Backend Deployment & Migration
+### 3. Database Migrations
+Run pending migrations:
 ```bash
-cd bags-platform/backend
-composer install --no-dev --optimize-autoloader
-php artisan down --render="errors::503"
 php artisan migrate --force
+```
+
+### 4. Clear & Rebuild Application Caches
+```bash
+php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
-php artisan queue:restart
-php artisan up
 ```
 
-### 4. Frontend Monorepo Build & Asset Deployment
+### 5. Restart Queue Workers
+Restart background workers to load updated job and service classes:
 ```bash
-cd bags-platform/frontend
-pnpm install --frozen-lockfile
-pnpm -r build
-# Restart / reload PM2 or Nginx web server serving frontend applications
+php artisan queue:restart
 ```
 
-### 5. Post-Deployment Smoke Verification
-1. Verify POS Terminal loads with active shift and available drawers.
-2. Verify customer search requires 2 characters and does not dump database.
-3. Test barcode scanner in POS terminal, in Return modal, and in text inputs.
-4. Verify thermal receipt printing on 80mm printer without blank paper feed.
-5. Verify petty cash expense upload with valid image.
+### 6. Build & Deploy Frontend Assets
+```bash
+pnpm --filter @alfarid/ui build
+pnpm --filter storefront build
+pnpm --filter backoffice build
+```
+
+### 7. Post-Deployment Verification Checklist
+1. `GET /api/v1/wholesale/payment-notices` responds 200 with proper status badges.
+2. `POST /api/v1/admin/payment-notices/{id}/reverse` accessible only by authorized staff.
+3. Verify that `statement` report includes approved and reversed entries with dual balancing lines.

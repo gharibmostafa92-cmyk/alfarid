@@ -36,6 +36,14 @@ class PricingService
     private array $catalogContexts = [];
 
     /**
+     * Clears in-memory catalog context cache (useful across queue jobs and octane requests).
+     */
+    public function flushCatalogContexts(): void
+    {
+        $this->catalogContexts = [];
+    }
+
+    /**
      * Resolves cache key and public visibility context for customer catalog listings.
      *
      * @return array{key: string, public_retail: bool}
@@ -71,7 +79,7 @@ class PricingService
     {
         $customer->loadMissing('customerGroup');
         $group = $customer->customerGroup?->is_active ? $customer->customerGroup : null;
-        $specific = PriceList::query()->where('type', PriceListType::CustomerSpecific)->where('customer_id', $customer->id)->exists();
+        $specific = PriceList::query()->where('type', PriceListType::CustomerSpecific)->where('customer_id', $customer->id)->where('is_active', true)->exists();
         $channel = $this->channelFor($customer);
         $public = $channel === PriceListType::Retail && $group === null && ! $specific;
 
@@ -182,10 +190,13 @@ class PricingService
 
         // Reuse preloaded customer pricing context if supplied by bulk callers to prevent redundant queries.
         $ctx ??= $this->contextFor($customer);
-        $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
+        $baseQuery = null;
+        $getBaseQuery = function () use (&$baseQuery, $variant, $qty, $branchId, $now): Builder {
+            return $baseQuery ??= $this->eligibleItems($variant, $qty, $branchId, $now);
+        };
         $channel = $ctx['channel'];
         $eligibleCustomer = $ctx['eligible'];
-        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem => $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
+        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem => $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $getBaseQuery, $ctx);
 
         // Priority 1: Customer-specific pricing.
         if ($eligibleCustomer) {
@@ -520,7 +531,7 @@ class PricingService
         ProductVariant $variant,
         float $qty,
         ?int $branchId,
-        Builder $baseQuery,
+        \Closure|Builder $baseQuery,
         array $ctx,
     ): ?PriceListItem {
         if (isset($ctx['items']) && ($ctx['branch_id'] ?? null) === $branchId) {
@@ -535,7 +546,9 @@ class PricingService
                 })->first();
         }
 
-        return $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
+        $query = $baseQuery instanceof \Closure ? $baseQuery() : $baseQuery;
+
+        return $this->ordered((clone $query)->where('price_lists.type', $type)
             ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
     }
 

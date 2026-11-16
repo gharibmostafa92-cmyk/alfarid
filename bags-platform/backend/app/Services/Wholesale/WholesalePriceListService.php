@@ -52,10 +52,12 @@ class WholesalePriceListService
 
                 $variantIds = $variants->pluck('id')->all();
                 $availability = StockLevel::query()
-                    ->whereIn('product_variant_id', $variantIds)
-                    ->groupBy('product_variant_id')
-                    ->selectRaw('product_variant_id, SUM(available) AS total_available')
-                    ->pluck('total_available', 'product_variant_id')
+                    ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+                    ->where('branches.is_active', true)
+                    ->whereIn('stock_levels.product_variant_id', $variantIds)
+                    ->groupBy('stock_levels.product_variant_id')
+                    ->selectRaw('stock_levels.product_variant_id, SUM(stock_levels.available) AS total_available')
+                    ->pluck('total_available', 'stock_levels.product_variant_id')
                     ->map(fn ($v) => (float) $v)
                     ->all();
 

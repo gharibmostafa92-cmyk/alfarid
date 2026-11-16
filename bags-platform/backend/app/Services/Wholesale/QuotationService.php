@@ -26,6 +26,7 @@ use App\Models\ProductVariant;
 use App\Models\Quotation;
 use App\Models\StockLevel;
 use App\Models\User;
+use Brick\Math\BigDecimal;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -262,9 +263,13 @@ class QuotationService
             $customer = $quotation->customer;
 
             // Lock customer account row to serialize concurrent order placements and prevent credit limit race conditions.
-            Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
-            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer->fresh());
-            if ($outstanding + (float) $quotation->grand_total > (float) $customer->credit_limit) {
+            $customer = Customer::query()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
+            if (! $customer->isWholesaleApproved()) {
+                throw new BusinessException('حساب التاجر غير معتمد حاليًا لإتمام الطلب.', [], 403);
+            }
+            $outstanding = BigDecimal::of((string) app(WholesalePaymentNoticeService::class)->outstandingBalance($customer));
+            $newExposure = $outstanding->plus((string) $quotation->grand_total);
+            if ($newExposure->compareTo((string) $customer->credit_limit) > 0) {
                 throw new BusinessException(
                     'إجمالي الطلب يتجاوز حد الائتمان المتاح.',
                     [],
@@ -273,7 +278,13 @@ class QuotationService
                 );
             }
 
-            $shippingAddress = $customer->addresses()->orderByDesc('is_default')->orderBy('id')->first();
+            $shippingAddress = $customer->addresses()->orderByDesc('is_default')->orderByDesc('id')->first();
+            if ($shippingAddress === null) {
+                throw new BusinessException('يرجى إضافة عنوان شحن لحسابك قبل قبول عرض السعر.', [], 422);
+            }
+
+            $termsDays = (int) ($customer->payment_terms_days ?? $this->settings->get('wholesale_default_payment_terms_days', 30));
+            $dueAt = now()->addDays(max(1, $termsDays));
 
             $order = Order::create([
                 'order_number' => $this->settings->generateNextNumber('order'),
@@ -283,11 +294,12 @@ class QuotationService
                 'guest_phone' => $customer->phone,
                 'guest_phone_normalized' => Customer::normalizePhone((string) $customer->phone),
                 'guest_email' => $customer->email,
-                'city_id' => $shippingAddress?->city_id,
-                'shipping_address_line' => $shippingAddress?->address_line,
+                'city_id' => $shippingAddress->city_id,
+                'shipping_address_line' => $shippingAddress->address_line,
                 'status' => OrderStatus::Pending,
                 'payment_method' => 'credit',
                 'payment_status' => 'unpaid',
+                'due_at' => $dueAt,
                 'subtotal' => $quotation->subtotal,
                 'discount_amount' => $quotation->discount_amount,
                 'shipping_cost' => 0,
@@ -519,8 +531,10 @@ class QuotationService
         $short = false;
         foreach ($quotation->items as $item) {
             $available = (float) StockLevel::query()
-                ->where('product_variant_id', $item->product_variant_id)
-                ->sum(DB::raw('COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)'));
+                ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+                ->where('branches.is_active', true)
+                ->where('stock_levels.product_variant_id', $item->product_variant_id)
+                ->sum('stock_levels.available');
             if ($available + 0.00001 < (float) $item->qty) {
                 $short = true;
                 $sku = $item->variant?->sku ?? '#'.$item->product_variant_id;
@@ -559,7 +573,11 @@ class QuotationService
                 throw new BusinessException('أحد المتغيرات المطلوبة غير موجود أو غير نشط.');
             }
 
-            $offered = $this->pricing->resolve($variant, $customer, (float) $row['qty'])['unit_price'];
+            try {
+                $offered = $this->pricing->resolve($variant, $customer, (float) $row['qty'])['unit_price'];
+            } catch (BusinessException) {
+                $offered = 0.0;
+            }
 
             $quotation->items()->create([
                 'product_variant_id' => $variant->id,

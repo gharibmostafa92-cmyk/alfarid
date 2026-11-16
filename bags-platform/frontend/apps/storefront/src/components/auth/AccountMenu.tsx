@@ -18,7 +18,7 @@ export function AccountMenu() {
   return (
     <div className="flex items-center gap-4 text-sm">
       <Link href={home ?? '/'} aria-label="حسابي">مرحبًا {String(user?.name ?? '')}</Link>
-      <button type="button" disabled={busy} aria-label={busy ? 'جارٍ تسجيل الخروج' : 'تسجيل الخروج'} onClick={() => { setBusy(true); void logoutWeb(); }}>
+      <button type="button" disabled={busy} aria-label={busy ? 'جارٍ تسجيل الخروج' : 'تسجيل الخروج'} onClick={() => { setBusy(true); void logoutWeb().finally(() => setBusy(false)); }}>
         {busy ? 'جارٍ تسجيل الخروج…' : 'تسجيل الخروج'}
       </button>
     </div>

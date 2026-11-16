@@ -33,6 +33,20 @@ class CustomerFactory extends Factory
         ];
     }
 
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Customer $customer): void {
+            if ($customer->isCommercialTier() && $customer->addresses()->count() === 0) {
+                $city = \App\Models\City::query()->first() ?? \App\Models\City::factory()->create();
+                $customer->addresses()->create([
+                    'city_id' => $city->id,
+                    'address_line' => 'مقر التاجر - شارع الأزهر',
+                    'is_default' => true,
+                ]);
+            }
+        });
+    }
+
     public function wholesale(): static
     {
         return $this->state(fn (array $attributes): array => [

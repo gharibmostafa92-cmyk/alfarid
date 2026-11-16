@@ -33,20 +33,32 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
     const dest = meData.redirect?.destination;
     const path = meData.redirect?.path;
     if (typeof dest === 'string' && typeof path === 'string') {
-      useAuthStore.getState().setSession({
-        token, actorType: (meData.actor?.type ?? 'customer') as 'customer' | 'supplier',
-        destination: dest, home: path, user: (meData.data ?? {}) as Record<string, unknown>,
-      });
+      const nextActorType = (meData.actor?.type ?? 'customer') as 'customer' | 'supplier';
+      const nextUser = (meData.data ?? {}) as Record<string, unknown>;
+      const current = useAuthStore.getState();
+      if (
+        current.token !== token
+        || current.actorType !== nextActorType
+        || current.destination !== dest
+        || current.home !== path
+        || JSON.stringify(current.user) !== JSON.stringify(nextUser)
+      ) {
+        current.setSession({
+          token, actorType: nextActorType,
+          destination: dest, home: path, user: nextUser,
+        });
+      }
       setVerifiedToken(token);
     } else {
       setVerificationFailed(true);
     }
   }, [hydrated, token, meData, isError, meError, pathname, router]);
+  const allowKey = allow.join(',');
   useEffect(() => {
     if (!hydrated) return;
     if (!token) router.replace(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
     else if (verifiedToken === token && (!destination || !allow.includes(destination))) router.replace(home ?? '/');
-  }, [hydrated, token, verifiedToken, destination, home, allow, pathname, router]);
+  }, [hydrated, token, verifiedToken, destination, home, allowKey, pathname, router]);
   if (hydrated && token && verificationFailed) return <div role="alert">تعذر التحقق من الجلسة. <button type="button" onClick={() => { void refetch(); }}>إعادة المحاولة</button></div>;
   if (!hydrated || !token || verifiedToken !== token || !destination || !allow.includes(destination)) return null;
   return <>{children}</>;

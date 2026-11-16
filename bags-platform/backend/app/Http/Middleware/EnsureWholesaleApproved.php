@@ -34,6 +34,7 @@ class EnsureWholesaleApproved
         ) {
             return response()->json([
                 'message' => 'هذا القسم مخصص لتجار الجملة المعتمدين فقط.',
+                'code' => 'wholesale_not_approved',
             ], 403);
         }
 

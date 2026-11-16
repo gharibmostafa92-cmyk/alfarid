@@ -20,7 +20,7 @@ class RolePermissionSeeder extends Seeder
         'users' => ['view', 'create', 'update', 'delete', 'manage'],
         'roles' => ['view', 'create', 'update', 'delete', 'manage'],
         'permissions' => ['view'],
-        'customers' => ['view', 'create', 'update', 'delete', 'manage'],
+        'customers' => ['view', 'create', 'update', 'delete', 'manage', 'approve', 'documents.view'],
         'suppliers' => ['view', 'create', 'update', 'delete', 'manage'],
         'products' => ['view', 'create', 'update', 'delete', 'manage'],
         'categories' => ['view', 'create', 'update', 'delete', 'manage'],

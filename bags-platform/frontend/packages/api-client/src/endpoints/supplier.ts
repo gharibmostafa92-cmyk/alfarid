@@ -27,7 +27,7 @@ export interface SupplierPortalDelivery {
   invoice_file_url: string | null;
   supplier_invoice_no: string | null;
   notes: string | null;
-  items?: { id: number; purchase_order_item_id: number; shipped_qty: string; received_qty: string; variant?: { id: number; sku: string } | null }[];
+  items?: { id: number; purchase_order_item_id: number; product_variant_id: number; shipped_qty: string; received_qty: string; variant?: { id: number; sku: string } | null }[];
   created_at?: string | null;
 }
 

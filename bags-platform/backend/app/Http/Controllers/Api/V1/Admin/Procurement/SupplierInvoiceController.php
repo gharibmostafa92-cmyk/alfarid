@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\SupplierInvoiceRequest;
 use App\Http\Resources\Admin\Procurement\SupplierInvoiceResource;
 use App\Models\SupplierInvoice;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Procurement\SupplierFinanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,7 +35,10 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
         ];
     }
 
-    public function __construct(protected SupplierFinanceService $finance) {}
+    public function __construct(
+        protected SupplierFinanceService $finance,
+        protected BranchAccess $branchAccess,
+    ) {}
 
     /**
      * Lists paginated supplier invoices filtered by status, supplier, or purchase order.
@@ -50,8 +54,13 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
             'purchase_order_id' => ['nullable', 'integer', 'min:1'],
             'open' => ['nullable', 'boolean'],
         ]);
+        $branch = $this->branchAccess->restrictedBranch($request->user());
         $invoices = SupplierInvoice::query()
             ->with(['supplier:id,code,name', 'purchaseOrder:id,po_number'])
+            ->when($branch !== null, fn ($q) => $q->whereHas(
+                'purchaseOrder',
+                fn ($po) => $po->where('branch_id', $branch),
+            ))
             ->when($filters['open'] ?? false, fn ($q) => $q->whereIn('status', [
                 SupplierInvoiceStatus::Posted->value,
                 SupplierInvoiceStatus::PartiallyPaid->value,
@@ -74,7 +83,7 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
     public function store(SupplierInvoiceRequest $request): JsonResponse
     {
         $data = $request->safe()->except('attachment');
-        $invoice = $this->finance->createInvoice($data, $request->file('attachment'));
+        $invoice = $this->finance->createInvoice($data, $request->file('attachment'), $request->user());
 
         return $this->invoiceResource($invoice)->response()->setStatusCode(201);
     }
@@ -82,11 +91,14 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
     /**
      * Retrieves details of a specific supplier invoice.
      *
+     * @param Request $request Current request
      * @param SupplierInvoice $supplierInvoice Target invoice
      * @return SupplierInvoiceResource Invoice resource
      */
-    public function show(SupplierInvoice $supplierInvoice): SupplierInvoiceResource
+    public function show(Request $request, SupplierInvoice $supplierInvoice): SupplierInvoiceResource
     {
+        $this->assertVisible($request, $supplierInvoice);
+
         return $this->invoiceResource($supplierInvoice);
     }
 
@@ -99,8 +111,9 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
      */
     public function update(SupplierInvoiceRequest $request, SupplierInvoice $supplierInvoice): SupplierInvoiceResource
     {
+        $this->assertVisible($request, $supplierInvoice);
         $data = $request->safe()->except('attachment');
-        $invoice = $this->finance->updateInvoice($supplierInvoice, $data, $request->file('attachment'));
+        $invoice = $this->finance->updateInvoice($supplierInvoice, $data, $request->file('attachment'), $request->user());
 
         return $this->invoiceResource($invoice);
     }
@@ -108,36 +121,56 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
     /**
      * Posts a draft supplier invoice, establishing liability on the supplier balance.
      *
+     * @param Request $request Current request
      * @param SupplierInvoice $supplierInvoice Invoice to post
      * @return SupplierInvoiceResource Posted invoice resource
      */
-    public function post(SupplierInvoice $supplierInvoice): SupplierInvoiceResource
+    public function post(Request $request, SupplierInvoice $supplierInvoice): SupplierInvoiceResource
     {
-        return SupplierInvoiceResource::make($this->finance->postInvoice($supplierInvoice));
+        $this->assertVisible($request, $supplierInvoice);
+
+        return SupplierInvoiceResource::make($this->finance->postInvoice($supplierInvoice, $request->user()));
     }
 
     /**
      * Cancels an unpaid supplier invoice and reverses accounts payable liability.
      *
+     * @param Request $request Current request
      * @param SupplierInvoice $supplierInvoice Invoice to cancel
      * @return SupplierInvoiceResource Cancelled invoice resource
      */
-    public function cancel(SupplierInvoice $supplierInvoice): SupplierInvoiceResource
+    public function cancel(Request $request, SupplierInvoice $supplierInvoice): SupplierInvoiceResource
     {
-        return SupplierInvoiceResource::make($this->finance->cancelInvoice($supplierInvoice));
+        $this->assertVisible($request, $supplierInvoice);
+
+        return SupplierInvoiceResource::make($this->finance->cancelInvoice($supplierInvoice, $request->user()));
     }
 
     /**
      * Deletes a draft supplier invoice.
      *
+     * @param Request $request Current request
      * @param SupplierInvoice $supplierInvoice Invoice to delete
      * @return JsonResponse Deletion confirmation
      */
-    public function destroy(SupplierInvoice $supplierInvoice): JsonResponse
+    public function destroy(Request $request, SupplierInvoice $supplierInvoice): JsonResponse
     {
-        $this->finance->deleteInvoice($supplierInvoice);
+        $this->assertVisible($request, $supplierInvoice);
+        $this->finance->deleteInvoice($supplierInvoice, $request->user());
 
         return response()->json(['message' => 'تم حذف فاتورة المورد.']);
+    }
+
+    private function assertVisible(Request $request, SupplierInvoice $invoice): void
+    {
+        $branch = $this->branchAccess->restrictedBranch($request->user());
+        if ($branch === null) {
+            return;
+        }
+        $invoice->loadMissing('purchaseOrder:id,branch_id');
+        if ($invoice->purchaseOrder === null || (int) $invoice->purchaseOrder->branch_id !== $branch) {
+            abort(404);
+        }
     }
 
     private function invoiceResource(SupplierInvoice $invoice): SupplierInvoiceResource

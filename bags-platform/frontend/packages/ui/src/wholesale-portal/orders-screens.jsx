@@ -411,7 +411,7 @@ export const QuoteForm = ({ id }) => {
                 <tr key={i} className={errs[`items.${i}.qty`] ? 'is-error' : ''}>
                   <td><div className="prod-cell"><Thumb sm /><div><div className="prod-name">{it.name}</div><div className="soft small"><span className="sku">{it.sku}</span></div></div></div></td>
                   <td><Qty value={it.qty} onChange={(n) => upd(i, 'qty', n)} />{errs[`items.${i}.qty`] && <p className="f-error">{errs[`items.${i}.qty`]}</p>}</td>
-                  <td><input className="box-input ltr" style={{ width: 120 }} placeholder="0.00" value={it.target} onChange={(e) => upd(i, 'target', e.target.value.replace(/[^\d.]/g, ''))} />{errs[`items.${i}.requested_target_price`] && <p className="f-error">{errs[`items.${i}.requested_target_price`]}</p>}{errs[`items.${i}.product_variant_id`] && <p className="f-error">{errs[`items.${i}.product_variant_id`]}</p>}</td>
+                  <td><input className="box-input ltr" style={{ width: 120 }} placeholder="0.00" value={it.target} onChange={(e) => { const v = e.target.value; if (/^\d*(\.\d{0,2})?$/.test(v)) upd(i, 'target', v); }} />{errs[`items.${i}.requested_target_price`] && <p className="f-error">{errs[`items.${i}.requested_target_price`]}</p>}{errs[`items.${i}.product_variant_id`] && <p className="f-error">{errs[`items.${i}.product_variant_id`]}</p>}</td>
                   <td><button className="btn-link muted" onClick={() => setItems(items.filter((_, j) => j !== i))} aria-label="حذف"><i className="fa-solid fa-xmark" /></button></td>
                 </tr>))}</tbody>
             </table></div>

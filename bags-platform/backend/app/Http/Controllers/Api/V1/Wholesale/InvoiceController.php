@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Wholesale\StorePaymentNoticeRequest;
-use App\Http\Resources\Wholesale\WholesalePaymentNoticeResource;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Services\Shared\SettingService;
@@ -84,18 +82,6 @@ class InvoiceController extends Controller
             'customer' => $customer,
             'order' => $model,
         ])->download("invoice-{$model->order_number}.pdf");
-    }
-
-    /**
-     * Upload a bank payment proof for outstanding credit balances.
-     */
-    public function storePaymentNotice(StorePaymentNoticeRequest $request): JsonResponse
-    {
-        /** @var Customer $customer */
-        $customer = $request->user();
-        $notice = $this->notices->create($customer, $request->validated(), $request->file('receipt'));
-
-        return (new WholesalePaymentNoticeResource($notice->load('order')))->response()->setStatusCode(201);
     }
 
     /**

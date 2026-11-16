@@ -9,6 +9,7 @@ use App\Models\Customer;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureCustomerAuthenticated
@@ -23,9 +24,13 @@ class EnsureCustomerAuthenticated
             ], 401);
         }
 
+        $token = $user->currentAccessToken();
         $canInspectRejection = $request->routeIs('wholesale.auth.application-status', 'store.auth.logout');
 
-        if (! $user instanceof Customer || $user->status === CustomerStatus::Suspended
+        if (! $user instanceof Customer
+            || ! $token instanceof PersonalAccessToken
+            || (! $token->can('store-token') && ! $token->can('wholesale-token') && ! $token->can('store') && ! $token->can('wholesale'))
+            || $user->status === CustomerStatus::Suspended
             || ($user->status === CustomerStatus::Rejected && ! $canInspectRejection)) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كعميل.',

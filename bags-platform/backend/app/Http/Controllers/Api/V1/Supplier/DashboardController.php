@@ -25,7 +25,8 @@ class DashboardController extends Controller
     {
         /** @var SupplierUser $user */
         $user = $request->user();
-        $supplier = $user->supplier()->firstOrFail();
+        $supplier = $user->supplier;
+        abort_if($supplier === null, 404);
         $counts = PurchaseOrder::query()
             ->where('supplier_id', $user->supplier_id)
             ->selectRaw(

@@ -36,7 +36,7 @@ class UpdateCustomerRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail($customerId)],
-            'phone' => ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore($customerId)],
+            'phone' => ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore($customerId)->whereNull('deleted_at')],
             'password' => ['sometimes', 'string', new PasswordByteLimit, 'min:12', 'max:72'],
             'type' => ['missing'],
             'status' => ['missing'],

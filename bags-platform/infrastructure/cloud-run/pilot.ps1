@@ -63,6 +63,15 @@ function Invoke-Gcloud {
     }
 }
 
+function Join-GcloudEnvVars([string[]]$Entries) {
+    # Cloud Run's default comma separator conflicts with TRUSTED_PROXIES CIDR lists.
+    # Use gcloud's documented custom delimiter and reject ambiguous values.
+    if ($Entries | Where-Object { $_ -match '[~\r\n]' }) {
+        throw 'Environment variable values may not contain the reserved ~ delimiter or newlines.'
+    }
+    return '^~^' + ($Entries -join '~')
+}
+
 $scope = @("--project=$ProjectId", "--region=$Region")
 switch ($Action) {
     { $_ -in 'DeployApi', 'DeployAi', 'DeployJobs' } {
@@ -108,7 +117,7 @@ switch ($Action) {
             if ($ProxyClientIpSecret -cnotmatch $secretPattern) {
                 throw 'DeployApi requires a pinned ProxyClientIpSecret.'
             }
-            $apiEnvironment = ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8')) -join ','
+            $apiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8'))
             $apiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
             $apiRuntime += "--set-secrets=$secrets,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
             Invoke-Gcloud -Arguments (@(
@@ -122,7 +131,7 @@ switch ($Action) {
             if ($GeminiApiKeySecret -cnotmatch $secretPattern -or $ProxyClientIpSecret -cnotmatch $secretPattern -or $GeminiModel -cnotmatch '^[a-zA-Z0-9_-]+$') {
                 throw 'DeployAi requires pinned Gemini and proxy signing secrets and a model name.'
             }
-            $aiEnvironment = ($environment + @('PHP_FPM_PM_MAX_CHILDREN=2', "GEMINI_MODEL=$GeminiModel")) -join ','
+            $aiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=2', "GEMINI_MODEL=$GeminiModel"))
             $aiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
             $aiRuntime += "--set-secrets=$secrets,GEMINI_API_KEY=$GeminiApiKeySecret,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
             Invoke-Gcloud -Arguments (@(
@@ -135,7 +144,7 @@ switch ($Action) {
 
         $jobSettings = $scope + $runtime + @(
             '--tasks=1', '--parallelism=1', '--max-retries=0',
-            '--command=php', "--set-env-vars=$($environment -join ',')"
+            '--command=php', "--set-env-vars=$(Join-GcloudEnvVars $environment)"
         )
         Invoke-Gcloud -Arguments (@(
             'run', 'jobs', 'deploy', $queueJob, "--task-timeout=$($queueTimeout)s",

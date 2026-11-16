@@ -86,10 +86,10 @@ class TaskTxtProcurementGapsTest extends TestCase
         $draft = $service->createInvoice([
             'supplier_id' => $supplier->id, 'supplier_invoice_no' => 'WALK-1',
             'issue_date' => '2026-03-01', 'subtotal' => 1000,
-        ]);
+        ], actor: $actor);
         $this->assertSame('100.00', $supplier->fresh()->current_balance);
 
-        $service->postInvoice($draft);
+        $service->postInvoice($draft, $actor);
         $this->assertSame('1100.00', $supplier->fresh()->current_balance);
         $this->assertSame('posted', $draft->fresh()->status->value);
 
@@ -119,10 +119,10 @@ class TaskTxtProcurementGapsTest extends TestCase
         $second = $service->createInvoice([
             'supplier_id' => $supplier->id, 'supplier_invoice_no' => 'WALK-2',
             'issue_date' => '2026-03-04', 'subtotal' => 200,
-        ]);
-        $service->postInvoice($second);
+        ], actor: $actor);
+        $service->postInvoice($second, $actor);
         $this->assertSame('700.00', $supplier->fresh()->current_balance);
-        $service->cancelInvoice($second->fresh());
+        $service->cancelInvoice($second->fresh(), $actor);
         $this->assertSame('500.00', $supplier->fresh()->current_balance);
     }
 
@@ -165,8 +165,8 @@ class TaskTxtProcurementGapsTest extends TestCase
                             'supplier_invoice_no' => "RAND-{$sample}-{$step}",
                             'issue_date' => '2026-04-01',
                             'subtotal' => round(20 + (($step + 1) * 3.15), 2),
-                        ]);
-                        $service->postInvoice($openInvoice);
+                        ], actor: $actor);
+                        $service->postInvoice($openInvoice, $actor);
                     } elseif ($roll === 1) {
                         $remaining = round((float) $openInvoice->fresh()->total_amount - (float) $openInvoice->fresh()->paid_amount, 2);
                         if ($remaining > 0) {
@@ -185,14 +185,14 @@ class TaskTxtProcurementGapsTest extends TestCase
                             $service->voidPayment($payment, $actor, 'random');
                         }
                     } elseif ($roll === 3 && (float) $openInvoice->fresh()->paid_amount === 0.0) {
-                        $service->cancelInvoice($openInvoice->fresh());
+                        $service->cancelInvoice($openInvoice->fresh(), $actor);
                         $openInvoice = null;
                     } else {
                         $free = $service->createPayment([
                             'supplier_id' => $supplier->id, 'treasury_id' => $treasury->id, 'amount' => 1.25, 'payment_method' => 'cash', 'payment_date' => '2026-04-03',
                         ], $actor, "free-{$sample}-{$step}");
                         if ($openInvoice !== null && in_array($openInvoice->fresh()->status->value, ['posted', 'partially_paid'], true)) {
-                            $service->allocatePayment($free, $openInvoice->id);
+                            $service->allocatePayment($free, $openInvoice->id, $actor);
                         }
                     }
                 } catch (BusinessException) {

@@ -61,7 +61,8 @@
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Store/Customer/WalletController.php",
                     "bags-platform/backend/config/treasury.php",
                     "bags-platform/backend/database/migrations/2026_11_13_000001_remove_numbering_subtransactions.php",
-                    "bags-platform/backend/app/Services/Procurement/SupplierFinanceService.php"
+                    "bags-platform/backend/app/Services/Procurement/SupplierFinanceService.php",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/finance-screens.jsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,
