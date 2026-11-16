@@ -32,6 +32,7 @@ use App\Models\User;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -58,7 +59,7 @@ class QuotationService
      * Create a new draft quotation for a wholesale customer.
      *
      * @param  Customer  $customer  Wholesale customer requesting the quote.
-     * @param  array{customer_notes?: string|null, items: list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>}  $data
+     * @param  array{customer_notes?: string|null, whatsapp_selection_token?: string, items: list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>}  $data
      * @return Quotation Newly created draft quotation.
      */
     public function create(Customer $customer, array $data): Quotation
@@ -71,6 +72,7 @@ class QuotationService
                 'status' => QuotationStatus::Draft,
                 'source' => $source,
                 'customer_notes' => $data['customer_notes'] ?? null,
+                'whatsapp_selection_token' => $data['whatsapp_selection_token'] ?? null,
             ]);
 
             $this->syncItems($quotation, $customer, $data['items']);
@@ -173,6 +175,37 @@ class QuotationService
 
             return $quotation->load('items.variant.product');
         });
+    }
+
+    /**
+     * Submit a cached WhatsApp selection once, or replay its committed quotation.
+     *
+     * @param  list<array{product_variant_id: int, qty: float}>  $items
+     */
+    public function submitWhatsAppSelection(Customer $customer, string $token, array $items): ?Quotation
+    {
+        $selection = Quotation::query()
+            ->useWritePdo()
+            ->where('customer_id', $customer->id)
+            ->where('whatsapp_selection_token', $token);
+
+        try {
+            return DB::transaction(function () use ($selection, $customer, $token, $items): ?Quotation {
+                $existing = $selection->first();
+                if ($existing !== null || $items === []) {
+                    return $existing;
+                }
+
+                return $this->submit($this->create($customer, [
+                    'items' => $items,
+                    'whatsapp_selection_token' => $token,
+                ]));
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            // A competing submission can win after this request reads the key.
+            // Re-read after rollback so the winning transaction is visible.
+            return $selection->first() ?? throw $e;
+        }
     }
 
     /**

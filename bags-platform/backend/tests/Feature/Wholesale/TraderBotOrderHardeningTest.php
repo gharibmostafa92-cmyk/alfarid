@@ -24,8 +24,10 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -122,6 +124,46 @@ class TraderBotOrderHardeningTest extends TestCase
         );
     }
 
+    public function test_committed_quote_is_replayed_when_its_selection_remains_cached(): void
+    {
+        $customer = $this->trader();
+        $variant = $this->stockedVariant();
+        $assistant = app(CustomerWholesaleAssistant::class);
+        $assistant->reply($customer, 'عايز 2 '.$variant->sku);
+        $latestKey = "wa:order:latest:{$customer->id}";
+        $token = Cache::get($latestKey);
+        $selectionKey = "wa:order:{$customer->id}:{$token}";
+        $items = Cache::get($selectionKey);
+        $this->assertNotEmpty($items);
+
+        $first = $assistant->reply($customer, '', "quote:{$token}");
+        $this->assertDatabaseHas('quotations', ['customer_id' => $customer->id, 'status' => 'requested']);
+
+        // Recreate the cache state left behind if the worker stops after committing.
+        Cache::put($selectionKey, $items, now()->addMinutes(15));
+        Cache::put($latestKey, $token, now()->addMinutes(15));
+        $retry = $assistant->reply($customer, '', "quote:{$token}");
+
+        $this->assertSame(1, Quotation::query()->where('customer_id', $customer->id)->count());
+        $this->assertSame($first, $retry);
+    }
+
+    public function test_a_customer_selection_cannot_be_inserted_twice(): void
+    {
+        $customer = $this->trader();
+        $variant = $this->stockedVariant();
+        $assistant = app(CustomerWholesaleAssistant::class);
+        $assistant->reply($customer, 'عايز 2 '.$variant->sku);
+        $assistant->reply($customer, 'عرض سعر');
+
+        $quotation = Quotation::query()->where('customer_id', $customer->id)->sole();
+        $duplicate = $quotation->replicate(['quotation_number']);
+        $duplicate->quotation_number = 'QUOTE-DUPLICATE-SELECTION';
+
+        $this->expectException(UniqueConstraintViolationException::class);
+        $duplicate->save();
+    }
+
     public function test_failed_otp_can_be_replaced_while_pending_otp_is_reused(): void
     {
         Bus::fake([SendOutboundMessage::class]);
@@ -184,6 +226,115 @@ class TraderBotOrderHardeningTest extends TestCase
         $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $variant->id, 'qty' => '50.00']);
     }
 
+    public function test_trailing_numeric_quantity_is_used_for_a_sku(): void
+    {
+        $customer = $this->trader();
+        $variant = $this->stockedVariant();
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز WH-2024 5');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $variant->id, 'qty' => '5.00']);
+    }
+
+    public function test_fractional_trailing_quantity_cannot_create_a_quote_for_a_labeled_sku(): void
+    {
+        $customer = $this->trader();
+        $this->stockedVariant();
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $reply = $assistant->reply($customer, 'عايز كود WH-2024 2.5');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseMissing('quotations', ['customer_id' => $customer->id]);
+        $this->assertStringContainsString('وضح الكمية', $reply);
+    }
+
+    public function test_conjunction_splits_distinct_order_lines_with_spoken_counts(): void
+    {
+        $customer = $this->trader();
+        $first = $this->stockedVariant();
+        $second = $this->stockedVariant('OTHER');
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز 2 WH-2024 و تلاته OTHER');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $quote = Quotation::query()->where('customer_id', $customer->id)->first();
+        $this->assertNotNull($quote);
+        $this->assertCount(2, $quote->items);
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $first->id, 'qty' => '2.00']);
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $second->id, 'qty' => '3.00']);
+    }
+
+    public function test_conjunction_inside_a_spoken_count_remains_part_of_that_count(): void
+    {
+        $customer = $this->trader();
+        $this->stockedVariant();
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $leading = $assistant->reply($customer, 'عايز ميتين و تلاتين دستة WH-2024');
+        $trailing = $assistant->reply($customer, 'عايز WH-2024 عدد ميتين و تلاتين');
+
+        $this->assertStringContainsString('× 2760 بسعر', $leading);
+        $this->assertStringContainsString('× 230 بسعر', $trailing);
+    }
+
+    public function test_conjunction_separates_products_when_each_has_a_spoken_count(): void
+    {
+        $customer = $this->trader();
+        $first = $this->stockedVariant();
+        $second = $this->stockedVariant('OTHER');
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز WH-2024 خمسين و تلاته OTHER');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $first->id, 'qty' => '50.00']);
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $second->id, 'qty' => '3.00']);
+    }
+
+    public function test_barcode_label_does_not_match_a_sku_when_no_barcode_matches(): void
+    {
+        $customer = $this->trader();
+        $this->stockedVariant('2024', '5555');
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز باركود 2024 عدد 5');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseMissing('quotations', ['customer_id' => $customer->id]);
+    }
+
+    public function test_barcode_label_resolves_the_barcode_when_another_variant_uses_that_sku(): void
+    {
+        $customer = $this->trader();
+        $this->stockedVariant('2024', '5555');
+        $barcodeVariant = $this->stockedVariant('BARCODE-VARIANT', '2024');
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز باركود 2024 عدد 5');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $barcodeVariant->id, 'qty' => '5.00']);
+    }
+
+    public function test_sku_label_resolves_the_sku_when_another_variant_uses_that_barcode(): void
+    {
+        $customer = $this->trader();
+        $skuVariant = $this->stockedVariant('2024', '5555');
+        $barcodeVariant = $this->stockedVariant('BARCODE-VARIANT', '2024');
+        $barcodeVariant->update(['wholesale_price' => 60]);
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $reply = $assistant->reply($customer, 'عايز كود 2024 عدد 5');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertStringContainsString('× 5 بسعر 80', $reply);
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $skuVariant->id, 'qty' => '5.00']);
+    }
+
     public function test_out_of_bounds_counts_are_not_eligible_for_cart_or_quote_actions(): void
     {
         $customer = $this->trader();
@@ -215,11 +366,11 @@ class TraderBotOrderHardeningTest extends TestCase
         return $customer;
     }
 
-    private function stockedVariant(string $sku = 'WH-2024'): ProductVariant
+    private function stockedVariant(string $sku = 'WH-2024', ?string $barcode = null): ProductVariant
     {
         $product = Product::factory()->published()->create(['sales_channel' => 'both']);
         $variant = ProductVariant::factory()->create(['product_id' => $product->id]);
-        $variant->update(['sku' => $sku, 'retail_price' => 100, 'wholesale_price' => 80, 'is_active' => true]);
+        $variant->update(['sku' => $sku, 'barcode' => $barcode, 'retail_price' => 100, 'wholesale_price' => 80, 'is_active' => true]);
         StockLevel::forceCreate([
             'branch_id' => Branch::factory()->create(['is_active' => true])->id,
             'product_variant_id' => $variant->id,

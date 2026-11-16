@@ -34,6 +34,7 @@ class Quotation extends Model
         'customer_notes',
         'admin_notes',
         'converted_order_id',
+        'whatsapp_selection_token',
     ];
 
     protected function casts(): array

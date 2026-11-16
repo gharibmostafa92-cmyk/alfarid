@@ -43,6 +43,8 @@ final class CustomerWholesaleAssistant
 
     private const ORDER_QUANTITY_NUMBER = '[+-]?\d+(?:[.,٫]\d+)?';
 
+    private const ORDER_QUANTITY_LABEL = 'عدد|كمي[ةه]';
+
     private const ORDER_QUANTITY_UNIT = 'دست[ةه]?|قطع[ةه]?|حب[ةه]|حبات|علب[ةه]?|كرتون[ةه]';
 
     private const ORDER_LOOKUP_BUSY = 'في طلب بيتنفذ دلوقتي. حاول تاني بعد لحظات.';
@@ -500,18 +502,16 @@ final class CustomerWholesaleAssistant
         $spokenCount = "(?:{$words})(?:\s+(?:و\s*)?(?:{$words}))*";
         $numberWithUnit = self::ORDER_QUANTITY_NUMBER.'(?:\s+(?:'.self::ORDER_QUANTITY_UNIT.'))?';
         $count = "(?:{$numberWithUnit}|{$spokenCount})";
-        $segments = preg_split(
-            "/\s*،\s*|(?<!\d),|,(?!\d)|\s+ثم\s+|\s+و\s*(?=[+-]?\d)|\s+و(?!\s*(?:{$words})(?=\s|$))\s+/u",
-            EntityResolver::normalizeDigits($text),
-        ) ?: [];
+        $clean = (string) preg_replace(self::ORDER_VERBS_REGEX, '', EntityResolver::normalizeDigits($text));
+        $segments = $this->splitOrderSegments($clean, $words, $spokenCount);
         $lines = [];
         foreach ($segments as $segment) {
-            $clean = trim((string) preg_replace(self::ORDER_VERBS_REGEX, '', $segment));
-            if ($clean === '') {
+            $segment = trim($segment);
+            if ($segment === '') {
                 continue;
             }
 
-            $line = $this->parseOrderLine($clean, $count, $spokenCount);
+            $line = $this->parseOrderLine($segment, $count);
             if ($line === null) {
                 return [];
             }
@@ -521,19 +521,54 @@ final class CustomerWholesaleAssistant
         return $lines === [] ? null : $lines;
     }
 
+    /** @return list<string> */
+    private function splitOrderSegments(string $text, string $words, string $spokenCount): array
+    {
+        $clauses = preg_split('/\s*،\s*|(?<!\d),|,(?!\d)|\s+ثم\s+/u', $text) ?: [];
+        $quantityLabel = self::ORDER_QUANTITY_LABEL;
+        $onlyCount = "/\A(?:(?:{$quantityLabel})\s+)?{$spokenCount}\z/u";
+        $segments = [];
+        foreach ($clauses as $clause) {
+            $parts = preg_split(
+                "/(\s+و(?=\s|[+-]?\d|(?:{$words})(?=\s|$))\s*)/u",
+                $clause,
+                -1,
+                PREG_SPLIT_DELIM_CAPTURE,
+            ) ?: [$clause];
+            $segment = array_shift($parts);
+            foreach (array_chunk($parts, 2) as [$conjunction, $part]) {
+                // Join spoken number fragments when at least one side has no product.
+                if (preg_match("/(?:\A|\s){$spokenCount}\z/u", trim($segment))
+                    && preg_match("/\A(?:{$words})(?=\s|$)/u", $part)
+                    && (preg_match($onlyCount, trim($segment)) || preg_match($onlyCount, trim($part)))) {
+                    $segment .= $conjunction.$part;
+
+                    continue;
+                }
+                $segments[] = $segment;
+                $segment = $part;
+            }
+            $segments[] = $segment;
+        }
+
+        return $segments;
+    }
+
     /** @return array{qty: float, query: string}|null */
-    private function parseOrderLine(string $text, string $count, string $spokenCount): ?array
+    private function parseOrderLine(string $text, string $count): ?array
     {
         $quantityText = null;
         $query = $text;
-        if (preg_match("/(?:\A|\s)(?:عدد|كمي[ةه])\s+({$count})(?=\s|$)/u", $text, $match, PREG_OFFSET_CAPTURE)) {
+        $quantityLabel = self::ORDER_QUANTITY_LABEL;
+        if (preg_match("/(?:\A|\s)(?:{$quantityLabel})\s+({$count})(?=\s|$)/u", $text, $match, PREG_OFFSET_CAPTURE)) {
             $quantityText = $match[1][0];
             $query = trim(substr_replace($text, '', $match[0][1], strlen($match[0][0])));
         } elseif (preg_match("/\A(.+?)(?:\s*[×*]\s*|\s+[xX]\s+)({$count})\z/u", $text, $match)) {
             [, $query, $quantityText] = $match;
         } elseif (preg_match("/\A({$count})\s+(.+)\z/u", $text, $match)) {
             [, $quantityText, $query] = $match;
-        } elseif (preg_match("/\A(.+?)\s+({$spokenCount})\z/u", $text, $match)) {
+        } elseif (preg_match("/\A(.+?)\s+({$count})\z/u", $text, $match)
+            && ! preg_match('/(?:\A|\s)(?:كود|باركود|موديل)\z/u', $match[1])) {
             [, $query, $quantityText] = $match;
         }
         if ($quantityText === null) {
@@ -562,17 +597,22 @@ final class CustomerWholesaleAssistant
         if ($clean === '') {
             return [];
         }
-        $hasCodeLabel = preg_match('/(?:\A|\s)(?:كود|باركود)\s+(\S+)/u', $clean, $code) === 1;
-        if ($hasCodeLabel) {
-            $clean = $code[1];
+        $codeColumn = null;
+        if (preg_match('/(?:\A|\s)(كود|باركود)\s+(\S+)/u', $clean, $code)) {
+            $codeColumn = $code[1] === 'باركود' ? 'barcode' : 'sku';
+            $clean = $code[2];
         }
-        if ($hasCodeLabel || (! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 2)) {
-            $exact = ProductVariant::query()
+        if ($codeColumn !== null || (! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 2)) {
+            $exactQuery = ProductVariant::query()
                 ->wholesalePurchasable()
-                ->where(fn ($q) => $q->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]))
-                ->limit(2)
-                ->get();
-            if ($hasCodeLabel || $exact->count() === 1) {
+                ->limit(2);
+            if ($codeColumn !== null) {
+                $exactQuery->whereRaw("LOWER({$codeColumn}) = LOWER(?)", [$clean]);
+            } else {
+                $exactQuery->where(fn ($q) => $q->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]));
+            }
+            $exact = $exactQuery->get();
+            if ($codeColumn !== null || $exact->count() === 1) {
                 $exact->loadMissing('product:id,name_ar');
 
                 return $exact->map(fn (ProductVariant $variant) => [
@@ -653,7 +693,11 @@ final class CustomerWholesaleAssistant
                 }
                 $ambiguous[] = "لـ '".$line['query']."' لقيت: ".implode('، ', $options).' – اختار بالرقم أو الكود.';
             } else {
-                $resolved[] = ['sku' => $matches[0]['sku'], 'qty' => $line['qty']];
+                $resolved[] = [
+                    'product_variant_id' => $matches[0]['id'],
+                    'sku' => $matches[0]['sku'],
+                    'qty' => $line['qty'],
+                ];
             }
         }
         if ($unmatched !== [] || $ambiguous !== []) {
@@ -664,7 +708,7 @@ final class CustomerWholesaleAssistant
 
             return trim($message.' '.implode(' ', $ambiguous));
         }
-        $found = $this->quickOrder->lookup($customer, $resolved);
+        $found = $this->quickOrder->lookupSelectedVariants($customer, $resolved);
         $parts = [];
         $cachedItems = [];
         foreach ($found as $row) {
@@ -722,16 +766,27 @@ final class CustomerWholesaleAssistant
             $token = str_contains($action, ':')
                 ? substr($action, strpos($action, ':') + 1)
                 : (string) Cache::get($latestKey, '');
-            $cacheKey = $this->orderLookupCacheKey($customer, $token);
-            $items = $token !== '' ? Cache::get($cacheKey) : null;
-            if (! is_array($items) || $items === []) {
-                return 'انتهت صلاحية اختيار الأصناف. ابعت الأصناف والكميات تاني عشان أضيفهم للسلة أو أعمل عرض سعر.';
+            $expired = 'انتهت صلاحية اختيار الأصناف. ابعت الأصناف والكميات تاني عشان أضيفهم للسلة أو أعمل عرض سعر.';
+            if (preg_match('/\A[0-9a-f]{12}\z/', $token) !== 1) {
+                return $expired;
             }
+            $cacheKey = $this->orderLookupCacheKey($customer, $token);
+            $cached = Cache::get($cacheKey);
+            $items = is_array($cached) ? $cached : [];
 
             try {
-                $reply = $isCart
-                    ? $this->addOrderLookupToCart($customer, $items)
-                    : $this->submitOrderLookupQuotation($customer, $items);
+                if ($isCart) {
+                    if ($items === []) {
+                        return $expired;
+                    }
+                    $reply = $this->addOrderLookupToCart($customer, $items);
+                } else {
+                    $quotation = $this->quotations->submitWhatsAppSelection($customer, $token, $items);
+                    if ($quotation === null) {
+                        return $expired;
+                    }
+                    $reply = "تم إنشاء وإرسال عرض السعر رقم {$quotation->quotation_number} للإدارة.";
+                }
             } catch (BusinessException $e) {
                 return $e->getMessage();
             }
@@ -747,7 +802,7 @@ final class CustomerWholesaleAssistant
 
     private function addOrderLookupToCart(Customer $customer, array $items): string
     {
-        $result = $this->quickOrder->importToCart($customer, $items);
+        $result = $this->quickOrder->importSelectedVariantsToCart($customer, $items);
         $added = count($result['added']);
         $skipped = count($result['skipped']);
         if ($added === 0) {
@@ -757,16 +812,5 @@ final class CustomerWholesaleAssistant
         return $skipped > 0
             ? "تمت إضافة {$added} صنف للسلة وتجاوز {$skipped} صنف لعدم توفر الكمية."
             : "تمت إضافة {$added} صنف إلى السلة بنجاح.";
-    }
-
-    private function submitOrderLookupQuotation(Customer $customer, array $items): string
-    {
-        $quotation = DB::transaction(function () use ($customer, $items): Quotation {
-            $draft = $this->quotations->create($customer, ['items' => $items]);
-
-            return $this->quotations->submit($draft);
-        });
-
-        return "تم إنشاء وإرسال عرض السعر رقم {$quotation->quotation_number} للإدارة.";
     }
 }

@@ -38,14 +38,34 @@ class WholesaleQuickOrderService
      */
     public function lookup(Customer $customer, array $lines): array
     {
-        $variants = $this->findVariants($lines);
+        return $this->lookupLines($customer, $lines, $this->findVariants($lines));
+    }
+
+    /**
+     * Preview already-resolved variants without matching their codes again.
+     *
+     * @param  list<array{product_variant_id: int, sku: string, qty: float}>  $lines
+     * @return list<array<string, mixed>>
+     */
+    public function lookupSelectedVariants(Customer $customer, array $lines): array
+    {
+        $variants = ProductVariant::query()->with(['product.media', 'media'])
+            ->wholesalePurchasable()
+            ->whereIn('id', array_column($lines, 'product_variant_id'))
+            ->get()->keyBy('id');
+
+        return $this->lookupLines($customer, $lines, $variants, byVariantId: true);
+    }
+
+    private function lookupLines(Customer $customer, array $lines, Collection $variants, bool $byVariantId = false): array
+    {
         $availability = $this->availabilityFor($variants->pluck('id')->all());
         // Preload pricing context for all looked-up variants in a single query batch.
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
 
-        return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx): array {
+        return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx, $byVariantId): array {
             $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
-            $variant = $variants->get(mb_strtoupper(trim($code)));
+            $variant = $variants->get($byVariantId ? $line['product_variant_id'] : mb_strtoupper(trim($code)));
             $qty = (float) $line['qty'];
 
             if ($variant === null) {
@@ -126,30 +146,46 @@ class WholesaleQuickOrderService
             throw new BusinessException('الطلب غير موجود أو لا يخص هذا التاجر.', [], 404);
         }
 
-        $rows = $order->items()
-            ->get()
-            ->groupBy('product_variant_id')
-            ->map(fn (Collection $items, int $variantId) => [
-                'sku' => (string) ($items->first()->sku_snapshot ?? ''),
-                'qty' => (float) $items->sum('qty'),
-                'variant_id' => $variantId,
+        $rows = $order->items()->get()
+            ->map(fn ($item) => [
+                'product_variant_id' => $item->product_variant_id,
+                'sku' => (string) $item->sku_snapshot,
+                'qty' => (float) $item->qty,
             ])
-            ->values()
             ->all();
 
-        // Key by active variant ID rather than historical snapshot SKU to ensure integrity against catalog renames.
+        return $this->importSelectedVariantsToCart($customer, $rows);
+    }
+
+    /**
+     * Add already-resolved variants while rechecking stock and current prices.
+     *
+     * @param  list<array{product_variant_id: int, sku: string, qty: float}>  $rows
+     * @return array{added: list<array<string, mixed>>, skipped: list<array<string, mixed>>, cart: array<string, mixed>}
+     */
+    public function importSelectedVariantsToCart(Customer $customer, array $rows): array
+    {
+        $lines = collect($rows)
+            ->groupBy('product_variant_id')
+            ->map(fn (Collection $items, int $variantId) => [
+                'product_variant_id' => $variantId,
+                'sku' => $items->first()['sku'],
+                'qty' => (float) $items->sum('qty'),
+            ])
+            ->values();
+
         $variants = ProductVariant::query()->with('product')
             ->wholesalePurchasable()
-            ->whereIn('id', collect($rows)->pluck('variant_id')->all())
+            ->whereIn('id', $lines->pluck('product_variant_id'))
             ->get()->keyBy('id');
         $availability = $this->availabilityFor($variants->pluck('id')->all());
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
 
-        $items = array_map(fn (array $row) => [
+        $items = $lines->map(fn (array $row) => [
             'sku' => $row['sku'],
             'qty' => $row['qty'],
-            'variant' => $variants->get($row['variant_id']),
-        ], $rows);
+            'variant' => $variants->get($row['product_variant_id']),
+        ])->all();
 
         return $this->addLinesToCart($customer, $items, $availability, $ctx);
     }

@@ -25,10 +25,10 @@ Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes b
 
 ### 2026-11-17 wholesale quotations and WhatsApp orders (local only)
 
-- Pending deployment of the backend revision containing quote conversion, pricing and WhatsApp changes. Live status is unverified. Task 2 is code-only.
+- Pending PostgreSQL migration `2026_11_17_000001_add_whatsapp_selection_to_quotations.php`, followed by the backend revision containing quote conversion, pricing and WhatsApp changes. The migration builds a partial unique index concurrently and runs outside a transaction. Live status is unverified.
 - Conversion charges shipping for the customer's delivery address and includes it in the credit check. Quotation quantities validate whole pieces, and duplicate variant rows share a quantity tier and stock check. Converted quotations expose the commercial order number alongside the order ID.
-- WhatsApp checks the accepted quotation revision, uses eligible credit due dates, preserves the selection on submission failure and retries failed OTP deliveries. Quantity parsing keeps numeric product identifiers.
-- Final isolated PostgreSQL verification passed 63/63 tests with 243 assertions across quotation acceptance, allocation, credit limits, WhatsApp and statement parity. A broader run before the final labeled-SKU fix passed 106/110. A baseline rerun reproduced the same four failures involving a repricing expectation, two shadow-mode OTP fixtures and bank matching.
+- WhatsApp checks the accepted quotation revision, uses eligible credit due dates, preserves the selection on submission failure and retries failed OTP deliveries. A submitted selection replays the same quotation by customer and token. Quantity parsing handles trailing counts and separates product lines from spoken counts. Labeled SKU and barcode searches carry the selected variant into the quote.
+- A serial isolated PostgreSQL run passed 93/93 tests with 370 assertions across quotation acceptance, allocation, credit limits, WhatsApp, statement parity and Quick Order. The earlier 106/110 neighbor run had four failures reproduced on its baseline involving a repricing expectation, two shadow-mode OTP fixtures and bank matching.
 
 ### 2026-11-12 procurement, returns, and Cloud Run close-out (local only)
 
