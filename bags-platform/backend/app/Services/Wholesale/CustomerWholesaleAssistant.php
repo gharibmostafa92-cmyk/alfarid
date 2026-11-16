@@ -568,7 +568,7 @@ final class CustomerWholesaleAssistant
         } elseif (preg_match("/\A({$count})\s+(.+)\z/u", $text, $match)) {
             [, $quantityText, $query] = $match;
         } elseif (preg_match("/\A(.+?)\s+({$count})\z/u", $text, $match)
-            && ! preg_match('/(?:\A|\s)(?:كود|باركود|موديل)\z/u', $match[1])) {
+            && $this->hasTrailingQuantity($match[1], $match[2])) {
             [, $query, $quantityText] = $match;
         }
         if ($quantityText === null) {
@@ -586,6 +586,20 @@ final class CustomerWholesaleAssistant
         }
 
         return $qty === null || $query === '' ? null : ['qty' => $qty, 'query' => $query];
+    }
+
+    private function hasTrailingQuantity(string $product, string $count): bool
+    {
+        if (preg_match('/(?:\A|\s)(?:كود|باركود|موديل)\z/u', $product)) {
+            return false;
+        }
+        if (preg_match('/\A'.self::ORDER_QUANTITY_NUMBER.'\z/u', $count) !== 1) {
+            return true;
+        }
+
+        // An unmarked trailing number may be a model number in a product description.
+        return preg_match('/(?:\A|\s)(?:كود|باركود)\s+\S+\z/u', $product) === 1
+            || preg_match('/\A(?:[A-Z]+|[A-Za-z0-9]*[0-9._-][A-Za-z0-9._-]*)\z/', $product) === 1;
     }
 
     /**

@@ -238,6 +238,21 @@ class TraderBotOrderHardeningTest extends TestCase
         $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $variant->id, 'qty' => '5.00']);
     }
 
+    public function test_numeric_suffix_identifies_the_product_model_in_a_description(): void
+    {
+        $customer = $this->trader();
+        $model = $this->stockedVariant('MODEL-2024');
+        $model->product()->update(['name_ar' => 'شنطة 2024']);
+        $otherModel = $this->stockedVariant('MODEL-2023');
+        $otherModel->product()->update(['name_ar' => 'شنطة 2023']);
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز شنطة 2024');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $model->id, 'qty' => '1.00']);
+    }
+
     public function test_fractional_trailing_quantity_cannot_create_a_quote_for_a_labeled_sku(): void
     {
         $customer = $this->trader();
