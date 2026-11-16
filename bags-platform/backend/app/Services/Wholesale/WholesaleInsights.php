@@ -142,7 +142,7 @@ final class WholesaleInsights
     public function creditSuggestions(): array
     {
         $out = [];
-        $openOrdersByOrder = $this->unpaidCreditOrderBalances();
+        $openOrdersByOrder = app(WholesaleOrderBalanceQuery::class)->unpaidCreditOrderBalances();
         $openTotalsSub = DB::query()->fromSub(clone $openOrdersByOrder, 'balances')
             ->groupBy('balances.customer_id')
             ->selectRaw('balances.customer_id, SUM(balances.remaining) as open_total');
@@ -202,39 +202,6 @@ final class WholesaleInsights
         }
 
         return $out;
-    }
-
-    /**
-     * Returns one SQL row per unpaid credit order with valid approved payment and return coverage applied.
-     *
-     * @return \Illuminate\Database\Query\Builder
-     */
-    private function unpaidCreditOrderBalances(): \Illuminate\Database\Query\Builder
-    {
-        $linkedNotices = DB::table('wholesale_payment_notices')
-            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-            ->whereNotNull('order_id')
-            ->groupBy('order_id')
-            ->selectRaw('order_id, SUM(amount) as total');
-        $allocations = DB::table('wholesale_payment_allocations as a')
-            ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
-            ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
-            ->groupBy('a.order_id')
-            ->selectRaw('a.order_id, SUM(a.amount) as total');
-        $creditNotes = DB::table('return_requests')
-            ->where('status', 'refunded')
-            ->where('refund_method', RefundMethod::CreditNote->value)
-            ->groupBy('order_id')
-            ->selectRaw('order_id, SUM(total_refund_amount) as total');
-
-        return DB::table('orders as o')
-            ->leftJoinSub($linkedNotices, 'linked_notices', 'linked_notices.order_id', '=', 'o.id')
-            ->leftJoinSub($allocations, 'approved_allocations', 'approved_allocations.order_id', '=', 'o.id')
-            ->leftJoinSub($creditNotes, 'credit_notes', 'credit_notes.order_id', '=', 'o.id')
-            ->where('o.payment_method', 'credit')
-            ->where('o.payment_status', 'unpaid')
-            ->where('o.status', '!=', OrderStatus::Cancelled->value)
-            ->selectRaw('o.id, o.customer_id, o.due_at, GREATEST(o.grand_total - COALESCE(linked_notices.total, 0) - COALESCE(approved_allocations.total, 0) - COALESCE(credit_notes.total, 0), 0) as remaining');
     }
 
     /**

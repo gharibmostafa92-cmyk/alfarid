@@ -342,7 +342,7 @@ class WholesalePaymentNoticeService
             ->orderByRaw($noticeDate)->orderBy('id')->limit(1501)
             ->get(['id', 'notice_number', 'payment_method', 'amount', 'approved_at', 'transfer_date', 'updated_at'])
             ->each(fn (WholesalePaymentNotice $notice) => $entries->push([
-                'date' => ($notice->approved_at ?? $notice->transfer_date ?? $notice->updated_at)->copy()->timezone($businessTimezone),
+                'date' => $this->statementNoticeEffectiveAt($notice, $businessTimezone),
                 'type' => 'credit',
                 'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
                 'reference' => $notice->notice_number,
@@ -360,10 +360,10 @@ class WholesalePaymentNoticeService
             ->limit(1501)
             ->get(['id', 'notice_number', 'payment_method', 'amount', 'approved_at', 'transfer_date', 'updated_at', 'reversed_at', 'admin_notes'])
             ->each(function (WholesalePaymentNotice $notice) use ($entries, $fromDate, $toDate, $businessTimezone): void {
-                $approvedDate = $notice->approved_at ?? $notice->transfer_date ?? $notice->updated_at;
+                $approvedDate = $this->statementNoticeEffectiveAt($notice, $businessTimezone);
                 if ($approvedDate !== null && $approvedDate->betweenIncluded($fromDate, $toDate)) {
                     $entries->push([
-                        'date' => $approvedDate->copy()->timezone($businessTimezone),
+                        'date' => $approvedDate,
                         'type' => 'credit',
                         'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
                         'reference' => $notice->notice_number,
@@ -469,6 +469,23 @@ class WholesalePaymentNoticeService
 
         // Explicit zones keep DATE conversion independent of the PostgreSQL session timezone.
         return "COALESCE(approved_at, (transfer_date::timestamp AT TIME ZONE '{$businessTimezone}') AT TIME ZONE 'UTC', updated_at)";
+    }
+
+    private function statementNoticeEffectiveAt(WholesalePaymentNotice $notice, string $businessTimezone): ?Carbon
+    {
+        if ($notice->approved_at !== null) {
+            return $notice->approved_at->copy()->timezone($businessTimezone);
+        }
+
+        // The SQL DATE fallback is Cairo midnight converted to a UTC instant.
+        // Parse the raw DATE in the same business timezone instead of using the
+        // model's UTC DATE cast, which renders that fallback two or three hours late.
+        $transferDate = $notice->getRawOriginal('transfer_date') ?? $notice->transfer_date?->toDateString();
+        if ($transferDate !== null) {
+            return Carbon::parse((string) $transferDate, $businessTimezone)->startOfDay();
+        }
+
+        return $notice->updated_at?->copy()->timezone($businessTimezone);
     }
 
     /**

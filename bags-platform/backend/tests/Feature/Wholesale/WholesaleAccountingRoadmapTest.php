@@ -77,6 +77,56 @@ class WholesaleAccountingRoadmapTest extends TestCase
         $this->assertSame(['2026-12-20'], array_values(array_unique(array_column($statement['entries'], 'date'))));
     }
 
+    public function test_date_only_notice_uses_same_effective_time_for_approved_and_reversed_rows(): void
+    {
+        $approvedCustomer = $this->wholesaleCustomer();
+        $dateOnlyApproved = WholesalePaymentNotice::factory()->create([
+            'customer_id' => $approvedCustomer->id,
+            'amount' => 100,
+            'status' => WholesalePaymentNoticeStatus::Approved,
+            'transfer_date' => '2026-11-10',
+            'approved_at' => null,
+        ]);
+        $timestampedApproved = WholesalePaymentNotice::factory()->create([
+            'customer_id' => $approvedCustomer->id,
+            'amount' => 50,
+            'status' => WholesalePaymentNoticeStatus::Approved,
+            'transfer_date' => '2026-11-09',
+            'approved_at' => '2026-11-09 22:30:00',
+        ]);
+
+        $approvedStatement = app(WholesalePaymentNoticeService::class)->statement($approvedCustomer, '2026-11-10', '2026-11-10');
+        $this->assertSame(
+            [$dateOnlyApproved->notice_number, $timestampedApproved->notice_number],
+            array_column($approvedStatement['entries'], 'reference'),
+        );
+        $this->assertSame(['-100.00', '-150.00'], array_column($approvedStatement['entries'], 'balance'));
+
+        $reversedCustomer = $this->wholesaleCustomer();
+        $dateOnlyReversed = WholesalePaymentNotice::factory()->create([
+            'customer_id' => $reversedCustomer->id,
+            'amount' => 200,
+            'status' => WholesalePaymentNoticeStatus::Reversed,
+            'transfer_date' => '2026-11-10',
+            'approved_at' => null,
+            'reversed_at' => '2026-11-09 22:15:00',
+        ]);
+        $timestampedAfterReversal = WholesalePaymentNotice::factory()->create([
+            'customer_id' => $reversedCustomer->id,
+            'amount' => 50,
+            'status' => WholesalePaymentNoticeStatus::Approved,
+            'transfer_date' => '2026-11-09',
+            'approved_at' => '2026-11-09 22:30:00',
+        ]);
+
+        $reversedStatement = app(WholesalePaymentNoticeService::class)->statement($reversedCustomer, '2026-11-10', '2026-11-10');
+        $this->assertSame(
+            [$dateOnlyReversed->notice_number, $dateOnlyReversed->notice_number, $timestampedAfterReversal->notice_number],
+            array_column($reversedStatement['entries'], 'reference'),
+        );
+        $this->assertSame(['200.00', '0.00', '-50.00'], array_column($reversedStatement['entries'], 'balance'));
+    }
+
     public function test_database_guard_excludes_non_credit_order_returns_from_credit_coverage(): void
     {
         $customer = $this->wholesaleCustomer();
@@ -210,6 +260,21 @@ class WholesaleAccountingRoadmapTest extends TestCase
         $this->assertLessThanOrEqual(10, count($queries), 'Candidate evaluation must remain bounded and query based.');
     }
 
+    public function test_credit_suggestions_ignore_soft_deleted_overdue_credit_orders(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-16 00:30:00', 'UTC'));
+        $customer = $this->wholesaleCustomer(1000);
+        $this->creditOrder($customer, 950, '2026-11-20 12:00:00');
+        $deletedOrder = $this->creditOrder($customer, 2000, '2026-11-14 12:00:00');
+        $deletedOrder->delete();
+
+        $suggestions = app(WholesaleInsights::class)->creditSuggestions();
+
+        $suggestion = collect($suggestions)->firstWhere('customer_id', $customer->id);
+        $this->assertNotNull($suggestion, 'A soft-deleted overdue order must not disqualify an otherwise eligible customer.');
+        $this->assertSame(95.0, (float) $suggestion['used_percent']);
+    }
+
     public function test_daily_briefing_sums_clamped_net_exposure_per_overdue_order(): void
     {
         $customer = $this->wholesaleCustomer();
@@ -235,6 +300,9 @@ class WholesaleAccountingRoadmapTest extends TestCase
             'grand_total' => 999,
             'due_at' => '2026-11-14 12:00:00',
         ]);
+        $deletedCustomer = $this->wholesaleCustomer();
+        $deletedOrder = $this->creditOrder($deletedCustomer, 1000, '2026-11-14 12:00:00');
+        $deletedOrder->delete();
 
         $this->artisan('wholesale:daily-briefing')->assertSuccessful();
 

@@ -15,6 +15,13 @@ Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes b
 
 ## 2. Ready / Pending Server Deployment (NOT yet deployed)
 
+### 2026-11-16 wholesale receivables hardening (local only / not deployed)
+
+- Live status is unverified; no live Cloud Run revision or production database was checked for this change.
+- Pending forward migration: `2026_11_16_000004_scope_credit_note_coverage_to_credit_orders.php`. Review and apply it before or with the backend deploy so the database allocation guard matches application credit-note accounting.
+- Pending deploy actions: deploy the backend revision containing the wholesale statement, credit suggestion, and daily briefing fixes; then verify the scheduled `wholesale:daily-briefing` command runs the deployed revision. No environment variable or queue schema change is required.
+- Local verification used the isolated database `alfarid_task1_20261116_verify`; that result does not establish live deployment status.
+
 ### 2026-11-12 procurement, returns, and Cloud Run close-out (local only)
 
 Not deployed. Apply on the server only after review. Do not treat a green local suite as a live revision.
