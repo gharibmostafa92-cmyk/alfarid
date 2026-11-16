@@ -253,6 +253,37 @@ class TraderBotOrderHardeningTest extends TestCase
         $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $model->id, 'qty' => '1.00']);
     }
 
+    public function test_exact_model_description_takes_precedence_over_its_uppercase_sku_prefix(): void
+    {
+        $customer = $this->trader();
+        $model = $this->stockedVariant('MODEL-2024');
+        $model->product()->update(['name_en' => 'BAG 2024']);
+        $sku = $this->stockedVariant('BAG');
+        $sku->product()->update(['name_ar' => 'شنطة عادية', 'name_en' => 'Regular bag']);
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $assistant->reply($customer, 'عايز BAG 2024');
+        $assistant->reply($customer, 'عرض سعر');
+
+        $this->assertDatabaseHas('quotation_items', ['product_variant_id' => $model->id, 'qty' => '1.00']);
+        $this->assertDatabaseMissing('quotation_items', ['product_variant_id' => $sku->id]);
+    }
+
+    public function test_trailing_numeric_quantity_matches_a_sku_regardless_of_capitalization(): void
+    {
+        $customer = $this->trader();
+        $variant = $this->stockedVariant('OTHER');
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        foreach (['OTHER', 'other'] as $code) {
+            $reply = $assistant->reply($customer, 'عايز '.$code.' 5');
+            $this->assertStringContainsString('× 5 بسعر', $reply);
+            $assistant->reply($customer, 'عرض سعر');
+        }
+
+        $this->assertSame(2, DB::table('quotation_items')->where('product_variant_id', $variant->id)->where('qty', 5)->count());
+    }
+
     public function test_fractional_trailing_quantity_cannot_create_a_quote_for_a_labeled_sku(): void
     {
         $customer = $this->trader();

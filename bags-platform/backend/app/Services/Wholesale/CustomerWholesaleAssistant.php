@@ -22,6 +22,7 @@ use App\Services\Shared\SettingService;
 use App\Services\Shared\SpokenQuantity;
 use App\Support\ArabicDigits;
 use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -597,9 +598,36 @@ final class CustomerWholesaleAssistant
             return true;
         }
 
-        // An unmarked trailing number may be a model number in a product description.
-        return preg_match('/(?:\A|\s)(?:كود|باركود)\s+\S+\z/u', $product) === 1
-            || preg_match('/\A(?:[A-Z]+|[A-Za-z0-9]*[0-9._-][A-Za-z0-9._-]*)\z/', $product) === 1;
+        if (preg_match('/(?:\A|\s)(?:كود|باركود)\s+\S+\z/u', $product)) {
+            return true;
+        }
+        if (preg_match('/\s/u', $product) || ! $this->exactCodeVariants($product)->exists()) {
+            return false;
+        }
+
+        // Give a complete model name or code precedence over a bare SKU followed by a count.
+        $description = $product.' '.$count;
+
+        return ! ProductVariant::query()->wholesalePurchasable()
+            ->where(fn (Builder $query) => $query
+                ->whereRaw('LOWER(sku) = LOWER(?)', [$description])
+                ->orWhereRaw('LOWER(barcode) = LOWER(?)', [$description])
+                ->orWhereHas('product', fn (Builder $productQuery) => $productQuery
+                    ->whereRaw('LOWER(name_ar) = LOWER(?)', [$description])
+                    ->orWhereRaw('LOWER(name_en) = LOWER(?)', [$description])))
+            ->exists();
+    }
+
+    private function exactCodeVariants(string $code, ?string $column = null): Builder
+    {
+        $variants = ProductVariant::query()->wholesalePurchasable();
+        if ($column !== null) {
+            return $variants->whereRaw("LOWER({$column}) = LOWER(?)", [$code]);
+        }
+
+        return $variants->where(fn (Builder $query) => $query
+            ->whereRaw('LOWER(sku) = LOWER(?)', [$code])
+            ->orWhereRaw('LOWER(barcode) = LOWER(?)', [$code]));
     }
 
     /**
@@ -617,15 +645,7 @@ final class CustomerWholesaleAssistant
             $clean = $code[2];
         }
         if ($codeColumn !== null || (! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 2)) {
-            $exactQuery = ProductVariant::query()
-                ->wholesalePurchasable()
-                ->limit(2);
-            if ($codeColumn !== null) {
-                $exactQuery->whereRaw("LOWER({$codeColumn}) = LOWER(?)", [$clean]);
-            } else {
-                $exactQuery->where(fn ($q) => $q->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]));
-            }
-            $exact = $exactQuery->get();
+            $exact = $this->exactCodeVariants($clean, $codeColumn)->limit(2)->get();
             if ($codeColumn !== null || $exact->count() === 1) {
                 $exact->loadMissing('product:id,name_ar');
 
