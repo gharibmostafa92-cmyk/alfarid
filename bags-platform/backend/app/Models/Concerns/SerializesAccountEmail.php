@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models\Concerns;
 
+use App\Enums\Customer\CustomerType;
 use App\Models\Customer;
+use App\Models\CustomerAuditLog;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Support\AccountEmailLock;
 use Illuminate\Support\Facades\Validator;
@@ -20,12 +22,25 @@ trait SerializesAccountEmail
                 return;
             }
 
-            // Cross-realm emails are unique even before verification: an
-            // unverified retail address must still block staff/supplier reuse.
             AccountEmailLock::acquire($account->email);
             Validator::make(['email' => $account->email], [
                 'email' => [new EmailNotUsedByOtherAccountType($account->getTable())],
             ])->validate();
+
+            if (! $account instanceof Customer) {
+                $normalizedEmail = mb_strtolower(trim($account->email));
+                Customer::query()
+                    ->whereRaw('LOWER(email) = ?', [$normalizedEmail])
+                    ->where('type', CustomerType::Retail->value)
+                    ->whereNull('email_verified_at')
+                    ->get()
+                    ->each(function (Customer $customer): void {
+                        $customer->forceFill(['email' => null])->saveQuietly();
+                        CustomerAuditLog::record($customer, 'unverified_email_released', null, [
+                            'reason' => 'claimed_by_other_realm',
+                        ]);
+                    });
+            }
         });
     }
 

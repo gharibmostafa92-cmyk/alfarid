@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
+use App\Exceptions\BusinessException;
 use App\Models\City;
 use App\Models\ShippingRate;
 
@@ -19,9 +20,6 @@ class ShippingQuoteService
     /**
      * Calculate shipping rate and cash-on-delivery fees for an order destination.
      *
-     * @param  int  $cityId
-     * @param  float  $merchandiseTotal
-     * @param  bool  $cod
      * @return array{cost: float, cod_fee: float, rate: ShippingRate|null}
      */
     public function quoteForCity(int $cityId, float $merchandiseTotal, bool $cod): array
@@ -36,9 +34,12 @@ class ShippingQuoteService
             ->first();
 
         if ($rate === null) {
-            $city = City::query()->find($cityId);
+            $city = City::query()->where('is_active', true)->find($cityId);
+            if ($city === null) {
+                throw new BusinessException('المدينة المحددة غير متاحة للتوصيل.');
+            }
 
-            return ['cost' => (float) ($city?->shipping_cost ?? 0), 'cod_fee' => 0.0, 'rate' => null];
+            return ['cost' => (float) ($city->shipping_cost ?? 0), 'cod_fee' => 0.0, 'rate' => null];
         }
 
         return [

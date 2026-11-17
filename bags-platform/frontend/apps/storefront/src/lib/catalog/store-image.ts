@@ -41,6 +41,34 @@ function safeStoreMediaPath(pathname: string): string | null {
   return segments.join('/');
 }
 
+function isR2Host(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host.endsWith('.r2.dev') || host.endsWith('.r2.cloudflarestorage.com');
+}
+
+/**
+ * Maps an https object URL onto same-origin /store-media without its query string.
+ * A configured CDN origin is returned unchanged. Any other host is blank.
+ */
+export function publicObjectImageUrl(source: string, cdnPublicUrl = ''): string {
+  let url: URL;
+  try {
+    url = new URL(source);
+  } catch {
+    return '';
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) return '';
+  let cdnOrigin = '';
+  const cdnRaw = cdnPublicUrl.trim();
+  if (cdnRaw) {
+    try { cdnOrigin = new URL(cdnRaw).origin; } catch { cdnOrigin = ''; }
+  }
+  if (cdnOrigin && url.origin === cdnOrigin) return source;
+  if (cdnOrigin || !isR2Host(url.hostname)) return '';
+  const mediaPath = safeStoreMediaPath(url.pathname);
+  return mediaPath ? `/store-media/${mediaPath}` : '';
+}
+
 function resolveStoreImage(source: string | null | undefined, allowHttp: boolean): string {
   // Reject protocol-relative URLs, Windows backslashes, traversal and control characters to prevent SSRF and open redirect exploits.
   if (!source || source !== source.trim() || source.startsWith('//') || source.includes('\\') || source.includes('..') || /%(?:2e|2f|5c)/i.test(source) || /[\u0000-\u001f\u007f]/.test(source)) return '';
@@ -57,19 +85,10 @@ function resolveStoreImage(source: string | null | undefined, allowHttp: boolean
       && url.pathname.startsWith('/storage/')) {
       return `/store-media/${url.pathname.slice('/storage/'.length)}${url.search}`;
     }
-    const cdnRaw = (process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? '').trim();
-    let cdnOrigin = '';
-    if (cdnRaw) {
-      try { cdnOrigin = new URL(cdnRaw).origin; } catch { cdnOrigin = ''; }
-    }
-    if (url.protocol === 'https:' && (url.origin === api.origin || (cdnOrigin && url.origin === cdnOrigin)
-      || url.hostname === 'images.unsplash.com')) return source;
+    if (url.protocol === 'https:' && (url.origin === api.origin || url.hostname === 'images.unsplash.com')) return source;
     // The public R2 origin is inlined at build time. When it is missing, keep a
-    // storage object reachable through the same-origin media proxy instead of blanking it.
-    if (url.protocol === 'https:' && !cdnOrigin) {
-      const mediaPath = safeStoreMediaPath(url.pathname);
-      if (mediaPath) return `/store-media/${mediaPath}${url.search}`;
-    }
+    // known object-storage host reachable through the same-origin media proxy.
+    if (url.protocol === 'https:') return publicObjectImageUrl(source, process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? '');
   } catch {
     // An invalid URL cannot be used as an image source.
   }

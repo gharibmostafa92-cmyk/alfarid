@@ -69,14 +69,14 @@ class ProductController extends Controller implements HasMiddleware
         if (isset($filters['search']) && $filters['search'] !== '') {
             $s = $filters['search'];
             $pattern = SearchTerm::pattern($s);
-            // SKUs/barcodes/codes are stored uppercased; match case-insensitively using
-            // functional index backing on lower(sku) / lower(barcode).
-            $u = strtoupper($s);
+            // SKUs/barcodes/codes are stored uppercased; match directly on uppercase
+            // so PostgreSQL uses the unique B-Tree indexes on sku and barcode.
+            $u = strtoupper(trim($s));
             $q->where(fn ($w) => $w->whereLike('name_ar', $pattern, caseSensitive: false)
                 ->orWhereLike('name_en', $pattern, caseSensitive: false)
                 ->orWhere('code', $u)
                 ->orWhereIn('products.id', ProductVariant::query()->select('product_id')
-                    ->where(fn ($v) => $v->whereRaw('LOWER(sku) = LOWER(?)', [$s])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$s]))));
+                    ->where(fn ($v) => $v->where('sku', $u)->orWhere('barcode', $u))));
         }
         if (! empty($filters['category_id'])) {
             $cat = Category::findOrFail($filters['category_id']);
@@ -133,7 +133,12 @@ class ProductController extends Controller implements HasMiddleware
      */
     public function destroy(Request $request, Product $product): JsonResponse
     {
-        $this->service->delete($product, $request->user());
+        $validated = $request->validate([
+            'expected_version' => ['nullable', 'integer', 'min:0'],
+        ]);
+        $expectedVersion = isset($validated['expected_version']) ? (int) $validated['expected_version'] : null;
+
+        $this->service->delete($product, $request->user('staff') ?? $request->user(), $expectedVersion);
 
         return response()->json(['message' => 'تم الحذف']);
     }

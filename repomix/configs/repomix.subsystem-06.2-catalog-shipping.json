@@ -69,7 +69,11 @@
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Store/Orders/CartController.php",
                     "bags-platform/frontend/apps/storefront/src/lib/catalog/store-image.ts",
                     "bags-platform/frontend/apps/storefront/src/stores/cart-store.ts",
-                    "bags-platform/backend/database/migrations/2026_11_17_000002_index_guest_carts_updated_at.php"
+                    "bags-platform/backend/database/migrations/2026_11_17_000002_index_guest_carts_updated_at.php",
+                    "bags-platform/backend/app/Http/Requests/Admin/Pricing/CouponRequest.php",
+                    "bags-platform/frontend/apps/storefront/src/components/products/ProductExperience.tsx",
+                    "bags-platform/frontend/apps/storefront/src/components/sophie/product/SophieProductCard.tsx",
+                    "bags-platform/frontend/apps/storefront/src/stores/cart-add.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -7,11 +7,14 @@ namespace App\Services\Orders;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\ShipmentStatus;
 use App\Exceptions\BusinessException;
+use App\Models\Coupon;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\ShippingRate;
 use App\Models\User;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -68,8 +71,15 @@ class ShipmentService
             }
 
             $rate = $this->rateFor($order, $company->id);
-            $netMerchandise = (float) $order->subtotal - (float) $order->discount_amount;
-            $shippingCost = $rate !== null ? $rate->effectiveCost($netMerchandise) : (float) $order->shipping_cost;
+            $netMerchandise = BigDecimal::of((string) $order->subtotal)
+                ->minus((string) $order->discount_amount)
+                ->toScale(2, RoundingMode::HalfUp);
+            $hasFreeShippingCoupon = $order->coupon_id !== null
+                && BigDecimal::of((string) $order->shipping_cost)->compareTo('0') === 0
+                && Coupon::query()->whereKey($order->coupon_id)->value('type') === 'free_shipping';
+            $shippingCost = $hasFreeShippingCoupon
+                ? 0.0
+                : ($rate !== null ? $rate->effectiveCost((string) $netMerchandise) : (float) $order->shipping_cost);
 
             $shipment = Shipment::create([
                 'order_id' => $order->id,
@@ -106,6 +116,8 @@ class ShipmentService
 
         return ShippingRate::query()
             ->forCity((int) $order->city_id)
+            ->join('shipping_companies', 'shipping_companies.id', '=', 'shipping_rates.shipping_company_id')
+            ->where('shipping_companies.is_active', true)
             ->where('shipping_rates.shipping_company_id', $companyId)
             ->orderBy('shipping_rates.id')
             ->select('shipping_rates.*')

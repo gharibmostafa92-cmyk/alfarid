@@ -222,6 +222,7 @@ export function AccountForm({
           },
           wholesale,
           documents,
+          typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('redirect') : null,
         );
         router.replace(home);
       }
@@ -247,7 +248,12 @@ export function AccountForm({
         placeholder={wholesale ? text('12 حرفًا على الأقل', 'At least 12 characters') : text('8 أحرف على الأقل', 'At least 8 characters')}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        error={errors.password?.[0]}
+        error={
+          errors.password?.[0] ??
+          (passwordByteLength(password) > PASSWORD_BYTE_LIMIT
+            ? text('يجب ألا تتجاوز كلمة المرور 72 بايتًا.', 'Password must be at most 72 bytes.')
+            : undefined)
+        }
       />
       <AuthInput
         lang={lang}

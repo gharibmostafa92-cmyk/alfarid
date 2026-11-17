@@ -66,6 +66,9 @@ class CouponRequest extends FormRequest
             }
 
             $coupon = $this->route('coupon');
+            if ($coupon instanceof Coupon && $this->filled('usage_limit') && (int) $this->input('usage_limit') < (int) $coupon->used_count) {
+                $validator->errors()->add('usage_limit', 'الحد الأقصى للاستخدام لا يمكن أن يكون أقل من عدد الاستخدامات الحالية.');
+            }
             $type = $this->input('type');
             $submitted = $this->input('value');
             $effective = is_numeric($submitted) ? (float) $submitted : (float) ($coupon?->value ?? 0);

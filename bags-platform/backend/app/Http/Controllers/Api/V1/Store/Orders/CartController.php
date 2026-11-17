@@ -8,13 +8,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Orders\AddCartItemRequest;
 use App\Http\Requests\Store\Orders\ApplyCouponRequest;
 use App\Http\Requests\Store\Orders\UpdateCartItemRequest;
-use App\Models\Cart;
 use App\Models\Customer;
 use App\Services\Orders\CartService;
-use App\Services\Pricing\CouponService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -24,7 +21,6 @@ class CartController extends Controller
 {
     public function __construct(
         private readonly CartService $carts,
-        private readonly CouponService $coupons,
     ) {}
 
     /**
@@ -83,7 +79,7 @@ class CartController extends Controller
         if ($cartItem === null) {
             return response()->json(null, 204);
         }
-        $cart = $this->carts->removeItem($cart, (int) $cartItem->product_variant_id);
+        $cart = $this->carts->removeItem($cart, (int) $cartItem->product_variant_id, $customer);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
@@ -94,12 +90,7 @@ class CartController extends Controller
     public function removeCoupon(Request $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
-        $cart = DB::transaction(function () use ($cart): Cart {
-            $locked = Cart::query()->lockForUpdate()->findOrFail($cart->id);
-            $locked->update(['coupon_id' => null]);
-
-            return $locked;
-        });
+        $cart = $this->carts->removeCoupon($cart, $customer);
 
         return response()->json(['data' => $this->carts->present($cart->refresh(), $customer)]);
     }
@@ -118,7 +109,7 @@ class CartController extends Controller
         if (! $cart->exists) {
             return response()->json(null, 204);
         }
-        $cart = $this->carts->clearItems($cart);
+        $cart = $this->carts->clearItems($cart, $customer);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
@@ -129,20 +120,13 @@ class CartController extends Controller
     public function applyCoupon(ApplyCouponRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
-        $payload = DB::transaction(function () use ($request, $customer, $cart): array {
-            $locked = Cart::query()->lockForUpdate()->findOrFail($cart->id);
-            $locked->load('items');
-            $totals = $this->carts->totals($locked, $customer);
-            $this->coupons->validateAndApply($locked, (string) $request->validated()['code'], $totals['items_total'], $customer);
-            $presented = $this->carts->present($locked->fresh(), $customer);
+        $locked = $this->carts->applyCoupon($cart, $customer, (string) $request->validated()['code']);
+        $presented = $this->carts->present($locked->fresh(), $customer);
 
-            return [
-                'cart' => $presented,
-                'coupon_discount' => $presented['totals']['coupon_discount'],
-            ];
-        });
-
-        return response()->json(['data' => $payload]);
+        return response()->json(['data' => [
+            'cart' => $presented,
+            'coupon_discount' => $presented['totals']['coupon_discount'],
+        ]]);
     }
 
     /** @return array{0: ?Customer, 1: Cart} */

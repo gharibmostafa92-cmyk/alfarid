@@ -18,22 +18,41 @@ use App\Services\Catalog\BannerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 
-class BannerController extends Controller
+class BannerController extends Controller implements HasMiddleware
 {
     public function __construct(private readonly BannerService $service) {}
+
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('permission:store.manage|settings.view', only: ['index', 'show']),
+            new Middleware('permission:store.manage', only: ['store', 'update', 'toggle', 'reorder', 'destroy']),
+        ];
+    }
 
     public function index(Request $request): AnonymousResourceCollection
     {
         $request->validate([
             'position' => ['nullable', Rule::enum(BannerPosition::class)],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
-        $banners = Banner::query()
+        $query = Banner::query()
             ->when($request->filled('position'), fn ($q) => $q->where('position', $request->input('position')))
-            ->orderBy('sort_order')->orderBy('id')
-            ->get();
+            ->orderBy('sort_order')->orderBy('id');
+
+        if ($request->filled('per_page')) {
+            $banners = $query->paginate((int) $request->input('per_page'))->withQueryString();
+            $this->attachLinkLabels($banners->getCollection());
+
+            return AdminBannerResource::collection($banners);
+        }
+
+        $banners = $query->limit(200)->get();
         $this->attachLinkLabels($banners);
 
         return AdminBannerResource::collection($banners);

@@ -24,6 +24,7 @@ final class CreateRole
     /** @param array{name:string,permissions?:list<string>} $data @param array<string,mixed> $via */
     public function __invoke(User $actor, array $data, array $via = [], ?string $currentPassword = null): Role
     {
+        $data['name'] = StaffRole::normalizeName((string) $data['name']);
         if (StaffRole::isReserved($data['name'])) {
             abort(403, 'هذا الاسم محجوز لدور أساسي في النظام.');
         }

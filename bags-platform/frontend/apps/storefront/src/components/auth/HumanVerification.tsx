@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useCspNonce } from '@/providers/csp-nonce';
+import { turnstileScriptNonce } from './turnstile-nonce';
 
 type Turnstile = {
   render: (container: HTMLElement, options: Record<string, unknown>) => string;
@@ -9,14 +11,15 @@ type Turnstile = {
 const api = () => (window as Window & { turnstile?: Turnstile }).turnstile;
 let loading: Promise<void> | undefined;
 
-function loadScript() {
+function loadScript(nonce: string) {
   if (api()) return Promise.resolve();
   if (!loading) {
     loading = new Promise<void>((resolve, reject) => {
       const script = document.createElement('script');
       script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
       script.async = true;
-      script.nonce = Array.from(document.scripts).find((entry) => entry.nonce)?.nonce ?? '';
+      const scriptNonce = turnstileScriptNonce(nonce);
+      if (scriptNonce !== undefined) script.nonce = scriptNonce;
       const fail = () => {
         clearTimeout(timer);
         script.remove();
@@ -39,6 +42,7 @@ export function HumanVerification({ siteKey, lang, onChange }: {
   siteKey: string; lang: 'ar' | 'en'; onChange: (token: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const nonce = useCspNonce();
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -48,7 +52,7 @@ export function HumanVerification({ siteKey, lang, onChange }: {
     const invalidate = () => { if (!cancelled) { onChange(''); setFailed(true); } };
     onChange('');
     setFailed(false);
-    loadScript().then(() => {
+    loadScript(nonce).then(() => {
       if (cancelled || !element) return;
       const turnstile = api();
       if (!turnstile) {
@@ -66,7 +70,7 @@ export function HumanVerification({ siteKey, lang, onChange }: {
       if (widget !== undefined) api()?.remove(widget);
       element?.replaceChildren();
     };
-  }, [siteKey, lang, attempt, onChange]);
+  }, [siteKey, lang, attempt, onChange, nonce]);
 
   return <div>
     <div ref={container} aria-label={lang === 'ar' ? 'التحقق البشري' : 'Human verification'} />

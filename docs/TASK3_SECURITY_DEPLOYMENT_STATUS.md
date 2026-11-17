@@ -112,6 +112,26 @@ wholesale case. Verified via `git stash` A/B comparison during implementation.
 
 ---
 
+### Round 2 — Security, Concurrency, Auth & Pruning Hardening (2026-11-17)
+
+All 18 findings in `_archive_unused/tasks_execution/task3.txt` (`CRITICAL-01..02`, `HIGH-01..05`, `MEDIUM-01..08`, `LOW-01..02`, `INFO-01`) are implemented and verified locally, **pending server deployment**:
+
+- **Pending Database Migrations (must run `php artisan migrate --force`):**
+  - `2026_11_17_000001_add_lock_version_to_customers_table.php` (adds `lock_version` optimistic concurrency column to `customers`).
+  - `2026_11_17_000002_add_prunable_index_to_customer_audit_logs.php` (creates partial index `customer_audit_logs_prunable_created_at_idx` concurrently on PostgreSQL and updates `alfarid_prune_customer_audit_logs` to `ORDER BY created_at, id LIMIT 1000`).
+- **Backend Changes:**
+  - `CRITICAL-01`: Unverified retail customer emails no longer block staff/supplier creation (`EmailNotUsedByOtherAccountType`, `SerializesAccountEmail` releases unverified retail email with `unverified_email_released` audit), `CustomerAuthService::findForLogin()` scopes unverified fallback to `commercial()`, `StoreCustomerRequest::authorize()` blocks all `CustomerType::commercialValues()` without `customers.approve`.
+  - `CRITICAL-02`: `StaffAdministration::mayGrantPermissions()` / `mayManageUser()` pass `'staff'` guard and catch `PermissionDoesNotExist`; `DeactivateStaffUser` checks `assertVersion()` before `! $locked->is_active`; `UpdateStaffUser` skips duplicate `preVerifyGrantPassword()` when `$verifiedPasswordHash !== null`.
+  - `HIGH-01`: `CustomerMessageBudget` sorts all `sha256` scope keys deterministically and locks in `ORDER BY key FOR UPDATE` to eliminate deadlocks.
+  - `HIGH-02`: `SendCustomerPhoneVerification` & `SendCustomerPasswordReset` set `$tries = 1`; `CustomerAuthService::handleResetDeliveryFailure()` preserves reset tokens on ambiguous read timeouts.
+  - `HIGH-03`: `UnifiedAuthService::attempt()` clears `$pairKey` on 403 account-status rejections after valid password authentication.
+  - `HIGH-04`: `ValidateCustomerDomains` runs `SET CONSTRAINTS ALL IMMEDIATE` inside `DB::transaction` (pgsql only); `StaffAdministration::lock()` guards on `pgsql` driver.
+  - `MEDIUM-01..08`, `LOW-01`, `INFO-01`: Customer `lock_version` concurrency on financial updates, `User::setPhoneAttribute()` + `NormalizeCustomerPhones` Cf-mark normalization, `RejectExecutableSignature` BOM + `/XFA|/GoToR|/GoToE` + `MaxImagePixels` 12,000px dimension cap, `BranchAccess::isBranchActive()` centralization + cache invalidation in `UpdateBranch`, `EnsureWholesaleApproved` single guard lookup, `PruneCustomerArtifacts` expired `personal_access_tokens` batch pruning, `AuditStaffAdministration` GET 403 denial logging, `StaffHandoffService::consume()` fingerprint check before code deletion, `AdminLoginRequest`/`UnifiedLoginRequest` 72-byte `PasswordByteLimit`, `CreateRole`/`UpdateRole` NFKC name normalization, and `WhatsAppIdentityService::revoke()` verified free of HTTP calls inside lock.
+- **Frontend & Static Assets (require Next.js / Vite rebuild):**
+  - `HIGH-03`, `HIGH-05`, `MEDIUM-07`, `LOW-02`: `LoginScreen.tsx` disables submit on `challengeRequired && !turnstileToken` with `siteKey` retry UI and points probe iframe to static `< 1KB` `apps/backoffice/public/auth/session-probe.html`; `auth.service.ts` hardens `safeLogoutNext()` with `URL` + control-char rejection and preserves retail `redirect` in `registerWeb()`; `AccountForm.tsx` adds live 72-byte password check; `RequireActor.tsx` uses key-order-independent `recordsEqual()`.
+
+---
+
 ## Required Production Deployment Steps
 
 When authorized to deploy to the live server, execute in order:

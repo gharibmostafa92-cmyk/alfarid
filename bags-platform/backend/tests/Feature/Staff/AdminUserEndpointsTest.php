@@ -26,10 +26,11 @@ class AdminUserEndpointsTest extends TestCase
         $admin = $this->staffWithPermission('users.view');
         $token = $admin->createToken('test')->plainTextToken;
         $user = User::factory()->create(['name' => 'Unique Search Name', 'email' => 'unique-search@example.test', 'phone' => '01012345678']);
-        foreach (['SEARCH NAME', 'UNIQUE-SEARCH@', '01012345'] as $term) {
+        foreach (['SEARCH NAME', 'UNIQUE-SEARCH@', '010'] as $term) {
             $this->requestWithToken($token, 'GET', '/api/v1/admin/users?search='.urlencode($term))
                 ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $user->id);
         }
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/users?search=01')->assertUnprocessable();
     }
 
     public function test_user_index_filters_inactive_and_excludes_system_account(): void

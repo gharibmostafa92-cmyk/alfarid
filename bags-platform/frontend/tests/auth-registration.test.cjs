@@ -35,6 +35,9 @@ function loadService(cartMerged, options = {}) {
       restoreGuestCartSession: value => calls.push(['restore', value]),
       clearGuestCartSession: () => calls.push(['clear']),
     };
+    if (name === '@/lib/orders/safe-return-path') return {
+      safeReturnPath: (value) => (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : null),
+    };
     throw new Error(`Unexpected import: ${name}`);
   };
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -116,6 +119,9 @@ test('loginUnified restores the guest cart before publishing the session', async
       getCartSession: () => 'guest-session',
       restoreGuestCartSession: () => events.push('restore-after'),
       clearGuestCartSession: () => events.push('clear'),
+    };
+    if (name === '@/lib/orders/safe-return-path') return {
+      safeReturnPath: (value) => (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : null),
     };
     throw new Error(`Unexpected import: ${name}`);
   };

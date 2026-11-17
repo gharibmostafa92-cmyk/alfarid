@@ -6,6 +6,14 @@ import { useAuthStore } from '@/store/auth.store';
 import { unauthorizedLoginRedirect } from '@/store/auth-redirect';
 import type { Destination } from '@/types/auth';
 
+function recordsEqual(a: Record<string, unknown> | null, b: Record<string, unknown>): boolean {
+  if (a === null) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every((key) => Object.prototype.hasOwnProperty.call(b, key) && Object.is(a[key], b[key]));
+}
+
 export function RequireActor({ allow, children }: { allow: Destination[]; children: React.ReactNode }) {
   const { token, destination, home } = useAuthStore();
   const router = useRouter(); const pathname = usePathname();
@@ -46,7 +54,7 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
         || current.actorType !== nextActorType
         || current.destination !== dest
         || current.home !== path
-        || JSON.stringify(current.user) !== JSON.stringify(nextUser)
+        || !recordsEqual(current.user, nextUser)
       ) {
         current.setSession({
           token, actorType: nextActorType,
@@ -67,7 +75,7 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
       const search = typeof window === 'undefined' ? '' : window.location.search;
       const redirect = unauthorizedLoginRedirect(pathname, search, false);
       if (redirect) router.replace(redirect);
-    } else if (verifiedToken === token && (!destination || !allow.includes(destination))) router.replace(home ?? '/');
+    } else if (verifiedToken === token && (!destination || !allowKey.split(',').includes(destination))) router.replace(home ?? '/');
   }, [hydrated, token, verifiedToken, destination, home, allowKey, pathname, router]);
   if (hydrated && token && verificationFailed) return <div role="alert">تعذر التحقق من الجلسة. <button type="button" onClick={() => { void refetch(); }}>إعادة المحاولة</button></div>;
   if (!hydrated || !token || verifiedToken !== token || !destination || !allow.includes(destination)) return null;

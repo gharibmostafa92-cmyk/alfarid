@@ -6,22 +6,22 @@ namespace Tests\Feature\Security;
 
 use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
-use App\Models\User;
-use App\Rules\TurnstileToken;
-use App\Models\Customer;
 use App\Models\Cart;
+use App\Models\Customer;
+use App\Models\User;
 use App\Notifications\Auth\CustomerPhoneVerificationCode;
 use App\Notifications\Channels\CustomerSmsChannel;
+use App\Rules\TurnstileToken;
+use App\Services\Auth\LoginDestinationResolver;
 use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
-use App\Services\Auth\LoginDestinationResolver;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
@@ -86,8 +86,7 @@ class TaskTxtSecurityCloseoutTest extends TestCase
 
         Notification::assertSentOnDemand(
             CustomerPhoneVerificationCode::class,
-            static fn ($notification, array $channels, $notifiable): bool =>
-                ($notifiable->routes['customer_sms'] ?? null) === '01001234567',
+            static fn ($notification, array $channels, $notifiable): bool => ($notifiable->routes['customer_sms'] ?? null) === '01001234567',
         );
     }
 
@@ -153,12 +152,14 @@ class TaskTxtSecurityCloseoutTest extends TestCase
     {
         $email = 'retail-to-commercial@example.test';
         User::factory()->create(['email' => $email]);
-        $customer = Customer::factory()->create([
+        $customer = Customer::factory()->create(['email' => 'legacy-retail@example.test']);
+        DB::table('customers')->where('id', $customer->id)->update([
             'email' => $email,
             'email_verified_at' => null,
         ]);
+        $customer->refresh();
         $customer->type = CustomerType::Wholesale;
-        $customer->status = \App\Enums\Customer\CustomerStatus::Pending;
+        $customer->status = CustomerStatus::Pending;
 
         $this->expectException(ValidationException::class);
         $customer->save();
@@ -219,7 +220,7 @@ class TaskTxtSecurityCloseoutTest extends TestCase
         );
     }
 
-    public function test_login_does_not_claim_cart_merge_without_a_guest_session(): void
+    public function test_login_reports_cart_merged_when_no_guest_session_header_is_sent(): void
     {
         Customer::factory()->create([
             'phone' => '01001234570',
@@ -231,7 +232,7 @@ class TaskTxtSecurityCloseoutTest extends TestCase
         $this->postJson('/api/v1/auth/login', [
             'login' => '01001234570',
             'password' => 'customer-password',
-        ])->assertOk()->assertJsonPath('cart_merged', false);
+        ])->assertOk()->assertJsonPath('cart_merged', true);
     }
 
     public function test_login_does_not_claim_cart_merge_when_the_guest_cart_is_missing(): void

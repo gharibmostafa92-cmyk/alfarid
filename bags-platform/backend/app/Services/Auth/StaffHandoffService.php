@@ -54,7 +54,7 @@ final class StaffHandoffService
             $key = $this->key($code);
 
             return Cache::lock($key.':lock', 10)->block(5, function () use ($key, $request): ?array {
-                $payload = Cache::pull($key);
+                $payload = Cache::get($key);
                 if (! is_array($payload)) {
                     return null;
                 }
@@ -68,6 +68,8 @@ final class StaffHandoffService
 
                     return null;
                 }
+
+                Cache::forget($key);
 
                 if (isset($payload['network']) && $payload['network'] !== NetworkIdentity::forRequest($request)) {
                     logger()->info('staff.handoff.network_changed', [

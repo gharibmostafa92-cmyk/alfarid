@@ -28,7 +28,9 @@ function loadCartModule(api, values = new Map(), auth = { token: null }, navigat
     new Function('exports', 'module', 'require', 'localStorage', 'navigator', 'crypto', 'sessionStorage', code)(
       moduleObject.exports, moduleObject,
       name => name === '@alfarid/api-client' ? { cartEndpoints: api, getAuthToken: () => auth.token }
-        : name.startsWith('@/') ? evaluate(path.join(sourceRoot, `${name.slice(2)}.ts`)) : createRequire(file)(name),
+        : name.startsWith('@/') ? evaluate(path.join(sourceRoot, `${name.slice(2)}.ts`))
+        : name.startsWith('./') ? evaluate(path.resolve(path.dirname(file), `${name}.ts`))
+        : createRequire(file)(name),
       localStorage, navigator, webcrypto, sessionStorage,
     );
     return moduleObject.exports;
@@ -96,6 +98,7 @@ test('queued additions share the guest session and errors retain the last valid 
   assert.equal(store.getState().error, 'الكمية غير متاحة');
   assert.equal(await store.getState().updateQuantity(101, -1), false);
   assert.equal(await store.getState().updateQuantity(101, 999), false);
+  assert.match(store.getState().error, /المتاح/, 'Stock availability guard must set a localized Arabic error');
   assert.equal(updates.length, 1, 'Invalid or over-ceiling quantities must not reach the API');
 });
 
@@ -147,24 +150,44 @@ test('two tabs serialize their first additions and share one guest session', asy
   assert.equal(secondTab.getState().items[0].quantity, 2);
 });
 
-test('addItem is busy for the whole queue and drops a duplicate click', async () => {
-  let release;
+test('addItem is busy for the whole queue and queues a second click instead of dropping it', async () => {
+  let releaseFirst;
   const calls = [];
-  const store = load({ add: (...args) => { calls.push(args); return new Promise(resolve => { release = resolve; }); } });
+  const store = load({
+    add: (...args) => {
+      calls.push(args);
+      if (calls.length === 1) return new Promise(resolve => { releaseFirst = resolve; });
+      return Promise.resolve(cart(2));
+    },
+  });
   const first = store.getState().addItem(88);
   assert.equal(store.getState().busy, true);
   assert.equal(await store.getState().addItem(88), false);
-  assert.equal(calls.length, 1);
-  release(cart());
-  assert.equal(await first, true);
+  const second = store.getState().addItem(89);
+  await new Promise(setImmediate);
+  releaseFirst(cart(1));
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][0], 88);
+  assert.equal(calls[1][0], 89);
+  assert.equal(store.getState().items[0].quantity, 2);
   assert.equal(store.getState().busy, false);
 });
 
-test('an unexpected cart queue error resolves false', async () => {
+test('an unexpected cart queue error resolves false with an Arabic error', async () => {
   const navigator = { locks: { request() { throw new Error('boom'); } } };
   const store = load({ add: async () => cart() }, new Map(), undefined, navigator);
   assert.equal(await store.getState().addItem(88), false);
   assert.equal(store.getState().busy, false);
+  assert.match(store.getState().error, /[\u0600-\u06FF]/);
+  assert.doesNotMatch(store.getState().error, /We could not/);
+});
+
+test('API failure without a server message sets an Arabic fallback error', async () => {
+  const store = load({ add: async () => { throw new Error('Network error'); } });
+  assert.equal(await store.getState().addItem(88), false);
+  assert.match(store.getState().error, /[\u0600-\u06FF]/);
+  assert.doesNotMatch(store.getState().error, /We could not/);
 });
 
 test('resetting cart identity clears the guest session, pending checkout and receipt', async () => {

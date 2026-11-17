@@ -6,6 +6,7 @@ namespace App\Services\Orders;
 
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\ShipmentStatus;
+use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\WebhookLog;
@@ -116,9 +117,18 @@ class ShippingWebhookService
             }
 
             $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number', 'data.tracking_number']);
-            $shipment = $awb !== null
-                ? Shipment::query()->where('awb_number', (string) $awb)->where('shipping_company_id', $company->id)->lockForUpdate()->first()
+            $shipmentRef = $awb !== null
+                ? Shipment::query()->where('awb_number', (string) $awb)->where('shipping_company_id', $company->id)->first(['id', 'order_id'])
                 : null;
+            if ($shipmentRef === null) {
+                $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
+
+                return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
+            }
+
+            // Lock orders -> shipments in the same global order as ShipmentService to prevent deadlocks.
+            $order = Order::query()->lockForUpdate()->find($shipmentRef->order_id);
+            $shipment = Shipment::query()->whereKey($shipmentRef->id)->lockForUpdate()->first();
             if ($shipment === null) {
                 $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
 
@@ -152,16 +162,14 @@ class ShippingWebhookService
             $note = null;
             $failed = false;
             if ($status === ShipmentStatus::Returned) {
-                // Return notification marks order for attention; physical stock re-entry happens upon manual warehouse intake
-                $order = $shipment->order;
-                if ($order !== null && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
+                // Return notification marks order for attention unless a newer replacement shipment is active or delivered.
+                if ($order !== null && ! $this->hasNewerDeliveredOrActiveShipment($shipment) && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
                     $order->update(['needs_attention' => true]);
                     $note = 'أبلغت شركة الشحن بمرتجع — بانتظار استلام المستودع الفعلي قبل إعادة البضاعة للمخزون';
                 }
             }
             if ($status === ShipmentStatus::Failed) {
                 // Mark order for staff review unless a newer replacement shipment is already active
-                $order = $shipment->order;
                 if ($order !== null && ! $this->hasNewerActiveShipment($shipment)) {
                     $order->update(['needs_attention' => true]);
                     $note = 'فشلت البوليصة لدى شركة الشحن — يحتاج متابعة أو إصدار بوليصة بديلة';
@@ -298,6 +306,21 @@ class ShippingWebhookService
                 ShipmentStatus::Failed->value,
                 ShipmentStatus::Returned->value,
                 ShipmentStatus::Delivered->value,
+            ])
+            ->exists();
+    }
+
+    /**
+     * Check whether a newer shipment exists that is either active or already delivered.
+     */
+    private function hasNewerDeliveredOrActiveShipment(Shipment $shipment): bool
+    {
+        return Shipment::query()
+            ->where('order_id', $shipment->order_id)
+            ->where('id', '>', $shipment->id)
+            ->whereNotIn('status', [
+                ShipmentStatus::Failed->value,
+                ShipmentStatus::Returned->value,
             ])
             ->exists();
     }

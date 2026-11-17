@@ -75,21 +75,11 @@ class EnsureStaffAuthenticated
             && ! $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
             && ! $user->can('inventory.all_branches')
             && $user->branch_id !== null
-            && ! $this->branchIsActive((int) $user->branch_id)) {
+            && ! app(\App\Services\Inventory\BranchAccess::class)->isBranchActive((int) $user->branch_id)) {
             return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
         }
 
         return $next($request);
-    }
-
-    /** Cache branch active status for 30 seconds to balance check frequency with deactivation propagation delay. */
-    private function branchIsActive(int $branchId): bool
-    {
-        try {
-            return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
-        } catch (\Throwable) {
-            return (bool) Branch::query()->whereKey($branchId)->value('is_active');
-        }
     }
 
     private function isPasswordRotationRequest(Request $request): bool

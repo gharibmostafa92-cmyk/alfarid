@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Store;
 
 use App\Http\Middleware\ProtectStorefrontCaching;
+use App\Models\Customer;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Request;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 class ProtectStorefrontCachingTest extends TestCase
@@ -65,10 +68,77 @@ class ProtectStorefrontCachingTest extends TestCase
         $this->assertCacheControl($response, ['public', 'max-age=0', 's-maxage=60']);
     }
 
+    public function test_session_cookie_forces_private_no_store_even_when_controller_sets_public_cache(): void
+    {
+        $middleware = new ProtectStorefrontCaching;
+        $request = Request::create('/api/v1/store/branding', 'GET', [], [
+            (string) config('session.cookie') => 'session-token',
+        ]);
+
+        $response = $middleware->handle($request, function () {
+            return response()->json(['ok' => true])
+                ->header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+        });
+
+        $this->assertCacheControl($response, ['private', 'no-store']);
+    }
+
+    public function test_authenticated_sanctum_customer_forces_private_no_store_even_when_controller_sets_public_cache(): void
+    {
+        $this->actingAs(Customer::factory()->create(), 'sanctum');
+
+        $middleware = new ProtectStorefrontCaching;
+        $request = Request::create('/api/v1/store/branding', 'GET');
+
+        $response = $middleware->handle($request, function () {
+            return response()->json(['ok' => true])
+                ->header('Cache-Control', 'public, max-age=60');
+        });
+
+        $this->assertCacheControl($response, ['private', 'no-store']);
+    }
+
+    /**
+     * @return array<string, array{0: ?string, 1: string}>
+     */
+    public static function storefrontLanguageProvider(): array
+    {
+        return [
+            'arabic region' => ['ar-EG,en;q=0.8', 'ar'],
+            'uppercase arabic' => ['AR', 'ar'],
+            'english with arabic fallback' => ['en-US,ar;q=0.5', 'en'],
+            'unrelated language' => ['fr-FR,en;q=0.9', 'en'],
+            'missing header' => [null, 'en'],
+        ];
+    }
+
+    #[DataProvider('storefrontLanguageProvider')]
+    public function test_accept_language_is_normalized_to_ar_or_en_before_the_controller(?string $header, string $expected): void
+    {
+        $middleware = new ProtectStorefrontCaching;
+        $request = Request::create('/api/v1/store/branding', 'GET');
+        $request->headers->remove('Accept-Language');
+        if ($header !== null) {
+            $request->headers->set('Accept-Language', $header);
+        }
+
+        $seenHeader = null;
+        $seenLocale = null;
+        $middleware->handle($request, function (Request $incoming) use (&$seenHeader, &$seenLocale) {
+            $seenHeader = $incoming->headers->get('Accept-Language');
+            $seenLocale = app()->getLocale();
+
+            return response()->json(['ok' => true]);
+        });
+
+        $this->assertSame($expected, $seenHeader);
+        $this->assertSame($expected, $seenLocale);
+    }
+
     /**
      * @param  list<string>  $expected
      */
-    private function assertCacheControl(\Symfony\Component\HttpFoundation\Response $response, array $expected): void
+    private function assertCacheControl(Response $response, array $expected): void
     {
         $actual = array_map('trim', explode(',', strtolower((string) $response->headers->get('Cache-Control'))));
         sort($actual);

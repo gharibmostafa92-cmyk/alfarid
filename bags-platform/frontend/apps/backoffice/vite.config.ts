@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
   }
   const webOrigin = new URL(env.VITE_WEB_URL || 'http://localhost:3000').origin;
   if (!/^https?:\/\//.test(webOrigin)) throw new Error('Invalid web origin');
-  const ancestors = (url: string) => new URL(url, 'http://localhost').pathname === '/auth/session'
+  const ancestors = (url: string) => ['/auth/session', '/auth/session-probe.html'].includes(new URL(url, 'http://localhost').pathname)
     ? `frame-ancestors 'self' ${webOrigin}` : "frame-ancestors 'none'";
   const policy = [
     "default-src 'self'", "script-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
@@ -42,11 +42,15 @@ export default defineConfig(({ mode }) => {
 /auth/session
   ! X-Frame-Options
   Content-Security-Policy: frame-ancestors 'self' ${webOrigin}
+/auth/session-probe.html
+  ! X-Frame-Options
+  Content-Security-Policy: frame-ancestors 'self' ${webOrigin}
 ` });
       // Include HTTP headers for static hosting; meta CSP cannot enforce frame-ancestors.
       this.emitFile({ type: 'asset', fileName: 'security-headers.nginx-map.conf', source: `map $request_uri $backoffice_frame_ancestors {
     default "'none'";
     "~^/auth/session(?:[?].*)?$" "'self' ${webOrigin}";
+    "~^/auth/session-probe[.]html(?:[?].*)?$" "'self' ${webOrigin}";
 }
 ` });
       this.emitFile({ type: 'asset', fileName: 'security-headers.nginx-server.conf', source: `add_header Content-Security-Policy "${policy}; frame-ancestors $backoffice_frame_ancestors" always;

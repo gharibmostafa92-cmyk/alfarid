@@ -33,7 +33,6 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
     return () => { alive.current = false; if (addedTimer.current) clearTimeout(addedTimer.current); };
   }, []);
   const [adding, setAdding] = useState(false);
-  const busy = useCartStore((s) => s.busy);
   const cartError = useCartStore((s) => s.error);
   const [addFailed, setAddFailed] = useState(false);
   const [failedImage, setFailedImage] = useState<string | null>(null);
@@ -48,14 +47,14 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
   ) : <SophieBagPlaceholder />;
 
   const handleAddToCart = async () => {
-    if (!product.variantId || busy) return;
+    if (!product.variantId || adding) return;
     setAdding(true);
     setAddFailed(false);
     const saved = await addItem(product.variantId);
     if (!alive.current) return;
     setAdding(false);
     setAdded(saved);
-    setAddFailed(!saved);
+    setAddFailed(!saved && useCartStore.getState().error != null);
     if (addedTimer.current) clearTimeout(addedTimer.current);
     if (saved) addedTimer.current = setTimeout(() => setAdded(false), 1600);
   };
@@ -90,7 +89,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
             <button
               type="button"
               onClick={handleAddToCart}
-              disabled={busy}
+              disabled={adding}
               aria-live="polite"
               aria-label={`Add ${product.name} to cart`}
               className={`font-['Oswald'] text-[11px] uppercase tracking-wider min-h-[44px] py-1.5 px-4 rounded-xs shadow-sm transition-all duration-200 active:scale-[0.98] ${

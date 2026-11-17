@@ -30,7 +30,25 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const [formError, setFormError] = useState('');
   const [challengeRequired, setChallengeRequired] = useState(false);
   const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [siteKeyError, setSiteKeyError] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
+
+  const loadTurnstileOptions = () => {
+    setSiteKeyError(false);
+    getRegistrationOptions()
+      .then((options) => {
+        if (options.turnstile_site_key) {
+          setSiteKey(options.turnstile_site_key);
+        } else {
+          setSiteKey(null);
+          setSiteKeyError(true);
+        }
+      })
+      .catch(() => {
+        setSiteKey(null);
+        setSiteKeyError(true);
+      });
+  };
   // Bumped whenever the solved widget becomes stale so HumanVerification
   // remounts with a fresh single-use Turnstile token.
   const [challengeAttempt, setChallengeAttempt] = useState(0);
@@ -72,7 +90,8 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     frame.setAttribute('aria-hidden', 'true');
     frame.tabIndex = -1;
     frame.title = 'Session verification';
-    frame.src = new URL(`/auth/session#nonce=${encodeURIComponent(nonce)}`, office).href;
+    frame.referrerPolicy = 'origin';
+    frame.src = new URL(`/auth/session-probe.html#nonce=${encodeURIComponent(nonce)}`, office).href;
     let cleaned = false;
     const cleanup = () => {
       if (cleaned) return;
@@ -174,7 +193,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
         setChallengeRequired(true);
         setTurnstileToken('');
         setFormError(lang === 'ar' ? 'أكمل التحقق البشري ثم سجّل الدخول مرة أخرى.' : 'Complete human verification, then sign in again.');
-        getRegistrationOptions().then((options) => setSiteKey(options.turnstile_site_key)).catch(() => setSiteKey(null));
+        loadTurnstileOptions();
       }
       else if (status === 429) {
         const s = err.response.headers['retry-after'] ?? 60;
@@ -353,11 +372,19 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                     {challengeRequired && siteKey && (
                       <HumanVerification key={challengeAttempt} siteKey={siteKey} lang={lang} onChange={setTurnstileToken} />
                     )}
+                    {challengeRequired && siteKeyError && !siteKey && (
+                      <div className="luxury-form-error" role="alert">
+                        <span>{lang === 'ar' ? 'تعذر تحميل التحقق البشري.' : 'Could not load human verification.'}</span>{' '}
+                        <button type="button" onClick={loadTurnstileOptions} className="luxury-switch-link">
+                          {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                        </button>
+                      </div>
+                    )}
 
                     <div style={{ paddingTop: '4px' }}>
                       <button
                         type="submit"
-                        disabled={!isReady || isSubmitting || (challengeRequired && !!siteKey && !turnstileToken)}
+                        disabled={!isReady || isSubmitting || (challengeRequired && !turnstileToken)}
                         className="pill-btn-primary"
                       >
                         {isSubmitting ? (

@@ -9,7 +9,6 @@ use App\Exceptions\BusinessException;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
-use App\Services\Catalog\BarcodeGenerator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -58,7 +57,7 @@ class VariantService
                     $variant = $product->variants()->create($data);
 
                     if (empty($variant->barcode)) {
-                        $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
+                        $variant->updateQuietly(['barcode' => BarcodeGenerator::fromId($variant->id)]);
                     }
 
                     // Validate publishability conditions to ensure adding a variant does not break publishing invariants.
@@ -142,7 +141,6 @@ class VariantService
      *
      * @param  ProductVariant  $variant  Variant instance to soft-delete.
      * @param  int|null  $expectedVersion  Optimistic concurrency version.
-     * @return void
      *
      * @throws BusinessException If variant has non-zero stock or is the last active variant on a published product.
      */

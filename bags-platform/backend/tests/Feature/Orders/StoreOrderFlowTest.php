@@ -21,8 +21,8 @@ use App\Models\ShippingRate;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Notifications\Orders\OrderConfirmationNotification;
-use App\Services\Orders\CartService;
 use App\Services\Inventory\InventoryService;
+use App\Services\Orders\CartService;
 use App\Services\Orders\OrderService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -410,10 +410,12 @@ class StoreOrderFlowTest extends TestCase
             'product_variant_id' => $variant->id, 'qty' => 1,
         ])->assertOk()->json('data.cart_token');
         $headers = ['X-Cart-Session' => $token];
-        $number = $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
+        $checkout = $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
             'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
             'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',
-        ])->assertCreated()->json('data.order_number');
+        ])->assertCreated();
+        $checkout->assertJsonPath('data.instapay', null);
+        $number = $checkout->json('data.order_number');
 
         $this->getJson("/api/v1/store/orders/{$number}/track?phone=01012345678")
             ->assertOk()

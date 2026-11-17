@@ -57,7 +57,7 @@ export const cartEndpoints = {
 };
 
 export const storeEndpoints = {
-  home: () => apiClient.get<{ data: StoreHomeData }>(API_ENDPOINTS.STORE.HOME).then((r) => r.data.data),
+  home: (signal?: AbortSignal) => apiClient.get<{ data: StoreHomeData }>(API_ENDPOINTS.STORE.HOME, { signal }).then((r) => r.data.data),
   categories: (signal?: AbortSignal) =>
     apiClient.get<{ data: StoreCategory[] }>(API_ENDPOINTS.STORE.CATEGORIES, { signal }).then((r) => r.data.data),
   products: (params: StoreProductListParams, signal?: AbortSignal) =>

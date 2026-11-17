@@ -25,10 +25,7 @@ class WalletController extends Controller
         ]);
 
         $customerId = $request->user()->id;
-        $query = CustomerWalletTransaction::query()->where('customer_id', $customerId);
-        if (($validated['page'] ?? 1) <= 1) {
-            $query->useWritePdo();
-        }
+        $query = CustomerWalletTransaction::query()->where('customer_id', $customerId)->useWritePdo();
         if (isset($validated['direction'])) {
             $query->where('amount', $validated['direction'] === 'credit' ? '>' : '<', 0);
         }

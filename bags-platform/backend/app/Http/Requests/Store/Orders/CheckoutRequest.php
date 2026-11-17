@@ -23,9 +23,9 @@ class CheckoutRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'recipient_name' => ['nullable', 'string', 'max:255'],
+            'recipient_name' => [Rule::requiredIf(fn (): bool => Customer::resolveShopper($this->user('sanctum')) === null), 'nullable', 'string', 'max:255'],
             // Normalized above to digits/leading + so idempotency scoping and tracking stay consistent.
-            'recipient_phone' => ['sometimes', 'string', 'max:50', 'regex:/^\+?[0-9]{7,15}$/'],
+            'recipient_phone' => [Rule::requiredIf(fn (): bool => Customer::resolveShopper($this->user('sanctum')) === null), 'nullable', 'string', 'max:50', 'regex:/^\+?[0-9]{7,15}$/'],
             'recipient_email' => ['nullable', 'email', 'max:255'],
             'city_id' => ['required', 'integer', 'exists:cities,id'],
             'shipping_address_line' => ['required', 'string', 'max:500'],

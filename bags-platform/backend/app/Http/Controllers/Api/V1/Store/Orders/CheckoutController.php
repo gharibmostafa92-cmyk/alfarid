@@ -11,7 +11,6 @@ use App\Http\Requests\Store\Orders\ShippingOptionsRequest;
 use App\Http\Resources\Store\Orders\OrderResource;
 use App\Models\Cart;
 use App\Models\City;
-use App\Models\Coupon;
 use App\Models\Customer;
 use App\Services\Orders\CartService;
 use App\Services\Orders\OrderService;
@@ -58,20 +57,22 @@ class CheckoutController extends Controller
 
         // Free shipping promotions waive delivery costs but do not eliminate COD cash-handling fees.
         $cost = $quote['cost'];
-        if ($totals['coupon_code'] !== null && $cart->coupon_id !== null) {
-            $coupon = Coupon::query()->whereKey($cart->coupon_id)->first();
-            if ($coupon && $coupon->type === 'free_shipping') {
+        $guestPhone = $customer === null ? ($validated['recipient_phone'] ?? null) : null;
+        if (($totals['coupon_free_shipping'] ?? false) && $cart->coupon_id !== null) {
+            if (is_string($guestPhone) && $guestPhone !== '') {
                 try {
                     $this->coupons->redeemableById(
-                        $coupon->id,
+                        (int) $cart->coupon_id,
                         (float) $totals['items_total'],
                         $customer,
-                        $customer === null ? ($validated['recipient_phone'] ?? null) : null,
+                        $guestPhone,
                     );
                     $cost = 0.0;
                 } catch (BusinessException) {
-                    // Coupon is not redeemable for this subtotal/customer; keep normal shipping cost.
+                    // Coupon is not redeemable for this phone; keep normal shipping cost.
                 }
+            } else {
+                $cost = 0.0;
             }
         }
 
@@ -133,6 +134,7 @@ class CheckoutController extends Controller
 
         $order = $this->orders->createFromCart($cart, $data, $customer);
         $order->loadMissing(['items.variant.media', 'items.variant.product' => fn ($query) => $query->withTrashed()->with('media')]);
+        $order->setAttribute('instapay', $this->paymentPolicy->instapayInstructions($order));
 
         return response()->json([
             'data' => OrderResource::make($order)->resolve($request),

@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
 use App\Models\Concerns\SerializesAccountEmail;
+use App\Models\Concerns\TracksEditVersion;
 use App\Support\ArabicDigits;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -51,6 +52,7 @@ class Customer extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
     use SerializesAccountEmail;
+    use TracksEditVersion;
 
     protected static function booted(): void
     {

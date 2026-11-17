@@ -103,6 +103,14 @@ class PruneCustomerArtifacts extends Command
         try {
             DB::table('customer_phone_verifications')->where('expires_at', '<', now()->subHour())->delete();
             DB::table('customer_message_budgets')->where('date', '<', now()->subDays(30)->toDateString())->delete();
+            $tokenCutoff = now()->subDay();
+            do {
+                $deletedTokens = DB::table('personal_access_tokens')
+                    ->whereNotNull('expires_at')
+                    ->where('expires_at', '<', $tokenCutoff)
+                    ->limit(1000)
+                    ->delete();
+            } while ($deletedTokens > 0);
             // F-27: audit retention goes through the SECURITY DEFINER function
             // (mirroring staff audit retention) because the app login no longer
             // holds DELETE on customer_audit_logs.

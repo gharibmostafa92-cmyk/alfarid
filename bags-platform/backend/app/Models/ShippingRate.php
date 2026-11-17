@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Database\Factories\ShippingRateFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -54,16 +56,23 @@ class ShippingRate extends Model
     /**
      * Check if the specified merchandise amount qualifies for free shipping under this rate.
      */
-    public function qualifiesForFreeShipping(float $merchandiseTotal): bool
+    public function qualifiesForFreeShipping(float|string $merchandiseTotal): bool
     {
-        return $this->free_shipping_threshold !== null
-            && $merchandiseTotal >= (float) $this->free_shipping_threshold;
+        if ($this->free_shipping_threshold === null) {
+            return false;
+        }
+
+        return BigDecimal::of((string) $merchandiseTotal)
+            ->toScale(2, RoundingMode::HalfUp)
+            ->isGreaterThanOrEqualTo(
+                BigDecimal::of((string) $this->free_shipping_threshold)->toScale(2, RoundingMode::HalfUp)
+            );
     }
 
     /**
      * Compute the effective carrier shipping cost after applying free shipping rules.
      */
-    public function effectiveCost(float $merchandiseTotal): float
+    public function effectiveCost(float|string $merchandiseTotal): float
     {
         return $this->qualifiesForFreeShipping($merchandiseTotal) ? 0.0 : (float) $this->base_cost;
     }

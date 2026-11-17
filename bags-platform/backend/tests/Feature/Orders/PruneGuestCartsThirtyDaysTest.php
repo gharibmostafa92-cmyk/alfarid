@@ -43,6 +43,44 @@ class PruneGuestCartsThirtyDaysTest extends TestCase
         $this->assertModelExists($account);
     }
 
+    public function test_prune_keeps_a_guest_cart_refreshed_after_it_was_selected(): void
+    {
+        $stale = Cart::factory()->create();
+        $refreshed = Cart::factory()->create();
+        $stale->forceFill(['updated_at' => now()->subDays(40)])->saveQuietly();
+        $refreshed->forceFill(['updated_at' => now()->subDays(40)])->saveQuietly();
+
+        $armed = true;
+        DB::listen(function ($query) use (&$armed, $refreshed): void {
+            if (! $armed) {
+                return;
+            }
+            $sql = strtolower($query->sql);
+            if (! str_contains($sql, 'carts') || ! str_starts_with(ltrim($sql), 'select') || ! str_contains($sql, 'updated_at')) {
+                return;
+            }
+            $armed = false;
+            DB::table('carts')->where('id', $refreshed->id)->update(['updated_at' => now()]);
+        });
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->artisan('carts:prune-guests')->assertSuccessful();
+
+        $select = collect(DB::getQueryLog())->first(function (array $query): bool {
+            $sql = strtolower($query['query']);
+
+            return str_starts_with(ltrim($sql), 'select') && str_contains($sql, 'carts') && str_contains($sql, 'updated_at');
+        });
+        $this->assertNotNull($select);
+        $sql = strtolower((string) $select['query']);
+        $this->assertStringContainsString('order by', $sql);
+        $this->assertStringContainsString('updated_at', $sql);
+        $this->assertStringContainsString('limit 500', $sql);
+        $this->assertModelMissing($stale);
+        $this->assertModelExists($refreshed);
+    }
+
     public function test_guest_carts_have_an_updated_at_index_for_pruning(): void
     {
         $indexes = DB::select("SELECT indexdef FROM pg_indexes WHERE tablename = 'carts' AND indexname = 'carts_guest_updated_at_idx'");

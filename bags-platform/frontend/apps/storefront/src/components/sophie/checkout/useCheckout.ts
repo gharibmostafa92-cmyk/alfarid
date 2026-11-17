@@ -17,6 +17,7 @@ import { viewerKey } from '@/lib/core/viewer-key';
 import { rememberGuestOrder } from '@/lib/orders/guest-orders';
 import { normalizePhone } from '@/services/phone-format';
 import { cartFingerprint, pendingOwnerMatches, resolveAttemptOwner } from './pending-checkout';
+import { lastOrderReceipt } from './last-order-receipt';
 
 export interface SavedAddressItem {
   id: number;
@@ -276,7 +277,7 @@ export function useCheckout() {
     } catch {
       /* Storage is optional; the in-memory attempt remains safe. */
     }
-  }, [hydrated, attemptOwner, cartSignature]);
+  }, [hydrated, attemptOwner, cartSignature, deliveryKey, couponCode, items]);
 
   const loadCities = useCallback(() => {
     setCitiesError(false);
@@ -417,7 +418,7 @@ export function useCheckout() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [quoteKey, hydrated, cartBusy, cartLoading, form.cityId, form.paymentMethod, recipientPhone]);
+  }, [quoteKey, hydrated, cartBusy, cartLoading, form.cityId, form.paymentMethod, recipientPhone, owner, couponCode, items, quoteRevision]);
 
   // ?promo=CODE auto-applies once.
   useEffect(() => {
@@ -618,12 +619,11 @@ export function useCheckout() {
       );
       if (attemptOwner === 'guest') rememberGuestOrder(res.data.order_number);
       try {
-        const { order_number, status, payment_method, payment_status, grand_total, items, recipient_phone } = res.data;
-        sessionStorage.setItem('last_order', JSON.stringify({
+        const { order_number, status, payment_method, payment_status, grand_total, items, recipient_phone, instapay } = res.data;
+        sessionStorage.setItem('last_order', JSON.stringify(lastOrderReceipt({
           order_number, status, payment_method, payment_status, grand_total, items,
-          recipient_phone: attemptOwner === 'guest' ? recipient_phone : undefined,
-          expiresAt: Date.now() + 30 * 60_000,
-        }));
+          recipient_phone, instapay,
+        }, attemptOwner)));
       } catch {
         /* Receipt storage must never turn a successful order into a retry. */
       }

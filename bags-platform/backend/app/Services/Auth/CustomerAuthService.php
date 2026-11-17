@@ -45,11 +45,10 @@ class CustomerAuthService
         if ($verified !== null) {
             return $verified;
         }
-        $contacts = $query->limit(2)->get();
+        $contacts = $query->commercial()->limit(2)->get();
         $customer = $contacts->count() === 1 ? $contacts->first() : null;
 
-        return $customer !== null && $customer->isCommercialTier()
-            ? $customer : null;
+        return $customer;
     }
 
     /**
@@ -308,15 +307,28 @@ class CustomerAuthService
         CarbonImmutable $at,
         \Throwable $exception,
     ): never {
-        // Compare-and-delete: never remove a newer concurrent token.
-        $this->deleteStaleResetToken($key, $plainToken);
-        try {
-            app(CustomerMessageBudget::class)->releaseResetClaim($customer->id, $sms, $at, $networkKey);
-        } catch (\Throwable $refundException) {
-            report($refundException);
+        // If the provider may have already accepted the message before timing out,
+        // keep the issued token valid and do not refund the quota.
+        if (! $this->isAmbiguousDeliveryTimeout($exception)) {
+            // Compare-and-delete: never remove a newer concurrent token.
+            $this->deleteStaleResetToken($key, $plainToken);
+            try {
+                app(CustomerMessageBudget::class)->releaseResetClaim($customer->id, $sms, $at, $networkKey);
+            } catch (\Throwable $refundException) {
+                report($refundException);
+            }
         }
         report($exception);
         throw $exception;
+    }
+
+    private function isAmbiguousDeliveryTimeout(\Throwable $exception): bool
+    {
+        $message = mb_strtolower($exception->getMessage());
+
+        return str_contains($message, 'timed out')
+            || str_contains($message, 'curl error 28')
+            || str_contains($message, 'timeout');
     }
 
     /**

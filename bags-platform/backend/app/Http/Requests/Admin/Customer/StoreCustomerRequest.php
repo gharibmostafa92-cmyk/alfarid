@@ -19,7 +19,8 @@ class StoreCustomerRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return (! $this->hasAny(['credit_limit', 'customer_group_id']) && $this->input('type') !== 'distributor')
+        return (! $this->hasAny(['credit_limit', 'customer_group_id'])
+            && ! in_array($this->input('type'), CustomerType::commercialValues(), true))
             || $this->user()->can('customers.approve');
     }
 

@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
-use App\Services\Catalog\StoreCatalogService;
-use App\Services\Pricing\CouponService;
-use App\Services\Pricing\PricingService;
-use App\Services\Shared\DiscreteQuantity;
-
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Customer;
 use App\Models\ProductVariant;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
+use App\Services\Catalog\StoreCatalogService;
+use App\Services\Pricing\CouponService;
+use App\Services\Pricing\PricingService;
+use App\Services\Shared\DiscreteQuantity;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -75,7 +75,7 @@ class CartService
                     ['cart_token' => $guestToken],
                     ['customer_id' => null],
                 );
-            } catch (\Illuminate\Database\UniqueConstraintViolationException $exception) {
+            } catch (UniqueConstraintViolationException $exception) {
                 if (! Cart::query()->where('cart_token', $guestToken)->whereNotNull('customer_id')->exists()) {
                     throw $exception;
                 }
@@ -107,13 +107,13 @@ class CartService
      *
      * @param  Customer  $customer  Target authenticated customer
      * @param  string|null  $guestToken  Guest session UUID token
-     * @return bool Whether an existing guest cart was consumed
+     * @return bool False only when a valid guest token was supplied but the cart was not consumed
      */
     public function mergeGuestCart(Customer $customer, ?string $guestToken): bool
     {
         $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
         if ($guestToken === null) {
-            return false;
+            return true;
         }
 
         // Lock both carts in ID order so concurrent merges share the same lock order.
@@ -138,12 +138,17 @@ class CartService
 
             $purchasableIds = $this->retailVariants()->whereKey($guestItems->pluck('product_variant_id')->all())
                 ->pluck('id')->flip();
+            $available = $this->catalog->fulfillableQuantityMap(
+                $purchasableIds->keys()->map(fn ($id): int => (int) $id)->values()->all()
+            );
             // Enforce cart line and item quantity caps during guest cart merger.
             $maxLines = (int) config('store.max_cart_lines', 50);
             $lineCap = $this->lineQtyCap($customer);
             $accountQty = $account->items()->pluck('qty', 'product_variant_id')
                 ->map(fn ($qty): float => (float) $qty)->all();
             $accountLines = count($accountQty);
+            $rows = [];
+            $timestamp = now();
 
             foreach ($guestItems as $item) {
                 $variantId = (int) $item->product_variant_id;
@@ -158,32 +163,35 @@ class CartService
                     continue;
                 }
 
-                $qty = (float) $item->qty;
+                $held = (float) ($existingQty ?? 0);
+                $room = (float) ($available[$variantId] ?? 0) - $held;
                 if ($lineCap > 0) {
-                    $allowed = $lineCap - (float) ($existingQty ?? 0);
-                    if ($allowed <= 0) {
-                        continue;
-                    }
-                    $qty = min($qty, $allowed);
+                    $room = min($room, $lineCap - $held);
+                }
+                if ($room <= 0) {
+                    continue;
                 }
 
-                // Upsert combines quantities atomically to avoid unique constraint collisions.
-                CartItem::query()->upsert(
-                    [[
-                        'cart_id' => $account->id,
-                        'product_variant_id' => $variantId,
-                        'qty' => $qty,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]],
-                    ['cart_id', 'product_variant_id'],
-                    ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
-                );
+                $qty = min((float) $item->qty, $room);
+                $rows[] = [
+                    'cart_id' => $account->id,
+                    'product_variant_id' => $variantId,
+                    'qty' => $qty,
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ];
 
-                $accountQty[$variantId] = (float) ($existingQty ?? 0) + $qty;
+                $accountQty[$variantId] = $held + $qty;
                 if ($isNew) {
                     $accountLines++;
                 }
+            }
+            if ($rows !== []) {
+                CartItem::query()->upsert(
+                    $rows,
+                    ['cart_id', 'product_variant_id'],
+                    ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
+                );
             }
             if ($account->coupon_id === null && $guest->coupon_id !== null) {
                 $account->unsetRelation('items');
@@ -217,42 +225,55 @@ class CartService
     {
         $this->assertWholeQuantity($qty);
         if (! $cart->exists) {
-            $cart = $customer !== null ? $this->accountCart($customer) : $this->resolveCart(null, $cart->cart_token);
+            return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
+                $createdCart = $customer !== null
+                    ? $this->accountCart($customer)
+                    : $this->resolveCart(null, $cart->cart_token);
+
+                return $this->withLockedCart($createdCart, $customer, function (Cart $locked) use ($customer, $variantId, $qty): Cart {
+                    return $this->addItemToLockedCart($locked, $customer, $variantId, $qty);
+                });
+            });
         }
 
-        return $this->withLockedCart($cart, $customer, function (Cart $cart) use ($customer, $variantId, $qty): Cart {
-            $variant = $this->purchasableVariant($variantId);
-            $existing = $cart->items()->where('product_variant_id', $variantId)->first();
-
-            // Reject adding new lines when the maximum allowed cart line limit is reached.
-            if ($existing === null) {
-                $maxLines = (int) config('store.max_cart_lines', 50);
-                if ($maxLines > 0 && $cart->items()->count() >= $maxLines) {
-                    throw new BusinessException("بلغت سلة التسوق سقف الأصناف ({$maxLines})؛ احذف صنفًا قبل الإضافة.");
-                }
-            }
-
-            $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
-            $this->assertLineQty($customer, $targetQty);
-            $this->assertAvailable($variantId, $targetQty);
-            $this->assertPriced($variant, $customer, $targetQty);
-
-            // Upsert increments item quantity atomically to prevent unique key race conditions.
-            CartItem::query()->upsert(
-                [[
-                    'cart_id' => $cart->id,
-                    'product_variant_id' => $variantId,
-                    'qty' => $qty,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]],
-                ['cart_id', 'product_variant_id'],
-                ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
-            );
-            $cart->touch();
-
-            return $cart->fresh('items');
+        return $this->withLockedCart($cart, $customer, function (Cart $locked) use ($customer, $variantId, $qty): Cart {
+            return $this->addItemToLockedCart($locked, $customer, $variantId, $qty);
         });
+    }
+
+    private function addItemToLockedCart(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
+    {
+        $variant = $this->purchasableVariant($variantId);
+        $existing = $cart->items()->where('product_variant_id', $variantId)->first();
+
+        // Reject adding new lines when the maximum allowed cart line limit is reached.
+        if ($existing === null) {
+            $maxLines = (int) config('store.max_cart_lines', 50);
+            if ($maxLines > 0 && $cart->items()->count() >= $maxLines) {
+                throw new BusinessException("بلغت سلة التسوق سقف الأصناف ({$maxLines})؛ احذف صنفًا قبل الإضافة.");
+            }
+        }
+
+        $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
+        $this->assertLineQty($customer, $targetQty);
+        $this->assertAvailable($variantId, $targetQty);
+        $this->assertPriced($variant, $customer, $targetQty);
+
+        // Upsert increments item quantity atomically to prevent unique key race conditions.
+        CartItem::query()->upsert(
+            [[
+                'cart_id' => $cart->id,
+                'product_variant_id' => $variantId,
+                'qty' => $qty,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]],
+            ['cart_id', 'product_variant_id'],
+            ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
+        );
+        $cart->touch();
+
+        return $cart->fresh('items');
     }
 
     /**
@@ -323,6 +344,32 @@ class CartService
     }
 
     /**
+     * Apply a coupon while the cart row is locked, recovering onto the account cart if the guest row was deleted.
+     */
+    public function applyCoupon(Cart $cart, ?Customer $customer, string $code): Cart
+    {
+        return $this->withLockedCart($cart, $customer, function (Cart $locked) use ($customer, $code): Cart {
+            $locked->load('items');
+            $totals = $this->totals($locked, $customer);
+            $this->coupons->validateAndApply($locked, $code, $totals['items_total'], $customer);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Remove a coupon while the cart row is locked, recovering onto the account cart if the guest row was deleted.
+     */
+    public function removeCoupon(Cart $cart, ?Customer $customer): Cart
+    {
+        return $this->withLockedCart($cart, $customer, function (Cart $locked): Cart {
+            $locked->update(['coupon_id' => null]);
+
+            return $locked;
+        });
+    }
+
+    /**
      * Calculates real-time prices, discounts, and line totals for all cart items.
      *
      * @return array<int, array{item_id: int, variant: ProductVariant, qty: float, unit_price: float|null, base_price: float|null, line_discount: float, line_total: float}>
@@ -371,7 +418,7 @@ class CartService
      * Calculates financial summary totals for the cart with real-time pricing and applied coupons.
      *
      * @param  array<int, array<string, mixed>>|null  $lines  Pre-computed priced lines to avoid redundant pricing calls.
-     * @return array{subtotal: float, pricing_discount: float, items_total: float, coupon_discount: float, total: float, coupon_code: string|null}
+     * @return array{subtotal: float, pricing_discount: float, items_total: float, coupon_discount: float, total: float, coupon_code: string|null, coupon_free_shipping: bool}
      */
     public function totals(Cart $cart, ?Customer $customer, ?array $lines = null): array
     {
@@ -401,11 +448,13 @@ class CartService
 
         $couponDiscount = 0.0;
         $couponCode = null;
+        $couponFreeShipping = false;
         if ($cart->coupon_id !== null && $itemsTotal > 0) {
             try {
                 $coupon = $this->coupons->redeemableById((int) $cart->coupon_id, $itemsTotal, $customer);
                 $couponDiscount = $this->coupons->discountFor($coupon, $itemsTotal);
                 $couponCode = $coupon->code;
+                $couponFreeShipping = $coupon->type === 'free_shipping';
             } catch (BusinessException) {
                 // Silently omit invalidated coupons from cart totals; checkout will re-verify strictly.
             }
@@ -418,6 +467,7 @@ class CartService
             'coupon_discount' => $couponDiscount,
             'total' => $itemsDecimal->minus((string) $couponDiscount)->toScale(2, RoundingMode::HalfUp)->toFloat(),
             'coupon_code' => $couponCode,
+            'coupon_free_shipping' => $couponFreeShipping,
         ];
     }
 

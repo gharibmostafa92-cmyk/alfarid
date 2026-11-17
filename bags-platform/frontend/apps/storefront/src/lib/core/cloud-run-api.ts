@@ -1,6 +1,6 @@
 import { isIP } from 'node:net';
 
-const namespaces = new Set(['auth', 'store', 'admin', 'pos', 'wholesale', 'supplier']);
+const DEFAULT_ALLOWED_NAMESPACES = ['auth', 'store', 'wholesale', 'supplier'] as const;
 const webhooksNamespace = 'webhooks';
 const methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const requestHeaders = [
@@ -26,8 +26,17 @@ type ProxyConfig = {
   identityToken: (audience: string) => Promise<string>;
   clientIpSecret?: string;
   trustedProxyHops?: number;
+  allowedNamespaces?: readonly string[];
   send?: typeof fetch;
 };
+
+function resolveAllowedNamespaces(config: ProxyConfig): Set<string> {
+  if (config.allowedNamespaces !== undefined) return new Set(config.allowedNamespaces);
+  const raw = process.env.API_PROXY_ALLOWED_NAMESPACES;
+  if (raw === undefined || raw.trim() === '') return new Set(DEFAULT_ALLOWED_NAMESPACES);
+  const parsed = raw.split(',').map((item) => item.trim()).filter(Boolean);
+  return new Set(parsed.length > 0 ? parsed : DEFAULT_ALLOWED_NAMESPACES);
+}
 
 const cachedIdentities = new Map<string, { refreshAt: number; token: Promise<string> }>();
 
@@ -75,19 +84,19 @@ export function stripPort(value: string): string {
 
 /**
  * The platform appends the TCP peer to X-Forwarded-For. Earlier entries can
- * be supplied by the client, so only the raw final entry is trusted. If that
- * entry is not a clean IP we refuse to sign anything rather than sliding back
- * to attacker-controlled values. X-Real-IP is ignored unless a proxy is
- * explicitly declared as its source.
+ * be supplied by the client. Count back `trustedProxyHops` from the right when
+ * the chain is long enough. A shorter chain trusts only the rightmost entry,
+ * the nearest proxy's peer, and never a client-supplied left entry. If that
+ * entry is not a clean IP we refuse to sign anything rather than sliding to
+ * another value. X-Real-IP is ignored unless a proxy is explicitly declared
+ * as its source.
  */
 export function clientAddress(request: Request, trustedProxyHops = 1): string | null {
   const hops = Number.isInteger(trustedProxyHops) && trustedProxyHops >= 1 ? trustedProxyHops : 1;
   const forwarded = request.headers.get('x-forwarded-for') ?? '';
   const parts = forwarded.split(',').map(part => part.trim()).filter(Boolean);
   if (parts.length > 0) {
-    // Trust only the rightmost `hops` entries. A shorter chain still has an
-    // original client at the left; extra entries beyond the hop count are ignored.
-    const index = parts.length >= hops ? parts.length - hops : 0;
+    const index = parts.length >= hops ? parts.length - hops : parts.length - 1;
     const candidate = stripPort(parts[index]);
     if (candidate && isIP(candidate) !== 0) return candidate;
     // Refuse to slide into a different XFF entry when the selected hop is invalid.
@@ -169,14 +178,21 @@ function limitRequestBody(body: ReadableStream<Uint8Array>, maxBytes: number): R
   });
 }
 
-function pathIsSafe(path: string[]): boolean {
+function pathIsSafe(path: string[], allowed: ReadonlySet<string>): boolean {
   return path.length >= 2
-    && (namespaces.has(path[0]) || path[0] === webhooksNamespace)
+    && allowed.has(path[0])
     && path.every(segment => segment !== '' && segment !== '.' && segment !== '..' && !/[/\\%\u0000-\u001f\u007f]/u.test(segment));
 }
 
+function catalogAcceptLanguage(value: string): string {
+  const first = value.split(',')[0]?.split(';')[0]?.trim().toLowerCase() ?? '';
+  return first.startsWith('ar') ? 'ar' : 'en';
+}
+
 export async function proxyCloudRunApi(request: Request, path: string[], config: ProxyConfig) {
-  const isWebhook = path[0] === webhooksNamespace;
+  const allowed = resolveAllowedNamespaces(config);
+  const safe = pathIsSafe(path, allowed);
+  const isWebhook = safe && path[0] === webhooksNamespace;
   const headers = new Headers({
     'cache-control': 'no-store',
     'content-security-policy': "default-src 'none'; sandbox",
@@ -186,14 +202,14 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   const fail = (status: number, message: string) => Response.json({ message }, { status, headers });
   const origin = request.headers.get('origin');
   const selfOrigin = new URL(request.url).origin;
-  if (pathIsSafe(path) && !isWebhook) {
+  if (safe && !isWebhook) {
     // Same-origin requests are always legitimate; the allow-list is only needed
     // for cross-origin clients such as the backoffice and POS apps.
     if (origin && origin !== selfOrigin && !config.origins.includes(origin)) return fail(403, 'Origin is not permitted');
     if (origin && origin === selfOrigin) headers.set('access-control-allow-origin', selfOrigin);
     else if (origin) headers.set('access-control-allow-origin', origin);
   }
-  if (!pathIsSafe(path)) {
+  if (!safe) {
     return fail(404, 'API route is not available');
   }
   if (isWebhook && request.method !== 'POST') return fail(405, 'Method is not permitted');
@@ -213,6 +229,10 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   if (!methods.includes(request.method)) return fail(405, 'Method is not permitted');
 
   const maxPayloadBytes = requestBodyLimit(path, request.headers.get('content-type'));
+  const joined = path.join('/');
+  if (!isWebhook && maxPayloadBytes === UPLOAD_BODY_BYTES && !joined.includes('auth/register') && !request.headers.has('authorization')) {
+    return fail(401, 'Authentication is required');
+  }
   const rawContentLength = request.headers.get('content-length');
   if (rawContentLength !== null) {
     const parsedLength = Number.parseInt(rawContentLength, 10);
@@ -235,7 +255,7 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     const forwarded = new Headers();
     for (const name of isWebhook ? webhookHeaders : requestHeaders) {
       const value = request.headers.get(name);
-      if (value !== null) forwarded.set(name, value);
+      if (value !== null) forwarded.set(name, name === 'accept-language' ? catalogAcceptLanguage(value) : value);
     }
     const address = clientAddress(request, config.trustedProxyHops);
     if (address !== null) {

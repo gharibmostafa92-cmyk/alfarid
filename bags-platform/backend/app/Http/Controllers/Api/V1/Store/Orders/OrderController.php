@@ -9,10 +9,10 @@ use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Store\Orders\OrderResource;
 use App\Http\Resources\Store\Orders\TrackOrderResource;
-use App\Services\Pos\StorePaymentPolicy;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Services\Orders\OrderService;
+use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\RateLimiter;
@@ -36,8 +36,7 @@ class OrderController extends Controller
         $request->validate(['phone' => ['required', 'string', 'max:50']]);
 
         $ipRateKey = 'order-track-ip:'.sha1($number.'|'.$request->ip());
-        $orderRateKey = 'order-track-order:'.sha1($number);
-        if (RateLimiter::tooManyAttempts($ipRateKey, 5) || RateLimiter::tooManyAttempts($orderRateKey, 40)) {
+        if (RateLimiter::tooManyAttempts($ipRateKey, 5)) {
             abort(429, 'محاولات كثيرة لتتبع هذا الطلب؛ حاول لاحقًا.');
         }
 
@@ -59,7 +58,6 @@ class OrderController extends Controller
         }
         if ($order === null || $phone === '' || ! $match) {
             RateLimiter::hit($ipRateKey, 900);
-            RateLimiter::hit($orderRateKey, 900);
             abort(404);
         }
         RateLimiter::clear($ipRateKey);
@@ -73,7 +71,6 @@ class OrderController extends Controller
     /**
      * Paginate historical orders for the currently authenticated customer.
      *
-     * @param  Request  $request
      * @return AnonymousResourceCollection Collection of full customer order resources.
      */
     public function index(Request $request): AnonymousResourceCollection
@@ -116,7 +113,6 @@ class OrderController extends Controller
     /**
      * Cancel an active order by the customer before warehouse fulfillment begins.
      *
-     * @param  Request  $request
      * @param  int  $order  Internal order identifier.
      * @return OrderResource Updated cancelled order resource.
      *

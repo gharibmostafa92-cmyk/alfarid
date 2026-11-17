@@ -14,7 +14,7 @@ export function useStoreHome() {
 
   return useQuery({
     queryKey: ['store', 'home', viewer],
-    queryFn: storeEndpoints.home,
+    queryFn: ({ signal }) => storeEndpoints.home(signal),
     enabled: hydrated,
     staleTime: 60_000,
     placeholderData: (previous, query) => query?.queryKey[2] === viewer ? previous : undefined,

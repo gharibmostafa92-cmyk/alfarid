@@ -186,12 +186,22 @@ class CouponService
         $guestPhoneNormalized = ($normalizedGuest !== null && $normalizedGuest !== '') ? $normalizedGuest : null;
 
         $phoneKey = $guestPhoneNormalized ?? $this->resolveCustomerPhone($customer);
-        $identity = $phoneKey !== null
-            ? 'phone:'.$phoneKey
-            : ($customer !== null ? 'customer:'.$customer->id : 'anonymous');
-        // 64-bit advisory transaction lock avoids 32-bit hashtext collisions across identities/coupons.
+        if ($customer === null && $phoneKey === null) {
+            throw new BusinessException(self::NOT_REDEEMABLE);
+        }
+
+        // Acquire sorted deterministic advisory locks for every present identity
+        // (customer ID and normalized phone) so concurrent checkouts sharing either
+        // identifier serialize on the same lock and cannot race past the limit.
         if (DB::connection()->getDriverName() === 'pgsql') {
-            DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['coupon-usage:'.$coupon->id.':'.$identity]);
+            $lockKeys = array_values(array_unique(array_filter([
+                $customer !== null ? 'coupon-usage:'.$coupon->id.':customer:'.$customer->id : null,
+                $phoneKey !== null ? 'coupon-usage:'.$coupon->id.':phone:'.$phoneKey : null,
+            ])));
+            sort($lockKeys);
+            foreach ($lockKeys as $lockKey) {
+                DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockKey]);
+            }
         }
 
         // Re-evaluate identity limit under the lock to prevent race conditions.

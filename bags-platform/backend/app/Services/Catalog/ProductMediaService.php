@@ -113,8 +113,8 @@ class ProductMediaService
     private function withMediaLock(int $productId, \Closure $operation): mixed
     {
         try {
-            // Lock TTL must exceed client upload timeouts so parallel uploads/deletes cannot acquire a premature expiry.
-            return Cache::lock('catalog-media:'.$productId, 240)->block(15, $operation);
+            // Fail fast on concurrent media mutations instead of piling up PHP-FPM workers.
+            return Cache::lock('catalog-media:'.$productId, 240)->block(3, $operation);
         } catch (LockTimeoutException) {
             throw new BusinessException('جاري رفع أو ترتيب وسائط المنتج؛ أعد المحاولة بعد لحظات.', [], 409);
         }

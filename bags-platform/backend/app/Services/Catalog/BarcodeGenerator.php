@@ -14,12 +14,13 @@ class BarcodeGenerator
 {
     /**
      * Generate a valid 13-digit EAN-13 barcode string from an entity ID.
-     *
-     * @param  int  $id
-     * @return string
      */
     public static function fromId(int $id): string
     {
+        if ($id < 1 || $id > 99_999_999_999) {
+            throw new \InvalidArgumentException("Barcode ID out of 11-digit EAN-13 range: {$id}");
+        }
+
         $base = '2'.str_pad((string) $id, 11, '0', STR_PAD_LEFT);
         $sum = 0;
         for ($i = 0; $i < 12; $i++) {

@@ -36,10 +36,10 @@ final class DeactivateStaffUser
                 || ! StaffAdministration::mayManageUser($actor, $locked)) {
                 return false;
             }
+            StaffAdministration::assertVersion($locked, $expectedVersion);
             if (! $locked->is_active) {
                 return true;
             }
-            StaffAdministration::assertVersion($locked, $expectedVersion);
             $before = StaffAdministration::userState($locked);
             $locked->forceFill(['is_active' => false])->save();
             StaffAdministration::audit($actor, 'user.deactivated', 'user', $locked->id, ['is_active'], $before, StaffAdministration::userState($locked), $via);

@@ -49,7 +49,7 @@ export function ProductExperience({ product, onBack, initialColor, initialSize }
   const add = async () => {
     if (!variant || !canBuy || adding) return;
     setAdding(true); setNotice('');
-    try { const ok = await addItem(variant.id, selectedQty); setAdded(ok); setNotice(ok ? 'Added ' + selectedQty + ' × ' + detail.name + ' to your shopping bag.' : useCartStore.getState().error ?? 'Could not add to bag. Please try again.'); }
+    try { const ok = await addItem(variant.id, selectedQty); setAdded(ok); setNotice(ok ? 'Added ' + selectedQty + ' × ' + detail.name + ' to your shopping bag.' : useCartStore.getState().error ?? ''); }
     finally { setAdding(false); }
   };
   const prompt = !sizeReady ? 'Choose your size' : !color ? 'Choose your color' : 'Your selection';

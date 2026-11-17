@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Rules;
 
+use App\Enums\Customer\CustomerType;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Support\Facades\DB;
@@ -37,10 +38,11 @@ final class EmailNotUsedByOtherAccountType implements ValidationRule
             }
             $query = DB::table($table)->whereRaw('LOWER(email) = ?', [$email]);
             if ($table === 'customers') {
-                // Every live customer row reserves its email across realms,
-                // verified or not: an unverified retail address must still
-                // block staff/supplier reuse (CRITICAL-01).
-                $query->whereNull('deleted_at');
+                // Unverified retail claims must not block staff/supplier creation (CRITICAL-01);
+                // only verified or commercial-tier customer emails reserve cross-realm ownership.
+                $query->whereNull('deleted_at')
+                    ->where(fn ($q) => $q->whereNotNull('email_verified_at')
+                        ->orWhereIn('type', CustomerType::commercialValues()));
             }
             if ($query->exists()) {
                 $fail($this->conceal

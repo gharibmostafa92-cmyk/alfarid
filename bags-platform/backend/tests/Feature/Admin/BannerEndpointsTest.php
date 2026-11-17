@@ -3,6 +3,8 @@
 namespace Tests\Feature\Admin;
 
 use App\Enums\Catalog\ProductStatus;
+use App\Http\Controllers\Api\V1\Admin\Catalog\BannerController;
+use App\Http\Requests\Admin\Catalog\StoreBannerRequest;
 use App\Models\Banner;
 use App\Models\Category;
 use App\Models\Product;
@@ -12,6 +14,7 @@ use App\Services\Catalog\BannerService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
@@ -307,5 +310,52 @@ class BannerEndpointsTest extends TestCase
 
         $this->admin($token)->post("/api/v1/admin/banners/{$banner->id}", $this->payload(['link_type' => 'brand', 'link_value' => 999]))
             ->assertUnprocessable()->assertJsonValidationErrors('link_type');
+    }
+
+    public function test_banner_controller_enforces_rbac_middleware_and_request_authorization(): void
+    {
+        $this->assertTrue(
+            is_subclass_of(BannerController::class, HasMiddleware::class),
+            'BannerController must implement HasMiddleware.'
+        );
+
+        $unauthorizedToken = $this->staff(['products.view']);
+        $this->admin($unauthorizedToken)->getJson('/api/v1/admin/banners')->assertForbidden();
+        $this->admin($unauthorizedToken)->post('/api/v1/admin/banners', $this->payload())->assertForbidden();
+
+        $readOnlyToken = $this->staff(['settings.view']);
+        $this->admin($readOnlyToken)->getJson('/api/v1/admin/banners')->assertOk();
+        $this->admin($readOnlyToken)->post('/api/v1/admin/banners', $this->payload())->assertForbidden();
+
+        $noPermUser = User::factory()->create();
+        $req = StoreBannerRequest::create('/api/v1/admin/banners', 'POST');
+        $req->setUserResolver(fn () => $noPermUser);
+        $this->assertFalse($req->authorize());
+    }
+
+    public function test_banner_request_accepts_avif_and_validates_ends_at_against_existing_starts_at(): void
+    {
+        $token = $this->staff(['store.manage']);
+
+        // Create minimal valid AVIF using GD
+        $img = imagecreatetruecolor(600, 300);
+        $tmp = tempnam(sys_get_temp_dir(), 'avif_').'.avif';
+        imageavif($img, $tmp);
+        imagedestroy($img);
+        $avifFile = new UploadedFile($tmp, 'banner.avif', 'image/avif', null, true);
+
+        $this->admin($token)
+            ->post('/api/v1/admin/banners', $this->payload(['image' => $avifFile]))
+            ->assertCreated();
+        @unlink($tmp);
+
+        $banner = Banner::factory()->create(['starts_at' => '2026-12-01 00:00:00', 'ends_at' => null]);
+        $updatePayload = $this->payload(['ends_at' => '2026-11-01 00:00:00']);
+        unset($updatePayload['image']);
+
+        $this->admin($token)
+            ->post("/api/v1/admin/banners/{$banner->id}", $updatePayload)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('ends_at');
     }
 }

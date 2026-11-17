@@ -34,6 +34,7 @@ class ReorderCategoriesRequest extends FormRequest
             'items.*.id' => ['required', 'integer', 'min:1', 'distinct'],
             'items.*.parent_id' => ['present', 'nullable', 'integer', 'min:1'],
             'items.*.sort_order' => ['required', 'integer', 'min:0', 'max:2147483647'],
+            'items.*.expected_version' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ];
     }
 

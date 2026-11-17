@@ -74,7 +74,9 @@
                     "bags-platform/backend/app/Http/Middleware/EnsureWholesaleApproved.php",
                     "docs/TASK6_WHOLESALE_DEPLOYMENT_STATUS.md",
                     "bags-platform/backend/app/Services/Ai/Wholesale/Tools/PreviewNoticeAllocationTool.php",
-                    "bags-platform/backend/app/Exports/WholesalePriceListExport.php"
+                    "bags-platform/backend/app/Exports/WholesalePriceListExport.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Pricing/CouponController.php",
+                    "bags-platform/backend/app/Services/Pricing/CouponService.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

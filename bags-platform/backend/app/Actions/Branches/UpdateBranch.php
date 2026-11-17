@@ -108,6 +108,8 @@ final class UpdateBranch
                 throw new BusinessException('لا يمكن تحويل الفرع إلى مخزن وبه وردية POS مفتوحة؛ أغلقها أولًا.');
             }
             $locked->update($data);
+            $branchId = $locked->id;
+            DB::afterCommit(fn () => $this->access->forgetBranchActiveCache($branchId));
             $deactivated = array_key_exists('is_active', $data) && ! (bool) $data['is_active'] && $wasActive;
             $action = $deactivated ? 'branch.deactivated' : 'branch.updated';
             StaffAdministration::audit($actor, $action, 'branch', $locked->id, array_keys($data), $before, StaffAdministration::branchState($locked), $via);

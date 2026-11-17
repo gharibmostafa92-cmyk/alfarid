@@ -66,9 +66,9 @@ class NormalizeCustomerPhones extends Command
         DB::statement("CREATE TEMP TABLE customer_phone_normalization ON COMMIT DROP AS
             WITH cleaned AS (
                 SELECT id, phone AS before,
-                    regexp_replace(TRIM(phone), '^[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}]+|[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}]+$', '', 'g') AS trimmed,
+                    regexp_replace(TRIM(phone), '^[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200F}\u{2028}-\u{202F}\u{205F}\u{2066}-\u{2069}\u{3000}\u{FEFF}]+|[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200F}\u{2028}-\u{202F}\u{205F}\u{2066}-\u{2069}\u{3000}\u{FEFF}]+$', '', 'g') AS trimmed,
                     regexp_replace(translate(TRIM(phone),
-                        '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}().-]+', '', 'g') AS value
+                        '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200F}\u{2028}-\u{202F}\u{205F}\u{2066}-\u{2069}\u{3000}\u{FEFF}().-]+', '', 'g') AS value
                 FROM customers
             )
             SELECT id, before, CASE

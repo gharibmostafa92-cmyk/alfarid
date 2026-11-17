@@ -125,6 +125,9 @@ final class UnifiedAuthService
                     $retryAfter = max(1, ...array_map(fn (string $k): int => RateLimiter::availableIn($k), $reached));
                     throw new TooManyRequestsHttpException($retryAfter, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
                 }
+            } elseif ($exception->status === 403) {
+                // Valid credentials on an unverified/suspended account must not consume the brute-force budget.
+                RateLimiter::clear($pairKey);
             }
             throw $exception;
         }

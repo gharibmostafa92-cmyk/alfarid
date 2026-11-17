@@ -60,12 +60,11 @@ class AuthController extends Controller
         });
 
         // Automatically merge existing guest cart items into the newly registered account.
-        $cartMerged = true;
+        $cartMerged = false;
         try {
-            $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+            $cartMerged = $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
         } catch (\Throwable $exception) {
             report($exception);
-            $cartMerged = false;
         }
 
         return CustomerResource::make($customer)
@@ -83,12 +82,11 @@ class AuthController extends Controller
         $token = $this->auth->issueToken($customer, 'store-token');
 
         // Merge guest cart items into the customer account upon login.
-        $cartMerged = true;
+        $cartMerged = false;
         try {
-            $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+            $cartMerged = $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
         } catch (\Throwable $exception) {
             report($exception);
-            $cartMerged = false;
         }
 
         return CustomerResource::make($customer)
@@ -147,9 +145,6 @@ class AuthController extends Controller
             throw new BusinessException('تعذر التحقق من الشبكة، حاول مرة أخرى.');
         }
 
-        // M5: never disclose whether a phone number already belongs to an
-        // account. Always enqueue the same work; the service re-checks
-        // existence inside the job so response timing stays identical.
         SendCustomerPhoneVerification::dispatch($phone, $networkKey)
             ->onConnection(config('auth.customer_password_reset.connection', 'database'));
 

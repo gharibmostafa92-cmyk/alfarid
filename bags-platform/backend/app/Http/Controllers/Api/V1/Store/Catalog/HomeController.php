@@ -97,7 +97,7 @@ class HomeController extends Controller
             ->orderBy('sort_order')->orderBy('id')
             ->get();
 
-        $banners = Cache::flexible('store:home:banners:v1', [60, 300], $load, ['seconds' => 15]);
+        $banners = Cache::remember(StoreCatalogService::HOME_BANNERS_CACHE_KEY, 60, $load);
 
         return $banners instanceof Collection ? $banners : collect($banners);
     }

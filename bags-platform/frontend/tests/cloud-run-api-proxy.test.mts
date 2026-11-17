@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { proxyCloudRunApi } from '../apps/storefront/src/lib/core/cloud-run-api.ts';
+import { clientAddress, proxyCloudRunApi } from '../apps/storefront/src/lib/core/cloud-run-api.ts';
 
 const storefront = 'https://storefront.run.app';
 const office = 'https://backoffice.pages.dev';
 const upstream = 'https://private-api.run.app';
 const clientIpSecret = 'proxy-client-ip-secret';
+const openedNamespaces = ['auth', 'store', 'admin', 'pos', 'wholesale', 'supplier', 'webhooks'] as const;
 const makeRequest = (origin = office, init: RequestInit = {}) =>
   new Request(storefront + '/api/v1/pos/sales?include=items', {
     ...init,
@@ -16,7 +17,7 @@ test('routes assistant turns to a separate worker pool and keeps other API route
   const aiUpstream = 'https://private-ai.run.app';
   const audiences: string[] = [];
   const config = {
-    upstream, aiUpstream, origins: [office], clientIpSecret,
+    upstream, aiUpstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async (audience: string) => { audiences.push(audience); return 'service-token'; },
     send: async (url: URL | RequestInfo) => new Response(new URL(String(url)).origin),
   };
@@ -46,7 +47,7 @@ test('forwards the user token and idempotency key separately from the service id
       'content-type': 'application/json',
     },
   }), ['pos', 'sales'], {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => 'service-token',
     send: async (url, init) => {
       assert.equal(String(url), upstream + '/api/v1/pos/sales?include=items');
@@ -59,7 +60,7 @@ test('forwards the user token and idempotency key separately from the service id
       assert.match(headers.get('x-alfarid-client-ip-timestamp') ?? '', /^\d{10,}$/);
       assert.match(headers.get('x-alfarid-client-ip-signature') ?? '', /^[0-9a-f]{64}$/);
       assert.equal(headers.get('user-agent'), 'Alfarid-Test/1.0');
-      assert.equal(headers.get('accept-language'), 'ar-EG,ar;q=0.9');
+      assert.equal(headers.get('accept-language'), 'ar');
       assert.equal(init?.redirect, 'manual');
       assert.equal(await new Response(init?.body).text(), '{"items":[]}');
       return new Response('created', { status: 201, headers: { 'set-cookie': 'private=1', 'x-request-id': 'request-id' } });
@@ -73,7 +74,7 @@ test('forwards the user token and idempotency key separately from the service id
 
 test('handles preflight locally and rejects foreign origins and traversal', async () => {
   const config = {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => { throw new Error('must not request identity'); },
   };
   const preflight = await proxyCloudRunApi(makeRequest(office, {
@@ -101,7 +102,7 @@ test('forwards provider webhooks with signature headers and the raw body', async
     },
   });
   const response = await proxyCloudRunApi(request, ['webhooks', 'payment', 'stripe'], {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => 'service-token',
     send: async (url, init) => {
       assert.equal(String(url), upstream + '/api/v1/webhooks/payment/stripe');
@@ -119,7 +120,7 @@ test('forwards provider webhooks with signature headers and the raw body', async
 
 test('rejects non-POST webhook methods', async () => {
   const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/webhooks/payment/stripe'), ['webhooks', 'payment', 'stripe'], {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => 'service-token',
   });
   assert.equal(response.status, 405);
@@ -189,7 +190,7 @@ test('extracts client IP using trustedProxyHops without sliding back on malforme
 
 test('allows standard caching and content headers in CORS preflight', async () => {
   const config = {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => 'service-token',
   };
   const preflight = await proxyCloudRunApi(makeRequest(office, {
@@ -205,7 +206,7 @@ test('allows standard caching and content headers in CORS preflight', async () =
 
 test('rejects requests with content-length exceeding 30 MiB with 413', async () => {
   const config = {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => 'service-token',
   };
   const response = await proxyCloudRunApi(makeRequest(office, {
@@ -226,7 +227,7 @@ test('rejects a chunked body that crosses the byte limit even when fetch wraps t
   } as RequestInit & { duplex: 'half' });
 
   const response = await proxyCloudRunApi(request, ['pos', 'sales'], {
-    upstream, origins: [office], clientIpSecret,
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
     identityToken: async () => 'service-token',
     send: async (_url, init) => {
       const reader = (init?.body as ReadableStream<Uint8Array>).getReader();
@@ -302,7 +303,7 @@ test('rejects json login above 1 MiB and allows upload routes up to 30 MiB', asy
   const upload = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/account/returns', {
     method: 'POST',
     body: '{}',
-    headers: { origin: office, 'content-type': 'application/json', 'content-length': String(2 * 1024 * 1024) },
+    headers: { origin: office, authorization: 'Bearer user-token', 'content-type': 'application/json', 'content-length': String(2 * 1024 * 1024) },
   }), ['store', 'account', 'returns'], config);
   assert.equal(upload.status, 200);
 
@@ -316,7 +317,7 @@ test('rejects json login above 1 MiB and allows upload routes up to 30 MiB', asy
   const huge = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/account/returns', {
     method: 'POST',
     body: '{}',
-    headers: { origin: office, 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(31 * 1024 * 1024) },
+    headers: { origin: office, authorization: 'Bearer user-token', 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(31 * 1024 * 1024) },
   }), ['store', 'account', 'returns'], config);
   assert.equal(huge.status, 413);
 });
@@ -352,6 +353,7 @@ test('uses 180s upstream timeout for AI conversation turns and 60s for regular A
       aiUpstream: 'https://private-ai.run.app',
       origins: [office],
       clientIpSecret,
+      allowedNamespaces: openedNamespaces,
       identityToken: async () => 'service-token',
       send: async () => new Response('ok', { status: 200 }),
     };
@@ -361,4 +363,71 @@ test('uses 180s upstream timeout for AI conversation turns and 60s for regular A
   } finally {
     AbortSignal.timeout = originalTimeout;
   }
+});
+
+test('default namespaces reject admin, pos, and webhooks without calling upstream', async () => {
+  const previous = process.env.API_PROXY_ALLOWED_NAMESPACES;
+  delete process.env.API_PROXY_ALLOWED_NAMESPACES;
+  let sent = false;
+  try {
+    const config = {
+      upstream, origins: [office], clientIpSecret,
+      identityToken: async () => 'service-token',
+      send: async () => { sent = true; return new Response('ok'); },
+    };
+    for (const path of [['admin', 'orders'], ['pos', 'sales'], ['webhooks', 'stripe']] as const) {
+      const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/' + path.join('/'), {
+        method: 'POST',
+        body: '{}',
+      }), [...path], config);
+      assert.equal(response.status, 404);
+    }
+    assert.equal(sent, false);
+
+    const store = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog'), ['store', 'catalog'], config);
+    assert.equal(store.status, 200);
+    assert.equal(sent, true);
+  } finally {
+    if (previous === undefined) delete process.env.API_PROXY_ALLOWED_NAMESPACES;
+    else process.env.API_PROXY_ALLOWED_NAMESPACES = previous;
+  }
+});
+
+test('requires authorization before an upload-sized body unless the path is registration', async () => {
+  let sent = false;
+  const config = {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async () => { sent = true; return new Response('ok'); },
+  };
+  const anonymous = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/account/returns', {
+    method: 'POST',
+    body: '{}',
+    headers: { origin: office, 'content-type': 'application/json' },
+  }), ['store', 'account', 'returns'], config);
+  assert.equal(anonymous.status, 401);
+  assert.equal(sent, false);
+});
+
+test('trusts the nearest forwarded hop when the chain is shorter than trustedProxyHops', () => {
+  const request = (forwarded: string) => new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'x-forwarded-for': forwarded },
+  });
+  assert.equal(clientAddress(request('192.0.2.9, 10.0.0.1'), 1), '10.0.0.1');
+  assert.equal(clientAddress(request('1.2.3.4, 192.0.2.9'), 3), '192.0.2.9');
+  assert.equal(clientAddress(request('192.0.2.9, 10.0.0.1'), 2), '192.0.2.9');
+});
+
+test('forwards accept-language as en when the first range is not Arabic', async () => {
+  const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'accept-language': 'en-US,en;q=0.9' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      assert.equal(new Headers(init?.headers).get('accept-language'), 'en');
+      return new Response('ok', { status: 200 });
+    },
+  });
+  assert.equal(response.status, 200);
 });

@@ -166,14 +166,23 @@ class CustomerManagementService
                 $oldGroupId = $customer->customer_group_id === null ? null : (int) $customer->customer_group_id;
                 $sensitiveChange = (array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit)
                     || (array_key_exists('customer_group_id', $data) && $newGroupId !== $oldGroupId);
-                if ($sensitiveChange && ! empty($data['expected_updated_at'])) {
-                    $expected = Carbon::parse($data['expected_updated_at'])->utc()->timestamp;
-                    // Fail closed on a stale copy: two consoles editing the same
-                    // credit limit must not silently overwrite each other.
-                    if ($expected !== $customer->updated_at->copy()->utc()->timestamp) {
-                        throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                if ($sensitiveChange) {
+                    if (array_key_exists('expected_version', $data) && $data['expected_version'] !== null) {
+                        if ((int) $data['expected_version'] !== (int) $customer->lock_version) {
+                            throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                        }
+                    } elseif (! empty($data['expected_updated_at'])) {
+                        $expected = Carbon::parse($data['expected_updated_at'])->utc()->timestamp;
+                        // Fail closed on a stale copy: two consoles editing the same
+                        // credit limit must not silently overwrite each other.
+                        if ($expected !== $customer->updated_at->copy()->utc()->timestamp) {
+                            throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                        }
+                    } else {
+                        throw new BusinessException('يجب تمرير رمز التزامن لتعديل الحدود المالية للعميل.', [], 409);
                     }
                 }
+                unset($data['expected_version'], $data['expected_updated_at']);
                 unset($data['expected_updated_at']);
                 if (isset($data['email']) && $data['email'] !== $customer->email) {
                     $this->claimEmail($data['email'], $customer->id);

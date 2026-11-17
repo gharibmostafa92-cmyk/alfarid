@@ -58,7 +58,11 @@ final class UpdateStaffUser
         // before the transaction so no bcrypt ever runs under the global
         // staff advisory lock. A wrong password only strips the credential;
         // grant-free paths proceed exactly as before.
-        [$preVerifiedHash, $currentPassword] = StaffAdministration::preVerifyGrantPassword($currentUser, $currentPassword, is_array($roles) && $roles !== []);
+        if ($verifiedPasswordHash !== null) {
+            $preVerifiedHash = $verifiedPasswordHash;
+        } else {
+            [$preVerifiedHash, $currentPassword] = StaffAdministration::preVerifyGrantPassword($currentUser, $currentPassword, is_array($roles) && $roles !== []);
+        }
         if (isset($userAttributes['password']) && is_string($userAttributes['password']) && ! Hash::isHashed($userAttributes['password'])) {
             $userAttributes['password'] = Hash::make($userAttributes['password']);
         }

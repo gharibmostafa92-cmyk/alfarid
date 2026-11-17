@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
@@ -33,6 +34,9 @@ final class StaffAdministration
         // M3: xact locks are meaningless outside a transaction (released at statement end).
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('Staff administration lock requires a transaction.');
+        }
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            return;
         }
         // Advisory lock timeout (55P03) indicates a transient concurrency conflict converted to a retryable 409.
         try {
@@ -180,7 +184,8 @@ final class StaffAdministration
         }
         $actor->unsetRelation('roles')->unsetRelation('permissions');
 
-        return $actor->hasRole(StaffRole::SuperAdmin->value, 'staff') || $actor->hasAllPermissions(array_values(array_unique($permissions)));
+        return $actor->hasRole(StaffRole::SuperAdmin->value, 'staff')
+            || self::hasAllStaffPermissions($actor, array_values(array_unique($permissions)));
     }
 
     /**
@@ -211,7 +216,25 @@ final class StaffAdministration
             $permissions = $permissions->merge($target->getAllPermissions()->pluck('name'));
         }
 
-        return $actor->hasAllPermissions($permissions->unique()->all());
+        return self::hasAllStaffPermissions($actor, $permissions->unique()->values()->all());
+    }
+
+    /**
+     * @param  list<string>  $permissions
+     */
+    private static function hasAllStaffPermissions(User $actor, array $permissions): bool
+    {
+        try {
+            foreach ($permissions as $permission) {
+                if (! $actor->hasPermissionTo($permission, 'staff')) {
+                    return false;
+                }
+            }
+
+            return true;
+        } catch (PermissionDoesNotExist) {
+            return false;
+        }
     }
 
     /** @return array{name: string, is_active: bool} */

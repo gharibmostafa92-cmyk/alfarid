@@ -124,6 +124,7 @@ test('StoreBrandingProvider with initialBranding skips redundant client fetch on
     if (name === '@alfarid/ui/branding') return brandMod.exports;
     if (name === '@alfarid/api-client') return { brandingEndpoints: { get: async () => { fetchCalls++; return defaults; } } };
     if (name === '@/lib/catalog/store-image') return { storeImageUrl: v => v };
+    if (name === '@/lib/core/branding-result') return { hasInitialBranding: fromFallback => !fromFallback };
     throw new Error('Unexpected dep: ' + name);
   });
 

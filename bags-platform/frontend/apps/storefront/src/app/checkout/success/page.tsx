@@ -11,6 +11,7 @@ import { formatStorePrice, getStatusLabel, OrderStatusLabelsAr, PaymentMethodLab
 import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
 import { StoreImage } from '@/components/StoreImage';
+import { shouldTrackInstapay } from '@/components/sophie/checkout/last-order-receipt';
 
 export default function CheckoutSuccessPage() {
   return (
@@ -28,6 +29,8 @@ function CheckoutSuccessContent() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [transfer, setTransfer] = useState<{ orderNumber: string; details: NonNullable<TrackOrderResponse['instapay']> } | null>(null);
+  const [transferError, setTransferError] = useState(false);
+  const [transferAttempt, setTransferAttempt] = useState(0);
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthHydrated();
@@ -88,15 +91,18 @@ function CheckoutSuccessContent() {
   useEffect(() => {
     const userPhone = typeof user?.phone === 'string' ? user.phone : undefined;
     const contactPhone = order?.recipient_phone || userPhone;
-    if (!order || order.order_number !== orderNumber || order.payment_method !== 'bank_transfer' || !contactPhone || order.instapay !== undefined) return;
+    if (!shouldTrackInstapay(order, orderNumber, contactPhone)) return;
     let active = true;
-    checkoutEndpoints.track(orderNumber, contactPhone).then(({ instapay }) => {
+    setTransferError(false);
+    checkoutEndpoints.track(orderNumber, contactPhone!).then(({ instapay }) => {
       if (active) setTransfer(instapay ? { orderNumber, details: instapay } : null);
-    }).catch(() => {});
+    }).catch(() => {
+      if (active) setTransferError(true);
+    });
     return () => {
       active = false;
     };
-  }, [order, orderNumber, user?.phone]);
+  }, [order, orderNumber, user?.phone, transferAttempt]);
   const instapay = order?.order_number === orderNumber && order.instapay !== undefined
     ? order.instapay
     : transfer?.orderNumber === orderNumber ? transfer.details : null;
@@ -205,6 +211,14 @@ function CheckoutSuccessContent() {
               </div>
 
               {instapay && <InstaPayInstructions key={instapay.expires_at} details={instapay} className="mt-4 space-y-2 rounded-xl bg-[#e9e9e6] p-4 text-sm" />}
+              {transferError && !instapay && (
+                <div role="alert" className="mt-4 space-y-2 rounded-xl bg-[#e9e9e6] p-4 text-sm">
+                  <p>تعذر تحميل تعليمات التحويل. حاول مرة أخرى.</p>
+                  <button type="button" className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white" onClick={() => setTransferAttempt((value) => value + 1)}>
+                    إعادة المحاولة
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4 grid gap-2 text-center text-sm font-semibold">
                 {trackingUrl && <Link href={trackingUrl} className="rounded-lg bg-neutral-900 px-4 py-3 text-white hover:bg-neutral-800">تتبع طلبك</Link>}

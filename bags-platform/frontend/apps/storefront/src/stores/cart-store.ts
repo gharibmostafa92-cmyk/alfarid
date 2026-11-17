@@ -3,6 +3,9 @@
 import { create } from 'zustand';
 import { cartEndpoints, getAuthToken, type StoreCart } from '@alfarid/api-client';
 import { viewerKey } from '@/lib/core/viewer-key';
+import { shouldQueueAdd } from './cart-add';
+
+export { shouldQueueAdd } from './cart-add';
 
 export interface CartItem {
   id: number;
@@ -50,6 +53,7 @@ interface CartState {
 
 let queue: Promise<unknown> = Promise.resolve();
 let pendingMutations = 0;
+const inFlightAdds = new Set<number>();
 let volatileSession: string | null = null;
 export function clearGuestCartSession() {
   volatileSession = null;
@@ -113,7 +117,7 @@ export const useCartStore = create<CartState>((set, get) => {
       } catch (error) {
         if (owner === identity()) {
           const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
-          set({ error: message || 'We could not update your cart. Please try again.' });
+          set({ error: message || 'تعذّر تحديث السلة. يرجى المحاولة مرة أخرى.' });
         }
         return false;
       }
@@ -137,7 +141,7 @@ export const useCartStore = create<CartState>((set, get) => {
               return false;
             }
             if (name === 'SecurityError' || name === 'NotSupportedError') return execute();
-            set({ error: 'We could not update your cart. Please try again.' });
+            set({ error: 'تعذّر تحديث السلة. يرجى المحاولة مرة أخرى.' });
             return false;
           }
         }
@@ -157,8 +161,9 @@ export const useCartStore = create<CartState>((set, get) => {
     addItem: (variantId, quantity) => {
       const qty = quantity ?? 1;
       if (!Number.isInteger(qty) || qty < 1) return Promise.resolve(false);
-      if (pendingMutations > 0 || get().busy) return Promise.resolve(false);
-      return run(() => {
+      if (!shouldQueueAdd(variantId, inFlightAdds)) return Promise.resolve(false);
+      inFlightAdds.add(variantId);
+      const task = run(() => {
         let cartSession = session();
         if (cartSession === null && getAuthToken() === null) {
           cartSession = globalThis.crypto.randomUUID();
@@ -166,13 +171,18 @@ export const useCartStore = create<CartState>((set, get) => {
         }
         return cartEndpoints.add(variantId, qty, cartSession);
       }, true);
+      return task.finally(() => { inFlightAdds.delete(variantId); });
     },
     removeItem: (id) => run(() => cartEndpoints.remove(id, session()), true),
     updateQuantity: (id, qty) => {
       if (!Number.isInteger(qty) || qty < 0) return Promise.resolve(false);
       return run(() => cartEndpoints.update(id, qty, session()), true, () => {
         const item = get().items.find((item) => item.id === id);
-        return !(qty > 0 && item && qty > item.available);
+        if (qty > 0 && item && qty > item.available) {
+          set({ error: `الكمية المطلوبة غير متوفرة. الحد الأقصى المتاح هو ${item.available}.` });
+          return false;
+        }
+        return true;
       });
     },
     clearCart: () => run(() => cartEndpoints.clear(session()), true),

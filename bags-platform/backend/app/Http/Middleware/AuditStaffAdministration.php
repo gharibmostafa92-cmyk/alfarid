@@ -20,7 +20,8 @@ final class AuditStaffAdministration
     {
         $path = $request->path();
         $adminPrefix = 'api/v1/admin/';
-        if (! in_array($request->method(), ['POST', 'PATCH', 'PUT', 'DELETE'], true)
+        $isWrite = in_array($request->method(), ['POST', 'PATCH', 'PUT', 'DELETE'], true);
+        if ((! $isWrite && $request->method() !== 'GET')
             || ! str_starts_with($path, $adminPrefix)) {
             return $next($request);
         }
@@ -34,7 +35,8 @@ final class AuditStaffAdministration
         // AI conversations carry their own throttle, but their 403s must
         // still be recorded: a snooping attempt on another agent's thread is
         // a security event, not chat noise.
-        $skipThrottle = $resourcePath === 'ai/conversations'
+        $skipThrottle = ! $isWrite
+            || $resourcePath === 'ai/conversations'
             || str_starts_with($resourcePath, 'ai/conversations/');
         $segments = explode('/', $resourcePath);
         $target = [$path, $segments[0] ?? 'admin_resource', $segments[1] ?? null];
@@ -68,6 +70,12 @@ final class AuditStaffAdministration
     {
         $actor = $request->user('staff');
         if ($actor instanceof User && ! $actor->is_system) {
+            $auditKey = 'staff:admin-denial-audit:'.$actor->id;
+            $auditLimit = max(1, (int) config('auth.staff_admin_denial_audit_minute', 60));
+            if (RateLimiter::hit($auditKey, 60) > $auditLimit) {
+                return;
+            }
+
             // Runs after a controller transaction has rolled back, so a rejected action remains visible.
             $type = [
                 'users' => 'user',

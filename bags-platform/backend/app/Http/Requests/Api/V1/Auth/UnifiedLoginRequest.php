@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Auth;
 
+use App\Rules\PasswordByteLimit;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UnifiedLoginRequest extends FormRequest
@@ -20,7 +21,7 @@ class UnifiedLoginRequest extends FormRequest
     {
         return [
             'login' => ['required', 'string', 'max:255'],
-            'password' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', new PasswordByteLimit],
             'redirect' => ['nullable', 'string', 'max:255'],
             'turnstile_token' => ['nullable', 'string', 'max:2048'],
         ];

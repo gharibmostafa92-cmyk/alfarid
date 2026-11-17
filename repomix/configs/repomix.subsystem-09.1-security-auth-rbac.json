@@ -79,7 +79,13 @@
                     "bags-platform/frontend/apps/storefront/src/lib/auth/password-byte-limit.ts",
                     "bags-platform/frontend/apps/storefront/src/store/auth-redirect.ts",
                     "bags-platform/backend/app/Services/Customer/CustomerGroupService.php",
-                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Customer/CustomerWalletController.php"
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Customer/CustomerWalletController.php",
+                    "bags-platform/backend/app/Models/Concerns/TracksEditVersion.php",
+                    "bags-platform/backend/app/Services/Inventory/BranchAccess.php",
+                    "bags-platform/backend/app/Actions/Branches/UpdateBranch.php",
+                    "bags-platform/frontend/apps/backoffice/public/auth/session-probe.html",
+                    "bags-platform/frontend/apps/backoffice/public/auth/session-probe.js",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/turnstile-nonce.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

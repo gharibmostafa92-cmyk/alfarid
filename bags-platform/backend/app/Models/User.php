@@ -40,6 +40,18 @@ class User extends Authenticatable
         $this->attributes['email'] = mb_strtolower(trim($email));
     }
 
+    public function setPhoneAttribute(?string $phone): void
+    {
+        if ($phone === null) {
+            $this->attributes['phone'] = null;
+
+            return;
+        }
+        $normalized = \App\Support\ArabicDigits::normalize($phone);
+        $normalized = preg_replace('/[\p{Cf}]+/u', '', $normalized) ?? $normalized;
+        $this->attributes['phone'] = trim($normalized);
+    }
+
     /**
      * Get the attributes that should be cast.
      *

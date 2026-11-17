@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ShippingZoneRequest;
 use App\Http\Resources\Admin\Orders\ShippingZoneResource;
 use App\Models\ShippingZone;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -85,11 +86,21 @@ class ShippingZoneController extends Controller implements HasMiddleware
      */
     public function destroy(ShippingZone $shippingZone): JsonResponse
     {
-        if ($shippingZone->rates()->exists()) {
-            throw new BusinessException('لا يمكن حذف منطقة شحن مرتبطة بأسعار شحن؛ عطّلها أو احذف الأسعار أولًا.');
-        }
+        try {
+            DB::transaction(function () use ($shippingZone): void {
+                $locked = ShippingZone::query()->lockForUpdate()->findOrFail($shippingZone->id);
+                if ($locked->rates()->exists()) {
+                    throw new BusinessException('لا يمكن حذف منطقة شحن مرتبطة بأسعار شحن؛ عطّلها أو احذف الأسعار أولًا.');
+                }
+                $locked->delete();
+            });
+        } catch (QueryException $e) {
+            if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
+                throw new BusinessException('لا يمكن حذف منطقة شحن مرتبطة بأسعار شحن؛ عطّلها أو احذف الأسعار أولًا.');
+            }
 
-        $shippingZone->delete();
+            throw $e;
+        }
 
         return response()->json(['message' => 'تم حذف منطقة الشحن']);
     }

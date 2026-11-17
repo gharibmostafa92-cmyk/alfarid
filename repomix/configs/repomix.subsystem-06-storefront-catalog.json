@@ -102,7 +102,8 @@
                     "bags-platform/backend/app/Jobs/SendCustomerPasswordReset.php",
                     "bags-platform/backend/app/Jobs/SendCustomerPhoneVerification.php",
                     "bags-platform/backend/app/Services/Customer/CustomerPhoneVerificationService.php",
-                    "bags-platform/backend/app/Support/AccountEmailLock.php"
+                    "bags-platform/backend/app/Support/AccountEmailLock.php",
+                    "bags-platform/backend/app/Http/Requests/Admin/Pricing/CouponRequest.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

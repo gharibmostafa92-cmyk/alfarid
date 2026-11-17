@@ -221,6 +221,11 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
         }
         if ($p -match 'catalog|\bproduct\b|category|cart|coupon' -and $p -notmatch 'production') {
             if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
+            if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06.2-catalog-shipping.json') }
+        }
+        if ($p -match 'customer|user|staff|permission|role|audit_log|token|trigram') {
+            if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
+            if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json') }
         }
         if ($p -match 'statement_timeout|idle_transaction|hot_fk|drop_redundant|widen_text') {
             if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
@@ -259,6 +264,9 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|production_receipt|inventory.*seeder|/branches/|/locations/|actions/branch|actions/location|inventoryanomalies|detectinventoryanomalies|stocklevel|stocktransfer|/models/stock|productvariant') {
         if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
         if ($configs.ContainsKey('repomix.inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.inventory-ledger.json') }
+        if ($p -match 'branch' -and $configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json')
+        }
     }
 
     # 7. Wholesale & B2B
@@ -294,6 +302,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     # 10. Shipping & Logistics
     if (($p -match 'shipping|shipment|carrier|logistic' -or ($p -match 'delivery' -and $p -notmatch 'supplier|procurement')) -and $p -notmatch 'supplier|procurement') {
         if ($configs.ContainsKey('repomix.shipping-logistics.json')) { [void]$matchedConfigs.Add('repomix.shipping-logistics.json') }
+        if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06.2-catalog-shipping.json') }
     }
 
     # 11. Finance & Treasury

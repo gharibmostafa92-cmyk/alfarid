@@ -89,9 +89,6 @@ const readRoute = (initialScreen) => {
   return { screen: p.get('screen') || initialScreen, id: parsePortalId(rawId) };
 };
 
-/**
- * @param {{ initialScreen?: string, initialId?: number|null, onLogout?: (() => unknown)|null, onEnter?: (() => unknown)|null, onForbidden?: (() => unknown)|null, onForgotSubmit?: ((login: string) => Promise<unknown>)|null, onResetSubmit?: ((login: string, token: string, password: string, confirmation: string) => Promise<unknown>)|null, brandName?: string }} props
- */
 class PortalErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -118,6 +115,9 @@ class PortalErrorBoundary extends React.Component {
   }
 }
 
+/**
+ * @param {{ initialScreen?: string, initialId?: number|null, onLogout?: (() => unknown)|null, onEnter?: (() => unknown)|null, onForbidden?: (() => unknown)|null, onForgotSubmit?: ((login: string) => Promise<unknown>)|null, onResetSubmit?: ((login: string, token: string, password: string, confirmation: string) => Promise<unknown>)|null, brandName?: string }} props
+ */
 export function WholesalePortal({
   initialScreen = 'dashboard',
   initialId = null,

@@ -47,7 +47,7 @@ class UserController extends Controller
                 'string',
                 Rule::exists('roles', 'name')->where('guard_name', 'staff'),
             ],
-            'search' => ['sometimes', 'nullable', 'string', 'min:2', 'max:100'],
+            'search' => ['sometimes', 'nullable', 'string', 'min:3', 'max:100'],
             'is_active' => ['sometimes', 'boolean'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);

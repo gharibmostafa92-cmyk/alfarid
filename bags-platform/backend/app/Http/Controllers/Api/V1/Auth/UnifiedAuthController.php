@@ -61,9 +61,9 @@ class UnifiedAuthController extends Controller
         // already-consumed session (task3 MEDIUM-04).
         $cartMerged = false;
         $guestToken = trim((string) $request->header('X-Cart-Session', ''));
-        if ($actor->type === CustomerType::Retail && $actor->canShop() && $guestToken !== '') {
+        if ($actor->type === CustomerType::Retail && $actor->canShop()) {
             try {
-                $cartMerged = $this->carts->mergeGuestCart($actor, $guestToken);
+                $cartMerged = $this->carts->mergeGuestCart($actor, $guestToken !== '' ? $guestToken : null);
             } catch (\Throwable $exception) {
                 report($exception);
             }
@@ -128,7 +128,7 @@ class UnifiedAuthController extends Controller
             if (! $actor->hasRole(StaffRole::SuperAdmin->value, 'staff')
                 && ! $actor->can('inventory.all_branches')
                 && $actor->branch_id !== null
-                && ! $this->branchIsActive((int) $actor->branch_id)) {
+                && ! app(\App\Services\Inventory\BranchAccess::class)->isBranchActive((int) $actor->branch_id)) {
                 return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
             }
 
@@ -177,15 +177,6 @@ class UnifiedAuthController extends Controller
         }
 
         abort(401);
-    }
-
-    private function branchIsActive(int $branchId): bool
-    {
-        try {
-            return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
-        } catch (\Throwable) {
-            return (bool) Branch::query()->whereKey($branchId)->value('is_active');
-        }
     }
 
     /**

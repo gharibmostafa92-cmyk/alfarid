@@ -112,3 +112,29 @@ When authorized for staging/production deployment:
   - `node bags-platform/frontend/tests/operations-suppliers.test.cjs`: 5/5 tests passed.
   - Storefront TypeScript Typecheck (`apps/storefront/src`): 0 errors (`tsc --noEmit`).
   - Backoffice TypeScript Typecheck (`apps/backoffice/src`): 0 errors (`tsc --noEmit`).
+
+---
+
+## 2026-11-17 Update — Storefront, Catalog, Coupons & Shipping Hardening (`F-01`–`F-19`)
+
+All 19 items in `_archive_unused/tasks_execution/task2.txt` (`F-01` through `F-19`) are implemented and verified locally, and remain **Pending Server Deployment** (live server deployment unverified from local workspace):
+
+- **Backend Catalog, Banners & RBAC (`F-01`, `F-04`, `F-05`, `F-06`, `F-08`, `F-09`, `F-14`, `F-16`, `F-17`, `F-18`)**:
+  - `BannerController` implements `HasMiddleware` (`permission:store.manage|settings.view` for read, `permission:store.manage` for write) + `StoreBannerRequest::authorize()` enforces `store.manage`, `mimes:...,avif`, and `ends_at` validation against existing `starts_at` on updates; `BannerController::index` caps unbounded reads at 200 (or `per_page`).
+  - `StoreCatalogService::HOME_BANNERS_CACHE_KEY` (`store:home:banners:v1`) is cleared in `forgetStorefrontCaches()`, and `HomeController::activeBanners()` uses `Cache::remember(..., 60, ...)` so scheduled/edited banners reflect immediately.
+  - `RetailPriceSnapshot::refresh` serializes 200-row chunks with `ORDER BY id FOR NO KEY UPDATE`.
+  - `ProductController::destroy` forwards `expected_version` to `ProductService::delete`; `ProductController::index` uses uppercase indexed `sku`/`barcode` lookups; `ReorderCategoriesRequest` validates `items.*.expected_version`.
+  - `StoreCatalogService::cachedFacetsPart` and `ProductMediaService::withMediaLock` reduce lock TTL / wait bounds (`block(2)` / `block(3)`).
+  - `BarcodeGenerator::fromId` enforces 11-digit bounds (`1..99_999_999_999`); `ProductService::create` and `VariantService::create` use `updateQuietly` for derived codes/barcodes.
+  - `F-14` Arabic validation messages verified intact across all 5 request/concern classes.
+- **Backend Coupons & Indexes (`F-02`, `F-13`)**:
+  - `CouponService::recordUsage` rejects anonymous redemptions and acquires sorted deterministic `pg_advisory_xact_lock`s on both `customer_id` and normalized phone; `CouponController::update` catches `UniqueConstraintViolationException` as 422; `CouponRequest::after()` rejects `usage_limit < used_count`.
+  - Verified `coupon_usages_coupon_id_foreign` (`ON DELETE RESTRICT`) and `products_occasions_gin` GIN index in schema.
+- **Backend Shipping & Webhooks (`F-07`, `F-10`, `F-11`, `F-12`)**:
+  - `ShippingQuoteService::quoteForCity` rejects inactive/missing cities when no rate matches; `ShippingRate` and `ShipmentService` use `BigDecimal` for free-shipping thresholds and preserve `0.00` for `free_shipping` coupons.
+  - `Shipment::trackingUrl()` enforces `https://` scheme; `ShippingWebhookService` locks `orders -> shipments` in global order and checks `hasNewerDeliveredOrActiveShipment` on `Returned`; `ShippingZoneController::destroy` and `ShippingCompanyController::destroy` use `DB::transaction` + `lockForUpdate()` + SQLSTATE `23503` handling.
+- **Frontend Storefront & API Client (`F-03`, `F-06`, `F-08`, `F-15`, `F-19`)**:
+  - `store-image.ts` restricts `/store-media/` fallback to `*.r2.dev` / `*.r2.cloudflarestorage.com` and strips `url.search`.
+  - `catalog.ts` passes `expected_version` in `productsApi.remove`, sets `timeout: 300_000` on `uploadVideo`, and guards/clamps `onUploadProgress`.
+  - `cart-store.ts` queues `addItem` via `run(...)`, surfaces Arabic errors on stock guard failure, and unifies error messages to Arabic.
+  - **Deployment action**: Run `pnpm -r build` for frontend assets (`storefront`, `backoffice`, `api-client`) alongside backend deploy & `php artisan queue:restart`.

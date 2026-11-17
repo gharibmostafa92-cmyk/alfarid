@@ -4,17 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Catalog;
 
-use App\Services\Pricing\PricingService;
-use App\Services\Shared\SearchTerm;
-
 use App\Enums\Catalog\Occasion;
-use App\Enums\Catalog\ProductStatus;
-use App\Enums\Orders\SalesChannel;
 use App\Exceptions\BusinessException;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Services\Pricing\PricingService;
+use App\Services\Shared\SearchTerm;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -31,6 +28,8 @@ use Illuminate\Support\Facades\DB;
 class StoreCatalogService
 {
     public const HOME_CACHE_KEY = 'store_home_data:v2';
+
+    public const HOME_BANNERS_CACHE_KEY = 'store:home:banners:v1';
 
     public const FACETS_VERSION_KEY = 'store:facets:version';
 
@@ -66,6 +65,7 @@ class StoreCatalogService
     public static function forgetStorefrontCaches(): void
     {
         Cache::forget(self::HOME_CACHE_KEY);
+        Cache::forget(self::HOME_BANNERS_CACHE_KEY);
         Cache::forget('store:showcase:ids:'.(int) config('storefront.showcase_limit', 6));
         if (! Cache::add(self::FACETS_VERSION_KEY, 2)) {
             Cache::increment(self::FACETS_VERSION_KEY);
@@ -490,7 +490,7 @@ class StoreCatalogService
         }
         $key = $this->facetsCacheKey($filters);
         $context = $this->pricing->catalogContext($this->customer());
-        $ttl = ! empty($filters['search']) ? [30, 120] : [60, 600];
+        $ttl = ! empty($filters['search']) ? [10, 20] : [60, 600];
 
         return [...$this->cachedFacetsPart($key.':structure'.($filters['on_sale'] ? ':'.hash('sha256', $context['key']) : ''), fn () => $this->computeStructuralFacets($filters), $ttl),
             'price_ranges' => $this->cachedFacetsPart($key.':prices:'.hash('sha256', $context['key']), fn () => $this->computePriceRanges($filters), $ttl)];
@@ -499,12 +499,12 @@ class StoreCatalogService
     /** @param array{0: int, 1: int} $ttl */
     private function cachedFacetsPart(string $key, \Closure $load, array $ttl = [60, 600]): mixed
     {
-        $flexible = fn () => Cache::flexible($key, $ttl, $load, ['seconds' => 120]);
+        $flexible = fn () => Cache::flexible($key, $ttl, $load, ['seconds' => 15]);
         if (Cache::has($key)) {
             return $flexible();
         }
         try {
-            return Cache::lock($key.':build', 120)->block(5, $flexible);
+            return Cache::lock($key.':build', 15)->block(2, $flexible);
         } catch (LockTimeoutException) {
             throw new BusinessException('جاري تحديث الفلاتر؛ أعد المحاولة بعد لحظات.', [], 503);
         }

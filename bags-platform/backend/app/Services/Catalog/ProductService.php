@@ -15,7 +15,6 @@ use App\Models\ReturnRequestItem;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Shared\IdempotencyFingerprint;
-use App\Services\Catalog\SlugService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -94,7 +93,7 @@ class ProductService
                             $code = $baseCode.'-'.$suffix;
                             $suffix++;
                         }
-                        $product->update(['code' => $code]);
+                        $product->updateQuietly(['code' => $code]);
                     }
 
                     foreach ($variants as $v) {
@@ -210,7 +209,6 @@ class ProductService
      * @param  ProductStatus  $status  New publication status.
      * @param  User  $user  Authenticated staff user.
      * @param  int|null  $expectedVersion  Optimistic concurrency version.
-     * @return void
      *
      * @throws BusinessException If permissions are insufficient or publication rules are unmet.
      */
@@ -248,7 +246,6 @@ class ProductService
      * Asserts that a product satisfies all business conditions required for publication.
      *
      * @param  Product  $product  Product to evaluate.
-     * @return void
      *
      * @throws BusinessException If photos, variants, prices, or category status are deficient.
      */
@@ -270,7 +267,6 @@ class ProductService
      * @param  Product  $product  Target product to soft-delete.
      * @param  User|null  $user  Authenticated user initiating deletion.
      * @param  int|null  $expectedVersion  Optimistic concurrency version.
-     * @return void
      *
      * @throws BusinessException If non-zero stock balances remain or publishing permission is required.
      */
@@ -318,7 +314,6 @@ class ProductService
      * Permanently deletes product and all associated variants and R2 storage media.
      *
      * @param  Product  $product  Product instance to permanently purge.
-     * @return void
      *
      * @throws BusinessException If non-zero stock balances remain on any variant.
      */

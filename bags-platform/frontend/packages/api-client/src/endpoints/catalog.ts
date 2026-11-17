@@ -45,7 +45,10 @@ function categoryFormData(p: CategoryPayload, spoofPut = false): FormData {
 }
 
 function progress(cb?: (n: number) => void) {
-  return (e: { loaded: number; total?: number }) => cb?.(Math.round((e.loaded / (e.total || 1)) * 100));
+  return (e: { loaded: number; total?: number }) => {
+    if (!e.total || e.total <= 0) return;
+    cb?.(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+  };
 }
 
 const CAT = API_ENDPOINTS.ADMIN.CATEGORIES;
@@ -116,7 +119,8 @@ export const productsApi = {
   create: (p: ProductPayload & { variants?: VariantPayload[] }) => apiClient.post<{ data: AdminProduct }>(PR, p).then(r => r.data.data),
   update: (id: number, p: Partial<ProductPayload> & { status?: ProductStatus; expected_updated_at?: string }) =>
     apiClient.put<{ data: AdminProduct }>(`${PR}/${id}`, p).then(r => r.data.data),
-  remove: (id: number) => apiClient.delete<{ message: string }>(`${PR}/${id}`).then(r => r.data),
+  remove: (id: number, expectedVersion?: number) =>
+    apiClient.delete<{ message: string }>(`${PR}/${id}`, expectedVersion !== undefined ? { params: { expected_version: expectedVersion } } : undefined).then(r => r.data),
 };
 
 export const variantsApi = {
@@ -142,7 +146,7 @@ export const productMediaApi = {
     const fd = new FormData();
     fd.append('collection', 'video');
     fd.append('file', file);
-    return apiClient.post<{ data: AdminMedia[] }>(`${PR}/${productId}/media`, fd, { ...MULTIPART, onUploadProgress: progress(onProgress), timeout: 0 }).then(r => r.data.data);
+    return apiClient.post<{ data: AdminMedia[] }>(`${PR}/${productId}/media`, fd, { ...MULTIPART, onUploadProgress: progress(onProgress), timeout: 300_000 }).then(r => r.data.data);
   },
   reorder: (productId: number, ids: number[], expectedIds?: number[]) => apiClient.put(`${PR}/${productId}/media/reorder`, expectedIds !== undefined ? { ids, expected_ids: expectedIds } : { ids }).then(r => r.data),
   remove: (productId: number, mediaId: number) => apiClient.delete(`${PR}/${productId}/media/${mediaId}`).then(r => r.data),

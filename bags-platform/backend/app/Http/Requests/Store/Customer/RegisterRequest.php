@@ -9,6 +9,7 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\PasswordByteLimit;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerPhoneVerificationService;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -18,8 +19,6 @@ class RegisterRequest extends FormRequest
 
     public function authorize(): bool
     {
-        app(CustomerPhoneVerificationService::class)->requireProof($this);
-
         return true;
     }
 
@@ -35,5 +34,16 @@ class RegisterRequest extends FormRequest
             'password' => ['required', 'string', new PasswordByteLimit, 'min:8', 'max:72'],
             'phone_verification_token' => ['nullable', 'string', 'size:64'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            app(CustomerPhoneVerificationService::class)->requireProof($this);
+        });
     }
 }

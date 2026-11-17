@@ -72,6 +72,12 @@ class Shipment extends Model
         }
 
         // URL-encode AWB numbers to safely handle special characters in tracking URL templates.
-        return str_replace('{awb}', rawurlencode((string) $this->awb_number), $template);
+        $url = str_replace('{awb}', rawurlencode((string) $this->awb_number), $template);
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+        if (! is_string($scheme) || strtolower($scheme) !== 'https' || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return null;
+        }
+
+        return $url;
     }
 }

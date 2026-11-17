@@ -9,10 +9,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ShippingCompanyRequest;
 use App\Http\Resources\Admin\Orders\ShippingCompanyResource;
 use App\Models\ShippingCompany;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Shipping carrier configurations, integration credentials, and status management.
@@ -84,10 +86,21 @@ class ShippingCompanyController extends Controller implements HasMiddleware
     public function destroy(ShippingCompany $shippingCompany): JsonResponse
     {
         // Guard against foreign key violations when historic shipments reference this carrier.
-        if ($shippingCompany->shipments()->exists()) {
-            throw new BusinessException('لا يمكن حذف شركة شحن لها بوليصات مسجلة؛ عطّلها بدلًا من حذفها.');
+        try {
+            DB::transaction(function () use ($shippingCompany): void {
+                $locked = ShippingCompany::query()->lockForUpdate()->findOrFail($shippingCompany->id);
+                if ($locked->shipments()->exists()) {
+                    throw new BusinessException('لا يمكن حذف شركة شحن لها بوليصات مسجلة؛ عطّلها بدلًا من حذفها.');
+                }
+                $locked->delete();
+            });
+        } catch (QueryException $e) {
+            if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
+                throw new BusinessException('لا يمكن حذف شركة شحن لها بوليصات مسجلة؛ عطّلها بدلًا من حذفها.');
+            }
+
+            throw $e;
         }
-        $shippingCompany->delete();
 
         return response()->json(['message' => 'تم حذف شركة الشحن']);
     }

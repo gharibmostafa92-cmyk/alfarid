@@ -25,6 +25,9 @@ final class UpdateRole
     /** @param array{name?:string,permissions?:list<string>|null,expected_version?:int|null} $data @param array<string,mixed> $via @return string|null failure code */
     public function __invoke(User $actor, Role $role, array $data, array $via = [], ?string $currentPassword = null): ?string
     {
+        if (array_key_exists('name', $data)) {
+            $data['name'] = StaffRole::normalizeName((string) $data['name']);
+        }
         $permissions = $data['permissions'] ?? null;
         if (array_key_exists('name', $data) && StaffRole::isReserved((string) $data['name'])) {
             abort(403, 'هذا الاسم محجوز لدور أساسي في النظام.');

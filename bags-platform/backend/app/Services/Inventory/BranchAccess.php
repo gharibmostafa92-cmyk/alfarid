@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Enforces staff branch scoping using a fail-closed access policy:
@@ -151,6 +152,27 @@ class BranchAccess
             $this->assertCentralAccess(User::query()->findOrFail($userId));
         } else {
             $this->assertBranch($userId, (int) $treasury->branch_id);
+        }
+    }
+
+    /**
+     * Check whether a branch is active, cached briefly and invalidated on branch updates.
+     */
+    public function isBranchActive(int $branchId): bool
+    {
+        try {
+            return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
+        } catch (\Throwable) {
+            return (bool) Branch::query()->whereKey($branchId)->value('is_active');
+        }
+    }
+
+    public function forgetBranchActiveCache(int $branchId): void
+    {
+        try {
+            Cache::forget('branch-active:'.$branchId);
+        } catch (\Throwable) {
+            // Cache unavailability must not fail a committed branch update.
         }
     }
 }

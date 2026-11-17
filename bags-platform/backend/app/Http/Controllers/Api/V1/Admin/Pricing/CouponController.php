@@ -73,7 +73,11 @@ class CouponController extends Controller implements HasMiddleware
      */
     public function update(CouponRequest $request, Coupon $coupon): CouponResource
     {
-        $coupon->update($this->withoutNulls($request->validated()));
+        try {
+            $coupon->update($this->withoutNulls($request->validated()));
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['code' => 'رمز الكوبون مستخدم بالفعل.']);
+        }
 
         return CouponResource::make($coupon);
     }

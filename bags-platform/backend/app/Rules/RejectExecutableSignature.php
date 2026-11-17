@@ -49,6 +49,8 @@ final class RejectExecutableSignature implements ValidationRule
             return;
         }
 
+        $trimmedHead = ltrim(str_starts_with($head, "\xEF\xBB\xBF") ? substr($head, 3) : $head);
+
         if (
             str_starts_with($head, 'MZ') // Windows PE (.exe, .dll, .sys)
             || str_starts_with($head, "\x7FELF") // Linux ELF
@@ -58,8 +60,8 @@ final class RejectExecutableSignature implements ValidationRule
             || str_starts_with($head, "\xCF\xFA\xED\xFE") // Mach-O 64-bit little-endian
             || str_starts_with($head, "\xCA\xFE\xBA\xBE") // Mach-O Universal / Java class
             || str_starts_with($head, "\xBE\xBA\xFE\xCA") // Mach-O Universal swap
-            || str_starts_with($head, '<?') // PHP / script opening tag
-            || str_starts_with($head, '#!') // Shebang executable script
+            || str_starts_with($trimmedHead, '<?') // PHP / script opening tag
+            || str_starts_with($trimmedHead, '#!') // Shebang executable script
         ) {
             $fail('نوع الملف المرفوع غير مدعوم.');
 
@@ -92,7 +94,7 @@ final class RejectExecutableSignature implements ValidationRule
             // escape. Plain /Name tokens are already covered by the $active
             // scan on $content, so collecting them again would duplicate the
             // whole file in memory (O(n) -> O(k) where k is escaped tokens).
-            $active = '/\/(?:JavaScript|JS|Launch|EmbeddedFiles|OpenAction|AA|RichMedia|SubmitForm|ImportData|URI)(?=[\x00\x09\x0A\x0C\x0D\x20()<>{}\[\]\/%%])/i';
+            $active = '/\/(?:JavaScript|JS|Launch|EmbeddedFiles|OpenAction|AA|RichMedia|SubmitForm|ImportData|URI|XFA|GoToR|GoToE|Sound|Movie|Rendition)(?=[\x00\x09\x0A\x0C\x0D\x20()<>{}\[\]\/%%])/i';
             $names = '';
             if (preg_match_all('/\/[A-Za-z0-9#]*#[0-9a-fA-F]{2}[A-Za-z0-9#]{0,60}/', $content, $found) > 0) {
                 foreach ($found[0] as $token) {

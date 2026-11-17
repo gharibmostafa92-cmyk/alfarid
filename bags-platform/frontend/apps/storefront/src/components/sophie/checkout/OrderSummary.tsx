@@ -222,6 +222,7 @@ export function OrderSummary({
                         type="button"
                         className="bag-remove-btn"
                         onClick={() => removeItem(item.id)}
+                        disabled={vm.cartBusy}
                       >
                         حذف
                       </button>
@@ -244,6 +245,7 @@ export function OrderSummary({
                       onClick={() => removeItem(item.id)}
                       title="Remove item"
                       aria-label={`حذف ${item.name}`}
+                      disabled={vm.cartBusy}
                     >
                       <i className="fa-regular fa-trash-can" aria-hidden="true" /> Remove
                     </button>

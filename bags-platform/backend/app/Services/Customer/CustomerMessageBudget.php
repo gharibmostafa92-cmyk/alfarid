@@ -81,22 +81,43 @@ class CustomerMessageBudget
         }
         $budgets[$scope] = (int) config('auth.customer_daily_messages', 5);
 
-        return DB::transaction(function () use ($budgets, $date): bool {
-            $claims = [];
-            foreach ($budgets as $scope => $limit) {
-                $key = hash('sha256', $scope);
-                DB::table('customer_message_budgets')->insertOrIgnore(['key' => $key, 'date' => $date, 'sends' => 0]);
-                $query = DB::table('customer_message_budgets')->where('key', $key)->where('date', $date);
+        $keyedBudgets = [];
+        $rowsToInsert = [];
+        foreach ($budgets as $scope => $limit) {
+            $key = hash('sha256', $scope);
+            $keyedBudgets[$key] = ['scope' => $scope, 'limit' => $limit];
+            $rowsToInsert[] = ['key' => $key, 'date' => $date, 'sends' => 0];
+        }
+        // Sort deterministically by hashed key so every transaction acquires row locks
+        // in the exact same total order, eliminating wait-for-graph cycles (deadlocks).
+        ksort($keyedBudgets, SORT_STRING);
 
-                // Acquire pessimistic write lock to prevent race conditions and overdrafts under concurrency.
-                $row = (clone $query)->lockForUpdate()->first();
-                if ($row->sends >= $limit) {
+        return DB::transaction(function () use ($keyedBudgets, $rowsToInsert, $date): bool {
+            DB::table('customer_message_budgets')->insertOrIgnore($rowsToInsert);
+            $rows = DB::table('customer_message_budgets')
+                ->where('date', $date)
+                ->whereIn('key', array_keys($keyedBudgets))
+                ->orderBy('key')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('key');
+
+            foreach ($keyedBudgets as $key => $meta) {
+                $row = $rows->get($key);
+                if ($row === null || (int) $row->sends >= $meta['limit']) {
                     return false;
                 }
-                $claims[] = [$query, $scope, (int) $row->sends, $limit];
             }
-            foreach ($claims as [$query, $scope, $sends, $limit]) {
-                $query->increment('sends');
+
+            foreach ($keyedBudgets as $key => $meta) {
+                $sends = (int) $rows->get($key)->sends;
+                $scope = $meta['scope'];
+                $limit = $meta['limit'];
+
+                DB::table('customer_message_budgets')
+                    ->where('key', $key)
+                    ->where('date', $date)
+                    ->increment('sends');
 
                 // Defer warnings until commit to avoid holding database row locks during logging.
                 if (str_starts_with($scope, 'sms:') && $sends + 1 === $limit) {
@@ -135,15 +156,7 @@ class CustomerMessageBudget
             'verify:'.$phoneKey,
         ];
 
-        DB::transaction(function () use ($scopes, $date): void {
-            foreach ($scopes as $scope) {
-                DB::table('customer_message_budgets')
-                    ->where('key', hash('sha256', $scope))
-                    ->where('date', $date)
-                    ->where('sends', '>', 0)
-                    ->decrement('sends');
-            }
-        });
+        $this->releaseScopes($scopes, $date);
     }
 
     /**
@@ -165,10 +178,30 @@ class CustomerMessageBudget
             }
         }
 
-        DB::transaction(function () use ($scopes, $date): void {
-            foreach ($scopes as $scope) {
+        $this->releaseScopes($scopes, $date);
+    }
+
+    /**
+     * Decrement budget counters in deterministic sorted key order to prevent deadlocks with claim().
+     *
+     * @param  list<string>  $scopes
+     */
+    private function releaseScopes(array $scopes, string $date): void
+    {
+        $keys = array_values(array_unique(array_map(static fn (string $scope): string => hash('sha256', $scope), $scopes)));
+        sort($keys, SORT_STRING);
+
+        DB::transaction(function () use ($keys, $date): void {
+            DB::table('customer_message_budgets')
+                ->where('date', $date)
+                ->whereIn('key', $keys)
+                ->orderBy('key')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($keys as $key) {
                 DB::table('customer_message_budgets')
-                    ->where('key', hash('sha256', $scope))
+                    ->where('key', $key)
                     ->where('date', $date)
                     ->where('sends', '>', 0)
                     ->decrement('sends');

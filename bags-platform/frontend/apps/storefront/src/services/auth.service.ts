@@ -1,5 +1,6 @@
 import { authEndpoints, createApiClient, defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
+import { safeReturnPath } from '@/lib/orders/safe-return-path';
 import { getCartSession, restoreGuestCartSession, clearGuestCartSession } from '@/stores/cart-store';
 
 async function revokePreviousSession(previous: string | null | undefined, nextToken?: string | null, timeoutMs = 3000) {
@@ -12,7 +13,18 @@ async function revokePreviousSession(previous: string | null | undefined, nextTo
 
 /** Same-origin relative logout targets only. Anything else returns the login page. */
 export function safeLogoutNext(next: string): string {
-  if (next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return next;
+  if (!next || /[\u0000-\u001F\u007F\\]/.test(next) || !next.startsWith('/') || next.startsWith('//')) {
+    return '/auth/login';
+  }
+  const baseOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://alfarid.local';
+  try {
+    const parsed = new URL(next, baseOrigin);
+    if (parsed.origin === baseOrigin) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    // Invalid URL falls back to login.
+  }
   return '/auth/login';
 }
 
@@ -74,7 +86,7 @@ interface RegistrationResponse {
   data: Record<string, unknown>;
 }
 
-export async function registerWeb(input: RegistrationInput, wholesale: boolean, documents: File[] = []) {
+export async function registerWeb(input: RegistrationInput, wholesale: boolean, documents: File[] = [], redirect?: string | null) {
   let body: RegistrationInput | FormData = input;
   if (wholesale) {
     body = new FormData();
@@ -91,7 +103,7 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
       ...(!wholesale && session ? { 'X-Cart-Session': session } : {}),
     } },
   );
-  const home = wholesale ? '/wholesale/application-status' : '/shop';
+  const home = wholesale ? '/wholesale/application-status' : (safeReturnPath(redirect ?? null, []) ?? '/shop');
   const previousToken = useAuthStore.getState().token;
   await revokePreviousSession(previousToken, response.data.token, 3000);
   const keepGuest = Boolean(session) && (wholesale || response.data.cart_merged !== true);

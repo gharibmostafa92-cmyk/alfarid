@@ -13,7 +13,10 @@ use Illuminate\Http\UploadedFile;
  */
 class MaxImagePixels implements ValidationRule
 {
-    public function __construct(private int $maxPixels = 16000000) {}
+    public function __construct(
+        private int $maxPixels = 16000000,
+        private int $maxDimension = 12000,
+    ) {}
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
@@ -42,7 +45,7 @@ class MaxImagePixels implements ValidationRule
 
             return;
         }
-        if ($this->maxPixels < $size[0] * $size[1]) {
+        if ($size[0] > $this->maxDimension || $size[1] > $this->maxDimension || $this->maxPixels < $size[0] * $size[1]) {
             $fail('الصورة تتجاوز الحد الأقصى لعدد البكسلات ('.number_format($this->maxPixels).').');
         }
     }

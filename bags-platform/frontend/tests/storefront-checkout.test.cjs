@@ -206,6 +206,7 @@ test('a failed login cart merge preserves the original guest session after auth 
     } } },
     '@/store/auth.store': { useAuthStore: { getState: () => state } },
     '@/stores/cart-store': { getCartSession: () => session, restoreGuestCartSession: value => { session = value; }, clearGuestCartSession: () => { session = null; } },
+    '@/lib/orders/safe-return-path': load('apps/storefront/src/lib/orders/safe-return-path.ts'),
   });
   assert.equal(await loginUnified('01012345678', 'password', '/checkout'), '/checkout');
   assert.deepEqual(calls, ['original-guest-cart']);
@@ -232,6 +233,9 @@ test('public API images use a same-origin path across surfaces without proxying 
     process.env.NEXT_PUBLIC_R2_PUBLIC_URL = '';
     assert.equal(storeImageUrl('http://localhost:8000/storage/product.jpg'), '/store-media/product.jpg');
     assert.equal(storeImageUrl('https://pub.r2.dev/products/bag-50%25-off.jpg'), '/store-media/products/bag-50%25-off.jpg');
+    assert.equal(storeImageUrl('https://pub.r2.dev/products/bag.jpg?sig=secret&v=1'), '/store-media/products/bag.jpg');
+    assert.equal(storeImageUrl('https://acct.r2.cloudflarestorage.com/media/bag.webp?X-Amz-Signature=xyz'), '/store-media/media/bag.webp');
+    assert.equal(storeImageUrl('https://evil.test/tracker.png?token=abc'), '');
     assert.equal(storeImageUrl('https://evil.test/%2e%2e/secret.jpg'), '');
     process.env.NEXT_PUBLIC_R2_PUBLIC_URL = 'https://cdn.example.test';
     process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8000';

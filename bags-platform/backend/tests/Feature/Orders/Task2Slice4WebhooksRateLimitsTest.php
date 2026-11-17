@@ -13,7 +13,6 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
-use App\Models\StockBucket;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Orders\OrderAllocationService;
@@ -53,7 +52,7 @@ class Task2Slice4WebhooksRateLimitsTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    public function test_high05_track_rate_limits_per_order_number_across_ips(): void
+    public function test_high05_track_failures_do_not_lock_the_order_for_another_ip(): void
     {
         $order = Order::factory()->create([
             'order_number' => 'ORD-TRACK-99',
@@ -69,7 +68,11 @@ class Task2Slice4WebhooksRateLimitsTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.41'])
             ->getJson("/api/v1/store/orders/{$order->order_number}/track?phone=01099999999")
-            ->assertStatus(429);
+            ->assertNotFound();
+
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.42'])
+            ->getJson("/api/v1/store/orders/{$order->order_number}/track?phone=01000000001")
+            ->assertOk();
     }
 
     public function test_medium08_idempotency_fingerprint_handles_large_exponent_strings_and_qty_equivalence(): void
