@@ -33,6 +33,7 @@
                     "bags-platform/backend/app/Services/Customer/CustomerMessageBudget.php",
                     "bags-platform/backend/app/Actions/Staff/**",
                     "bags-platform/backend/app/Rules/**",
+                    "bags-platform/backend/app/Support/AccountEmailLock.php",
                     "bags-platform/backend/app/Enums/Customer/**",
                     "bags-platform/backend/app/Enums/StaffRole.php",
                     "bags-platform/backend/app/Http/Middleware/AuditStaffAdministration.php",
@@ -77,7 +78,8 @@
                     "bags-platform/frontend/apps/backoffice/src/pages/auth/SessionProbePage.tsx",
                     "bags-platform/frontend/apps/storefront/src/lib/auth/password-byte-limit.ts",
                     "bags-platform/frontend/apps/storefront/src/store/auth-redirect.ts",
-                    "bags-platform/backend/app/Services/Customer/CustomerGroupService.php"
+                    "bags-platform/backend/app/Services/Customer/CustomerGroupService.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Customer/CustomerWalletController.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

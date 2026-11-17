@@ -117,7 +117,7 @@ class Task3Slice2SessionMessagingTest extends TestCase
         ]);
 
         try {
-            app(CustomerAuthService::class)->sendPasswordReset(null, '01010010012');
+            app(CustomerAuthService::class)->sendPasswordReset(null, '01010010012', 'test-network');
             $this->fail('Delivery failure must propagate so the queue can retry with backoff.');
         } catch (BusinessException $exception) {
             $this->assertSame(503, $exception->status);

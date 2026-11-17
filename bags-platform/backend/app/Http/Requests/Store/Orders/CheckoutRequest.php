@@ -41,8 +41,6 @@ class CheckoutRequest extends FormRequest
     private function allowedPaymentMethods(): array
     {
         // Single source of truth for payment methods shared with shipping options preview.
-        $user = auth('sanctum')->user();
-
-        return app(StorePaymentPolicy::class)->allowedFor($user instanceof Customer ? $user : null);
+        return app(StorePaymentPolicy::class)->allowedFor(Customer::resolveShopper(auth('sanctum')->user()));
     }
 }

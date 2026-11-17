@@ -6,6 +6,7 @@ namespace App\Models\Concerns;
 
 use App\Models\Customer;
 use App\Rules\EmailNotUsedByOtherAccountType;
+use App\Support\AccountEmailLock;
 use Illuminate\Support\Facades\Validator;
 
 trait SerializesAccountEmail
@@ -15,16 +16,13 @@ trait SerializesAccountEmail
         static::saving(function ($account): void {
             if (! $account->isDirty(['email', 'email_verified_at', 'type', 'deleted_at'])
                 || ! $account->email
-                || ($account instanceof Customer && ($account->trashed()
-                    || ($account->email_verified_at === null && ! $account->isCommercialTier())))) {
+                || ($account instanceof Customer && $account->trashed())) {
                 return;
             }
 
-            if ($account->getConnection()->getDriverName() === 'pgsql') {
-                $account->getConnection()->select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
-                    'account_email:'.mb_strtolower(trim($account->email)),
-                ]);
-            }
+            // Cross-realm emails are unique even before verification: an
+            // unverified retail address must still block staff/supplier reuse.
+            AccountEmailLock::acquire($account->email);
             Validator::make(['email' => $account->email], [
                 'email' => [new EmailNotUsedByOtherAccountType($account->getTable())],
             ])->validate();

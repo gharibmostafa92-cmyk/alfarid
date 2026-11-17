@@ -81,7 +81,13 @@ final class QuoteAdvisor
             ];
         }
 
-        return ['lines' => $lines, 'warnings' => []];
+        $warnings = [];
+        $customer = $quotation->customer;
+        if ($customer !== null && \Brick\Math\BigDecimal::of((string) $customer->credit_limit)->isLessThanOrEqualTo('0')) {
+            $warnings[] = 'العميل ليس لديه حد ائتماني؛ لن يتمكن من قبول العرض كطلب آجل بدون رصيد دائن كافٍ.';
+        }
+
+        return ['lines' => $lines, 'warnings' => $warnings];
     }
 
     /**

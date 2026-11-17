@@ -73,7 +73,8 @@
                     "bags-platform/backend/app/Imports/WholesaleQuickOrderImport.php",
                     "bags-platform/backend/app/Http/Middleware/EnsureWholesaleApproved.php",
                     "docs/TASK6_WHOLESALE_DEPLOYMENT_STATUS.md",
-                    "bags-platform/backend/app/Services/Ai/Wholesale/Tools/PreviewNoticeAllocationTool.php"
+                    "bags-platform/backend/app/Services/Ai/Wholesale/Tools/PreviewNoticeAllocationTool.php",
+                    "bags-platform/backend/app/Exports/WholesalePriceListExport.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

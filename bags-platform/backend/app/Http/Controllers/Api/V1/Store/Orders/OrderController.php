@@ -35,8 +35,9 @@ class OrderController extends Controller
     {
         $request->validate(['phone' => ['required', 'string', 'max:50']]);
 
+        $ipRateKey = 'order-track-ip:'.sha1($number.'|'.$request->ip());
         $orderRateKey = 'order-track-order:'.sha1($number);
-        if (RateLimiter::tooManyAttempts($orderRateKey, 5)) {
+        if (RateLimiter::tooManyAttempts($ipRateKey, 5) || RateLimiter::tooManyAttempts($orderRateKey, 40)) {
             abort(429, 'محاولات كثيرة لتتبع هذا الطلب؛ حاول لاحقًا.');
         }
 
@@ -57,10 +58,11 @@ class OrderController extends Controller
             $match = $match || ($candidate !== null && $matches);
         }
         if ($order === null || $phone === '' || ! $match) {
+            RateLimiter::hit($ipRateKey, 900);
             RateLimiter::hit($orderRateKey, 900);
             abort(404);
         }
-        RateLimiter::clear($orderRateKey);
+        RateLimiter::clear($ipRateKey);
 
         // Only hydrate line items and history after the caller proves phone ownership.
         $order->loadMissing(['items', 'statusHistories']);
@@ -78,6 +80,10 @@ class OrderController extends Controller
     {
         /** @var Customer $customer */
         $customer = $request->user();
+
+        $request->validate([
+            'page' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
 
         $orders = Order::query()
             ->where('customer_id', $customer->id)

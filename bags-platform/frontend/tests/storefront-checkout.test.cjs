@@ -66,6 +66,30 @@ test('media middleware rejects encoded path separators and traversal before rewr
     assert.equal(middleware({ nextUrl: { pathname } }).status, 404, pathname);
   }
   assert.equal(middleware({ nextUrl: { pathname: '/store-media/bags/a%20b.webp' } }).status, 200);
+  assert.equal(middleware({ nextUrl: { pathname: '/store-media/bags/bag-50%25-off.jpg' } }).status, 200);
+});
+
+test('relative API urls do not throw and Turnstile stays on script-src', () => {
+  const previousApi = process.env.NEXT_PUBLIC_API_URL;
+  const previousOffice = process.env.NEXT_PUBLIC_BACKOFFICE_URL;
+  process.env.NEXT_PUBLIC_API_URL = '/api';
+  process.env.NEXT_PUBLIC_BACKOFFICE_URL = '   ';
+  try {
+    const { middleware } = load('apps/storefront/src/middleware.ts', {
+      'next/server': { NextResponse: class extends Response {
+        static next() { return new Response(null, { status: 200 }); }
+      } },
+    });
+    const response = middleware({ nextUrl: { pathname: '/shop', origin: 'https://shop.test', hostname: 'shop.test' } });
+    const csp = response.headers.get('content-security-policy');
+    assert.match(csp, /https:\/\/challenges\.cloudflare\.com/);
+    assert.match(csp, /'nonce-/);
+    assert.match(csp, /'strict-dynamic'/);
+    assert.match(csp, /https:\/\/shop\.test/);
+  } finally {
+    if (previousApi === undefined) delete process.env.NEXT_PUBLIC_API_URL; else process.env.NEXT_PUBLIC_API_URL = previousApi;
+    if (previousOffice === undefined) delete process.env.NEXT_PUBLIC_BACKOFFICE_URL; else process.env.NEXT_PUBLIC_BACKOFFICE_URL = previousOffice;
+  }
 });
 
 test('InstaPay instructions expire at the deadline even beyond the maximum timer delay', t => {
@@ -204,6 +228,13 @@ test('public API images use a same-origin path across surfaces without proxying 
     assert.equal(storeImageUrl('/images/fallback.png'), '/images/fallback.png');
     assert.equal(storeImageUrl('http://unrelated.test/storage/private.jpg'), '');
     assert.equal(storeImageUrl('https://unrelated.test/pixel.gif'), '');
+    process.env.NEXT_PUBLIC_API_URL = '/api';
+    process.env.NEXT_PUBLIC_R2_PUBLIC_URL = '';
+    assert.equal(storeImageUrl('http://localhost:8000/storage/product.jpg'), '/store-media/product.jpg');
+    assert.equal(storeImageUrl('https://pub.r2.dev/products/bag-50%25-off.jpg'), '/store-media/products/bag-50%25-off.jpg');
+    assert.equal(storeImageUrl('https://evil.test/%2e%2e/secret.jpg'), '');
+    process.env.NEXT_PUBLIC_R2_PUBLIC_URL = 'https://cdn.example.test';
+    process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8000';
     assert.equal(storeImageUrl('http://localhost:8000/api/v1/store/products'), '');
     assert.equal(storeImageUrl(null), '');
     process.env.NEXT_PUBLIC_API_URL = 'https://api.store.test';

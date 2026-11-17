@@ -84,7 +84,8 @@ test('queued additions share the guest session and errors retain the last valid 
     add: async (...args) => { calls.push(args); return { ...cart(calls.length), cart_token: args[2] }; },
     update: async (...args) => { updates.push(args); throw { response: { data: { message: 'الكمية غير متاحة' } } }; },
   }, values);
-  await Promise.all([store.getState().addItem(88), store.getState().addItem(88)]);
+  assert.equal(await store.getState().addItem(88), true);
+  assert.equal(await store.getState().addItem(88), true);
   assert.match(calls[0][2], /^[a-f0-9-]{36}$/);
   assert.equal(calls[1][2], calls[0][2]);
   assert.equal(store.getState().items[0].quantity, 2);
@@ -144,6 +145,26 @@ test('two tabs serialize their first additions and share one guest session', asy
   assert.deepEqual(await Promise.all(adding), [true, true]);
   assert.deepEqual(sessions, [sessions[0], sessions[0]]);
   assert.equal(secondTab.getState().items[0].quantity, 2);
+});
+
+test('addItem is busy for the whole queue and drops a duplicate click', async () => {
+  let release;
+  const calls = [];
+  const store = load({ add: (...args) => { calls.push(args); return new Promise(resolve => { release = resolve; }); } });
+  const first = store.getState().addItem(88);
+  assert.equal(store.getState().busy, true);
+  assert.equal(await store.getState().addItem(88), false);
+  assert.equal(calls.length, 1);
+  release(cart());
+  assert.equal(await first, true);
+  assert.equal(store.getState().busy, false);
+});
+
+test('an unexpected cart queue error resolves false', async () => {
+  const navigator = { locks: { request() { throw new Error('boom'); } } };
+  const store = load({ add: async () => cart() }, new Map(), undefined, navigator);
+  assert.equal(await store.getState().addItem(88), false);
+  assert.equal(store.getState().busy, false);
 });
 
 test('resetting cart identity clears the guest session, pending checkout and receipt', async () => {

@@ -156,7 +156,7 @@ test('session discovery validates staff on the server and never sends the token 
   const env = browser('private-token');
   let endpoint;
   await probe(env, async url => { endpoint = url; return { data: { redirect: { path: '/dashboard' } } }; });
-  assert.equal(endpoint, '/api/v1/admin/me');
+  assert.equal(endpoint, '/api/v1/auth/me');
   assert.equal(env.state.messages[0].origin, 'http://localhost:3000');
   assert.equal(env.state.messages[0].data.authenticated, true);
   assert.equal(env.state.messages[0].data.nonce, 'verification');

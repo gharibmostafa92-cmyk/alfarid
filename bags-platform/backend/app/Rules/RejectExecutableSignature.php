@@ -42,7 +42,7 @@ final class RejectExecutableSignature implements ValidationRule
 
         $isPdfUpload = strtolower($value->getMimeType()) === 'application/pdf'
             || strtolower($value->getClientMimeType()) === 'application/pdf';
-        $hasPdfHeader = str_contains($head, '%PDF-');
+        $hasPdfHeader = PdfHeader::contains($value->getRealPath());
         if ($isPdfUpload && ! $hasPdfHeader) {
             $fail('ملف PDF لا يبدأ بترويسة PDF صالحة.');
 
@@ -88,11 +88,13 @@ final class RejectExecutableSignature implements ValidationRule
                 return;
             }
 
-            // Decode #xx only inside PDF name tokens. Binary streams contain
-            // the same byte pairs and must not be expanded into a second copy.
+            // Decode #xx only inside PDF name tokens that actually contain an
+            // escape. Plain /Name tokens are already covered by the $active
+            // scan on $content, so collecting them again would duplicate the
+            // whole file in memory (O(n) -> O(k) where k is escaped tokens).
             $active = '/\/(?:JavaScript|JS|Launch|EmbeddedFiles|OpenAction|AA|RichMedia|SubmitForm|ImportData|URI)(?=[\x00\x09\x0A\x0C\x0D\x20()<>{}\[\]\/%%])/i';
             $names = '';
-            if (preg_match_all('/\/[A-Za-z0-9#]{1,64}/', $content, $found) > 0) {
+            if (preg_match_all('/\/[A-Za-z0-9#]*#[0-9a-fA-F]{2}[A-Za-z0-9#]{0,60}/', $content, $found) > 0) {
                 foreach ($found[0] as $token) {
                     $names .= preg_replace_callback(
                         '/#([0-9a-f]{2})/i',

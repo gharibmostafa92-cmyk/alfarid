@@ -30,12 +30,16 @@ final class WholesaleInsights
      */
     public function collectionPriorities(): array
     {
+        $tz = (string) config('app.business_timezone', 'Africa/Cairo');
+        $todayEnd = now($tz)->startOfDay()->setTimezone('UTC');
+        $nowTz = now($tz);
+
         $orders = Order::query()
             ->with('customer:id,name,company_name')
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
             ->whereNotNull('due_at')
-            ->where('due_at', '<', now())
+            ->where('due_at', '<', $todayEnd)
             ->whereNotIn('status', [OrderStatus::Cancelled])
             ->orderBy('due_at')
             ->limit(30)
@@ -44,12 +48,12 @@ final class WholesaleInsights
         $covered = $this->coveredByOrderIds($orders->pluck('id')->all());
 
         return $orders
-            ->map(function (Order $order) use ($covered): ?array {
+            ->map(function (Order $order) use ($covered, $nowTz): ?array {
                 $remaining = max(0.0, round((float) $order->grand_total - ($covered[$order->id] ?? 0.0), 2));
                 if ($remaining <= 0.0) {
                     return null;
                 }
-                $days = (int) $order->due_at?->diffInDays(now());
+                $days = (int) $order->due_at?->copy()->timezone($nowTz->getTimezone())->diffInDays($nowTz);
                 $name = $order->customer?->company_name ?: $order->customer?->name;
 
                 return [
@@ -85,6 +89,8 @@ final class WholesaleInsights
             ->whereNotIn('orders.status', ['cancelled', 'draft'])
             ->groupBy('orders.customer_id')
             ->havingRaw('count(*) >= 2')
+            ->orderByDesc('last_order')
+            ->orderBy('orders.customer_id')
             ->limit(100)
             ->get();
         $customers = Customer::query()->whereIn('id', $rows->pluck('customer_id')->all())->get(['id', 'name', 'company_name'])->keyBy('id');

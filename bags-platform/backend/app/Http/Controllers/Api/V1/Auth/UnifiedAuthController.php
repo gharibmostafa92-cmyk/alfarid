@@ -56,9 +56,12 @@ class UnifiedAuthController extends Controller
         $token = $this->customerAuth->issueToken($actor, $actor->type === CustomerType::Retail ? 'store-token' : 'wholesale-token');
         // Best-effort cart merge for accounts allowed to shop: non-shopping actors
         // must not consume guest carts, and failed merges report cart_merged=false.
+        // Guest carts are a retail-storefront concept: an approved wholesaler
+        // keeps its guest cart untouched so the storefront does not restore an
+        // already-consumed session (task3 MEDIUM-04).
         $cartMerged = false;
         $guestToken = trim((string) $request->header('X-Cart-Session', ''));
-        if ($actor->canShop() && $guestToken !== '') {
+        if ($actor->type === CustomerType::Retail && $actor->canShop() && $guestToken !== '') {
             try {
                 $cartMerged = $this->carts->mergeGuestCart($actor, $guestToken);
             } catch (\Throwable $exception) {

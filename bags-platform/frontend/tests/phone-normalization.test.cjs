@@ -44,3 +44,12 @@ test('otp codes strip everything but ascii digits', () => {
   assert.equal(normalizeCode('12 34-56'), '123456');
   assert.equal(normalizeCode('abc'), '');
 });
+
+test('toAsciiDigits keeps hyphens and the source uses unicode digit ranges', () => {
+  assert.equal(toAsciiDigits('010-1234-5678'), '010-1234-5678');
+  assert.equal(toAsciiDigits('٠١٠-١٢٣٤-٥٦٧٨'), '010-1234-5678');
+  assert.equal(normalizePhone('010-1234-5678'), '01012345678');
+  const source = fs.readFileSync(path.join(__dirname, '../apps/storefront/src/services/phone-format.ts'), 'utf8');
+  assert.match(source, /\\u0660-\\u0669/);
+  assert.match(source, /\\u06f0-\\u06f9/);
+});

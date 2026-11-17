@@ -45,7 +45,7 @@ class CustomerChannel extends Model
 
     public static function canonicalPhone(string $phone): ?string
     {
-        $phone = preg_replace('/[\s().-]+/u', '', ArabicDigits::normalize($phone)) ?? '';
+        $phone = preg_replace('/[\s\p{Cf}().-]+/u', '', ArabicDigits::normalize($phone)) ?? '';
         $local = Customer::normalizePhone($phone);
         if (preg_match('/\A01[0125][0-9]{8}\z/', $local) === 1) {
             return '+20'.substr($local, 1);

@@ -90,3 +90,19 @@ test('safeReturnPath round-trips simple local paths (property sweep)', () => {
     assert.equal(safeReturnPath(local), local, local);
   }
 });
+
+// task3 MEDIUM-05: تجار الجملة/الموردون يعودون إلى بواباتهم بعد الدخول.
+test('safeReturnPath honors explicitly allowed channel roots', () => {
+  assert.equal(safeReturnPath('/wholesale/orders/42?tab=invoices', ['/wholesale']), '/wholesale/orders/42?tab=invoices');
+  assert.equal(safeReturnPath('/supplier/invoices', ['/supplier']), '/supplier/invoices');
+  assert.equal(safeReturnPath('/WHOLESALE/orders', ['/wholesale']), '/WHOLESALE/orders');
+});
+
+test('safeReturnPath still blocks non-allowed channels and auth always', () => {
+  assert.equal(safeReturnPath('/wholesale/orders', []), null);
+  assert.equal(safeReturnPath('/wholesale/orders', ['/supplier']), null);
+  assert.equal(safeReturnPath('/supplier/x', ['/wholesale']), null);
+  assert.equal(safeReturnPath('/auth/login', ['/wholesale', '/supplier', '/account']), null);
+  assert.equal(safeReturnPath('//evil.com', ['/wholesale']), null);
+  assert.equal(safeReturnPath('/wholesale/%2e%2e/auth/login', ['/wholesale']), null);
+});

@@ -243,6 +243,102 @@ test('rejects a chunked body that crosses the byte limit even when fetch wraps t
   assert.equal(response.status, 413);
 });
 
+test('keeps a shorter forwarded chain and rejects a junk IPv6 port suffix', async () => {
+  let shortChain: string | null = 'missing';
+  await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'x-forwarded-for': '203.0.113.9' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret, trustedProxyHops: 2,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      shortChain = new Headers(init?.headers).get('x-alfarid-client-ip');
+      return new Response('ok');
+    },
+  });
+  assert.equal(shortChain, '203.0.113.9');
+
+  let junk: string | null = 'missing';
+  await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'x-forwarded-for': '[::1]junk' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      junk = new Headers(init?.headers).get('x-alfarid-client-ip');
+      return new Response('ok');
+    },
+  });
+  assert.equal(junk, null);
+
+  let bracketed: string | null = null;
+  await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { 'x-forwarded-for': '[::1]:443' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async (_url, init) => {
+      bracketed = new Headers(init?.headers).get('x-alfarid-client-ip');
+      return new Response('ok');
+    },
+  });
+  assert.equal(bracketed, '::1');
+});
+
+test('rejects json login above 1 MiB and allows upload routes up to 30 MiB', async () => {
+  let sent = false;
+  const config = {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async () => { sent = true; return new Response('ok'); },
+  };
+  const login = await proxyCloudRunApi(new Request(storefront + '/api/v1/auth/login', {
+    method: 'POST',
+    body: '{}',
+    headers: { origin: office, 'content-type': 'application/json', 'content-length': String(1024 * 1024 + 1) },
+  }), ['auth', 'login'], config);
+  assert.equal(login.status, 413);
+  assert.equal(sent, false);
+
+  const upload = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/account/returns', {
+    method: 'POST',
+    body: '{}',
+    headers: { origin: office, 'content-type': 'application/json', 'content-length': String(2 * 1024 * 1024) },
+  }), ['store', 'account', 'returns'], config);
+  assert.equal(upload.status, 200);
+
+  const wholesale = await proxyCloudRunApi(new Request(storefront + '/api/v1/wholesale/auth/register', {
+    method: 'POST',
+    body: '{}',
+    headers: { origin: office, 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(2 * 1024 * 1024) },
+  }), ['wholesale', 'auth', 'register'], config);
+  assert.equal(wholesale.status, 200);
+
+  const huge = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/account/returns', {
+    method: 'POST',
+    body: '{}',
+    headers: { origin: office, 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(31 * 1024 * 1024) },
+  }), ['store', 'account', 'returns'], config);
+  assert.equal(huge.status, 413);
+});
+
+test('merges upstream Vary with Origin without dropping Authorization or Accept-Language', async () => {
+  const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/catalog', {
+    headers: { authorization: 'Bearer user-token' },
+  }), ['store', 'catalog'], {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+    send: async () => new Response('catalog', {
+      status: 200,
+      headers: { vary: 'Authorization, Accept-Language', 'cache-control': 'public, s-maxage=60' },
+    }),
+  });
+  const vary = response.headers.get('vary') ?? '';
+  assert.match(vary, /Origin/);
+  assert.match(vary, /Authorization/);
+  assert.match(vary, /Accept-Language/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+});
+
 test('uses 180s upstream timeout for AI conversation turns and 60s for regular API calls', async () => {
   const timeouts: number[] = [];
   const originalTimeout = AbortSignal.timeout;

@@ -105,11 +105,13 @@ export function DesignShowcaseContent() {
     }
   };
 
+  const sceneControlSelector = 'input, textarea, select, button, a, [role="dialog"], #mega-dropdown, #mobile-store-menu';
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (currentMode !== 'carousel' || !canNav) return;
-      if ((e.target as HTMLElement).closest('input, textarea, select, button, a, [role="dialog"]')) return;
+      if ((e.target as HTMLElement).closest(sceneControlSelector)) return;
       if (e.key === 'ArrowRight') {
         navigateCarousel(1);
       } else if (e.key === 'ArrowLeft') {
@@ -125,6 +127,7 @@ export function DesignShowcaseContent() {
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (currentMode !== 'carousel' || !canNav) return;
+      if ((e.target as HTMLElement).closest?.(sceneControlSelector)) return;
       if (isScrollLocked.current) return;
 
       if (Math.abs(e.deltaY) > 25) {
@@ -158,6 +161,7 @@ export function DesignShowcaseContent() {
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (currentMode !== 'carousel' || !canNav) return;
+    if ((e.target as HTMLElement).closest?.(sceneControlSelector)) return;
     const diffX = touchCoords.current.x - e.changedTouches[0].clientX;
     const diffY = touchCoords.current.y - e.changedTouches[0].clientY;
 

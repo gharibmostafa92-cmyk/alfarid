@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Models\User;
+use App\Services\Auth\NetworkIdentity;
 use App\Services\Auth\StaffAdministration;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -39,7 +40,9 @@ final class AuditStaffAdministration
         $target = [$path, $segments[0] ?? 'admin_resource', $segments[1] ?? null];
 
         $actor = $request->user('staff');
-        $key = 'staff:admin-mutations:'.($actor?->id ?? 'guest');
+        // Never share one global bucket across all unauthenticated callers:
+        // key guests by subnet so one network cannot throttle the world.
+        $key = 'staff:admin-mutations:'.($actor?->id ?? 'guest:'.NetworkIdentity::key($request));
         $limit = max(1, (int) config('auth.staff_admin_mutations_minute', 60));
         // L-2: hit-then-compare is atomic; check-then-hit let concurrent requests overshoot.
         if (! $skipThrottle && RateLimiter::hit($key, 60) > $limit) {

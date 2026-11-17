@@ -8,7 +8,7 @@ export const wholesaleEndpoints = {
   dashboard: (signal?: AbortSignal) => apiClient.get(`${W}/dashboard`, { signal }).then((r) => r.data.data),
   products: (p: { search?: string; page?: number; per_page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/products`, { params: p, signal }).then((r) => r.data),
   exportPriceList: (format: 'pdf' | 'xlsx') => apiClient.get(`${W}/price-list/export`, { params: { format }, responseType: 'blob', timeout: SLOW_REQUEST_TIMEOUT }),
-  quickLookup: (items: Array<{ sku?: string; barcode?: string; qty: number }>) => apiClient.post(`${W}/quick-order/lookup`, { items }).then((r) => r.data),
+  quickLookup: (items: Array<{ sku?: string; barcode?: string; qty: number }>, signal?: AbortSignal) => apiClient.post(`${W}/quick-order/lookup`, { items }, { signal }).then((r) => r.data),
   quickImport: (file: File) => { const f = new FormData(); f.append('file', file); return apiClient.post(`${W}/quick-order/import`, f, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data); },
   quickAddToCart: (items: Array<{ sku: string; qty: number }>) => apiClient.post(`${W}/quick-order/add-to-cart`, { items }).then((r) => r.data.data),
   orders: (p: { group?: string; page?: number; returnable?: number; per_page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/orders`, { params: p, signal }).then((r) => r.data),

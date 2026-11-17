@@ -55,17 +55,23 @@ final class PreviewNoticeAllocationTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->find((int) ($args['notice_id'] ?? 0));
+        $notice = WholesalePaymentNotice::query()->with('order')->find((int) ($args['notice_id'] ?? 0));
         if ($notice === null) {
             return ToolOutcome::denied('إشعار السداد مش موجود.', auditable: false);
         }
         try {
-            $this->branches->restrictedBranch($actor);
+            $branchId = $this->branches->restrictedBranch($actor);
+            $orderBranchId = $notice->order?->allocated_branch_id;
+            if ($orderBranchId === null) {
+                $this->branches->assertCentralAccess($actor);
+            } else {
+                $this->branches->assertBranch($actor->id, (int) $orderBranchId);
+            }
         } catch (Throwable) {
             return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
         }
 
-        $preview = $this->notices->previewNoticeAllocation($notice);
+        $preview = $this->notices->previewNoticeAllocation($notice, $branchId);
         $closed = [];
         $open = [];
         if (($preview['linked_order']['closes'] ?? false) === true) {

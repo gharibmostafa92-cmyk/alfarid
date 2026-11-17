@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\WalletAdjustment;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Finance\WalletAdjustmentService;
+use App\Services\Inventory\BranchAccess;
 use Brick\Math\BigDecimal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,10 +34,12 @@ class CustomerWalletController extends Controller implements HasMiddleware
     public function __construct(
         private readonly WalletAdjustmentService $adjustments,
         private readonly FinancePresenter $presenter,
+        private readonly BranchAccess $branchAccess,
     ) {}
 
     public function show(Request $request, Customer $customer): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff') ?? $request->user());
         $filters = $request->validate([
             'type' => ['nullable', 'string', 'max:50'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -59,8 +62,9 @@ class CustomerWalletController extends Controller implements HasMiddleware
         return response()->json(['balance' => $customer->wallet_balance, 'transactions' => $entries]);
     }
 
-    public function summary(Customer $customer): JsonResponse
+    public function summary(Request $request, Customer $customer): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff') ?? $request->user());
         $totals = CustomerWalletTransaction::query()->where('customer_id', $customer->id)
             ->selectRaw('type, SUM(amount) AS total, COUNT(*) AS cnt')
             ->groupBy('type')->get();
@@ -93,6 +97,7 @@ class CustomerWalletController extends Controller implements HasMiddleware
 
     public function adjustments(Request $request, Customer $customer): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff') ?? $request->user());
         $filters = $request->validate(['per_page' => ['nullable', 'integer', 'min:1', 'max:100']]);
         $rows = WalletAdjustment::query()->where('customer_id', $customer->id)
             ->with(['creator:id,name'])->latest('id')->paginate($filters['per_page'] ?? 20);
@@ -102,6 +107,15 @@ class CustomerWalletController extends Controller implements HasMiddleware
 
     public function storeAdjustment(Request $request, Customer $customer): JsonResponse
     {
+        /** @var User|null $actor */
+        $actor = $request->user('staff') ?? $request->user();
+        $this->branchAccess->assertCentralAccess($actor);
+
+        $idempotencyKey = $request->header('Idempotency-Key');
+        if ($idempotencyKey === null || trim($idempotencyKey) === '') {
+            return response()->json(['message' => 'مفتاح عدم التكرار مطلوب لتسجيل التعديل.'], 422);
+        }
+
         $data = $request->validate([
             'kind' => ['required', 'string', 'in:disbursement,refund,adjustment'],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:9999999999.99', 'decimal:0,2'],
@@ -109,13 +123,10 @@ class CustomerWalletController extends Controller implements HasMiddleware
             'reason' => ['required', 'string', 'max:500'],
         ]);
 
-        /** @var User $actor */
-        $actor = $request->user('staff') ?? $request->user();
-
         $adjustment = $this->adjustments->adjust(
             ['customer_id' => $customer->id, ...$data, 'source' => 'admin'],
             $actor,
-            $request->header('Idempotency-Key')
+            $idempotencyKey
         );
 
         return response()->json(['message' => 'تم تسجيل تعديل المحفظة.', 'data' => $adjustment->load('creator')], 201);
@@ -123,6 +134,10 @@ class CustomerWalletController extends Controller implements HasMiddleware
 
     public function reverseAdjustment(Request $request, WalletAdjustment $adjustment): JsonResponse
     {
+        /** @var User|null $actor */
+        $actor = $request->user('staff') ?? $request->user();
+        $this->branchAccess->assertCentralAccess($actor);
+
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
@@ -131,9 +146,6 @@ class CustomerWalletController extends Controller implements HasMiddleware
         if ($idempotencyKey === null || trim($idempotencyKey) === '') {
             return response()->json(['message' => 'مفتاح عدم التكرار مطلوب لعكس التعديل.'], 422);
         }
-
-        /** @var User $actor */
-        $actor = $request->user('staff') ?? $request->user();
 
         $reversal = $this->adjustments->reverse($adjustment, $actor, $idempotencyKey, $data['reason'] ?? null);
 

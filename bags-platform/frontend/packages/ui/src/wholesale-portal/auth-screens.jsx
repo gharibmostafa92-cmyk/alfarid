@@ -128,6 +128,10 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
                       try {
                         const fd = new FormData();
                         fd.append('document', file);
+                        const rejectedDoc = docs.find((x) => x.status === 'rejected');
+                        if (rejectedDoc?.document_type || rejectedDoc?.type) {
+                          fd.append('document_type', rejectedDoc.document_type || rejectedDoc.type);
+                        }
                         await wholesaleEndpoints.uploadDocument(fd);
                         api.reload();
                       } catch (err) {

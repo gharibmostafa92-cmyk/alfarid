@@ -28,6 +28,7 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use League\Flysystem\UnableToReadFile;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -44,8 +45,8 @@ class CustomerController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('permission:customers.view|customers.manage', only: ['index', 'show', 'history']),
-            new Middleware('permission:customers.documents.view|customers.manage', only: ['downloadDocument', 'reviewDocument', 'storeDocument']),
-            new Middleware('permission:customers.update|customers.manage', only: ['storeDocument']),
+            new Middleware('permission:customers.documents.view|customers.manage|customers.approve', only: ['downloadDocument', 'reviewDocument', 'storeDocument']),
+            new Middleware('permission:customers.update|customers.manage|customers.approve', only: ['storeDocument']),
             new Middleware('permission:customers.create|customers.manage', only: ['store']),
             new Middleware('permission:customers.update|customers.manage', only: ['update']),
             new Middleware('permission:customers.delete|customers.manage', only: ['destroy', 'restore']),
@@ -77,7 +78,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function store(StoreCustomerRequest $request): JsonResponse
     {
-        $customer = $this->customers->create($request->validated(), $request->user()->id);
+        $customer = $this->customers->create($request->validated(), $request->user('staff')->id);
 
         return CustomerResource::make($customer)
             ->additional(['message' => 'تم إنشاء العميل بنجاح'])
@@ -98,7 +99,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function update(UpdateCustomerRequest $request, Customer $customer): CustomerResource
     {
-        return CustomerResource::make($this->customers->update($customer, $request->validated(), $request->user()->id));
+        return CustomerResource::make($this->customers->update($customer, $request->validated(), $request->user('staff')->id));
     }
 
     /**
@@ -106,7 +107,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function destroy(Request $request, Customer $customer): JsonResponse
     {
-        $this->customers->delete($customer, $request->user()->id);
+        $this->customers->delete($customer, $request->user('staff')->id);
 
         return response()->json(['message' => 'تم حذف العميل بنجاح']);
     }
@@ -117,7 +118,7 @@ class CustomerController extends Controller implements HasMiddleware
     public function approve(ApproveCustomerRequest $request, Customer $customer): CustomerResource
     {
         $this->branchAccess->assertCentralAccess($request->user('staff'));
-        $customer = $this->customers->approve($customer, $request->validated(), $request->user()->id);
+        $customer = $this->customers->approve($customer, $request->validated(), $request->user('staff')->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم اعتماد الحساب بنجاح']);
     }
@@ -128,7 +129,7 @@ class CustomerController extends Controller implements HasMiddleware
     public function reject(RejectCustomerRequest $request, Customer $customer): CustomerResource
     {
         $this->branchAccess->assertCentralAccess($request->user('staff'));
-        $customer = $this->customers->reject($customer, $request->validated()['reason'], $request->user()->id);
+        $customer = $this->customers->reject($customer, $request->validated()['reason'], $request->user('staff')->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم رفض الحساب']);
     }
@@ -139,7 +140,7 @@ class CustomerController extends Controller implements HasMiddleware
     public function suspend(SuspendCustomerRequest $request, Customer $customer): CustomerResource
     {
         $this->branchAccess->assertCentralAccess($request->user('staff'));
-        $customer = $this->customers->suspend($customer, $request->validated()['reason'], $request->user()->id);
+        $customer = $this->customers->suspend($customer, $request->validated()['reason'], $request->user('staff')->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
     }
@@ -150,7 +151,7 @@ class CustomerController extends Controller implements HasMiddleware
     public function reactivate(Request $request, Customer $customer): CustomerResource
     {
         $this->branchAccess->assertCentralAccess($request->user('staff'));
-        $customer = $this->customers->reactivate($customer, $request->user()->id);
+        $customer = $this->customers->reactivate($customer, $request->user('staff')->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم إعادة تفعيل الحساب']);
     }
@@ -180,8 +181,17 @@ class CustomerController extends Controller implements HasMiddleware
         // Defense in depth: never serve a document through a mismatched customer binding.
         abort_unless($document->customer_id === $customer->id, 404);
         $this->branchAccess->assertCentralAccess($request->user('staff'));
-        abort_unless(Storage::disk('r2')->exists($document->file_path), 404, 'المستند غير موجود.');
-        CustomerAuditLog::record($customer, 'document_downloaded', $request->user()->id, ['document_id' => $document->id]);
+        // Single round-trip: open the stream directly and 404 when the object
+        // is gone, instead of a HEAD exists() check followed by a GET.
+        try {
+            $stream = Storage::disk('r2')->readStream($document->file_path);
+        } catch (UnableToReadFile) {
+            abort(404, 'المستند غير موجود.');
+        }
+        if ($stream === false) {
+            abort(404, 'المستند غير موجود.');
+        }
+        CustomerAuditLog::record($customer, 'document_downloaded', $request->user('staff')->id, ['document_id' => $document->id]);
 
         $mimeMap = [
             'application/pdf' => 'pdf',
@@ -195,7 +205,12 @@ class CustomerController extends Controller implements HasMiddleware
         $base = pathinfo(CustomerDocument::safeName($document->original_name), PATHINFO_FILENAME) ?: 'document';
         $safeFilename = $base.'.'.$ext;
 
-        return Storage::disk('r2')->download($document->file_path, $safeFilename, [
+        return response()->streamDownload(function () use ($stream): void {
+            fpassthru($stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }, $safeFilename, [
             'Content-Type' => $mime,
             'X-Content-Type-Options' => 'nosniff',
             'Content-Disposition' => 'attachment; filename="'.$safeFilename.'"',
@@ -207,7 +222,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function restore(Request $request, Customer $customer): CustomerResource
     {
-        return CustomerResource::make($this->customers->restore($customer, $request->user()->id));
+        return CustomerResource::make($this->customers->restore($customer, $request->user('staff')->id));
     }
 
     /**
@@ -223,7 +238,7 @@ class CustomerController extends Controller implements HasMiddleware
             ])],
             'note' => ['nullable', 'string', 'max:500', 'required_if:status,rejected'],
         ]);
-        $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user()->id, $data['note'] ?? null);
+        $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user('staff')->id, $data['note'] ?? null);
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status, 'review_note' => $document->review_note]]);
     }
@@ -235,7 +250,7 @@ class CustomerController extends Controller implements HasMiddleware
     {
         $this->branchAccess->assertCentralAccess($request->user('staff'));
         $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120', new MaxImagePixels, new RejectExecutableSignature]]);
-        $document = $this->customers->uploadDocument($customer, $request->file('document'), (int) $request->user()->id);
+        $document = $this->customers->uploadDocument($customer, $request->file('document'), (int) $request->user('staff')->id);
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]], 201);
     }

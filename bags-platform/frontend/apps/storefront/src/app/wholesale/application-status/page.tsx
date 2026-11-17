@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { authEndpoints, defaultApiClient } from '@alfarid/api-client';
 import { WholesalePortal } from '@alfarid/ui';
 import { useAuthStore } from '@/store/auth.store';
+import type { Destination } from '@/types/auth';
 import { logoutWeb, requestPasswordReset, resetWebPassword } from '@/services/auth.service';
 import { RequireActor } from '@/components/auth/RequireActor';
 
@@ -51,8 +52,22 @@ export default function ApplicationStatusPage() {
   const status = useAuthStore((state) => (state.user as { status?: string } | null)?.status);
   const isPendingOrRejected = destination === 'wholesale_pending' || status === 'pending' || status === 'rejected';
   const onEnter = async () => {
-    const me = await authEndpoints.me();
-    useAuthStore.setState({ destination: me.actor.subtype, user: me.data, home: me.redirect.path });
+    const me = await authEndpoints.me() as {
+      actor?: { type?: string; subtype?: Destination };
+      data?: Record<string, unknown>;
+      redirect?: { path?: string };
+    };
+    const current = useAuthStore.getState();
+    const dest = me.actor?.subtype;
+    const path = me.redirect?.path;
+    if (!current.token || !dest || typeof path !== 'string') return;
+    current.setSession({
+      token: current.token,
+      actorType: me.actor?.type === 'supplier' ? 'supplier' : 'customer',
+      destination: dest,
+      home: path,
+      user: me.data ?? {},
+    });
     router.replace('/wholesale');
   };
   return (

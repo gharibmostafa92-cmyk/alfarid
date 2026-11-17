@@ -110,7 +110,7 @@ export const Statement = () => {
   const entries = api.data?.entries || [];
 
   const outApi = useApi((signal) => wholesaleEndpoints
-    .invoices({ payment_status: 'unpaid', page: 1 }, signal)
+    .invoices({ payment_status: 'unpaid', page: 1, per_page: 100 }, signal)
     .then((r) => (r.data || []).map(mapInvoice)), []);
   const out = outApi.data || [];
   const debtApi = useApi(() => wholesaleEndpoints.outstanding().then((d) => num(d.outstanding_balance) ?? 0), []);
@@ -163,7 +163,7 @@ export const Statement = () => {
           <Panel title="مستحقات مفتوحة" en="OUTSTANDING" body={false}>
             <DataBoundary api={outApi}><Async rows={3} cols={2} isEmpty={!out.length} empty={<Empty title="لا توجد مستحقات مفتوحة" />}>
             {out.map((o) => <div key={o.id} className="out-row" onClick={() => go('order', o.id)}><div><b className="num">{o.number}</b><span className="num">{o.date}</span></div><span className="num strong">{fmt(o.total)}</span></div>)}
-            <div className="panel-body" style={{ paddingTop: 12 }}><div className="sum-total" style={{ paddingTop: 0 }}><span>الإجمالي</span><span className="num" style={{ fontSize: 18 }}>{fmt(out.reduce((a, o) => a + (o.total || 0), 0))}</span></div></div>
+            <div className="panel-body" style={{ paddingTop: 12 }}><div className="sum-total" style={{ paddingTop: 0 }}><span>الإجمالي</span><span className="num" style={{ fontSize: 18 }}>{fmt(debt)}</span></div></div>
             </Async></DataBoundary>
           </Panel>
           <p className="note"><i className="fa-solid fa-circle-info" />المديونية والائتمان منفصلين تمامًا عن رصيد المحفظة.</p>

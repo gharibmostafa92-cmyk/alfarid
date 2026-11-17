@@ -387,7 +387,10 @@ class Task3SupplierAuditTest extends TestCase
     public function test_store_supplier_user_requires_only_the_route_update_permission(): void
     {
         $staff = User::factory()->create();
-        $staff->givePermissionTo(Permission::findOrCreate('suppliers.update', 'staff'));
+        $staff->givePermissionTo([
+            Permission::findOrCreate('suppliers.update', 'staff'),
+            Permission::findOrCreate('inventory.all_branches', 'staff'),
+        ]);
         $token = $staff->createToken('staff')->plainTextToken;
 
         $this->withToken($token)->postJson("/api/v1/admin/suppliers/{$this->supplier->id}/users", [

@@ -15,6 +15,7 @@ use App\Notifications\Channels\CustomerSmsChannel;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerMessageBudget;
+use App\Support\AccountEmailLock;
 use App\Services\Customer\CustomerPhoneVerificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -79,6 +80,11 @@ class CustomerAuthService
      */
     public function registerRetail(array $data): Customer
     {
+        // Defense-in-depth: bcrypt truncates past 72 bytes, so reject early
+        // on every entry path even when request validation already caps it.
+        if (strlen((string) ($data['password'] ?? '')) > 72) {
+            throw ValidationException::withMessages(['password' => 'كلمة المرور يجب ألا تتجاوز 72 بايت.']);
+        }
         try {
             return DB::transaction(function () use ($data): Customer {
                 $this->lockRegistrationEmail($data['email'] ?? null);
@@ -125,13 +131,8 @@ class CustomerAuthService
         if ($email === null || trim($email) === '') {
             return;
         }
-        if (DB::transactionLevel() === 0) {
-            throw new \LogicException('Registration email claims require a transaction.');
-        }
         $email = mb_strtolower(trim($email));
-        if (DB::connection()->getDriverName() === 'pgsql') {
-            DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$email]);
-        }
+        AccountEmailLock::acquire($email);
         Validator::make(['email' => $email], [
             'email' => [new UniqueCustomerEmail, new EmailNotUsedByOtherAccountType('customers', true)],
         ])->validate();
@@ -208,7 +209,11 @@ class CustomerAuthService
             return;
         }
 
-        SendCustomerPasswordReset::dispatch($email, $phone)
+        // Capture the requester's subnet now: the queued job runs without the
+        // original request context and must still enforce network-level caps.
+        $networkKey = CustomerMessageBudget::subnetKey(request()->ip());
+
+        SendCustomerPasswordReset::dispatch($email, $phone, $networkKey)
             ->onConnection(config('auth.customer_password_reset.connection', 'database'));
     }
 
@@ -216,16 +221,13 @@ class CustomerAuthService
      * Generate password reset token and dispatch notification.
      * Enforces token throttling and message budget limits.
      */
-    public function sendPasswordReset(?string $email, ?string $phone): void
+    public function sendPasswordReset(?string $email, ?string $phone, ?string $networkKey = null): void
     {
         if (! $email && ! $phone) {
             return;
         }
 
-        $customer = Customer::query()
-            ->when($email, fn ($q) => $q->whereNotNull('email_verified_at')->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($email))]),
-                fn ($q) => $q->where('phone', Customer::normalizePhone($phone)))
-            ->first();
+        $customer = $this->findForPasswordReset($email, $phone);
 
         if ($customer === null || $customer->status === CustomerStatus::Suspended) {
             return;
@@ -233,27 +235,34 @@ class CustomerAuthService
 
         $plainToken = Str::random(64);
         $key = $customer->getEmailForPasswordReset();
+        // Pin the budget timestamp once: a slow provider failure must refund
+        // the hour/day bucket the quota was claimed from, not the later one.
+        $budgetAt = CarbonImmutable::now((string) config('app.business_timezone', 'Africa/Cairo'));
 
-        $stored = DB::transaction(function () use ($customer, $key, $plainToken, $email): bool {
+        $stored = DB::transaction(function () use ($customer, $key, $plainToken, $email, $networkKey, $budgetAt): bool {
             $current = Customer::query()->lockForUpdate()->find($customer->id);
             if ($current === null || $current->status === CustomerStatus::Suspended) {
                 return false;
             }
-            if ($email && ($current->email_verified_at === null || mb_strtolower((string) $current->email) !== mb_strtolower(trim($email)))) {
-                return false;
+            if ($email) {
+                $emailMatches = mb_strtolower((string) $current->email) === mb_strtolower(trim($email));
+                $mayUseEmail = $current->email_verified_at !== null || $current->isCommercialTier();
+                if (! $emailMatches || ! $mayUseEmail) {
+                    return false;
+                }
             }
             $existing = DB::table('password_reset_tokens')->where('email', $key)->first();
             if ($existing && $existing->created_at !== null && now()->subSeconds(60)->lt(Carbon::parse($existing->created_at))) {
                 return false;
             }
-            if (! app(CustomerMessageBudget::class)->claim('reset:customer:'.$customer->id, sms: ! $email)) {
+            if (! app(CustomerMessageBudget::class)->claim('reset:customer:'.$customer->id, sms: ! $email, networkKey: $networkKey, at: $budgetAt)) {
                 return false;
             }
             DB::table('password_reset_tokens')->updateOrInsert(
                 ['email' => $key], ['token' => hash('sha256', $plainToken), 'created_at' => now()],
             );
 
-            DB::afterCommit(function () use ($customer, $key, $plainToken, $email): void {
+            DB::afterCommit(function () use ($customer, $key, $plainToken, $email, $networkKey, $budgetAt): void {
                 try {
                     $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
                 } catch (\Throwable $exception) {
@@ -261,18 +270,7 @@ class CustomerAuthService
                     // queued retry regenerates a fresh one instead of hitting
                     // the 60s throttle on a dead token, refund the budget,
                     // and rethrow so the job retries with backoff.
-                    DB::table('password_reset_tokens')->where('email', $key)->delete();
-                    try {
-                        app(CustomerMessageBudget::class)->releaseResetClaim(
-                            $customer->id,
-                            ! $email,
-                            CarbonImmutable::now((string) config('app.business_timezone', 'Africa/Cairo'))
-                        );
-                    } catch (\Throwable $refundException) {
-                        report($refundException);
-                    }
-                    report($exception);
-                    throw $exception;
+                    $this->handleResetDeliveryFailure($customer, $key, $plainToken, ! $email, $networkKey, $budgetAt, $exception);
                 }
             });
 
@@ -284,6 +282,44 @@ class CustomerAuthService
     }
 
     /**
+     * Delete a password-reset token only when it is still the stored one.
+     * A concurrent re-request issues a newer token that must survive an
+     * older delivery worker's failure cleanup (compare-and-delete).
+     */
+    public function deleteStaleResetToken(string $key, string $plainToken): void
+    {
+        DB::table('password_reset_tokens')
+            ->where('email', $key)
+            ->where('token', hash('sha256', $plainToken))
+            ->delete();
+    }
+
+    /**
+     * Clean up after a failed reset delivery: drop only the token that failed,
+     * refund the exact hour/day bucket the quota was claimed from, and rethrow
+     * so the job retries with backoff.
+     */
+    public function handleResetDeliveryFailure(
+        Customer $customer,
+        string $key,
+        string $plainToken,
+        bool $sms,
+        ?string $networkKey,
+        CarbonImmutable $at,
+        \Throwable $exception,
+    ): never {
+        // Compare-and-delete: never remove a newer concurrent token.
+        $this->deleteStaleResetToken($key, $plainToken);
+        try {
+            app(CustomerMessageBudget::class)->releaseResetClaim($customer->id, $sms, $at, $networkKey);
+        } catch (\Throwable $refundException) {
+            report($refundException);
+        }
+        report($exception);
+        throw $exception;
+    }
+
+    /**
      * Validate reset token and update customer password.
      * Revokes all active sessions upon successful reset.
      *
@@ -292,12 +328,25 @@ class CustomerAuthService
     public function resetPassword(array $data): void
     {
         $dummyHash = self::dummyHash();
-        DB::transaction(function () use ($data, $dummyHash): void {
-            $customer = Customer::query()
-                ->when(! empty($data['email']), fn ($q) => $q->whereNotNull('email_verified_at')->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($data['email']))]),
-                    fn ($q) => $q->where('phone', Customer::normalizePhone((string) ($data['phone'] ?? ''))))
-                ->lockForUpdate()->first();
+        $email = isset($data['email']) ? trim((string) $data['email']) : '';
+        $phone = isset($data['phone']) ? trim((string) $data['phone']) : '';
+        DB::transaction(function () use ($data, $dummyHash, $email, $phone): void {
+            $customer = $this->findForPasswordReset($email !== '' ? $email : null, $phone !== '' ? $phone : null);
+            if ($customer !== null) {
+                $customer = Customer::query()->lockForUpdate()->find($customer->id);
+            }
+            if ($customer !== null && $email !== '') {
+                $emailMatches = mb_strtolower((string) $customer->email) === mb_strtolower($email);
+                $mayUseEmail = $customer->email_verified_at !== null || $customer->isCommercialTier();
+                if (! $emailMatches || ! $mayUseEmail) {
+                    $customer = null;
+                }
+            }
             $key = $customer?->getEmailForPasswordReset();
+            if (! is_string($key) || $key === '') {
+                Hash::check((string) ($data['token'] ?? ''), $dummyHash);
+                throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
+            }
             $row = DB::table('password_reset_tokens')->where('email', $key)->lockForUpdate()->first();
             $storedToken = $row?->token ?? '';
             $validToken = strlen($storedToken) === 64 ? hash_equals($storedToken, hash('sha256', $data['token']))
@@ -308,6 +357,9 @@ class CustomerAuthService
                 || now()->lt($createdAt) || ! $validToken) {
                 throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
             }
+            if (strlen((string) ($data['password'] ?? '')) > 72) {
+                throw ValidationException::withMessages(['password' => 'كلمة المرور يجب ألا تتجاوز 72 بايت.']);
+            }
             if ($customer->isCommercialTier() && mb_strlen($data['password']) < 12) {
                 throw ValidationException::withMessages(['password' => 'كلمة المرور يجب أن تكون 12 حرفًا على الأقل.']);
             }
@@ -316,6 +368,33 @@ class CustomerAuthService
             DB::table('password_reset_tokens')->where('email', $key)->delete();
             CustomerAuditLog::record($customer, 'password_reset', null);
         });
+    }
+
+    /**
+     * Resolve the customer a password reset may address.
+     *
+     * Commercial accounts match findForLogin, including an unverified login email.
+     * Retail email resets still require email_verified_at.
+     */
+    private function findForPasswordReset(?string $email, ?string $phone): ?Customer
+    {
+        if (is_string($email) && trim($email) !== '') {
+            $customer = $this->findForLogin($email);
+            if ($customer === null) {
+                return null;
+            }
+            if ($customer->email_verified_at !== null || $customer->isCommercialTier()) {
+                return $customer;
+            }
+
+            return null;
+        }
+
+        if (! is_string($phone) || trim($phone) === '') {
+            return null;
+        }
+
+        return Customer::query()->where('phone', Customer::normalizePhone($phone))->first();
     }
 
     /**

@@ -49,6 +49,7 @@ interface CartState {
 }
 
 let queue: Promise<unknown> = Promise.resolve();
+let pendingMutations = 0;
 let volatileSession: string | null = null;
 export function clearGuestCartSession() {
   volatileSession = null;
@@ -92,11 +93,15 @@ export const useCartStore = create<CartState>((set, get) => {
   const run = (operation: () => Promise<StoreCart>, mutation: boolean, guard?: () => boolean): Promise<boolean> => {
     const owner = identity();
     if (get().identity !== owner) set({ items: [], serverTotal: 0, totals: { ...emptyTotals }, couponCode: null, identity: owner, error: null });
+    if (mutation) {
+      pendingMutations += 1;
+      set({ busy: true });
+    }
     const execute = async (): Promise<boolean> => {
       if (owner !== identity()) return false;
       // Re-validate against the latest cart state once the queue/lock has settled.
       if (guard && !guard()) return false;
-      set({ busy: mutation, loading: !mutation, error: null });
+      set({ busy: mutation || pendingMutations > 0, loading: !mutation, error: null });
       try {
         const cart = await operation();
         if (owner !== identity()) return false;
@@ -111,32 +116,36 @@ export const useCartStore = create<CartState>((set, get) => {
           set({ error: message || 'We could not update your cart. Please try again.' });
         }
         return false;
-      } finally {
-        set({ busy: false, loading: false });
       }
     };
     const task = queue.then(async (): Promise<boolean> => {
-      if (typeof navigator !== 'undefined' && navigator.locks) {
-        try {
-          const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-            ? AbortSignal.timeout(15_000)
-            : undefined;
-          return Boolean(
-            await (signal
-              ? navigator.locks.request('alfarid-store-cart', { signal }, execute)
-              : navigator.locks.request('alfarid-store-cart', execute)),
-          );
-        } catch (e) {
-          const name = (e as Error)?.name;
-          if (name === 'AbortError' || name === 'TimeoutError') {
-            set({ busy: false, loading: false, error: 'تعذّر تحديث السلة بسبب بطء الاستجابة. حاول مجددًا.' });
+      try {
+        if (typeof navigator !== 'undefined' && navigator.locks) {
+          try {
+            const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+              ? AbortSignal.timeout(15_000)
+              : undefined;
+            return Boolean(
+              await (signal
+                ? navigator.locks.request('alfarid-store-cart', { signal }, execute)
+                : navigator.locks.request('alfarid-store-cart', execute)),
+            );
+          } catch (e) {
+            const name = (e as Error)?.name;
+            if (name === 'AbortError' || name === 'TimeoutError') {
+              set({ error: 'تعذّر تحديث السلة بسبب بطء الاستجابة. حاول مجددًا.' });
+              return false;
+            }
+            if (name === 'SecurityError' || name === 'NotSupportedError') return execute();
+            set({ error: 'We could not update your cart. Please try again.' });
             return false;
           }
-          if (name === 'SecurityError' || name === 'NotSupportedError') return execute();
-          throw e;
         }
+        return execute();
+      } finally {
+        if (mutation) pendingMutations = Math.max(0, pendingMutations - 1);
+        set({ busy: pendingMutations > 0, loading: false });
       }
-      return execute();
     });
     queue = task.catch(() => {});
     return task;
@@ -148,6 +157,7 @@ export const useCartStore = create<CartState>((set, get) => {
     addItem: (variantId, quantity) => {
       const qty = quantity ?? 1;
       if (!Number.isInteger(qty) || qty < 1) return Promise.resolve(false);
+      if (pendingMutations > 0 || get().busy) return Promise.resolve(false);
       return run(() => {
         let cartSession = session();
         if (cartSession === null && getAuthToken() === null) {

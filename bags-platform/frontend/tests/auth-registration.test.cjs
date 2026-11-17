@@ -82,22 +82,63 @@ test('retail registration preserves the guest cart when the server omits cart_me
   assert.ok(!calls.some(call => call[0] === 'clear'));
 });
 
-test('loginUnified preserves the guest cart session for wholesale_pending and supplier actors', async () => {
-  for (const actor of [
-    { type: 'customer', subtype: 'wholesale_pending' },
-    { type: 'supplier', subtype: 'supplier' },
-  ]) {
-    const { service, calls } = loadService(true, {
-      loginResponse: {
-        token: 'actor-token',
-        actor,
-        redirect: { app: 'storefront', path: '/wholesale/application-status' },
-        data: {},
-        cart_merged: true,
-      },
-    });
-    await service.loginUnified('01012345678', 'password123');
-    assert.ok(calls.some(call => call[0] === 'restore' && call[1] === 'guest-session'), actor.subtype);
-    assert.ok(!calls.some(call => call[0] === 'clear'), actor.subtype);
+test('safeLogoutNext allows only a same-origin relative path', () => {
+  const { service } = loadService(true);
+  assert.equal(service.safeLogoutNext('/account/orders'), '/account/orders');
+  assert.equal(service.safeLogoutNext('/'), '/');
+  for (const value of ['//evil.test', '/\\evil.test', 'https://evil.test', 'account', '']) {
+    assert.equal(service.safeLogoutNext(value), '/auth/login', value);
   }
+});
+
+test('loginUnified restores the guest cart before publishing the session', async () => {
+  const events = [];
+  const filename = path.resolve(__dirname, '../apps/storefront/src/services/auth.service.ts');
+  const loaded = new Module(filename, module);
+  loaded.filename = filename;
+  loaded.require = name => {
+    if (name === '@alfarid/api-client') return {
+      authEndpoints: { login: async () => ({
+        token: 'customer-token', actor: { type: 'customer', subtype: 'retail' },
+        redirect: { app: 'web', path: '/shop' }, data: { id: 4 }, cart_merged: false,
+      }) },
+      resolveServiceUrl: value => value,
+    };
+    if (name === '@/store/auth.store') return { useAuthStore: { getState: () => ({
+      token: null,
+      setSession: (_next, options) => {
+        events.push('reset');
+        if (options?.preserveGuestCart) events.push('restore:' + options.preserveGuestCart);
+        events.push('publish');
+      },
+    }) } };
+    if (name === '@/stores/cart-store') return {
+      getCartSession: () => 'guest-session',
+      restoreGuestCartSession: () => events.push('restore-after'),
+      clearGuestCartSession: () => events.push('clear'),
+    };
+    throw new Error(`Unexpected import: ${name}`);
+  };
+  loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, filename);
+  assert.equal(await loaded.exports.loginUnified('01012345678', 'secret'), '/shop');
+  assert.ok(events.indexOf('restore:guest-session') < events.indexOf('publish'));
+  assert.ok(events.indexOf('restore:guest-session') >= 0);
+});
+
+test('loginUnified preserves the guest cart when a pending wholesale account is not merged', async () => {
+  const actor = { type: 'customer', subtype: 'wholesale_pending' };
+  const { service, calls } = loadService(false, {
+    loginResponse: {
+      token: 'actor-token',
+      actor,
+      redirect: { app: 'storefront', path: '/wholesale/application-status' },
+      data: {},
+      cart_merged: false,
+    },
+  });
+  await service.loginUnified('01012345678', 'password123');
+  assert.ok(calls.some(call => call[0] === 'restore' && call[1] === 'guest-session'), actor.subtype);
+  assert.ok(!calls.some(call => call[0] === 'clear'), actor.subtype);
 });

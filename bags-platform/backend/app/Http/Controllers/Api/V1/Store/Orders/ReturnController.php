@@ -29,6 +29,10 @@ class ReturnController extends Controller
      */
     public function index(Request $request): AnonymousResourceCollection
     {
+        $request->validate([
+            'page' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
+
         return ReturnRequestResource::collection(ReturnRequest::query()
             ->where('customer_id', $request->user()->id)->with(self::RELATIONS)->latest('id')->paginate(20));
     }

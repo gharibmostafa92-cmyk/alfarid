@@ -531,17 +531,22 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
 
         $this->artisan('customers:prune-artifacts')->assertSuccessful();
 
-        // Deleted:
+        // Deleted hourly:
         $disk->assertMissing($oldPending.'/doc.pdf');
-        $disk->assertMissing($orphanDir.'/orphan.pdf');
         $this->assertDatabaseCount('customer_phone_verifications', 0);
         $this->assertDatabaseCount('customer_message_budgets', 0);
         $this->assertDatabaseMissing('customer_audit_logs', ['id' => $loginFailedLog->id]);
 
-        // Kept:
+        // Kept hourly (root orphans wait for the weekly --deep pass):
+        $disk->assertExists($orphanDir.'/orphan.pdf');
         $disk->assertExists($recentPending.'/doc.pdf');
         $disk->assertExists($trashedDir.'/kept.pdf');
         $this->assertDatabaseHas('customer_audit_logs', ['id' => $approvedLog->id]);
+
+        // Weekly deep pass removes the orphan but keeps the trashed account's folder.
+        $this->artisan('customers:prune-artifacts', ['--deep' => true])->assertSuccessful();
+        $disk->assertMissing($orphanDir.'/orphan.pdf');
+        $disk->assertExists($trashedDir.'/kept.pdf');
 
         // 6. When directories() throws an exception -> DB cleanup still completes, command returns FAILURE
         DB::table('customer_phone_verifications')->insert([

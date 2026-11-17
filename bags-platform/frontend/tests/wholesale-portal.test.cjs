@@ -177,3 +177,19 @@ test('notice status constants include reversed and initials safely parse single 
   assert.equal(getInitials('  أحمد  '), 'أ');
   assert.equal(getInitials('محمد   علي  '), 'مع');
 });
+
+test('wholesale portal F-17 hardening guards exist in portal screens and api client', () => {
+  const portalSrc = fs.readFileSync(path.join(root, '../WholesalePortal.jsx'), 'utf8');
+  const buySrc = fs.readFileSync(path.join(root, '../buy-screens.jsx'), 'utf8');
+  const finSrc = fs.readFileSync(path.join(root, '../finance-screens.jsx'), 'utf8');
+  const authSrc = fs.readFileSync(path.join(root, '../auth-screens.jsx'), 'utf8');
+
+  assert.match(portalSrc, /class PortalErrorBoundary/);
+  assert.match(portalSrc, /status === 401 \|\| status === 403/);
+  assert.match(buySrc, /lookupAbortRef/);
+  assert.match(buySrc, /price-list\.\$\{f\}/);
+  assert.doesNotMatch(buySrc, /price-list\.\$\{f\}\./);
+  assert.match(finSrc, /invoices\(\{\s*payment_status:\s*'unpaid',\s*page:\s*1,\s*per_page:\s*100\s*\}/);
+  assert.match(finSrc, /\{fmt\(debt\)\}/);
+  assert.match(authSrc, /fd\.append\('document_type'/);
+});

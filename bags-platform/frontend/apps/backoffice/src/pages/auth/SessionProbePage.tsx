@@ -21,7 +21,7 @@ export default function SessionProbePage() {
             baseURL: resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000'),
             getToken: () => token,
             onUnauthorized: () => {},
-          }).get('/api/v1/admin/me', { timeout: 4000 });
+          }).get('/api/v1/auth/me', { timeout: 4000 });
           const destination = response.data?.redirect?.path;
           path = destination === '/dashboard' || destination === '/pos' ? destination : null;
           authenticated = path !== null && localStorage.getItem('backoffice_token') === token;

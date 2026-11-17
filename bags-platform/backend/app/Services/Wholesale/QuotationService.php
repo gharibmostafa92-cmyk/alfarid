@@ -342,7 +342,7 @@ class QuotationService
             }
             $shippingCost = $this->shippingCost($quotation, $shippingAddress);
             $orderTotal = BigDecimal::of($quotation->grand_total)->plus($shippingCost);
-            $outstanding = BigDecimal::of((string) app(WholesalePaymentNoticeService::class)->outstandingBalance($customer));
+            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalanceDecimal($customer);
             $newExposure = $outstanding->plus($orderTotal);
             if ($newExposure->compareTo((string) $customer->credit_limit) > 0) {
                 throw new BusinessException(
@@ -564,13 +564,17 @@ class QuotationService
                 }
                 $item->update($this->linePricing($row['offered_unit_price'], $item->qty));
             }
+            $targetStatus = isset($snapshot['status'])
+                ? QuotationStatus::from((string) $snapshot['status'])
+                : QuotationStatus::Requested;
             $quotation->update([
-                'status' => QuotationStatus::Requested,
+                'status' => $targetStatus,
+                'revision' => (int) $quotation->revision + 1,
                 'valid_until' => $snapshot['valid_until'],
                 'discount_amount' => $snapshot['discount_amount'],
                 'tax_amount' => $snapshot['tax_amount'],
-                'priced_at' => null,
-                'priced_by' => null,
+                'priced_at' => $targetStatus === QuotationStatus::Requested ? null : $quotation->priced_at,
+                'priced_by' => $targetStatus === QuotationStatus::Requested ? null : $quotation->priced_by,
             ]);
             $this->recalculate($quotation);
 
@@ -591,7 +595,7 @@ class QuotationService
         if ($customer !== null) {
             $address = $this->defaultShippingAddress($customer);
             $shipping = $address === null ? BigDecimal::zero() : $this->shippingCost($quotation, $address);
-            $outstanding = (string) app(WholesalePaymentNoticeService::class)->outstandingBalance($customer);
+            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalanceDecimal($customer);
             $over = BigDecimal::of($quotation->grand_total)->plus($shipping)->plus($outstanding)->minus($customer->credit_limit);
             if ($over->isPositive()) {
                 $warnings[] = 'العرض ده لو اتقبل هيعدّي حد الائتمان بـ '.number_format((float) (string) $over, 2, '.', ',').'. التاجر هيشوف خطأ وقت القبول.';

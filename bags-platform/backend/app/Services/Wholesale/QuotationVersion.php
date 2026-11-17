@@ -26,7 +26,16 @@ final class QuotationVersion
             ->map(fn ($item) => $item->id.'|'.$item->qty.'|'.$item->offered_unit_price.'|'.$item->requested_target_price)
             ->implode(';');
 
-        // Include status, updated_at, and item payload to invalidate proposals if modified concurrently.
-        return hash('sha256', $quotation->status->value.'|'.$quotation->updated_at?->toIso8601String().'|'.$items);
+        // Include status, revision, totals, valid_until, updated_at, and item payload to invalidate proposals if modified concurrently.
+        return hash('sha256', implode('|', [
+            $quotation->status->value,
+            (int) $quotation->revision,
+            (string) $quotation->discount_amount,
+            (string) $quotation->tax_amount,
+            (string) $quotation->grand_total,
+            $quotation->valid_until?->toDateString() ?? '',
+            $quotation->updated_at?->toIso8601String() ?? '',
+            $items,
+        ]));
     }
 }

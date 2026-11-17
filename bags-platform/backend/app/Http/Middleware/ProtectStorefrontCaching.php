@@ -13,17 +13,8 @@ class ProtectStorefrontCaching
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
-        $existingVary = $response->headers->get('Vary');
-        if ($existingVary) {
-            $varyTokens = array_filter(array_map('trim', explode(',', $existingVary)));
-            if (! in_array('Authorization', $varyTokens, true)) {
-                $varyTokens[] = 'Authorization';
-                $response->headers->set('Vary', implode(', ', $varyTokens));
-            }
-        } else {
-            $response->setVary('Authorization', false);
-        }
-        if ($request->bearerToken() !== null || auth('sanctum')->check()) {
+        $this->mergeVary($response, ['Origin', 'Accept-Language', 'Authorization']);
+        if ($request->headers->has('Authorization') || auth('sanctum')->check()) {
             $response->headers->set('Cache-Control', 'private, no-store');
         } elseif ($request->isMethod('GET') && $response->isSuccessful()) {
             if (! $response->headers->has('Cache-Control')) {
@@ -32,5 +23,42 @@ class ProtectStorefrontCaching
         }
 
         return $response;
+    }
+
+    /**
+     * @param  list<string>  $required
+     */
+    private function mergeVary(Response $response, array $required): void
+    {
+        $existing = $response->headers->get('Vary');
+        $tokens = [];
+        if (is_string($existing) && $existing !== '') {
+            foreach (explode(',', $existing) as $token) {
+                $token = trim($token);
+                if ($token !== '' && ! $this->varyContains($tokens, $token)) {
+                    $tokens[] = $token;
+                }
+            }
+        }
+        foreach ($required as $token) {
+            if (! $this->varyContains($tokens, $token)) {
+                $tokens[] = $token;
+            }
+        }
+        $response->headers->set('Vary', implode(', ', $tokens));
+    }
+
+    /**
+     * @param  list<string>  $tokens
+     */
+    private function varyContains(array $tokens, string $needle): bool
+    {
+        foreach ($tokens as $token) {
+            if (strcasecmp($token, $needle) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

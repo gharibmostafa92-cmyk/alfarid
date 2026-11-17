@@ -51,12 +51,12 @@ class WholesaleRegistrationService
 
         // Assert proof existence and uniqueness upfront before expensive cloud file I/O; actual token consumption happens in DB transaction.
         $email = isset($data['email']) ? mb_strtolower(trim((string) $data['email'])) : '';
-        if ($email !== '' && Customer::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
+        if ($email !== '' && Customer::query()->withTrashed()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
             throw ValidationException::withMessages([
                 'email' => ['البريد الإلكتروني مسجل بالفعل.'],
             ]);
         }
-        if (Customer::query()->where('phone', $data['phone'])->exists()) {
+        if (Customer::query()->withTrashed()->where('phone', $data['phone'])->exists()) {
             throw ValidationException::withMessages([
                 'phone' => ['رقم الهاتف مسجل بالفعل.'],
             ]);

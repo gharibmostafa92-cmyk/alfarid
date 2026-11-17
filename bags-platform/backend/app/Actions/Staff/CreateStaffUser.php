@@ -9,6 +9,7 @@ use App\Models\Branch;
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\Auth\StaffAdministration;
+use App\Support\AccountEmailLock;
 use App\Services\Inventory\BranchAccess;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
@@ -78,10 +79,7 @@ final class CreateStaffUser
             // M7: same advisory key as customer/supplier registration
             // (normalized email) so the cross-table re-check below cannot race
             // a concurrent signup in another account realm.
-            $lockEmail = mb_strtolower(trim((string) ($attrs['email'] ?? '')));
-            if ($lockEmail !== '') {
-                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
-            }
+            AccountEmailLock::acquire((string) ($attrs['email'] ?? ''));
             StaffAdministration::authorize($actor, ['users.create', 'users.manage']);
             $branch = $this->branches->restrictedBranch($actor);
             abort_if($branch !== null && (int) ($attrs['branch_id'] ?? 0) !== $branch, 403);

@@ -63,6 +63,22 @@ class CustomerMessageBudget
             $budgets['sms:verify:network:'.$networkKey] = max(0, (int) config('auth.customer_sms_verification_network_daily_limit', 10));
             $budgets['sms:verify:network-hour:'.$now->format('H').':'.$networkKey] = max(0, (int) config('auth.customer_sms_verification_network_hourly_limit', 3));
         }
+        if ($sms && str_starts_with($scope, 'reset:')) {
+            // Bulkhead: password-reset SMS must never swallow the verification
+            // budget (or vice versa); cap resets at 30% of the global budget.
+            $fraction = max(0, min(0.3, (float) config('auth.customer_sms_reset_fraction', 0.3)));
+            $budgets['sms:reset:day'] = (int) floor($budgets['sms:global:day'] * $fraction);
+            $budgets['sms:reset:hour:'.$now->format('H')] = (int) floor($budgets['sms:global:hour:'.$now->format('H')] * $fraction);
+
+            // Fail closed if network key is missing to prevent bypassing subnet caps.
+            if ($networkKey === null) {
+                logger()->warning('Password-reset SMS claimed without network key.');
+
+                return false;
+            }
+            $budgets['sms:reset:network:'.$networkKey] = max(0, (int) config('auth.customer_sms_reset_network_daily_limit', 10));
+            $budgets['sms:reset:network-hour:'.$now->format('H').':'.$networkKey] = max(0, (int) config('auth.customer_sms_reset_network_hourly_limit', 3));
+        }
         $budgets[$scope] = (int) config('auth.customer_daily_messages', 5);
 
         return DB::transaction(function () use ($budgets, $date): bool {
@@ -133,7 +149,7 @@ class CustomerMessageBudget
     /**
      * Refund all quota counters reserved for one password-reset message that failed to send.
      */
-    public function releaseResetClaim(int $customerId, bool $sms, CarbonImmutable $at): void
+    public function releaseResetClaim(int $customerId, bool $sms, CarbonImmutable $at, ?string $networkKey = null): void
     {
         $date = $at->toDateString();
         $hour = $at->format('H');
@@ -141,6 +157,12 @@ class CustomerMessageBudget
         if ($sms) {
             $scopes[] = 'sms:global:day';
             $scopes[] = 'sms:global:hour:'.$hour;
+            $scopes[] = 'sms:reset:day';
+            $scopes[] = 'sms:reset:hour:'.$hour;
+            if ($networkKey !== null) {
+                $scopes[] = 'sms:reset:network:'.$networkKey;
+                $scopes[] = 'sms:reset:network-hour:'.$hour.':'.$networkKey;
+            }
         }
 
         DB::transaction(function () use ($scopes, $date): void {

@@ -17,7 +17,7 @@ class WalletController extends Controller
     public function index(Request $request, FinancePresenter $presenter): JsonResponse
     {
         $validated = $request->validate([
-            'page' => ['nullable', 'integer', 'min:1'],
+            'page' => ['nullable', 'integer', 'min:1', 'max:1000'],
             'direction' => ['nullable', 'string', 'in:credit,debit'],
             'type' => ['nullable', 'string', 'max:50'],
             'from' => ['nullable', 'date_format:Y-m-d'],

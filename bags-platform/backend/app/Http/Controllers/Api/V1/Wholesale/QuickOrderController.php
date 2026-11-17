@@ -66,7 +66,7 @@ class QuickOrderController extends Controller
     public function import(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv,txt', 'max:5120', new RejectExecutableSignature(allowOfficeOpenXml: true)],
+            'file' => ['required', 'file', 'mimes:xlsx,csv,txt', 'max:5120', new RejectExecutableSignature(allowOfficeOpenXml: true, maxOoxmlBytes: 5_242_880)],
         ]);
 
         /** @var Customer $customer */

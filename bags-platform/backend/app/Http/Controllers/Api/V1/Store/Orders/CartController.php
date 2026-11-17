@@ -55,8 +55,15 @@ class CartController extends Controller
     public function update(UpdateCartItemRequest $request, int $item): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
-        $cartItem = $cart->items()->findOrFail($item);
-        $cart = $this->carts->updateItemQty($cart, $customer, (int) $cartItem->product_variant_id, (float) $request->validated()['qty'], $cartItem->id);
+        $qty = $request->validated()['qty'];
+        $cartItem = $cart->items()->find($item);
+        if ($cartItem === null) {
+            if ((int) $qty === 0) {
+                return response()->json(['data' => $this->carts->present($cart, $customer)]);
+            }
+            abort(404);
+        }
+        $cart = $this->carts->updateItemQty($cart, $customer, (int) $cartItem->product_variant_id, (float) $qty, $cartItem->id);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
@@ -122,13 +129,20 @@ class CartController extends Controller
     public function applyCoupon(ApplyCouponRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
-        $totals = $this->carts->totals($cart, $customer);
-        $discount = $this->coupons->validateAndApply($cart, (string) $request->validated()['code'], $totals['items_total'], $customer);
+        $payload = DB::transaction(function () use ($request, $customer, $cart): array {
+            $locked = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+            $locked->load('items');
+            $totals = $this->carts->totals($locked, $customer);
+            $this->coupons->validateAndApply($locked, (string) $request->validated()['code'], $totals['items_total'], $customer);
+            $presented = $this->carts->present($locked->fresh(), $customer);
 
-        return response()->json(['data' => [
-            'cart' => $this->carts->present($cart->fresh(), $customer),
-            'coupon_discount' => $discount,
-        ]]);
+            return [
+                'cart' => $presented,
+                'coupon_discount' => $presented['totals']['coupon_discount'],
+            ];
+        });
+
+        return response()->json(['data' => $payload]);
     }
 
     /** @return array{0: ?Customer, 1: Cart} */

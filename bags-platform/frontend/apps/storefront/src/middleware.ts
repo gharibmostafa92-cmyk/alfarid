@@ -1,26 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function blockedStoreMediaSegment(segment: string): boolean {
+  if (!segment || segment.includes('\\') || /[\u0000-\u001f\u007f]/.test(segment)) return true;
+  if (/%(?:2e|2f|5c)/i.test(segment)) return true;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return true;
+  }
+  if (!decoded || decoded === '.' || decoded === '..') return true;
+  if (decoded.includes('\\') || decoded.includes('/') || /[\u0000-\u001f\u007f]/.test(decoded)) return true;
+  if (/%(?:2e|2f|5c)/i.test(decoded)) return true;
+  return false;
+}
+
+function resolveEnvUrl(raw: string | undefined, base: string): URL {
+  const fallback = base.trim() || 'http://localhost:3000';
+  const value = (raw ?? '').trim();
+  try {
+    return new URL(value || fallback, fallback);
+  } catch {
+    return new URL(fallback);
+  }
+}
+
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   if (pathname === '/store-media' || pathname.startsWith('/store-media/')) {
     const segments = pathname.slice('/store-media/'.length).split('/');
     for (const segment of segments) {
-      try {
-        const decoded = decodeURIComponent(segment);
-        if (!decoded || decoded === '.' || decoded === '..' || /[%/\\\u0000-\u001f\u007f]/u.test(decoded)) {
-          return new NextResponse(null, { status: 404 });
-        }
-      } catch {
-        return new NextResponse(null, { status: 404 });
-      }
+      if (blockedStoreMediaSegment(segment)) return new NextResponse(null, { status: 404 });
     }
     return NextResponse.next();
   }
 
   const nonce = btoa(crypto.randomUUID());
   const development = process.env.NODE_ENV !== 'production';
-  const api = new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
-  const office = new URL(process.env.NEXT_PUBLIC_BACKOFFICE_URL || 'http://localhost:5173');
+  const base = request.nextUrl.origin || 'http://localhost:3000';
+  const api = resolveEnvUrl(process.env.NEXT_PUBLIC_API_URL, base);
+  const office = resolveEnvUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL, base);
   // Match the API client's loopback-to-LAN resolution during local previews.
   const hostname = request.nextUrl.hostname;
   if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname) && ['localhost', '127.0.0.1'].includes(api.hostname)) api.hostname = hostname;
@@ -30,7 +49,7 @@ export function middleware(request: NextRequest) {
   const socket = `${process.env.NEXT_PUBLIC_REVERB_SCHEME === 'https' ? 'wss' : 'ws'}://${reverbHost}:${reverbPort}`;
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://challenges.cloudflare.com${development ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' https: data: blob:" + (development ? ` http://localhost:8000 http://127.0.0.1:8000${api.protocol === 'http:' ? ` ${api.origin}` : ''}` : ''),

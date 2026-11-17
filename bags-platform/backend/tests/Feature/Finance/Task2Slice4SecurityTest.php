@@ -76,7 +76,7 @@ final class Task2Slice4SecurityTest extends TestCase
     public function test_high_03_customer_wallet_controller_supports_large_amounts_and_reversal_reason(): void
     {
         $admin = User::factory()->create(['is_active' => true, 'is_system' => false]);
-        $admin->givePermissionTo(['customers.wallet.view', 'customers.wallet.adjust']);
+        $admin->givePermissionTo(['customers.wallet.view', 'customers.wallet.adjust', 'inventory.all_branches']);
         $token = $admin->createToken('admin')->plainTextToken;
 
         $customer = Customer::factory()->create(['wallet_balance' => '0.00']);

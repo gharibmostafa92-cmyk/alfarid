@@ -145,7 +145,9 @@ class Customer extends Authenticatable
         }
         // Normalize Arabic-Indic and Eastern Arabic digits into ASCII equivalents.
         $phone = ArabicDigits::normalize($trimmed);
-        $phone = preg_replace('/[\s().-]+/u', '', $phone);
+        // Strip invisible Bidi/format marks (U+200E/200F/202A-202E/2066-2069,
+        // zero-width spaces) that smartphones inject on copy-paste.
+        $phone = preg_replace('/[\s\p{Cf}().-]+/u', '', $phone);
         if (preg_match('/^(?:\+?200?|00200?)(1[0125][0-9]{8})$/', $phone, $matches) === 1) {
             return '0'.$matches[1];
         }

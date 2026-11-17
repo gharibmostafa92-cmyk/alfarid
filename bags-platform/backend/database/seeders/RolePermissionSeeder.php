@@ -8,6 +8,7 @@ use App\Enums\StaffRole;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class RolePermissionSeeder extends Seeder
 {
@@ -42,6 +43,8 @@ class RolePermissionSeeder extends Seeder
 
     public function run(): void
     {
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
         foreach (self::PERMISSIONS_BY_MODULE as $module => $actions) {
             foreach ($actions as $action) {
                 Permission::findOrCreate("{$module}.{$action}", 'staff');
@@ -51,8 +54,11 @@ class RolePermissionSeeder extends Seeder
         $superAdmin = Role::findOrCreate(StaffRole::SuperAdmin->value, 'staff');
         $this->call(AiAgentPermissionSeeder::class);
         $this->call(FinancialPermissionSeeder::class);
+        $this->call(InventoryPermissionSeeder::class);
         $superAdmin->syncPermissions(
             Permission::query()->where('guard_name', 'staff')->get(),
         );
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

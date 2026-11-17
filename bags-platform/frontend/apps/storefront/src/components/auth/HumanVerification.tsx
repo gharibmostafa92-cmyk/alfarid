@@ -16,7 +16,7 @@ function loadScript() {
       const script = document.createElement('script');
       script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
       script.async = true;
-      script.nonce = document.querySelector<HTMLScriptElement>('script[nonce]')?.nonce ?? '';
+      script.nonce = Array.from(document.scripts).find((entry) => entry.nonce)?.nonce ?? '';
       const fail = () => {
         clearTimeout(timer);
         script.remove();

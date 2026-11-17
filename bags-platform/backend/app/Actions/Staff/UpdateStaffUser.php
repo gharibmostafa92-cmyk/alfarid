@@ -11,6 +11,7 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
 use App\Services\Auth\StaffAdministration;
 use App\Services\Inventory\BranchAccess;
+use App\Support\AccountEmailLock;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -77,10 +78,7 @@ final class UpdateStaffUser
             if (! $selfRotation) {
                 StaffAdministration::lock();
             }
-            $lockEmail = mb_strtolower(trim((string) ($userAttributes['email'] ?? '')));
-            if ($lockEmail !== '' && DB::getDriverName() === 'pgsql') {
-                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
-            }
+            AccountEmailLock::acquire((string) ($userAttributes['email'] ?? ''));
             if (! $selfRotation) {
                 StaffAdministration::authorize($currentUser, ['users.update', 'users.manage']);
             } else {
@@ -226,7 +224,12 @@ final class UpdateStaffUser
             if ($passwordChanged || $emailChanged || $deactivated || $rolesChanged) {
                 // Self password rotation keeps the current session alive so the
                 // user is not logged out right after clearing must_change_password.
-                $keepTokenId = $selfRotation ? ($via['current_token_id'] ?? null) : null;
+                // The same applies to a verified self profile edit: reaching
+                // this point as the target means the current password check
+                // above already succeeded, so keep the current session and
+                // revoke every other one.
+                $verifiedSelfEdit = $currentUser->is($lockedUser) && $verifiedPasswordHash !== null;
+                $keepTokenId = ($selfRotation || $verifiedSelfEdit) ? ($via['current_token_id'] ?? null) : null;
                 if ($keepTokenId !== null) {
                     $lockedUser->tokens()->whereKeyNot($keepTokenId)->delete();
                 } else {

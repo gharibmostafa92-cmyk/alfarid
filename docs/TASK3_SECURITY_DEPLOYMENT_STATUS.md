@@ -164,3 +164,114 @@ pnpm --filter @alfarid/storefront build
    `Task3Slice2SessionMessagingTest`, `Task3Slice3ValidationTest`,
    `Task3Slice3PruneTest`, `Task3Slice4OptimisticLockingTest`,
    `Task3Slice4AuditTest`, `Task3UploadValidationTest`.
+
+---
+
+# Run 2026-11-17 — Cross-Realm Identity, Token Scope, Budgets, Upload & Frontend Hardening
+
+Source roadmap: `_archive_unused/tasks_execution/task3.txt` (same file; item
+IDs below are the `[CRITICAL-XX]` / `[HIGH-XX]` / `[MEDIUM-XX]` / `[LOW-XX]`
+headers in that file, located by header — not by line number, which shifts as
+the roadmap ledger at the top of the file is updated).
+
+Branch: `fixes/task-audit-roadmap`. Status: implemented & verified locally;
+**not deployed** (no production access; nothing was pushed, migrated, or
+restarted outside the local checkout and the local `alfarid_testing` database).
+
+## Deployed vs. Pending Deployment (this run)
+
+### A. Already Deployed on Server
+
+No change from the 2026-11-16 baseline: live status is **unverified / not
+deployed**. Nothing in this run was pushed to production.
+
+### B. Ready / Pending Server Deployment (this run)
+
+All items below are implemented and covered by targeted tests. Only item 5
+touches an existing migration file (no new migration files were added);
+the scheduler gains one weekly entry; new `auth.customer_sms_reset_*`
+config keys all carry inline defaults, so no `.env` change is required
+(set them explicitly to tune the 30% bulkhead and subnet caps).
+
+- **CRITICAL-01** — cross-realm email shadowing closed: `EmailNotUsedByOtherAccountType`
+  checks every live customer row regardless of `email_verified_at`;
+  `SerializesAccountEmail` no longer skips unverified non-commercial accounts.
+  Tests: `Task3Critical01CrossRealmTest` (3/3) + `EmailUniquenessTest` (8/8).
+- **CRITICAL-02** — one advisory-lock key for all identity writes:
+  new `App\Support\AccountEmailLock` (`account_email:` + normalized email,
+  pgsql-guarded, transaction-required); all five call sites unified.
+- **HIGH-01** — `deleteStaleResetToken()` compare-and-delete in the reset
+  delivery-failure path. Tests: `Task3PasswordResetHardeningTest` (4/4).
+- **HIGH-02** — reset-SMS bulkhead (30% of global), per-subnet day/hour caps
+  (fail-closed), pinned `$budgetAt` passed through claim → refund, `networkKey`
+  plumbed from `forgotPassword` through `SendCustomerPasswordReset` (optional
+  3rd ctor arg, queued-job compatible). Tests: `Task3ResetBudgetIsolationTest` (4/4).
+- **HIGH-03** — `SessionProbePage` queries `/api/v1/auth/me` (works with `*`
+  and `pos` tokens; returns the `redirect.path` the probe reads).
+  Test: `session-probe.test.cjs` (2/2).
+- **HIGH-04** — `EnsureWholesaleApproved` requires a wholesale-scoped token;
+  `approve()` revokes all tokens when the customer type changes.
+  Tests: `Task3ChannelTokenScopeTest` (5/5, merge guard RED-verified).
+- **HIGH-05** — shared `App\Rules\PdfHeader` (1024-byte window, whitespace/BOM
+  preamble only); `#`-only active-content scan; single-trip `downloadDocument`
+  (`readStream` + 404, no `exists()` HEAD). Tests: `Task3PdfHeaderParityTest`
+  (4/4), `Task3UploadValidationTest` (6/6), `Task3DocumentDownloadTest` (3/3).
+- **HIGH-06** — narrow-only `$abilities` in `StaffTokenService::issue`;
+  verified self-edits keep the current token; optional `expected_updated_at`
+  on financial customer fields. Tests: `Task3StaffSessionLifecycleTest` (5/5).
+- **MEDIUM-01** — atomic `RateLimiter::hit($pairKey)` moved before the
+  Turnstile challenge. Test: `Task3RateLimitOrderingTest` (1/1).
+- **MEDIUM-02** — 422 `phone already registered` after Turnstile on
+  `phone-verification/send` (job path stays silent). Test: `PhoneRegistrationTest` (6/6).
+- **MEDIUM-03** — `\p{Cf}`/Bidi strip in `Customer::normalizePhone`,
+  `CustomerChannel::canonicalPhone`, and `phone-format.ts`.
+  Tests: `Task3PhoneNormalizationTest` (3/3), `phone-format-bidi` (3/3),
+  `phone-normalization` (5/5).
+- **MEDIUM-04** — guest-cart merge restricted to retail (`UnifiedAuthController`);
+  unified-login documented as staff+customers (supplier portal separate);
+  storefront clears on `cart_merged === true` with customer-only actorType.
+- **MEDIUM-05** — `RequireActor` reuses `unauthorizedLoginRedirect` (search
+  preserved, single converged URL); `LoginScreen` restores wholesale/supplier
+  deep links via `safeReturnPath` channel roots. Tests: `safe-return-path`
+  (17/17), `require-actor` contract tests, `auth-redirect` green.
+- **MEDIUM-06** — `customers.approve` admitted to document middleware;
+  `$request->user('staff')` unified; per-network audit guest buckets.
+  Tests: `Task3DocumentDownloadTest` (+approver case), `Task3AuditGuestBucketTest`.
+- **MEDIUM-07** — `SET LOCAL lock_timeout = '3s'` around ALTER in migration
+  `2026_11_05_000002` and `customers:validate-domains` (tested live);
+  `NormalizeCustomerPhones` batch/abort semantics kept (pinned by `test_26`).
+- **MEDIUM-08** — `InventoryPermissionSeeder` + registrar flush inside
+  `RolePermissionSeeder` (verified by standalone seed + `DatabaseSeederTest`).
+- **LOW-01** — 72-byte ceiling in `resetPassword` + `registerRetail`
+  (same test file as HIGH-01).
+- **LOW-02** — accepted as-is per the roadmap's own trade-off clause (direct
+  PK lookup kept; no change).
+- **LOW-03** — hourly cheap pass + `customers:prune-artifacts --deep` with a
+  weekly Sunday 05:15 schedule; `test_27` updated to the split contract.
+
+### Deployment deltas introduced by this run
+
+1. Scheduler: `customers:prune-artifacts --deep` weekly on Sunday 05:15
+   (Africa/Cairo) in `bags-platform/backend/routes/console.php`.
+2. Optional config overrides (defaults work without them):
+   `auth.customer_sms_reset_fraction` (0.3),
+   `auth.customer_sms_reset_network_daily_limit` (10),
+   `auth.customer_sms_reset_network_hourly_limit` (3).
+3. Migration file `2026_11_05_000002_enforce_customer_identity_indexes.php`
+   edited (lock timeout only; idempotent for fresh installs).
+4. No new migrations, no `.env` secrets, no production actions taken.
+
+### Pre-existing failures (verified unrelated — do NOT gate deployment)
+
+`UnifiedLoginTest::guest_cart_merges_into_customer_account_on_login`
+(draft-variant scope), `Task4AuthPasswordResetTest` phone x2 (SMS unconfigured
+in `.env.testing`), `Task3Slice2SecurityTest` pending-trader code,
+`UnifiedLoginHardeningTest` x3 (missing cart header, redirect drift,
+branch-access setup), `CustomerAbuseProtectionTest::audit…`,
+`AdminCustomerManagementTest` approve/reject/suspend x3 (all three are the
+same `inventory.all_branches` setup gap, proven by isolated probes reaching
+the service layer), `CustomerVerificationBudgetAndMaintenanceTest` test_19
+(`send()` to soft-deleted phones delivers — no `withTrashed` in the
+existence check; service untouched by this run) and test_20 (0-byte fake PDF
+with reported PDF mime rejected by old and new header rules alike). Storefront `tsc --noEmit` has pre-existing wholesale-page
+prop errors in files this run did not touch; all touched files typecheck clean.

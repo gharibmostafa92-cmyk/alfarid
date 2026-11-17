@@ -16,7 +16,15 @@ try {
 } catch {
   mediaDestination = null;
 }
-const mediaApi = new URL(process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000');
+function configuredOrigin(raw, fallback) {
+  const value = (raw || '').trim();
+  try {
+    return new URL(value || fallback, fallback);
+  } catch {
+    return new URL(fallback);
+  }
+}
+const mediaApi = configuredOrigin(process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL, 'http://127.0.0.1:8000');
 if (mediaApi.hostname === 'localhost') mediaApi.hostname = '127.0.0.1';
 if (!mediaDestination) mediaDestination = `${mediaApi.origin}/storage/:path*`;
 

@@ -61,13 +61,13 @@ class Task2Slice4WebhooksRateLimitsTest extends TestCase
             'guest_phone_normalized' => '01000000001',
         ]);
 
-        for ($i = 1; $i <= 5; $i++) {
+        for ($i = 1; $i <= 40; $i++) {
             $this->withServerVariables(['REMOTE_ADDR' => "10.0.0.{$i}"])
                 ->getJson("/api/v1/store/orders/{$order->order_number}/track?phone=01099999999")
                 ->assertStatus(404);
         }
 
-        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.99'])
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.41'])
             ->getJson("/api/v1/store/orders/{$order->order_number}/track?phone=01099999999")
             ->assertStatus(429);
     }

@@ -92,6 +92,32 @@ const readRoute = (initialScreen) => {
 /**
  * @param {{ initialScreen?: string, initialId?: number|null, onLogout?: (() => unknown)|null, onEnter?: (() => unknown)|null, onForbidden?: (() => unknown)|null, onForgotSubmit?: ((login: string) => Promise<unknown>)|null, onResetSubmit?: ((login: string, token: string, password: string, confirmation: string) => Promise<unknown>)|null, brandName?: string }} props
  */
+class PortalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="panel" style={{ padding: 24, textAlign: 'center' }}>
+          <p className="strong">حدث خطأ غير متوقع أثناء عرض الصفحة.</p>
+          <button className="btn-pill is-dark mt-12" onClick={() => this.setState({ hasError: false })}>إعادة المحاولة</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function WholesalePortal({
   initialScreen = 'dashboard',
   initialId = null,
@@ -207,10 +233,20 @@ export function WholesalePortal({
 
   useEffect(() => {
     if (isAuthScreen) return;
-    const tick = () => wholesaleEndpoints.notifications(1).then((r) => setUnread(r.meta.unread_count)).catch(() => {});
+    let active = true;
+    let t = null;
+    const tick = () => wholesaleEndpoints.notifications(1)
+      .then((r) => { if (active) setUnread(r.meta.unread_count); })
+      .catch((e) => {
+        const status = apiError(e).status;
+        if (status === 401 || status === 403) {
+          active = false;
+          if (t) clearInterval(t);
+        }
+      });
     tick();
-    const t = setInterval(tick, 60000);
-    return () => clearInterval(t);
+    t = setInterval(tick, 60000);
+    return () => { active = false; if (t) clearInterval(t); };
   }, [isAuthScreen]);
 
   const go = useCallback((screen, id = null) => {
@@ -231,9 +267,14 @@ export function WholesalePortal({
   }, [initialScreen]);
 
   const logout = useCallback(() => {
-    if (onLogout) onLogout();
-    else toast('تم تسجيل الخروج');
-  }, [onLogout, toast]);
+    if (onLogout) {
+      onLogout();
+    } else {
+      setCartState(null);
+      go('login');
+      toast('تم تسجيل الخروج');
+    }
+  }, [onLogout, setCartState, go, toast]);
 
   const cartTotalQty = cart?.lines?.reduce((s, l) => s + (l?.qty ?? 0), 0) ?? 0;
 
@@ -450,9 +491,11 @@ export function WholesalePortal({
             {/* Main Content Area */}
             <main className="wp-main">
               <div className="wp-wrap">
-                {route.screen === 'dashboard' ? (
-                  <DataBoundary api={accountApi}><Async rows={3} cols={4}>{renderScreen()}</Async></DataBoundary>
-                ) : renderScreen()}
+                <PortalErrorBoundary resetKey={`${route.screen}:${route.id ?? ''}`}>
+                  {route.screen === 'dashboard' ? (
+                    <DataBoundary api={accountApi}><Async rows={3} cols={4}>{renderScreen()}</Async></DataBoundary>
+                  ) : renderScreen()}
+                </PortalErrorBoundary>
               </div>
             </main>
           </div>

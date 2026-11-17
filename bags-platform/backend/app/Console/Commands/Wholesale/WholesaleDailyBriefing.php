@@ -42,7 +42,7 @@ class WholesaleDailyBriefing extends Command
             ->count();
         $staleQuotes = Quotation::query()
             ->where('status', QuotationStatus::Requested)
-            ->where('created_at', '<=', now()->subHours(24))
+            ->where('updated_at', '<=', now($tz)->subHours(24))
             ->count();
         $overdueCutoff = Carbon::today($tz)->setTimezone('UTC');
         $overdueBalances = DB::query()->fromSub($orderBalances->unpaidCreditOrderBalances(), 'credit_order_balances')

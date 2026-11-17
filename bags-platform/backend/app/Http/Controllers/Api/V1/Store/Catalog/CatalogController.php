@@ -112,12 +112,12 @@ class CatalogController extends Controller
         if ((string) config('cache.default') === 'array') {
             return $load();
         }
-        $flexible = fn (): array => Cache::flexible($key, [300, 900], $load, ['seconds' => 120]);
-        if (Cache::has($key)) {
+        $flexible = fn (): array => Cache::flexible($key, [300, 900], $load, ['seconds' => 15]);
+        if (is_array(Cache::get($key))) {
             return $flexible();
         }
         try {
-            return Cache::lock($key.':build', 120)->block(5, $flexible);
+            return Cache::lock($key.':build', 15)->block(2, $flexible);
         } catch (LockTimeoutException) {
             throw new BusinessException('جاري تحديث البيانات المرجعية؛ أعد المحاولة بعد لحظات.', [], 503);
         }

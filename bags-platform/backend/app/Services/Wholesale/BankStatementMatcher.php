@@ -23,8 +23,8 @@ final class BankStatementMatcher
             return '0.00';
         }
         $str = trim((string) $amount);
-        $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-        $digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+        $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+        $digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
         $str = str_replace($arabicIndic, $digits, $str);
 
         if (preg_match('/\b(dr|debit|مدين)\b/iu', $str) === 1) {
@@ -69,8 +69,8 @@ final class BankStatementMatcher
             return '';
         }
         $ref = mb_strtolower(trim($reference));
-        $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', 'أ', 'إ', 'آ', 'ة', 'ى'];
-        $replacements = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'ا', 'ا', 'ا', 'ه', 'ي'];
+        $arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', 'أ', 'إ', 'آ', 'ٱ', 'ة', 'ى'];
+        $replacements = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'ا', 'ا', 'ا', 'ا', 'ه', 'ي'];
         $ref = str_replace($arabicIndic, $replacements, $ref);
         $ref = preg_replace('/[\s.,_()\/#\\-]+/u', '', $ref) ?? '';
 
@@ -86,11 +86,11 @@ final class BankStatementMatcher
             'cib', 'commercialinternationalbank', 'commercialinternationalbankegypt', 'البنكالتجاريالدولي', 'البنكالتجارىالدولى' => 'cib',
             'nbe', 'nationalbankofegypt', 'البنكالأهليالمصري', 'البنكالاهليالمصري' => 'nbe',
             'banquemisr', 'banquedumisr', 'بنكمصر' => 'banque_misr',
-            'qnb', 'qnbalahli' => 'qnb',
-            'aaib', 'arabafricaninternationalbank' => 'aaib',
+            'qnb', 'qnbalahli', 'بنكقطرالوطني', 'بنكقطرالوطنيالاهلي' => 'qnb',
+            'aaib', 'arabafricaninternationalbank', 'البنكالعربيالافريقي', 'البنكالعربيالافريقيالدولي' => 'aaib',
             'hsbc', 'hsbcbankegypt' => 'hsbc',
             'bdc', 'banqueducaire', 'بنكالقاهرة' => 'bdc',
-            'alexbank', 'bankofalexandria' => 'alexbank',
+            'alexbank', 'bankofalexandria', 'بنكالاسكندريه' => 'alexbank',
             default => $compact,
         };
     }
@@ -186,9 +186,10 @@ final class BankStatementMatcher
                 }
                 $bothHaveRef = $parsed['reference'] !== '' && $prepared['reference'] !== '';
                 $sameReference = $bothHaveRef && ($prepared['reference'] === $parsed['reference']);
+                $conflictingReferences = $bothHaveRef && ! $sameReference;
                 $closeDate = $parsed['date'] !== null && $prepared['date'] !== null
                     && abs($parsed['date']->diffInDays($prepared['date'], true)) <= 1;
-                if ($sameReference || $closeDate) {
+                if ($sameReference || (! $conflictingReferences && $closeDate)) {
                     $hit = $prepared['model'];
                     $claimedNoticeIds[$prepared['model']->id] = true;
                     break;
@@ -230,13 +231,16 @@ final class BankStatementMatcher
             }
         }
         if ($descriptions !== []) {
-            foreach (Customer::query()->commercial()->orderBy('id')->cursor(['id', 'name', 'company_name']) as $customer) {
+            foreach (Customer::query()->commercial()->where('status', 'approved')->orderBy('id')->cursor(['id', 'name', 'company_name']) as $customer) {
                 $name = mb_strtolower(trim((string) ($customer->company_name ?: $customer->name)));
                 if ($name === '' || mb_strlen($name) < 4) {
                     continue;
                 }
                 $pattern = '/(?<![\p{L}\p{N}])'.preg_quote($name, '/').'(?![\p{L}\p{N}])/u';
                 foreach ($descriptions as $index => $description) {
+                    if (! str_contains($description, $name)) {
+                        continue;
+                    }
                     if (preg_match($pattern, $description) === 1) {
                         $unmatched[$index]['suggestion'] = ['customer_id' => $customer->id, 'name' => $customer->company_name ?: $customer->name];
                         unset($descriptions[$index]);

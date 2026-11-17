@@ -219,7 +219,7 @@ class WholesalePaymentNoticeService
         ];
     }
 
-    private function outstandingBalanceDecimal(Customer $customer): BigDecimal
+    public function outstandingBalanceDecimal(Customer $customer): BigDecimal
     {
         return BigDecimal::of($this->balanceBreakdown($customer)['outstanding']);
     }
@@ -401,12 +401,26 @@ class WholesalePaymentNoticeService
                 'amount' => (string) $return->total_refund_amount,
             ]));
 
-        // Standard accounting convention: debits precede credits on identical dates.
-        $sorted = $entries->sortBy([
-            fn (array $a, array $b): int => $a['date']->toDateString() <=> $b['date']->toDateString(),
-            fn (array $a, array $b): int => ($a['type'] === 'debit' ? 0 : 1) <=> ($b['type'] === 'debit' ? 0 : 1),
-            fn (array $a, array $b): int => $a['date']->timestamp <=> $b['date']->timestamp,
-        ])->values();
+        // Respect causal timestamp order for same-reference entries (e.g. same-day reversal after approval);
+        // otherwise debits precede credits on identical dates.
+        $sorted = $entries->sort(function (array $a, array $b): int {
+            $dateCmp = $a['date']->toDateString() <=> $b['date']->toDateString();
+            if ($dateCmp !== 0) {
+                return $dateCmp;
+            }
+            if ($a['reference'] !== '' && $a['reference'] === $b['reference']) {
+                $tsCmp = $a['date']->timestamp <=> $b['date']->timestamp;
+                if ($tsCmp !== 0) {
+                    return $tsCmp;
+                }
+            }
+            $typeCmp = ($a['type'] === 'debit' ? 0 : 1) <=> ($b['type'] === 'debit' ? 0 : 1);
+            if ($typeCmp !== 0) {
+                return $typeCmp;
+            }
+
+            return $a['date']->timestamp <=> $b['date']->timestamp;
+        })->values();
 
         if ($entries->count() > 1500) {
             throw new BusinessException('عدد حركات كشف الحساب يتجاوز 1500. قلّص النطاق الزمني.', [], 422);
@@ -453,10 +467,10 @@ class WholesalePaymentNoticeService
                 ->whereRaw("{$noticeDate} BETWEEN ? AND ?", [$from, $to])->count()
             + WholesalePaymentNotice::query()->where('customer_id', $customer->id)
                 ->where('status', WholesalePaymentNoticeStatus::Reversed->value)
-                ->where(function ($q) use ($from, $to) {
-                    $q->whereBetween('reversed_at', [$from, $to])
-                        ->orWhereRaw($this->statementNoticeDateExpression().' BETWEEN ? AND ?', [$from, $to]);
-                })->count()
+                ->whereRaw("{$noticeDate} BETWEEN ? AND ?", [$from, $to])->count()
+            + WholesalePaymentNotice::query()->where('customer_id', $customer->id)
+                ->where('status', WholesalePaymentNoticeStatus::Reversed->value)
+                ->whereBetween('reversed_at', [$from, $to])->count()
             + ReturnRequest::query()->where('customer_id', $customer->id)->where('status', 'refunded')
                 ->where('refund_method', RefundMethod::CreditNote->value)
                 ->whereNotNull('refunded_at')
@@ -512,18 +526,17 @@ class WholesalePaymentNoticeService
                 throw new BusinessException('إشعار السداد هذا تمت مراجعته من قبل.');
             }
 
+            $detachedNote = null;
             if ($order !== null) {
-                if ($order->payment_status === 'paid') {
+                if ($order->status === OrderStatus::Cancelled) {
+                    // Detach cancelled order link so valid bank receipts can still be approved as advance credit.
+                    $detachedNote = "تم فك الارتباط بالطلب الملغى {$order->order_number}";
+                    $order = null;
+                } elseif ($order->payment_status === 'paid') {
                     throw new BusinessException('الطلب المرتبط تم سداده بالفعل؛ لا يمكن اعتماد إشعار السداد.');
-                }
-                if ($order->status !== OrderStatus::Cancelled) {
+                } else {
                     $this->assertOrderCapacity($order, (string) $notice->amount, includePending: false);
                 }
-            }
-
-            // Decimal comparison avoids floating-point precision boundary errors.
-            if (BigDecimal::of((string) $notice->amount)->compareTo($this->outstandingBalanceDecimal($customer)) > 0) {
-                throw new BusinessException('مبلغ الإشعار أكبر من المديونية الآجلة الحالية للتاجر.');
             }
 
             $treasury = $this->resolveTreasury($treasuryId);
@@ -539,12 +552,18 @@ class WholesalePaymentNoticeService
                 'notes' => "اعتماد إشعار سداد جملة {$notice->notice_number}",
             ]);
 
+            $finalNotes = $adminNotes ?? $notice->admin_notes;
+            if ($detachedNote !== null) {
+                $finalNotes = $finalNotes ? "{$finalNotes} | {$detachedNote}" : $detachedNote;
+            }
+
             try {
                 $notice->update([
+                    'order_id' => $order?->id,
                     'status' => WholesalePaymentNoticeStatus::Approved,
                     'reviewed_by' => $adminId,
                     'approved_at' => now(),
-                    'admin_notes' => $adminNotes ?? $notice->admin_notes,
+                    'admin_notes' => $finalNotes,
                     'treasury_id' => $treasury->id,
                     'treasury_transaction_id' => $transaction->id,
                 ]);
@@ -798,11 +817,11 @@ class WholesalePaymentNoticeService
             ->where('customer_id', '!=', $notice->customer_id)
             ->whereNotIn('status', [WholesalePaymentNoticeStatus::Rejected->value, WholesalePaymentNoticeStatus::Reversed->value])
             ->whereReferenceNumber((string) $notice->reference_number)
-            ->where('amount', (string) $notice->amount)
-            ->whereDate('transfer_date', $notice->transfer_date?->toDateString())
-            ->get(['id', 'notice_number', 'customer_id']);
+            ->get(['id', 'notice_number', 'customer_id', 'amount', 'transfer_date']);
         foreach ($sameTransfer as $other) {
-            $collisions[] = $mapCollision($other, 'same_reference_amount_date');
+            $sameAmountAndDate = BigDecimal::of((string) $other->amount)->compareTo((string) $notice->amount) === 0
+                && $other->transfer_date?->toDateString() === $notice->transfer_date?->toDateString();
+            $collisions[] = $mapCollision($other, $sameAmountAndDate ? 'same_reference_amount_date' : 'same_reference');
         }
 
         return $collisions;

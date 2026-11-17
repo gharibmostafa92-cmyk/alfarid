@@ -100,12 +100,16 @@ class EmailUniquenessTest extends TestCase
 
     public function test_verifying_a_retail_email_rejects_an_address_taken_by_staff(): void
     {
-        $customer = Customer::factory()->create([
+        User::factory()->create(['email' => 'later@example.test']);
+
+        // Legacy collision predating the cross-realm invariant: bypass the
+        // saving guard to simulate a row created before the fix shipped.
+        $customer = Customer::factory()->make([
             'email' => 'later@example.test',
             'email_verified_at' => null,
             'type' => 'retail',
         ]);
-        User::factory()->create(['email' => 'later@example.test']);
+        $customer->saveQuietly();
 
         $this->expectException(ValidationException::class);
         $customer->forceFill(['email_verified_at' => now()])->save();

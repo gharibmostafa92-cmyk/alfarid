@@ -37,10 +37,10 @@ final class EmailNotUsedByOtherAccountType implements ValidationRule
             }
             $query = DB::table($table)->whereRaw('LOWER(email) = ?', [$email]);
             if ($table === 'customers') {
+                // Every live customer row reserves its email across realms,
+                // verified or not: an unverified retail address must still
+                // block staff/supplier reuse (CRITICAL-01).
                 $query->whereNull('deleted_at');
-                // Trader contact emails are login identifiers even before verification.
-                $query->where(fn ($query) => $query->whereNotNull('email_verified_at')
-                    ->orWhereIn('type', ['wholesale', 'distributor']));
             }
             if ($query->exists()) {
                 $fail($this->conceal

@@ -494,6 +494,10 @@ class OrderService
         $to = $toStatus instanceof OrderStatus ? $toStatus : OrderStatus::from($toStatus);
 
         return DB::transaction(function () use ($order, $to, $actor, $notes, $expectedFrom, $returnEffects, $allowNoticesLoss): Order {
+            // Preserve canonical Customer -> Order lock hierarchy for credit orders.
+            if ($order->customer_id !== null && $order->payment_method === 'credit') {
+                Customer::query()->whereKey($order->customer_id)->lockForUpdate()->first();
+            }
             // Lock order row to serialize status transitions and guard against stale client snapshots.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $from = $order->status;

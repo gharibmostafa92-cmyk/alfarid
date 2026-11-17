@@ -38,6 +38,7 @@
     "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
     "bags-platform/backend/app/Http/Middleware/ProtectStorefrontCaching.php",
     "bags-platform/backend/app/Services/Orders/CartService.php",
+    "bags-platform/backend/app/Console/Commands/Orders/PruneGuestCarts.php",
     "bags-platform/backend/app/Services/Auth/CustomerAuthService.php",
     "bags-platform/backend/app/Models/Cart.php",
     "bags-platform/backend/app/Models/CartItem.php",

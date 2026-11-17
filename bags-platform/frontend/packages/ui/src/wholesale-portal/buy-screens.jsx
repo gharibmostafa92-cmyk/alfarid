@@ -230,7 +230,14 @@ export const QuickOrder = () => {
   const [adding, setAdding] = useState(false);
   const [result, setResult] = useState(null);
   const [skipped, setSkipped] = useState(null);
-  const set = (i, k, v) => { const r = [...rows]; r[i] = { ...r[i], [k]: v }; if (i === rows.length - 1 && v) r.push(blank()); setRows(r); setLooked(false); setResult(null); };
+  const lookupSeqRef = useRef(0);
+  const lookupAbortRef = useRef(null);
+  useEffect(() => () => { lookupAbortRef.current?.abort(); }, []);
+  const set = (i, k, v) => {
+    lookupSeqRef.current += 1;
+    lookupAbortRef.current?.abort();
+    const r = [...rows]; r[i] = { ...r[i], [k]: v }; if (i === rows.length - 1 && v) r.push(blank()); setRows(r); setLooked(false); setResult(null);
+  };
 
   const lookup = async () => {
     const items = rows.filter((r) => r.code && r.code.trim() && Number(r.qty) > 0).map((r) => {
@@ -239,15 +246,21 @@ export const QuickOrder = () => {
       return isBarcode ? { barcode: code, qty: Number(r.qty) } : { sku: code, qty: Number(r.qty) };
     });
     if (!items.length) { toast('أدخل كود وكمية لبند واحد على الأقل.'); return; }
+    const seq = ++lookupSeqRef.current;
+    lookupAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    lookupAbortRef.current = ctrl;
     setBusy(true);
     try {
-      const res = await wholesaleEndpoints.quickLookup(items);
+      const res = await wholesaleEndpoints.quickLookup(items, ctrl.signal);
+      if (seq !== lookupSeqRef.current) return;
       setResult(mapQuickLookup(res));
       setLooked(true);
     } catch (e) {
+      if (ctrl.signal.aborted || seq !== lookupSeqRef.current) return;
       toast(apiError(e).message);
     } finally {
-      setBusy(false);
+      if (seq === lookupSeqRef.current) setBusy(false);
     }
   };
 

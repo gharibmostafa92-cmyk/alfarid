@@ -1,16 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { formatShippingPrice } from '@alfarid/utils';
 import type { CheckoutVM } from './useCheckout';
 
 export function DeliverySection({ vm }: { vm: CheckoutVM }) {
-  const { form, quote, quoteLoading } = vm;
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const { form, quote, quoteLoading, deliveryKey, setDeliveryKey } = vm;
   const options = quote?.options ?? [];
   const activeKey =
-    selectedKey && options.some((o) => o.key === selectedKey)
-      ? selectedKey
+    deliveryKey && options.some((o) => o.key === deliveryKey)
+      ? deliveryKey
       : options[0]?.key ?? null;
 
   return (
@@ -57,7 +56,7 @@ export function DeliverySection({ vm }: { vm: CheckoutVM }) {
                       name="deliveryMethod"
                       value={opt.key}
                       checked={isChecked}
-                      onChange={() => setSelectedKey(opt.key)}
+                      onChange={() => setDeliveryKey(opt.key)}
                     />
                     <span className="radio-text-stack">
                       <span className="radio-title">{opt.label}</span>

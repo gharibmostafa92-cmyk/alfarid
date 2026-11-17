@@ -50,9 +50,18 @@ class ProductController extends Controller
             // Restrict wholesale catalog to published products on active category trees in wholesale channels.
             ->where('status', 'published')
             ->whereIn('sales_channel', [SalesChannel::Wholesale, SalesChannel::Both])
-            ->whereHas('category', fn ($q) => $q->where('is_active', true)
-                ->whereDoesntHave('parent', fn ($parent) => $parent->where('is_active', false)
-                    ->orWhereHas('parent', fn ($ancestor) => $ancestor->where('is_active', false))))
+            ->whereIn('category_id', function ($sub): void {
+                $sub->select('id')->fromRaw('(
+                    WITH RECURSIVE active_categories AS (
+                        SELECT id FROM categories WHERE is_active = true AND parent_id IS NULL AND deleted_at IS NULL
+                        UNION ALL
+                        SELECT c.id FROM categories c
+                        INNER JOIN active_categories ac ON c.parent_id = ac.id
+                        WHERE c.is_active = true AND c.deleted_at IS NULL
+                    )
+                    SELECT id FROM active_categories
+                ) AS active_categories');
+            })
             ->with(['media', 'variants' => fn ($q) => $q->where('is_active', true)->with('media')])
             ->when($filters['search'] ?? null, function ($q, $v): void {
                 $pattern = SearchTerm::pattern($v);

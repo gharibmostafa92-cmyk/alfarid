@@ -280,9 +280,9 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 9. Storefront & Catalog
-    if ($p -match 'apps/storefront/|/store/|requests/store/|storefront|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|phoneverification|passwordreset|normalizescustomerinput' -and $p -notmatch 'production') {
+    if ($p -match 'apps/storefront/|packages/ui/.*branding|/store/|requests/store/|storefront|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|phoneverification|passwordreset|normalizescustomerinput' -and $p -notmatch 'production') {
         if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
-        if ($configs.ContainsKey('repomix.subsystem-06.1-storefront-client.json') -and ($p -match 'apps/storefront')) {
+        if ($configs.ContainsKey('repomix.subsystem-06.1-storefront-client.json') -and ($p -match 'apps/storefront|packages/ui')) {
             [void]$matchedConfigs.Add('repomix.subsystem-06.1-storefront-client.json')
         }
         if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json') -and ($p -match 'catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant')) {
@@ -303,7 +303,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|wholesale') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|accountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|wholesale') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff|customer|admin')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json')
@@ -327,7 +327,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 14. Shared Model Concerns
-    if ($p -match 'serializesaccountemail|models/concerns') {
+    if ($p -match 'serializesaccountemail|accountemail|models/concerns|app/support/accountemail') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
         if ($configs.ContainsKey('repomix.subsystem-08-procurement-suppliers.json')) { [void]$matchedConfigs.Add('repomix.subsystem-08-procurement-suppliers.json') }

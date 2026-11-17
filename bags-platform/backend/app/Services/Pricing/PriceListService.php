@@ -52,7 +52,7 @@ class PriceListService
             ->when($filters['search'] ?? null, fn ($q, $v) => $q->whereLike('name', SearchTerm::pattern($v), caseSensitive: false))
             ->orderByDesc('priority')
             ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 15);
+            ->paginate(max(1, min(100, (int) ($filters['per_page'] ?? 15))));
     }
 
     /**
@@ -252,7 +252,7 @@ class PriceListService
             ->orderBy('product_variant_id')
             ->orderBy('min_qty')
             ->orderBy('id')
-            ->paginate($filters['per_page'] ?? 15);
+            ->paginate(max(1, min(100, (int) ($filters['per_page'] ?? 15))));
     }
 
     /**
@@ -275,6 +275,12 @@ class PriceListService
             $item = $priceList->items()->create($data);
             if ($user) {
                 StaffAdministration::audit($user, 'price_list_item.created', 'price_list_item', $item->id, array_keys($data), [], $item->only(array_keys($data)), []);
+            }
+            if ($priceList->type === PriceListType::Retail) {
+                $productId = (int) ProductVariant::query()->withTrashed()->whereKey($item->product_variant_id)->value('product_id');
+                if ($productId > 0) {
+                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch([$productId]));
+                }
             }
             $this->bumpSharedPricingCatalog();
 
@@ -311,6 +317,12 @@ class PriceListService
             if ($user) {
                 StaffAdministration::audit($user, 'price_list_item.updated', 'price_list_item', $item->id, array_keys($data), $before, $item->only(array_keys($data)), []);
             }
+            if ($lockedList->type === PriceListType::Retail) {
+                $productId = (int) ProductVariant::query()->withTrashed()->whereKey($item->product_variant_id)->value('product_id');
+                if ($productId > 0) {
+                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch([$productId]));
+                }
+            }
             $this->bumpSharedPricingCatalog();
 
             return $item->load('variant.product');
@@ -329,9 +341,16 @@ class PriceListService
             $this->assertListAccess($user, $lockedList);
             $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
             $before = $item->attributesToArray();
+            $variantId = (int) $item->product_variant_id;
             $item->delete();
             if ($user) {
                 StaffAdministration::audit($user, 'price_list_item.deleted', 'price_list_item', $item->id, array_keys($before), $before, [], []);
+            }
+            if ($lockedList->type === PriceListType::Retail) {
+                $productId = (int) ProductVariant::query()->withTrashed()->whereKey($variantId)->value('product_id');
+                if ($productId > 0) {
+                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch([$productId]));
+                }
             }
             $this->bumpSharedPricingCatalog();
         });
@@ -353,12 +372,17 @@ class PriceListService
             $productIds = ProductVariant::query()->withTrashed()
                 ->whereIn('id', (clone $items)->select('product_variant_id'))
                 ->distinct()->pluck('product_id')->map(fn ($id) => (int) $id)->all();
-            $before = (clone $items)->get(['id', 'product_variant_id', 'min_qty', 'price'])->toArray();
+            $itemCount = (clone $items)->count();
+            $before = $itemCount <= 100
+                ? (clone $items)->get(['id', 'product_variant_id', 'min_qty', 'price'])->toArray()
+                : null;
             $updated = DB::update(
                 'UPDATE price_list_items SET price = round(price * ?::numeric, 4), updated_at = ? WHERE price_list_id = ?',
                 [$factor, now(), $locked->id],
             );
-            StaffAdministration::audit($user, 'price_list.percentage_applied', 'price_list', $locked->id, ['percent', 'count', 'items'], ['items' => $before], ['percent' => $percent, 'count' => $updated], []);
+            $auditFields = $before !== null ? ['percent', 'count', 'items'] : ['percent', 'count'];
+            $auditBefore = $before !== null ? ['items' => $before] : [];
+            StaffAdministration::audit($user, 'price_list.percentage_applied', 'price_list', $locked->id, $auditFields, $auditBefore, ['percent' => $percent, 'count' => $updated], []);
             if ($productIds !== []) {
                 DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
             }
@@ -436,7 +460,7 @@ class PriceListService
      */
     private function csvText(string $value): string
     {
-        return preg_match('/^[\s]*[=+@\-\t\r\n]/u', $value) ? "'".$value : $value;
+        return preg_match('/^[\s]*[=+@|\-\t\r\n]/u', $value) ? "'".$value : $value;
     }
 
     /**

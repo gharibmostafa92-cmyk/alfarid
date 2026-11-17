@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store\Catalog;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Store\Catalog\StoreBannerResource;
 use App\Http\Resources\Store\Catalog\StoreProductCardResource;
@@ -13,6 +14,7 @@ use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -32,15 +34,7 @@ class HomeController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        try {
-            $load = fn () => Cache::flexible(StoreCatalogService::HOME_CACHE_KEY, [300, 1800],
-                fn () => $this->catalog->homeSectionIds(), ['seconds' => 120]);
-
-            // Block 1s on cache stampede, falling back to direct computation to avoid returning empty homepage sections.
-            $ids = Cache::has(StoreCatalogService::HOME_CACHE_KEY) ? $load() : Cache::lock(StoreCatalogService::HOME_CACHE_KEY.':build', 120)->block(1, $load);
-        } catch (LockTimeoutException) {
-            $ids = Cache::get(StoreCatalogService::HOME_CACHE_KEY) ?? $this->catalog->homeSectionIds();
-        }
+        $ids = $this->homeSectionIds();
         $ids['discounted_ids'] = $this->catalog->personalizedDiscountedIds() ?? $ids['discounted_ids'];
         $allIds = array_unique([...$ids['latest_ids'], ...$ids['best_seller_ids'], ...$ids['discounted_ids']]);
         $cards = StoreProductCardResource::collection($this->catalog->publishedQuery()
@@ -48,12 +42,7 @@ class HomeController extends Controller
         $cards = collect($cards)->keyBy('id');
         $section = fn (array $sectionIds) => collect($sectionIds)->map(fn ($id) => $cards->get($id))->filter()->values();
 
-        $banners = Banner::query()
-            ->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
-            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
-            ->orderBy('sort_order')->orderBy('id')->get();
-        $banners = $this->bannerResolver->attach($banners);
+        $banners = $this->bannerResolver->attach($this->activeBanners());
         $bannersPayload = collect(StoreBannerResource::collection($banners)->resolve($request))
             ->filter(fn (array $b) => $b['image'] !== null)
             ->values();
@@ -66,5 +55,50 @@ class HomeController extends Controller
                 'discounted_products' => $section($ids['discounted_ids'])->filter(fn ($card) => $card['price'] !== null && $card['discount_percentage'] !== null)->take(12)->values(),
             ],
         ]);
+    }
+
+    /**
+     * @return array{latest_ids: list<int>, best_seller_ids: list<int>, discounted_ids: list<int>}
+     */
+    private function homeSectionIds(): array
+    {
+        $key = StoreCatalogService::HOME_CACHE_KEY;
+        $load = fn (): array => $this->catalog->homeSectionIds();
+        if ((string) config('cache.default') === 'array') {
+            return $load();
+        }
+
+        $flexible = fn (): array => Cache::flexible($key, [300, 1800], $load, ['seconds' => 15]);
+        if (is_array(Cache::get($key))) {
+            return $flexible();
+        }
+
+        try {
+            return Cache::lock($key.':build', 15)->block(2, $flexible);
+        } catch (LockTimeoutException) {
+            $stale = Cache::get($key);
+            if (is_array($stale) && isset($stale['latest_ids'], $stale['best_seller_ids'], $stale['discounted_ids'])) {
+                return $stale;
+            }
+
+            throw new BusinessException('جاري تحديث البيانات المرجعية؛ أعد المحاولة بعد لحظات.', [], 503);
+        }
+    }
+
+    /**
+     * @return Collection<int, Banner>
+     */
+    private function activeBanners(): Collection
+    {
+        $load = fn (): Collection => Banner::query()
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
+            ->orderBy('sort_order')->orderBy('id')
+            ->get();
+
+        $banners = Cache::flexible('store:home:banners:v1', [60, 300], $load, ['seconds' => 15]);
+
+        return $banners instanceof Collection ? $banners : collect($banners);
     }
 }

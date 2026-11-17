@@ -22,6 +22,13 @@ function loadTs(relative, dependencies = {}) {
       };
     }
     if (name === 'next/navigation') return { useRouter: () => ({}), useSearchParams: () => ({ get: () => null }) };
+    if (name === '@/services/phone-format') {
+      return loadTs('../apps/storefront/src/services/phone-format.ts');
+    }
+    const sibling = path.resolve(path.dirname(filename), name + '.ts');
+    if (name.startsWith('.') && fs.existsSync(sibling)) {
+      return loadTs(path.relative(__dirname, sibling));
+    }
     return {};
   };
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {

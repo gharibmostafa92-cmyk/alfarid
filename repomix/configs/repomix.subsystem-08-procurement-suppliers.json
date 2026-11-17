@@ -56,7 +56,8 @@
                     "bags-platform/frontend/apps/storefront/src/app/supplier/purchase-orders/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/supplier/statement/page.tsx",
                     "bags-platform/frontend/packages/api-client/src/endpoints/supplier.ts",
-                    "bags-platform/backend/app/Http/Resources/Admin/Procurement/PurchaseOrderResource.php"
+                    "bags-platform/backend/app/Http/Resources/Admin/Procurement/PurchaseOrderResource.php",
+                    "bags-platform/backend/app/Support/AccountEmailLock.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

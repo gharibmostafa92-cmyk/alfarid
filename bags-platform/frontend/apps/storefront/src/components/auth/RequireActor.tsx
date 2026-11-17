@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthMe } from '@/hooks/use-auth-me';
 import { useAuthStore } from '@/store/auth.store';
+import { unauthorizedLoginRedirect } from '@/store/auth-redirect';
 import type { Destination } from '@/types/auth';
 
 export function RequireActor({ allow, children }: { allow: Destination[]; children: React.ReactNode }) {
@@ -21,9 +22,13 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
     if (isError) {
       if (useAuthStore.getState().token !== token) return;
       // Clear local session on 401/403 (e.g. suspended account) and redirect to login to avoid deadlocked navigation.
+      // Uses the same redirect builder as the global 401 handler so both
+      // navigation paths converge on one URL (query strings preserved).
       if (meError?.response?.status === 401 || meError?.response?.status === 403) {
+        const search = typeof window === 'undefined' ? '' : window.location.search;
+        const redirect = unauthorizedLoginRedirect(pathname, search, true);
         useAuthStore.getState().clear();
-        router.replace(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
+        if (redirect) router.replace(redirect);
       } else {
         setVerificationFailed(true);
       }
@@ -56,8 +61,13 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
   const allowKey = allow.join(',');
   useEffect(() => {
     if (!hydrated) return;
-    if (!token) router.replace(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
-    else if (verifiedToken === token && (!destination || !allow.includes(destination))) router.replace(home ?? '/');
+    // Unauthenticated visits reuse the shared builder (query preserved,
+    // public pages stay put) instead of a divergent hand-rolled URL.
+    if (!token) {
+      const search = typeof window === 'undefined' ? '' : window.location.search;
+      const redirect = unauthorizedLoginRedirect(pathname, search, false);
+      if (redirect) router.replace(redirect);
+    } else if (verifiedToken === token && (!destination || !allow.includes(destination))) router.replace(home ?? '/');
   }, [hydrated, token, verifiedToken, destination, home, allowKey, pathname, router]);
   if (hydrated && token && verificationFailed) return <div role="alert">تعذر التحقق من الجلسة. <button type="button" onClick={() => { void refetch(); }}>إعادة المحاولة</button></div>;
   if (!hydrated || !token || verifiedToken !== token || !destination || !allow.includes(destination)) return null;

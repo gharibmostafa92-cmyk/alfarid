@@ -13,6 +13,7 @@ use App\Http\Requests\Store\Customer\RegisterRequest;
 use App\Http\Requests\Store\Customer\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Jobs\SendCustomerPhoneVerification;
+use App\Models\Customer;
 use App\Rules\TurnstileToken;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Customer\CustomerMessageBudget;
@@ -21,6 +22,7 @@ use App\Services\Orders\CartService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Handles retail customer authentication, self-registration, session tokens, and password recovery.
@@ -133,6 +135,13 @@ class AuthController extends Controller
         // Enforce Cloudflare Turnstile verification strictly on SMS dispatch to protect gateway budget.
         $request->validate(['turnstile_token' => [new TurnstileToken($request->ip())]]);
         $phone = $request->validated()['phone'];
+        // A registered number must fail fast with 422 instead of trapping the
+        // user in an OTP screen for a code that will never arrive (the signup
+        // endpoint itself already discloses phone ownership, so this reveals
+        // nothing new to an attacker holding a valid Turnstile solution).
+        if (Customer::query()->where('phone', Customer::normalizePhone($phone))->exists()) {
+            throw ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل؛ سجل الدخول أو استعد كلمة المرور.']);
+        }
         $networkKey = CustomerMessageBudget::subnetKey($request->ip());
         if ($networkKey === null) {
             throw new BusinessException('تعذر التحقق من الشبكة، حاول مرة أخرى.');

@@ -149,7 +149,7 @@ class FinanceWalletTest extends TestCase
         $order = Order::factory()->create(['customer_id' => $customer->id]);
         app(WalletService::class)->record($customer->id, -100.0, 'checkout_payment', 'order', $order->id);
 
-        $viewer = $this->staff(['customers.wallet.view']);
+        $viewer = $this->staff(['customers.wallet.view', 'inventory.all_branches']);
         $show = $this->withToken($this->token($viewer))->getJson("/api/v1/admin/customers/{$customer->id}/wallet")->assertOk();
         $show->assertJsonPath('balance', '50.00');
         $show->assertJsonPath('transactions.data.0.type_label', 'دفع طلب');
@@ -161,7 +161,7 @@ class FinanceWalletTest extends TestCase
         $noperm = $this->staff(['ai_agent.use']);
         $this->withToken($this->token($noperm))->getJson("/api/v1/admin/customers/{$customer->id}/wallet")->assertForbidden();
 
-        $adjuster = $this->staff(['customers.wallet.adjust']);
+        $adjuster = $this->staff(['customers.wallet.adjust', 'inventory.all_branches']);
         $this->withToken($this->token($adjuster))->postJson("/api/v1/admin/customers/{$customer->id}/wallet/adjustments", [
             'kind' => 'adjustment', 'amount' => 25, 'direction' => 'credit', 'reason' => 'تسوية',
         ])->assertStatus(422); // Idempotency-Key required

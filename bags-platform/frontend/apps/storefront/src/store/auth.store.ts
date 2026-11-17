@@ -3,8 +3,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { setAuthToken, setUnauthorizedHandler } from '@alfarid/api-client';
 import type { ActorType, Destination } from '@/types/auth';
-import { resetCartIdentity } from '@/stores/cart-store';
+import { resetCartIdentity, restoreGuestCartSession } from '@/stores/cart-store';
 import { unauthorizedLoginRedirect } from '@/store/auth-redirect';
+import { resolveAttemptOwner, shouldDropPendingCheckout } from '@/components/sophie/checkout/pending-checkout';
 
 interface WebSession {
   token: string | null;
@@ -12,7 +13,10 @@ interface WebSession {
   destination: Destination | null;
   home: string | null;
   user: Record<string, unknown> | null;
-  setSession: (s: { token: string; actorType: 'customer' | 'supplier'; destination: Destination; home: string; user: Record<string, unknown> }) => void;
+  setSession: (
+    s: { token: string; actorType: 'customer' | 'supplier'; destination: Destination; home: string; user: Record<string, unknown> },
+    options?: { preserveGuestCart?: string | null },
+  ) => void;
   clear: () => void;
 }
 
@@ -25,10 +29,12 @@ export const useAuthStore = create<WebSession>()(
       ...emptySession,
       // Re-verifying the same session must not wipe the guest cart, last order or
       // pending checkout; only an actual identity switch invalidates cart state.
-      setSession: (s) => {
+      setSession: (s, options) => {
         const switched = get().token !== s.token;
+        const preserved = options?.preserveGuestCart;
         setAuthToken(s.token);
         if (switched) resetCartIdentity();
+        if (typeof preserved === 'string' && preserved) restoreGuestCartSession(preserved);
         set({ ...s });
       },
       clear: () => { setAuthToken(null); resetCartIdentity(); set(emptySession); },
@@ -52,6 +58,12 @@ if (typeof window !== 'undefined') {
 
     setAuthToken(token);
     resetCartIdentity({ preserveSharedStorage: true });
+    const nextOwner = resolveAttemptOwner(token, session?.actorType ?? null, session?.user && (session.user as { id?: unknown }).id);
+    try {
+      if (shouldDropPendingCheckout(localStorage.getItem('pending_checkout'), nextOwner)) {
+        localStorage.removeItem('pending_checkout');
+      }
+    } catch { /* Storage may be blocked. */ }
     useAuthStore.setState(token ? {
       token,
       actorType: session?.actorType ?? null,

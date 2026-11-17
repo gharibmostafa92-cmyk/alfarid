@@ -46,6 +46,8 @@ class UpdateCustomerRequest extends FormRequest
             'commercial_register' => ['sometimes', 'nullable', 'string', 'max:50'],
             'customer_group_id' => ['sometimes', 'nullable', 'integer', Rule::exists('customer_groups', 'id')->where('is_active', true)],
             'credit_limit' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
+            // Optional (for now) optimistic-concurrency token for financial fields.
+            'expected_updated_at' => ['sometimes', 'nullable', 'date'],
             'payment_terms_days' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:365'],
             'whatsapp_phone' => ['sometimes', 'nullable', 'string', 'regex:/\A01[0125][0-9]{8}\z/'],
             'whatsapp_opt_in' => ['sometimes', 'boolean'],

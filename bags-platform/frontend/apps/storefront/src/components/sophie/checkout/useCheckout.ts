@@ -15,6 +15,8 @@ import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from '@/hooks/use-auth-hydrated';
 import { viewerKey } from '@/lib/core/viewer-key';
 import { rememberGuestOrder } from '@/lib/orders/guest-orders';
+import { normalizePhone } from '@/services/phone-format';
+import { cartFingerprint, pendingOwnerMatches, resolveAttemptOwner } from './pending-checkout';
 
 export interface SavedAddressItem {
   id: number;
@@ -65,10 +67,7 @@ const fieldMap: Record<string, keyof CheckoutForm | 'banner'> = {
 };
 
 export function normalizeCheckoutPhone(value: string) {
-  const compact = value.trim().replace(/[\s().-]/g, '');
-  if (/^\+?20(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
-  if (/^0020(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
-  return compact;
+  return normalizePhone(value);
 }
 
 export function buildAddressLine(
@@ -114,13 +113,6 @@ export function shownQuote<T>(quote: T | null, quotedFor: string, quoteKey: stri
 const PENDING_CHECKOUT_KEY = 'pending_checkout';
 const PENDING_CHECKOUT_TTL_MS = 15 * 60 * 1000;
 const UNSUPPORTED_PAYMENT_BANNER = 'وسائل الدفع المتاحة لهذه الوجهة غير مدعومة حالياً في هذه الواجهة.';
-
-function cartFingerprint(items: Array<{ variantId?: number; id?: number; quantity: number }>): string {
-  return items
-    .map((item) => `${item.variantId ?? item.id ?? 0}:${item.quantity}`)
-    .sort()
-    .join('|');
-}
 
 function readPendingRaw(): string | null {
   try {
@@ -187,6 +179,7 @@ export function useCheckout() {
   const [submitting, setSubmitting] = useState(false);
   const keyRef = useRef<string>(newIdempotencyKey());
   const promoTried = useRef(false);
+  const [deliveryKey, setDeliveryKey] = useState<string | null>(null);
 
   const items = useCartStore((s) => s.items);
   const cartLoading = useCartStore((s) => s.loading);
@@ -204,9 +197,7 @@ export function useCheckout() {
   const actorType = useAuthStore((s) => s.actorType);
   const hydrated = useAuthHydrated();
   const owner = viewerKey(token);
-  const attemptOwner = token
-    ? `${actorType}:${String(user?.id ?? 'unknown')}`
-    : 'guest';
+  const attemptOwner = resolveAttemptOwner(token, actorType, user?.id);
   const quotePhone = normalizeCheckoutPhone(form.phone);
   const recipientPhone = !token && /^\+?[0-9]{7,15}$/.test(quotePhone) ? quotePhone : undefined;
   const quoteKey = JSON.stringify([
@@ -219,7 +210,7 @@ export function useCheckout() {
     recipientPhone,
   ]);
   const liveQuote = shownQuote(quote, quotedFor, quoteKey, cartBusy, cartLoading);
-  const cartSignature = cartFingerprint(items);
+  const cartSignature = cartFingerprint(items, couponCode, deliveryKey ?? '');
 
   // A reload after a lost response must recover the same attempt, never create a second order.
   useEffect(() => {
@@ -229,20 +220,25 @@ export function useCheckout() {
     try {
       const saved = JSON.parse(readPendingRaw() ?? 'null');
       const expired = typeof saved?.expiresAt !== 'number' || Date.now() > saved.expiresAt;
+      const savedDelivery = typeof saved?.deliveryKey === 'string' ? saved.deliveryKey : '';
+      const comparable = cartFingerprint(
+        items,
+        couponCode,
+        deliveryKey === null ? savedDelivery : deliveryKey,
+      );
       const mismatchedCart =
         items.length > 0 &&
         typeof saved?.fingerprint === 'string' &&
-        saved.fingerprint !== cartSignature;
+        saved.fingerprint !== comparable;
       if (saved && (expired || mismatchedCart)) {
         clearPendingStorage();
         return;
       }
-      const ownerMatches =
-        saved?.owner === attemptOwner ||
-        (Boolean(token) &&
-          typeof saved?.owner === 'string' &&
-          saved.owner.startsWith('customer:') &&
-          attemptOwner.startsWith('customer:'));
+      if (saved && typeof saved.owner === 'string' && attemptOwner && saved.owner !== attemptOwner) {
+        clearPendingStorage();
+        return;
+      }
+      const ownerMatches = pendingOwnerMatches(saved?.owner, attemptOwner);
       if (
         ownerMatches &&
         typeof saved.key === 'string' &&
@@ -252,6 +248,7 @@ export function useCheckout() {
       ) {
         keyRef.current = saved.key;
         pending.current = { body: saved.body, session: saved.session ?? null };
+        if (deliveryKey === null && savedDelivery) setDeliveryKey(savedDelivery);
         setUncertain(true);
         setBanner({
           kind: 'info',
@@ -603,7 +600,8 @@ export function useCheckout() {
           owner: attemptOwner,
           key: keyRef.current,
           expiresAt: Date.now() + PENDING_CHECKOUT_TTL_MS,
-          fingerprint: cartFingerprint(items),
+          fingerprint: cartFingerprint(items, couponCode, deliveryKey ?? ''),
+          deliveryKey: deliveryKey ?? '',
           rawForm: {
             street: form.street,
             building: form.building,
@@ -703,6 +701,8 @@ export function useCheckout() {
     attemptOwner,
     clearPending,
     startNewAttempt,
+    couponCode,
+    deliveryKey,
   ]);
 
   const step =
@@ -760,6 +760,8 @@ export function useCheckout() {
     addressLine,
     user,
     token,
+    deliveryKey,
+    setDeliveryKey,
   };
 }
 

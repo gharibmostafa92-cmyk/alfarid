@@ -193,7 +193,7 @@ class UserController extends Controller
             $actionData['password'] = $userAttributes['password'];
         }
         $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData,
-            ['current_token_id' => null],
+            ['current_token_id' => $currentUser?->currentAccessToken()?->id],
             verifiedPasswordHash: $verifiedPasswordHash, selfRotation: false,
             currentPassword: $validated['current_password'] ?? null);
 

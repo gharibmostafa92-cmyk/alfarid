@@ -26,7 +26,16 @@ return new class extends Migration
         ConcurrentIndex::drop('customers_phone_index');
 
         // Fail-safe default matching initial customer schema.
-        DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'pending'");
+        // Short lock timeout: ALTER ... SET DEFAULT needs ACCESS EXCLUSIVE,
+        // which must fail fast instead of queueing behind a long reader.
+        if (DB::getDriverName() === 'pgsql') {
+            DB::transaction(function (): void {
+                DB::statement("SET LOCAL lock_timeout = '3s'");
+                DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'pending'");
+            });
+        } else {
+            DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'pending'");
+        }
     }
 
     public function down(): void

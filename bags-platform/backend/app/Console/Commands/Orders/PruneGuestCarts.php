@@ -8,12 +8,12 @@ use App\Models\Cart;
 use Illuminate\Console\Command;
 
 /**
- * Prunes abandoned guest carts (customer_id = null) older than the retention window.
+ * Prunes abandoned guest carts (customer_id = null) at least as old as the retention window.
  * Deletion is batched (1000 per chunk); cart items are purged via database foreign key cascade.
  */
 class PruneGuestCarts extends Command
 {
-    protected $signature = 'carts:prune-guests {--days=7 : Retention window in days}';
+    protected $signature = 'carts:prune-guests {--days=30 : Retention window in days}';
 
     protected $description = 'Delete abandoned guest carts older than the retention window';
 
@@ -31,7 +31,7 @@ class PruneGuestCarts extends Command
         do {
             $ids = Cart::query()
                 ->whereNull('customer_id')
-                ->where('updated_at', '<', $cutoff)
+                ->where('updated_at', '<=', $cutoff)
                 ->limit(1000)
                 ->pluck('id');
 

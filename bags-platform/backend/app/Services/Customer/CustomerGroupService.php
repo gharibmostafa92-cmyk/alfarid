@@ -37,7 +37,7 @@ class CustomerGroupService
             ->when(array_key_exists('is_active', $filters) && $filters['is_active'] !== null, fn ($q) => $q->where('is_active', $filters['is_active']))
             ->orderBy('name')
             ->orderBy('id')
-            ->paginate($filters['per_page'] ?? 15);
+            ->paginate(max(1, min(100, (int) ($filters['per_page'] ?? 15))));
     }
 
     /**

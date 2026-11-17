@@ -18,6 +18,8 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SearchTerm;
+use App\Support\AccountEmailLock;
+use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
@@ -86,7 +88,7 @@ class CustomerManagementService
             return;
         }
         $email = mb_strtolower(trim($email));
-        DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$email]);
+        AccountEmailLock::acquire($email);
         Validator::make(['email' => $email], [
             'email' => [new UniqueCustomerEmail($ignoreId), new EmailNotUsedByOtherAccountType('customers')],
         ])->validate();
@@ -159,6 +161,20 @@ class CustomerManagementService
         try {
             return DB::transaction(function () use ($customer, $data, $actorId, $via): Customer {
                 $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+                $newGroupId = array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null
+                    ? (int) $data['customer_group_id'] : null;
+                $oldGroupId = $customer->customer_group_id === null ? null : (int) $customer->customer_group_id;
+                $sensitiveChange = (array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit)
+                    || (array_key_exists('customer_group_id', $data) && $newGroupId !== $oldGroupId);
+                if ($sensitiveChange && ! empty($data['expected_updated_at'])) {
+                    $expected = Carbon::parse($data['expected_updated_at'])->utc()->timestamp;
+                    // Fail closed on a stale copy: two consoles editing the same
+                    // credit limit must not silently overwrite each other.
+                    if ($expected !== $customer->updated_at->copy()->utc()->timestamp) {
+                        throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                    }
+                }
+                unset($data['expected_updated_at']);
                 if (isset($data['email']) && $data['email'] !== $customer->email) {
                     $this->claimEmail($data['email'], $customer->id);
                 }
@@ -283,6 +299,7 @@ class CustomerManagementService
                 }
             }
 
+            $previousType = $customer->type instanceof CustomerType ? $customer->type->value : (string) $customer->type;
             $customer->forceFill([
                 ...$legal,
                 'status' => CustomerStatus::Approved,
@@ -295,6 +312,12 @@ class CustomerManagementService
                 'credit_limit' => $data['credit_limit'] ?? $customer->credit_limit,
                 'type' => $data['type'] ?? $customer->type,
             ])->save();
+            $nextType = $customer->type instanceof CustomerType ? $customer->type->value : (string) $customer->type;
+            if ($nextType !== $previousType) {
+                // A channel change invalidates previously issued tokens: force
+                // re-authentication so the new token matches the new channel.
+                $customer->tokens()->delete();
+            }
             CustomerAuditLog::record($customer, 'approved', $adminId, $this->viaMeta($via, ['type' => $customer->type->value, 'credit_limit' => $customer->credit_limit, 'customer_group_id' => $customer->customer_group_id]));
 
             if ($customer->isCommercialTier()) {

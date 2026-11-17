@@ -17,7 +17,8 @@ use Throwable;
  */
 class PruneCustomerArtifacts extends Command
 {
-    protected $signature = 'customers:prune-artifacts';
+    protected $signature = 'customers:prune-artifacts
+        {--deep : Also scan every customer_documents/{id} folder for force-deleted customers (weekly deep pass)}';
 
     protected $description = 'Remove abandoned private staging files, expired phone challenges and old message counters';
 
@@ -65,31 +66,38 @@ class PruneCustomerArtifacts extends Command
             $this->error('Pending customer documents listing failed: '.$exception->getMessage());
         }
 
-        try {
-            $candidateIds = [];
-            $dirById = [];
-            foreach ($disk?->directories('customer_documents') ?? [] as $directory) {
-                if (preg_match('~^customer_documents/([0-9]+)$~D', $directory, $matches)) {
-                    $candidateIds[] = (int) $matches[1];
-                    $dirById[(int) $matches[1]] = $directory;
+        // The full customer_documents listing is O(total folders) in cloud
+        // Class-A calls: hourly runs clean only the bounded pending prefix
+        // and the database tables, while --deep runs weekly for the orphans
+        // of force-deleted customers (soft-deleted accounts keep their rows,
+        // so their folders are never orphans in the normal lifecycle).
+        if ($this->option('deep')) {
+            try {
+                $candidateIds = [];
+                $dirById = [];
+                foreach ($disk?->directories('customer_documents') ?? [] as $directory) {
+                    if (preg_match('~^customer_documents/([0-9]+)$~D', $directory, $matches)) {
+                        $candidateIds[] = (int) $matches[1];
+                        $dirById[(int) $matches[1]] = $directory;
+                    }
                 }
-            }
-            $existing = [];
-            foreach (array_chunk(array_values(array_unique($candidateIds)), 500) as $chunk) {
-                foreach (Customer::withTrashed()->whereIn('id', $chunk)->pluck('id') as $id) {
-                    $existing[(int) $id] = true;
+                $existing = [];
+                foreach (array_chunk(array_values(array_unique($candidateIds)), 500) as $chunk) {
+                    foreach (Customer::withTrashed()->whereIn('id', $chunk)->pluck('id') as $id) {
+                        $existing[(int) $id] = true;
+                    }
                 }
-            }
-            foreach ($dirById as $customerId => $directory) {
-                if (isset($existing[$customerId])) {
-                    continue;
+                foreach ($dirById as $customerId => $directory) {
+                    if (isset($existing[$customerId])) {
+                        continue;
+                    }
+                    $this->pruneDirectoryIfInactive($disk, $directory, $cutoffTimestamp, $failures);
                 }
-                $this->pruneDirectoryIfInactive($disk, $directory, $cutoffTimestamp, $failures);
+            } catch (Throwable $exception) {
+                $failures++;
+                report($exception);
+                $this->error('Customer documents listing failed: '.$exception->getMessage());
             }
-        } catch (Throwable $exception) {
-            $failures++;
-            report($exception);
-            $this->error('Customer documents listing failed: '.$exception->getMessage());
         }
 
         try {

@@ -129,8 +129,9 @@ test('StoreBrandingProvider with initialBranding skips redundant client fetch on
 
   const savedWindow = globalThis.window;
   const savedDocument = globalThis.document;
-  globalThis.window = { addEventListener: () => {}, removeEventListener: () => {} };
-  globalThis.document = { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {} };
+  let listeners = 0;
+  globalThis.window = { addEventListener: () => { listeners += 1; }, removeEventListener: () => {} };
+  globalThis.document = { visibilityState: 'visible', addEventListener: () => { listeners += 1; }, removeEventListener: () => {} };
   try {
     storeMod.exports.StoreBrandingProvider({ initialBranding: { ...defaults, name: 'SSR Brand' }, children: null });
     for (const eff of effects) {
@@ -138,6 +139,7 @@ test('StoreBrandingProvider with initialBranding skips redundant client fetch on
       if (typeof cleanup === 'function') cleanup();
     }
     assert.equal(fetchCalls, 0);
+    assert.equal(listeners, 0);
   } finally {
     if (savedWindow === undefined) delete globalThis.window; else globalThis.window = savedWindow;
     if (savedDocument === undefined) delete globalThis.document; else globalThis.document = savedDocument;

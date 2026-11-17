@@ -22,7 +22,14 @@ class ValidateCustomerDomains extends Command
         DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
         foreach (['customers_nonnegative_credit', 'customers_approved_business', 'customers_valid_phone'] as $constraint) {
             try {
-                DB::statement('ALTER TABLE customers VALIDATE CONSTRAINT '.$constraint);
+                // VALIDATE CONSTRAINT takes SHARE UPDATE EXCLUSIVE: fail fast
+                // instead of freezing behind an unrelated long query.
+                DB::transaction(function () use ($constraint): void {
+                    if (DB::getDriverName() === 'pgsql') {
+                        DB::statement("SET LOCAL lock_timeout = '3s'");
+                    }
+                    DB::statement('ALTER TABLE customers VALIDATE CONSTRAINT '.$constraint);
+                });
             } catch (QueryException $exception) {
                 if (($exception->errorInfo[0] ?? null) !== '23514') {
                     throw $exception;

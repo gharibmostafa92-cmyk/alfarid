@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Notifications\Auth\CustomerPasswordReset;
 use App\Notifications\Auth\CustomerPhoneVerificationCode;
 use App\Services\Auth\CustomerAuthService;
+use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
 use App\Services\Pricing\PricingService;
 use App\Services\Catalog\StoreCatalogService;
@@ -43,7 +44,7 @@ class CustomerAbuseProtectionTest extends TestCase
 
         DB::transaction(function () use ($customer): void {
             app(CustomerPhoneVerificationService::class)->send('01012345678', 'test-network');
-            app(CustomerAuthService::class)->sendPasswordReset(null, $customer->phone);
+            app(CustomerAuthService::class)->sendPasswordReset(null, $customer->phone, CustomerMessageBudget::subnetKey('127.0.0.1'));
             Notification::assertNothingSent();
         });
 
@@ -127,8 +128,10 @@ class CustomerAbuseProtectionTest extends TestCase
         $this->travelTo(now()->startOfDay()->addHours(12));
         Notification::fake();
         $customer = Customer::factory()->create();
+        $networkKey = CustomerMessageBudget::subnetKey('127.0.0.1');
         for ($i = 0; $i < 6; $i++) {
-            app(CustomerAuthService::class)->sendPasswordReset($i % 2 ? null : $customer->email, $i % 2 ? $customer->phone : null);
+            // SMS resets require the requester's subnet (task3 HIGH-02 fail-closed).
+            app(CustomerAuthService::class)->sendPasswordReset($i % 2 ? null : $customer->email, $i % 2 ? $customer->phone : null, $i % 2 ? $networkKey : null);
             $this->travel(61)->seconds();
         }
         Notification::assertSentToTimes($customer, CustomerPasswordReset::class, 5);

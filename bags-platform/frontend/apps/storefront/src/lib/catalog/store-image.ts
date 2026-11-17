@@ -14,12 +14,39 @@ const STATIC_IMAGE_PREFIXES = ['/images/', '/store-media/'];
 const loopback = (host: string) => host === 'localhost' || host === '127.0.0.1';
 const privateHost = (host: string) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
 
+function configuredUrl(raw: string | undefined, fallback: string): URL {
+  const value = (raw ?? '').trim();
+  try {
+    return new URL(value || fallback, fallback);
+  } catch {
+    return new URL(fallback);
+  }
+}
+
+/** Same segment rules as the /store-media middleware, including a literal percent in the filename. */
+function safeStoreMediaPath(pathname: string): string | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return null;
+  for (const segment of segments) {
+    if (segment === '.' || segment === '..' || segment.includes('\\') || /[\u0000-\u001f\u007f]/.test(segment)) return null;
+    if (/%(?:2e|2f|5c)/i.test(segment)) return null;
+    try {
+      const decoded = decodeURIComponent(segment);
+      if (!decoded || decoded === '.' || decoded === '..' || decoded.includes('\\') || decoded.includes('/')) return null;
+      if (/[\u0000-\u001f\u007f]/.test(decoded) || /%(?:2e|2f|5c)/i.test(decoded)) return null;
+    } catch {
+      return null;
+    }
+  }
+  return segments.join('/');
+}
+
 function resolveStoreImage(source: string | null | undefined, allowHttp: boolean): string {
   // Reject protocol-relative URLs, Windows backslashes, traversal and control characters to prevent SSRF and open redirect exploits.
-  if (!source || source !== source.trim() || source.startsWith('//') || source.includes('\\') || source.includes('..') || /[\u0000-\u001f\u007f]/.test(source)) return '';
+  if (!source || source !== source.trim() || source.startsWith('//') || source.includes('\\') || source.includes('..') || /%(?:2e|2f|5c)/i.test(source) || /[\u0000-\u001f\u007f]/.test(source)) return '';
   if (STATIC_IMAGE_PREFIXES.some((prefix) => source.startsWith(prefix))) return source;
   try {
-    const api = new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+    const api = configuredUrl(process.env.NEXT_PUBLIC_API_URL, 'http://localhost:8000');
     const url = new URL(source.startsWith('/storage/') ? api.origin + source : source);
     if (url.username || url.password) return '';
     const sameApiHost = url.hostname === api.hostname
@@ -30,9 +57,19 @@ function resolveStoreImage(source: string | null | undefined, allowHttp: boolean
       && url.pathname.startsWith('/storage/')) {
       return `/store-media/${url.pathname.slice('/storage/'.length)}${url.search}`;
     }
-    const cdn = process.env.NEXT_PUBLIC_R2_PUBLIC_URL;
-    if (url.protocol === 'https:' && (url.origin === api.origin || (cdn && url.origin === new URL(cdn).origin)
+    const cdnRaw = (process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? '').trim();
+    let cdnOrigin = '';
+    if (cdnRaw) {
+      try { cdnOrigin = new URL(cdnRaw).origin; } catch { cdnOrigin = ''; }
+    }
+    if (url.protocol === 'https:' && (url.origin === api.origin || (cdnOrigin && url.origin === cdnOrigin)
       || url.hostname === 'images.unsplash.com')) return source;
+    // The public R2 origin is inlined at build time. When it is missing, keep a
+    // storage object reachable through the same-origin media proxy instead of blanking it.
+    if (url.protocol === 'https:' && !cdnOrigin) {
+      const mediaPath = safeStoreMediaPath(url.pathname);
+      if (mediaPath) return `/store-media/${mediaPath}${url.search}`;
+    }
   } catch {
     // An invalid URL cannot be used as an image source.
   }

@@ -14,6 +14,7 @@ use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Customer;
 use App\Models\ProductVariant;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Builder;
@@ -70,11 +71,18 @@ class CartService
         }
         if ($guestToken !== null) {
             try {
-                return Cart::query()->createOrFirst(['cart_token' => $guestToken, 'customer_id' => null])->loadMissing('items');
+                $created = Cart::query()->createOrFirst(
+                    ['cart_token' => $guestToken],
+                    ['customer_id' => null],
+                );
             } catch (\Illuminate\Database\UniqueConstraintViolationException $exception) {
                 if (! Cart::query()->where('cart_token', $guestToken)->whereNotNull('customer_id')->exists()) {
                     throw $exception;
                 }
+                $created = null;
+            }
+            if ($created !== null && $created->customer_id === null) {
+                return $created->loadMissing('items');
             }
         }
 
@@ -178,7 +186,14 @@ class CartService
                 }
             }
             if ($account->coupon_id === null && $guest->coupon_id !== null) {
-                $account->update(['coupon_id' => $guest->coupon_id]);
+                $account->unsetRelation('items');
+                try {
+                    $itemsTotal = $this->totals($account->load('items'), $customer)['items_total'];
+                    $this->coupons->redeemableById((int) $guest->coupon_id, $itemsTotal, $customer);
+                    $account->update(['coupon_id' => $guest->coupon_id]);
+                } catch (BusinessException) {
+                    // A guest coupon the account cannot redeem must not stick on the customer cart.
+                }
             }
             $guest->items()->delete();
             $guest->delete();
@@ -201,14 +216,11 @@ class CartService
     public function addItem(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
     {
         $this->assertWholeQuantity($qty);
+        if (! $cart->exists) {
+            $cart = $customer !== null ? $this->accountCart($customer) : $this->resolveCart(null, $cart->cart_token);
+        }
 
-        return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
-            // Lock cart row to serialize concurrent item additions and enforce line limits.
-            if (! $cart->exists) {
-                $cart = $customer !== null ? $this->accountCart($customer) : $this->resolveCart(null, $cart->cart_token);
-            }
-            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
-
+        return $this->withLockedCart($cart, $customer, function (Cart $cart) use ($customer, $variantId, $qty): Cart {
             $variant = $this->purchasableVariant($variantId);
             $existing = $cart->items()->where('product_variant_id', $variantId)->first();
 
@@ -259,11 +271,10 @@ class CartService
     {
         $this->assertWholeQuantity($qty, allowZero: true);
         if ($qty <= 0) {
-            return $this->removeItem($cart, $variantId);
+            return $this->removeItem($cart, $variantId, $customer);
         }
 
-        return DB::transaction(function () use ($cart, $customer, $variantId, $qty, $itemId): Cart {
-            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+        return $this->withLockedCart($cart, $customer, function (Cart $cart) use ($customer, $variantId, $qty, $itemId): Cart {
             $variant = $this->purchasableVariant($variantId);
             $this->assertLineQty($customer, $qty);
             $this->assertAvailable($variantId, $qty);
@@ -285,10 +296,9 @@ class CartService
      * @param  int  $variantId  Variant to remove
      * @return Cart Fresh cart instance with loaded items
      */
-    public function removeItem(Cart $cart, int $variantId): Cart
+    public function removeItem(Cart $cart, int $variantId, ?Customer $customer = null): Cart
     {
-        return DB::transaction(function () use ($cart, $variantId): Cart {
-            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+        return $this->withLockedCart($cart, $customer, function (Cart $cart) use ($variantId): Cart {
             $cart->items()->where('product_variant_id', $variantId)->delete();
             $cart->touch();
 
@@ -302,10 +312,9 @@ class CartService
      * @param  Cart  $cart  Target cart instance
      * @return Cart Fresh cart instance with loaded items
      */
-    public function clearItems(Cart $cart): Cart
+    public function clearItems(Cart $cart, ?Customer $customer = null): Cart
     {
-        return DB::transaction(function () use ($cart): Cart {
-            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+        return $this->withLockedCart($cart, $customer, function (Cart $cart): Cart {
             $cart->items()->delete();
             $cart->touch();
 
@@ -461,8 +470,8 @@ class CartService
         // Product::catalogImages — there is no `catalog` collection). Constant
         // cost regardless of line count (no N+1).
         $cart->loadMissing([
+            'items.variant.media',
             'items.variant.product.media',
-            'items.variant.product.variants.media',
         ]);
         $lines = $this->pricedLines($cart, $customer);
         $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
@@ -474,11 +483,9 @@ class CartService
             $exact = (float) ($availability[$variant->id] ?? 0);
             // Cap exposed balance to purchasable limits to prevent leaking exact warehouse stock levels.
             $maxQty = $line['unit_price'] === null ? 0.0 : $this->maxPurchasableQty($exact, $customer);
-            // Same image rule as StoreProductCardResource::toArray: first of
-            // Product::catalogImages() (product `images`, then active variants'
-            // `images`), thumb conversion when generated, original as fallback.
-            $images = $variant->product !== null ? $variant->product->catalogImages() : collect();
-            $first = $images->first();
+            // Prefer the chosen variant image, then the parent product image.
+            $first = $variant->getMedia('images')->first()
+                ?? $variant->product?->getMedia('images')->first();
             $items[] = [
                 'id' => $line['item_id'],
                 'product_variant_id' => $variant->id,
@@ -511,6 +518,49 @@ class CartService
     }
 
     /**
+     * Lock the cart row, and if a concurrent merge deleted it, re-resolve once outside the aborted transaction.
+     *
+     * @param  \Closure(Cart): Cart  $callback
+     */
+    private function withLockedCart(Cart $cart, ?Customer $customer, \Closure $callback): Cart
+    {
+        try {
+            return $this->lockedCartTransaction($cart, $callback);
+        } catch (ModelNotFoundException $exception) {
+            if ($exception->getModel() !== Cart::class) {
+                throw $exception;
+            }
+
+            return $this->lockedCartTransaction($this->recoveredCart($cart, $customer), $callback);
+        }
+    }
+
+    /**
+     * @param  \Closure(Cart): Cart  $callback
+     */
+    private function lockedCartTransaction(Cart $cart, \Closure $callback): Cart
+    {
+        return DB::transaction(function () use ($cart, $callback): Cart {
+            return $callback(Cart::query()->lockForUpdate()->findOrFail($cart->id));
+        });
+    }
+
+    private function recoveredCart(Cart $cart, ?Customer $customer): Cart
+    {
+        if ($customer !== null) {
+            return $this->accountCart($customer);
+        }
+        if ($cart->customer_id !== null) {
+            $owner = Customer::query()->find($cart->customer_id);
+            if ($owner !== null) {
+                return $this->accountCart($owner);
+            }
+        }
+
+        return $this->resolveCart(null, $cart->cart_token);
+    }
+
+    /**
      * Retrieves an active variant published on the retail channel.
      *
      * @param  int  $variantId  Product variant ID
@@ -537,7 +587,12 @@ class CartService
     private function retailVariants(): Builder
     {
         return ProductVariant::query()->where('is_active', true)
-            ->whereIn('product_id', $this->catalog->publishedQuery()->withoutEagerLoads()->select('products.id'));
+            ->whereExists(
+                $this->catalog->publishedBaseQuery()
+                    ->withoutEagerLoads()
+                    ->whereColumn('products.id', 'product_variants.product_id')
+                    ->selectRaw('1')
+            );
     }
 
     /**

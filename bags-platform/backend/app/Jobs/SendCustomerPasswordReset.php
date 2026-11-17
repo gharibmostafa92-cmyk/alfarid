@@ -34,13 +34,17 @@ class SendCustomerPasswordReset implements ShouldBeEncrypted, ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(public readonly ?string $email, public readonly ?string $phone) {}
+    public function __construct(
+        public readonly ?string $email,
+        public readonly ?string $phone,
+        public readonly ?string $networkKey = null,
+    ) {}
 
     /**
      * Execute the job.
      */
     public function handle(CustomerAuthService $auth): void
     {
-        $auth->sendPasswordReset($this->email, $this->phone);
+        $auth->sendPasswordReset($this->email, $this->phone, $this->networkKey);
     }
 }

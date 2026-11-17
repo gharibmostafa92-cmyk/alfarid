@@ -38,7 +38,9 @@ class WholesaleQuickOrderService
      */
     public function lookup(Customer $customer, array $lines): array
     {
-        return $this->lookupLines($customer, $lines, $this->findVariants($lines));
+        $found = $this->findVariants($lines);
+
+        return $this->lookupLines($customer, $lines, $found['by_sku'], $found['by_barcode']);
     }
 
     /**
@@ -54,18 +56,27 @@ class WholesaleQuickOrderService
             ->whereIn('id', array_column($lines, 'product_variant_id'))
             ->get()->keyBy('id');
 
-        return $this->lookupLines($customer, $lines, $variants, byVariantId: true);
+        return $this->lookupLines($customer, $lines, $variants, $variants, byVariantId: true);
     }
 
-    private function lookupLines(Customer $customer, array $lines, Collection $variants, bool $byVariantId = false): array
+    private function lookupLines(Customer $customer, array $lines, Collection $bySku, Collection $byBarcode, bool $byVariantId = false): array
     {
-        $availability = $this->availabilityFor($variants->pluck('id')->all());
+        $allIds = $bySku->merge($byBarcode)->pluck('id')->unique()->all();
+        $availability = $this->availabilityFor($allIds);
         // Preload pricing context for all looked-up variants in a single query batch.
-        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
+        $ctx = $this->pricing->contextFor($customer, $allIds);
 
-        return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx, $byVariantId): array {
+        return collect($lines)->map(function (array $line) use ($customer, $bySku, $byBarcode, $availability, $ctx, $byVariantId): array {
             $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
-            $variant = $variants->get($byVariantId ? $line['product_variant_id'] : mb_strtoupper(trim($code)));
+            if ($byVariantId) {
+                $variant = $bySku->get($line['product_variant_id']);
+            } elseif (isset($line['sku']) && trim((string) $line['sku']) !== '') {
+                $key = mb_strtoupper(trim((string) $line['sku']));
+                $variant = $bySku->get($key) ?? $byBarcode->get($key);
+            } else {
+                $key = mb_strtoupper(trim((string) ($line['barcode'] ?? '')));
+                $variant = $byBarcode->get($key) ?? $bySku->get($key);
+            }
             $qty = (float) $line['qty'];
 
             if ($variant === null) {
@@ -118,16 +129,21 @@ class WholesaleQuickOrderService
         }
 
         $lines = collect($merged)->map(fn (float $qty, string $sku) => ['sku' => $sku, 'qty' => $qty])->values()->all();
-        $variants = $this->findVariants($lines);
-        $availability = $this->availabilityFor($variants->pluck('id')->all());
+        $found = $this->findVariants($lines);
+        $allIds = $found['all']->pluck('id')->unique()->all();
+        $availability = $this->availabilityFor($allIds);
         // Preload pricing context for all candidate items in one batch to eliminate per-item overhead.
-        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
+        $ctx = $this->pricing->contextFor($customer, $allIds);
 
-        $items = array_map(fn (array $line) => [
-            'sku' => $line['sku'],
-            'qty' => $line['qty'],
-            'variant' => $variants->get(mb_strtoupper(trim((string) $line['sku']))),
-        ], $lines);
+        $items = array_map(function (array $line) use ($found): array {
+            $key = mb_strtoupper(trim((string) $line['sku']));
+
+            return [
+                'sku' => $line['sku'],
+                'qty' => $line['qty'],
+                'variant' => $found['by_sku']->get($key) ?? $found['by_barcode']->get($key),
+            ];
+        }, $lines);
 
         return $this->addLinesToCart($customer, $items, $availability, $ctx);
     }
@@ -244,12 +260,12 @@ class WholesaleQuickOrderService
     }
 
     /**
-     * Map active variants of published products by SKU and barcode.
+     * Map active variants of published products into separate SKU and barcode namespaces.
      *
      * @param  list<array{sku?: string|null, barcode?: string|null}>  $lines
-     * @return Collection<string, ProductVariant>
+     * @return array{by_sku: Collection<string, ProductVariant>, by_barcode: Collection<string, ProductVariant>, all: Collection<int, ProductVariant>}
      */
-    private function findVariants(array $lines): Collection
+    private function findVariants(array $lines): array
     {
         $rawCodes = collect($lines)
             ->flatMap(fn (array $line) => [$line['sku'] ?? null, $line['barcode'] ?? null])
@@ -260,7 +276,7 @@ class WholesaleQuickOrderService
             ->all();
 
         if ($rawCodes === []) {
-            return collect();
+            return ['by_sku' => collect(), 'by_barcode' => collect(), 'all' => collect()];
         }
 
         $upperCodes = array_values(array_unique(array_map('mb_strtoupper', $rawCodes)));
@@ -275,17 +291,18 @@ class WholesaleQuickOrderService
             })
             ->get();
 
-        $map = collect();
+        $bySku = collect();
+        $byBarcode = collect();
         foreach ($variants as $variant) {
             if ($variant->sku !== null && $variant->sku !== '') {
-                $map->put(mb_strtoupper(trim((string) $variant->sku)), $variant);
+                $bySku->put(mb_strtoupper(trim((string) $variant->sku)), $variant);
             }
             if ($variant->barcode !== null && $variant->barcode !== '') {
-                $map->put(mb_strtoupper(trim((string) $variant->barcode)), $variant);
+                $byBarcode->put(mb_strtoupper(trim((string) $variant->barcode)), $variant);
             }
         }
 
-        return $map;
+        return ['by_sku' => $bySku, 'by_barcode' => $byBarcode, 'all' => $variants];
     }
 
     /**

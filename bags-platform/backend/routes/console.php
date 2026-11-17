@@ -28,6 +28,9 @@ Schedule::command('staff:prune-audit-logs')->dailyAt('04:45')->timezone(config('
 Schedule::command('ai:prune-conversations')->dailyAt('05:10')->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('whatsapp:watch-connection')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command('customers:prune-artifacts')->hourly()->withoutOverlapping(120)->onOneServer();
+// Weekly deep pass over every customer_documents/{id} folder (expensive cloud listing).
+Schedule::command('customers:prune-artifacts --deep')->weeklyOn(0, '5:15')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(180)->onOneServer();
 Schedule::command('media:prune-orphans --disk=r2_public --older-than=60')->dailyAt('04:30')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled orphan media cleanup failed.'));

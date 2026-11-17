@@ -14,6 +14,9 @@ function loadTs(relative, dependencies = {}) {
   compiled.paths = Module._nodeModulePaths(path.dirname(filename));
   compiled.require = (name) => {
     if (name in dependencies) return dependencies[name];
+    if (name === '@/services/phone-format') {
+      return loadTs('apps/storefront/src/services/phone-format.ts', dependencies);
+    }
     const sibling = path.resolve(path.dirname(filename), name + '.ts');
     if (name.startsWith('.') && fs.existsSync(sibling)) {
       return loadTs(path.relative(path.resolve(__dirname, '..'), sibling), dependencies);

@@ -44,9 +44,8 @@ export function BrandingProvider({ children, loadBranding, initialBranding = DEF
   const refreshBranding = useCallback(() => refresh(true), [refresh]);
 
   useEffect(() => {
-    if (!(hasInitialBranding && pollIntervalMs <= 0)) {
-      void refresh();
-    }
+    if (hasInitialBranding && pollIntervalMs <= 0) return;
+    void refresh();
     const refreshVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
     const timer = pollIntervalMs > 0 ? setInterval(refreshVisible, pollIntervalMs) : null;
     window.addEventListener('focus', refreshVisible);

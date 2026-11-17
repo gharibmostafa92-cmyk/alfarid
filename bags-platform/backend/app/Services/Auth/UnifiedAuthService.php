@@ -70,6 +70,15 @@ final class UnifiedAuthService
         $suppressAudit = $pairLimitReached || $hourLimitReached || $dayLimitReached || $broadLimitReached || $wideLimitReached;
         // A global spike tightens the limits for affected networks and identifiers.
         // A first attempt from an unaffected network and identifier still works.
+        // Reserve the per-identifier+network slot atomically BEFORE any Turnstile
+        // HTTP: under concurrency the non-atomic attempts() read above lets a
+        // burst through, and failed challenges must consume the hard ceiling
+        // too — otherwise rejected floods cost Cloudflare calls instead of a
+        // local counter check.
+        $pairHits = RateLimiter::hit($pairKey, 3600);
+        if ($pairHits > $pairLimit * 5) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
+        }
         $globalChallenge = $globalLimitReached && (
             RateLimiter::attempts($dayKey) > 0
             || RateLimiter::attempts($ipKey) > 0
@@ -83,10 +92,6 @@ final class UnifiedAuthService
             if ($validator->fails()) {
                 throw new BusinessException('أكمل التحقق البشري للمتابعة.', [], 429, 'challenge_required');
             }
-        }
-        $pairHits = RateLimiter::hit($pairKey, 3600);
-        if ($pairHits > $pairLimit * 5) {
-            throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
         // The users-table lookup runs only after the Turnstile challenge and
         // the pair slot are satisfied, so rejected flood traffic costs zero
@@ -136,7 +141,8 @@ final class UnifiedAuthService
             $email = mb_strtolower($login);
 
             // Enforce constant-time verification using dummy hash when candidate is missing to prevent user enumeration.
-            // L4: supplier portal has its own AuthController; unified login only serves staff + customers.
+            // L4: supplier portal has its own AuthController (routes/api/supplier.php);
+            // unified login only serves staff + customers by design.
             // L-6: the legacy staff endpoint must not verify (or audit) customer credentials.
             $customer = $staffOnly ? null : $this->customerAuth->findForLogin($email);
 

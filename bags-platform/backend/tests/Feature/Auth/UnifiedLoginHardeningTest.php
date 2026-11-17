@@ -151,9 +151,11 @@ class UnifiedLoginHardeningTest extends TestCase
         $this->assertSame(3, $staff->tokens()->count());
     }
 
-    public function test_unverified_customer_email_does_not_block_other_account_types(): void
+    public function test_unverified_customer_email_blocks_other_account_types(): void
     {
-        Customer::factory()->create(['email' => 'pending-cust@example.test', 'email_verified_at' => null]);
+        // task3 CRITICAL-01: unverified retail addresses reserve the email
+        // across realms; the old lenient behavior was the shadowing bug.
+        Customer::factory()->create(['email' => 'pending-cust@example.test', 'email_verified_at' => null, 'type' => 'retail']);
 
         $failed = false;
         (new EmailNotUsedByOtherAccountType('users'))->validate(
@@ -161,7 +163,7 @@ class UnifiedLoginHardeningTest extends TestCase
                 $failed = true;
             }
         );
-        $this->assertFalse($failed);
+        $this->assertTrue($failed);
     }
 
     public function test_successful_logins_do_not_consume_the_failure_budget(): void
@@ -222,8 +224,10 @@ class UnifiedLoginHardeningTest extends TestCase
 
     public function test_a_customer_cannot_verify_an_email_claimed_by_staff(): void
     {
-        $customer = Customer::factory()->create(['email' => 'claimed@example.test', 'email_verified_at' => null]);
         User::factory()->create(['email' => 'claimed@example.test']);
+        // Legacy collision predating the cross-realm invariant (task3 CRITICAL-01).
+        $customer = Customer::factory()->make(['email' => 'claimed@example.test', 'email_verified_at' => null]);
+        $customer->saveQuietly();
         try {
             $customer->forceFill(['email_verified_at' => now()])->save();
             $this->fail('The shared email must not become a verified customer identity.');

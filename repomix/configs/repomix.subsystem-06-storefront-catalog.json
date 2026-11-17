@@ -39,6 +39,7 @@
                     "bags-platform/backend/app/Services/Catalog/**",
                     "bags-platform/frontend/packages/ui/src/components/branding-provider.tsx",
                     "bags-platform/backend/app/Services/Orders/CartService.php",
+                    "bags-platform/backend/app/Console/Commands/Orders/PruneGuestCarts.php",
                     "bags-platform/backend/app/Services/Orders/ShippingQuoteService.php",
                     "bags-platform/backend/app/Services/Orders/ShipmentService.php",
                     "bags-platform/backend/app/Services/Orders/ShippingWebhookService.php",
@@ -100,7 +101,8 @@
                     "bags-platform/backend/app/Http/Middleware/EnsureCustomerAuthenticated.php",
                     "bags-platform/backend/app/Jobs/SendCustomerPasswordReset.php",
                     "bags-platform/backend/app/Jobs/SendCustomerPhoneVerification.php",
-                    "bags-platform/backend/app/Services/Customer/CustomerPhoneVerificationService.php"
+                    "bags-platform/backend/app/Services/Customer/CustomerPhoneVerificationService.php",
+                    "bags-platform/backend/app/Support/AccountEmailLock.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

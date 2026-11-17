@@ -56,7 +56,15 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     if (view !== 'login' || token || loginRef.current !== '' || passwordRef.current !== '' || params.get('as') === 'customer') {
       return;
     }
-    const office = new URL(resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'));
+    const configuredOffice = process.env.NEXT_PUBLIC_BACKOFFICE_URL?.trim() ?? '';
+    let office: URL;
+    try {
+      office = new URL(resolveServiceUrl(configuredOffice || 'http://localhost:5173'));
+    } catch {
+      return;
+    }
+    const officeLoopback = office.hostname === 'localhost' || office.hostname === '127.0.0.1' || office.hostname === '::1';
+    if (process.env.NODE_ENV === 'production' && (!configuredOffice || officeLoopback)) return;
     const nonce = createSessionNonce();
     if (!nonce) return;
     const frame = document.createElement('iframe');
@@ -89,7 +97,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     };
     window.addEventListener('message', receive);
     document.body.appendChild(frame);
-    // 2.5s matches real mobile networks (SPA bundle + /api/v1/admin/me);
+    // 2.5s matches real mobile networks (SPA bundle + /api/v1/auth/me);
     // the probe listener above short-circuits earlier on success.
     const timer = window.setTimeout(() => {
       cleanup();
@@ -101,10 +109,11 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   }, [view, token, params]);
 
   // If already authenticated, redirect to the intended destination or default home path.
+  // Wholesalers/suppliers keep deep links inside their own portal; retail keeps the default policy.
   useEffect(() => {
     if (!token || !home) return;
     const r = params.get('redirect');
-    const safe = destination === 'retail' ? safeReturnPath(r) : null;
+    const safe = safeReturnPath(r, destination === 'wholesale' ? ['/wholesale'] : destination === 'supplier' ? ['/supplier'] : []);
     router.replace(safe ?? home);
   }, [token, home, router, params, destination]);
 

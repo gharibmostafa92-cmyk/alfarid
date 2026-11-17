@@ -9,7 +9,6 @@ import { SophieCartDrawer } from '../overlays/SophieCartDrawer';
 import { SophieMegaDropdown } from './SophieMegaDropdown';
 import { SophieProfileDropdown } from './SophieProfileDropdown';
 import { useAuthStore } from '@/store/auth.store';
-import type { Destination } from '@/types/auth';
 import { useAuthMe } from '@/hooks/use-auth-me';
 import { logoutWeb } from '@/services/auth.service';
 import { prefetchMegaMenu, useMegaMenu } from '@/hooks/useMegaMenu';
@@ -51,8 +50,6 @@ export function SophieHeader() {
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const destination = useAuthStore((s) => s.destination);
-  const actorType = useAuthStore((s) => s.actorType);
-  void actorType;
   const isAuthed = mounted && !!token;
   const isCheckoutPage = pathname.startsWith('/checkout');
 
@@ -179,10 +176,24 @@ export function SophieHeader() {
   useEffect(() => {
     if (!mounted || !token || !meData) return;
     if (useAuthStore.getState().token !== token) return;
-    useAuthStore.setState({
-      user: (meData.data as Record<string, unknown>) ?? null,
-      destination: (meData.redirect?.destination as Destination | null) ?? null,
-      home: (meData.redirect?.path as string | null) ?? null,
+    const dest = meData.redirect?.destination;
+    const path = meData.redirect?.path;
+    if (typeof dest !== 'string' || typeof path !== 'string') return;
+    const nextActorType = meData.actor?.type === 'supplier' ? 'supplier' : 'customer';
+    const nextUser = (meData.data ?? {}) as Record<string, unknown>;
+    const current = useAuthStore.getState();
+    if (
+      current.actorType === nextActorType
+      && current.destination === dest
+      && current.home === path
+      && JSON.stringify(current.user) === JSON.stringify(nextUser)
+    ) return;
+    current.setSession({
+      token,
+      actorType: nextActorType,
+      destination: dest,
+      home: path,
+      user: nextUser,
     });
   }, [mounted, token, meData]);
 

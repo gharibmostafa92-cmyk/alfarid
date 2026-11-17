@@ -335,31 +335,80 @@ final class CustomerWholesaleAssistant
 
     private function orderStatus(Customer $customer): string
     {
-        $order = Order::query()->where('customer_id', $customer->id)->latest('id')->first();
+        $order = Order::query()
+            ->where('customer_id', $customer->id)
+            ->where('status', '!=', 'draft')
+            ->latest('id')
+            ->first();
         if ($order === null) {
             return 'مفيش طلبات على الحساب.';
         }
-        $history = OrderStatusHistory::query()->where('order_id', $order->id)->latest('id')->first();
-        $status = $history?->to_status instanceof \BackedEnum
-            ? $history->to_status->value
-            : ($history !== null ? (string) $history->to_status : ($order->status instanceof \BackedEnum ? $order->status->value : (string) $order->status));
+        $status = $order->status instanceof \BackedEnum ? $order->status->value : (string) $order->status;
 
         return 'آخر طلب '.$order->order_number.' حالته '.$status.'.';
     }
 
     private function reorder(Customer $customer): string
     {
-        $order = Order::query()->with('items')->where('customer_id', $customer->id)->latest('id')->first();
+        $order = Order::query()
+            ->with('items.variant')
+            ->where('customer_id', $customer->id)
+            ->whereNotIn('status', [OrderStatus::Cancelled->value, 'draft'])
+            ->latest('id')
+            ->first();
         if ($order === null) {
             return 'مفيش طلب نعيده.';
         }
-        $result = $this->quickOrder->reorderToCart($customer, $order);
-        $added = count($result['added']);
-        $skipped = count($result['skipped']);
 
-        return 'اتضافت '.$added.' بند للسلة من آخر طلب'
-            .($skipped > 0 ? ' واتشال '.$skipped.' لنقص المخزون أو الإيقاف' : '')
-            .'. راجع السلة قبل التأكيد.';
+        $resolved = [];
+        foreach ($order->items as $item) {
+            $variant = $item->variant;
+            $qty = (float) $item->qty;
+            if ($variant === null || ! $variant->is_active || $qty < 1) {
+                continue;
+            }
+            $resolved[] = [
+                'product_variant_id' => (int) $variant->id,
+                'sku' => (string) $variant->sku,
+                'qty' => $qty,
+            ];
+        }
+        if ($resolved === []) {
+            return 'أصناف آخر طلب لم تعد متاحة للطلب.';
+        }
+
+        $found = $this->quickOrder->lookupSelectedVariants($customer, $resolved);
+        $parts = [];
+        $cachedItems = [];
+        foreach ($found as $row) {
+            $parts[] = ($row['label'] ?? $row['code']).' × '.rtrim(rtrim(number_format((float) $row['qty'], 2, '.', ''), '0'), '.').' بسعر '.($row['unit_price'] ?? '?');
+            if (($row['found'] ?? false) && isset($row['product_variant_id'], $row['sku'])) {
+                $cachedItems[] = [
+                    'product_variant_id' => (int) $row['product_variant_id'],
+                    'sku' => (string) $row['sku'],
+                    'qty' => (float) $row['qty'],
+                ];
+            }
+        }
+        if ($cachedItems === []) {
+            return 'أصناف آخر طلب لم تعد متاحة للطلب.';
+        }
+
+        $cached = $this->orderLookupLock($customer)->get(function () use ($customer, $cachedItems): bool {
+            $token = bin2hex(random_bytes(6));
+            $ttl = now()->addMinutes(15);
+            Cache::put($this->orderLookupCacheKey($customer, $token), $cachedItems, $ttl);
+            Cache::put($this->latestOrderLookupCacheKey($customer), $token, $ttl);
+
+            return true;
+        });
+
+        $summary = 'إعادة طلب #'.$order->order_number.': '.implode('، ', $parts).'.';
+        if ($cached !== true) {
+            return $summary;
+        }
+
+        return $summary.' لتأكيد الإضافة للسلة أرسل: سلة أو لتحويله لعرض سعر أرسل: عرض سعر.';
     }
 
     /**

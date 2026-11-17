@@ -58,10 +58,13 @@ export function cloudRunIdentityToken(audience: string): Promise<string> {
 }
 
 /** Strips an optional port without mangling bare IPv6 addresses. */
-function stripPort(value: string): string {
+export function stripPort(value: string): string {
   if (value.startsWith('[')) {
     const end = value.indexOf(']');
-    return end > 0 ? value.slice(1, end) : value;
+    if (end <= 0) return value;
+    const rest = value.slice(end + 1);
+    if (rest !== '' && !/^:\d{1,5}$/.test(rest)) return value;
+    return value.slice(1, end);
   }
   const first = value.indexOf(':');
   if (first !== -1 && first === value.lastIndexOf(':') && /^\d{1,5}$/.test(value.slice(first + 1))) {
@@ -77,14 +80,17 @@ function stripPort(value: string): string {
  * to attacker-controlled values. X-Real-IP is ignored unless a proxy is
  * explicitly declared as its source.
  */
-function clientAddress(request: Request, trustedProxyHops = 1): string | null {
+export function clientAddress(request: Request, trustedProxyHops = 1): string | null {
   const hops = Number.isInteger(trustedProxyHops) && trustedProxyHops >= 1 ? trustedProxyHops : 1;
   const forwarded = request.headers.get('x-forwarded-for') ?? '';
   const parts = forwarded.split(',').map(part => part.trim()).filter(Boolean);
-  if (parts.length >= hops) {
-    const candidate = stripPort(parts[parts.length - hops]);
+  if (parts.length > 0) {
+    // Trust only the rightmost `hops` entries. A shorter chain still has an
+    // original client at the left; extra entries beyond the hop count are ignored.
+    const index = parts.length >= hops ? parts.length - hops : 0;
+    const candidate = stripPort(parts[index]);
     if (candidate && isIP(candidate) !== 0) return candidate;
-    // Refuse to slide backward into earlier attacker-controlled XFF entries if the expected proxy hop is invalid.
+    // Refuse to slide into a different XFF entry when the selected hop is invalid.
     return null;
   }
   if (process.env.API_PROXY_TRUST_X_REAL_IP === '1') {
@@ -103,6 +109,37 @@ async function signClientAddress(secret: string, timestamp: string, address: str
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestamp}.${address}`));
 
   return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const DEFAULT_BODY_BYTES = 1 * 1024 * 1024;
+const UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
+const UPLOAD_PATH_MARKERS = [
+  'account/returns',
+  'auth/register',
+  'documents',
+  'media',
+  'attachments',
+  'invoice',
+  'payment-notices',
+  'banners',
+  'quick-order/import',
+];
+
+export function requestBodyLimit(path: readonly string[], contentType: string | null): number {
+  const type = (contentType ?? '').toLowerCase();
+  if (type.includes('multipart/form-data')) return UPLOAD_BODY_BYTES;
+  const joined = path.join('/');
+  if (UPLOAD_PATH_MARKERS.some((marker) => joined.includes(marker))) return UPLOAD_BODY_BYTES;
+  return DEFAULT_BODY_BYTES;
+}
+
+function mergeVary(upstream: string | null): string {
+  const values = new Set<string>(['Origin']);
+  for (const part of (upstream ?? '').split(',')) {
+    const name = part.trim();
+    if (name) values.add(name);
+  }
+  return [...values].join(', ');
 }
 
 class PayloadTooLargeError extends Error {}
@@ -175,11 +212,11 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   }
   if (!methods.includes(request.method)) return fail(405, 'Method is not permitted');
 
-  const MAX_PAYLOAD_BYTES = 30 * 1024 * 1024; // 30 MiB max payload
+  const maxPayloadBytes = requestBodyLimit(path, request.headers.get('content-type'));
   const rawContentLength = request.headers.get('content-length');
   if (rawContentLength !== null) {
     const parsedLength = Number.parseInt(rawContentLength, 10);
-    if (Number.isFinite(parsedLength) && parsedLength > MAX_PAYLOAD_BYTES) {
+    if (Number.isFinite(parsedLength) && parsedLength > maxPayloadBytes) {
       return fail(413, 'Payload too large');
     }
   }
@@ -216,7 +253,7 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(isAiTurn ? 180_000 : 60_000)]),
     };
     if (request.body) {
-      init.body = limitRequestBody(request.body, MAX_PAYLOAD_BYTES);
+      init.body = limitRequestBody(request.body, maxPayloadBytes);
       init.duplex = 'half';
     }
     const response = await (config.send ?? fetch)(upstream, init);
@@ -228,8 +265,10 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       const value = response.headers.get(name);
       if (value !== null) headers.set(name, value);
     }
+    headers.set('vary', mergeVary(response.headers.get('vary')));
     // The backend already marks authenticated responses private, but enforce it
     // here too so a misconfigured upstream can never cache a user's response.
+    // Vary is merged above and is not overwritten with cache-control.
     if (!isWebhook && request.headers.has('authorization')) headers.set('cache-control', 'no-store');
     if (!isWebhook) headers.set('access-control-expose-headers', responseHeaders.join(', '));
     return new Response(response.body, { status: response.status, headers });

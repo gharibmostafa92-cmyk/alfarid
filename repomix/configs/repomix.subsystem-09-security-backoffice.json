@@ -94,7 +94,9 @@
                     "bags-platform/frontend/apps/storefront/src/lib/auth/password-byte-limit.ts",
                     "bags-platform/frontend/apps/storefront/src/store/auth-redirect.ts",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Pos/PosCustomerController.php",
-                    "bags-platform/backend/app/Services/Customer/CustomerGroupService.php"
+                    "bags-platform/backend/app/Services/Customer/CustomerGroupService.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Customer/CustomerWalletController.php",
+                    "bags-platform/backend/app/Support/AccountEmailLock.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -6,15 +6,17 @@ namespace App\Exports;
 
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
+use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use PhpOffice\PhpSpreadsheet\Cell\StringValueBinder;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
  * Merchant wholesale price list export (Excel) — rows are constructed in
  * WholesalePriceListService to guarantee exact parity with the PDF price list export.
  */
-class WholesalePriceListExport implements FromArray, ShouldAutoSize, WithHeadings, WithStyles
+class WholesalePriceListExport extends StringValueBinder implements FromArray, ShouldAutoSize, WithCustomValueBinder, WithHeadings, WithStyles
 {
     /** @param  list<array<string, mixed>>  $rows */
     public function __construct(private readonly array $rows) {}
@@ -49,7 +51,7 @@ class WholesalePriceListExport implements FromArray, ShouldAutoSize, WithHeading
             return $value;
         }
 
-        return preg_match('/^[\s]*[=+@\-\t\r\n]/u', $value) ? "'".$value : $value;
+        return preg_match('/^[\s]*[=+@|\-\t\r\n]/u', $value) ? "'".$value : $value;
     }
 
     public function styles(Worksheet $sheet): array

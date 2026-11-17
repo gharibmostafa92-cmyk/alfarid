@@ -20,16 +20,17 @@ class MaxImagePixels implements ValidationRule
         if (! $value instanceof UploadedFile) {
             return;
         }
-        $head = @file_get_contents($value->getRealPath() ?: $value->getPathname(), false, null, 0, 5);
+        $path = $value->getRealPath() ?: $value->getPathname();
         $mime = (string) $value->getMimeType();
         $isPdfUpload = strtolower($mime) === 'application/pdf'
             || strtolower($value->getClientMimeType()) === 'application/pdf';
-        if ($isPdfUpload && $head !== '%PDF-') {
+        $hasPdfHeader = PdfHeader::contains($path);
+        if ($isPdfUpload && ! $hasPdfHeader) {
             $fail('ملف PDF لا يبدأ بترويسة PDF صالحة.');
 
             return;
         }
-        if ($head === '%PDF-') {
+        if ($hasPdfHeader) {
             return;
         }
         // Highly compressed images bypass filesize limits; cap total pixel count to prevent GD memory exhaustion bombs.

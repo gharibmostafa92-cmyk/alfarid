@@ -1,8 +1,9 @@
 # Task4 — Infrastructure, Security, Concurrency & Maintenance Hardening Roadmap
 
-Source roadmap: `_archive_unused/tasks_execution/task4.txt` (19 items: 4 Critical, 5 High, 7 Medium, 2 Low, 1 Info).
-Date of Execution: 2026-11-15
-Status: 100% Implemented & Verified in local repository (`_archive_unused/tasks_execution/task4.txt` all marked `✅`).
+The infrastructure checklist below is the 2026-11-15 execution. `_archive_unused/tasks_execution/task4.txt` now holds a separate storefront defect list (F01–F20), marked complete locally on 2026-11-17. That later list is not deployed. Its pending steps are in `bags-platform/docs/deployment-status.md`.
+
+Date of the infrastructure execution: 2026-11-15
+Infrastructure status: implemented and verified locally. Live deployment of those items remains unverified.
 
 ---
 
