@@ -20,7 +20,8 @@ param (
         'procurement', 'suppliers', 'procurement-suppliers',
         'security', 'auth', 'backoffice', 'security-backoffice',
         '9.1', 'security-auth', 'security-auth-rbac',
-        '9.2', 'backoffice-notifications',
+        '9.2', 'backoffice-portal', 'backoffice-ui', 'backoffice-notifications',
+        '9.3', 'notifications-settings', 'notifications', 'settings',
         'infra', 'devops', 'infra-devops'
     )]
     [string]$Domain,
@@ -64,7 +65,8 @@ $SplitConfigs = [ordered]@{
     'storefront-client'        = 'repomix.subsystem-06.1-storefront-client.json'
     'catalog-shipping'         = 'repomix.subsystem-06.2-catalog-shipping.json'
     'security-auth-rbac'       = 'repomix.subsystem-09.1-security-auth-rbac.json'
-    'backoffice-notifications' = 'repomix.subsystem-09.2-backoffice-notifications.json'
+    'backoffice-portal'        = 'repomix.subsystem-09.2-backoffice-portal.json'
+    'notifications-settings'   = 'repomix.subsystem-09.3-notifications-settings.json'
 }
 
 $AllConfigs = [ordered]@{}
@@ -78,7 +80,8 @@ function Resolve-DomainKey([string]$key) {
         '^(6\.1|storefront-client)$'                        { return 'storefront-client' }
         '^(6\.2|catalog-shipping)$'                         { return 'catalog-shipping' }
         '^(9\.1|security-auth|security-auth-rbac)$'         { return 'security-auth-rbac' }
-        '^(9\.2|backoffice-notifications)$'                 { return 'backoffice-notifications' }
+        '^(9\.2|backoffice-portal|backoffice-ui|backoffice-notifications)$' { return 'backoffice-portal' }
+        '^(9\.3|notifications-settings|notifications|settings)$' { return 'notifications-settings' }
         '^(pos|terminal|shifts)'                            { return 'pos-terminal' }
         '^(order|return|refund)'                            { return 'orders-returns' }
         '^(invent|stock|ledger)'                            { return 'inventory-ledger' }

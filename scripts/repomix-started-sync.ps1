@@ -308,8 +308,11 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
         if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff|customer|admin')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json')
         }
-        if ($configs.ContainsKey('repomix.subsystem-09.2-backoffice-notifications.json') -and ($p -match 'backoffice|notification|operations/http')) {
-            [void]$matchedConfigs.Add('repomix.subsystem-09.2-backoffice-notifications.json')
+        if ($configs.ContainsKey('repomix.subsystem-09.2-backoffice-portal.json') -and ($p -match 'apps/backoffice|operations/http')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.2-backoffice-portal.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-09.3-notifications-settings.json') -and ($p -match 'notification|setting|message_budget|customermessagebudget|outboundmessage|inboundmessage|messagetemplate|widen_text')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.3-notifications-settings.json')
         }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
     }
