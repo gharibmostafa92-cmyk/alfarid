@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Customer;
 
-use App\Services\Shared\PrivateAttachments;
-use App\Services\Shared\SearchTerm;
-
 use App\Enums\Customer\CustomerDocumentStatus;
 use App\Enums\Customer\CustomerDocumentType;
 use App\Enums\Customer\CustomerStatus;
@@ -19,6 +16,8 @@ use App\Models\CustomerDocument;
 use App\Models\CustomerGroup;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
+use App\Services\Shared\PrivateAttachments;
+use App\Services\Shared\SearchTerm;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
@@ -112,6 +111,9 @@ class CustomerManagementService
     public function create(array $data, ?int $actorId = null, array $via = []): Customer
     {
         $data['type'] ??= CustomerType::Retail->value;
+        // Internal callers (AI tools, jobs) may pass enum objects; compare canonical values everywhere below.
+        $data['type'] = $data['type'] instanceof CustomerType ? $data['type']->value : $data['type'];
+        $data['status'] = ($data['status'] ?? null) instanceof CustomerStatus ? $data['status']->value : ($data['status'] ?? null);
         $data['credit_limit'] ??= 0;
         // Default status by type unless explicitly provided: retail is approved, wholesale requires review.
         $data['status'] ??= $data['type'] === CustomerType::Retail->value
@@ -125,7 +127,7 @@ class CustomerManagementService
             throw new BusinessException('حسابات التجزئة يجب أن تكون معتمدة عند إنشائها.');
         }
 
-        if ($isApproved && $data['type'] !== CustomerType::Retail->value) {
+        if ($isApproved && ! $isRetail) {
             throw new BusinessException('أنشئ حساب الجملة قيد المراجعة ثم استخدم مسار الاعتماد.');
         }
 
@@ -256,8 +258,11 @@ class CustomerManagementService
             if ($customer->status === CustomerStatus::Suspended) {
                 throw new BusinessException('الحساب موقوف؛ استخدم إعادة التفعيل بدل الاعتماد.');
             }
+            // Internal callers may pass enum objects; compare canonical values.
+            $requestedType = $data['type'] ?? null;
+            $requestedType = $requestedType instanceof CustomerType ? $requestedType->value : $requestedType;
             $this->assertActiveGroup(array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null ? (int) $data['customer_group_id'] : null);
-            if ($customer->status === CustomerStatus::Approved && ($data['type'] ?? $customer->type->value) === $customer->type->value) {
+            if ($customer->status === CustomerStatus::Approved && ($requestedType ?? $customer->type->value) === $customer->type->value) {
                 throw new BusinessException('هذا الحساب معتمد بالفعل.');
             }
             $legal = [];
@@ -266,7 +271,7 @@ class CustomerManagementService
             if ($customer->documents()->where('status', CustomerDocumentStatus::Pending->value)->exists()) {
                 throw new BusinessException('راجع المستندات المعلقة (اعتمد السليم وارفض غير السليم) قبل اعتماد الحساب.');
             }
-            if (($data['type'] ?? $customer->type->value) !== CustomerType::Retail->value) {
+            if (($requestedType ?? $customer->type->value) !== CustomerType::Retail->value) {
                 if (! $customer->documents()->where('status', CustomerDocumentStatus::Verified->value)->exists()) {
                     throw new BusinessException('يلزم مستند موثّق واحد على الأقل لاعتماد حساب الجملة أو الموزع.');
                 }

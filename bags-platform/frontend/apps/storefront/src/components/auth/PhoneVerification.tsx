@@ -2,22 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { getRegistrationOptions, sendPhoneVerification, verifyPhone } from '@/services/auth.service';
+import { normalizeCode, normalizePhone } from '@/services/phone-format';
 import { HumanVerification } from './HumanVerification';
 
 export type PhoneProof = { token: string; ready: boolean };
-
-function normalizeCode(value: string) {
-  return value.replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 1632))
-    .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 1776))
-    .replace(/[^0-9]/g, '');
-}
-
-function normalizePhone(value: string) {
-  const compact = value.trim().replace(/[\s().-]/g, '');
-  if (/^\+?200?(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
-  if (/^00200?(1[0125][0-9]{8})$/.test(compact)) return `0${compact.slice(-10)}`;
-  return compact;
-}
 
 export function PhoneVerification({ phone, lang, disabled, onChange, onBusyChange }: {
   phone: string; lang: 'ar' | 'en'; disabled: boolean;

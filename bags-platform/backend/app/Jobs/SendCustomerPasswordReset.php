@@ -21,6 +21,17 @@ class SendCustomerPasswordReset implements ShouldBeEncrypted, ShouldQueue
     public int $timeout = 30;
 
     /**
+     * Back off before retrying so a momentary provider outage does not
+     * silently drop the reset without giving the customer another chance.
+     *
+     * @return list<int>
+     */
+    public function backoff(): array
+    {
+        return [15, 45];
+    }
+
+    /**
      * Create a new job instance.
      */
     public function __construct(public readonly ?string $email, public readonly ?string $phone) {}

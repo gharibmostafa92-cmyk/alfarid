@@ -20,6 +20,18 @@ class SendCustomerPhoneVerification implements ShouldBeEncrypted, ShouldQueue
 
     public int $timeout = 30;
 
+    /**
+     * Back off before retrying so a momentary provider outage does not
+     * instantly mint a conflicting OTP that invalidates the code the
+     * customer may have just received.
+     *
+     * @return list<int>
+     */
+    public function backoff(): array
+    {
+        return [15, 45];
+    }
+
     public function __construct(public readonly string $phone, public readonly ?string $networkKey = null) {}
 
     public function handle(CustomerPhoneVerificationService $service): void

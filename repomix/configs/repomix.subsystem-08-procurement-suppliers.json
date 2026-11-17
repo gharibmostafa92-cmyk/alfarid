@@ -16,6 +16,7 @@
                },
     "include":  [
                     "bags-platform/frontend/src/app/supplier/**",
+                    "bags-platform/frontend/apps/storefront/src/app/supplier/**",
                     "bags-platform/backend/routes/api/supplier.php",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Procurement/**",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Supplier/**",
@@ -54,7 +55,8 @@
                     "bags-platform/frontend/apps/storefront/src/app/supplier/profile/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/supplier/purchase-orders/page.tsx",
                     "bags-platform/frontend/apps/storefront/src/app/supplier/statement/page.tsx",
-                    "bags-platform/frontend/packages/api-client/src/endpoints/supplier.ts"
+                    "bags-platform/frontend/packages/api-client/src/endpoints/supplier.ts",
+                    "bags-platform/backend/app/Http/Resources/Admin/Procurement/PurchaseOrderResource.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

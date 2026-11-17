@@ -149,10 +149,10 @@ class UnifiedAuthController extends Controller
 
         if ($actor instanceof SupplierUser) {
             abort_unless($token->can('supplier'), 403);
+            $actor->loadMissing('supplier');
             // Re-verify company active status; deactivated suppliers must be blocked immediately.
             abort_unless($actor->is_active && $actor->supplier_id !== null
                 && $actor->supplier?->is_active === true, 403);
-            $actor->load('supplier');
             $redirect = $this->destinations->resolve($actor);
 
             return response()->json(['actor' => ['type' => 'supplier', 'subtype' => $redirect['destination']],

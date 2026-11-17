@@ -97,7 +97,10 @@
                     "bags-platform/frontend/packages/pos-core/src/components/terminal/Catalog.tsx",
                     "bags-platform/frontend/packages/pos-core/src/stores/pos-cart.core.ts",
                     "bags-platform/frontend/packages/pos-core/src/stores/pos-cart.store.ts",
-                    "bags-platform/backend/app/Http/Middleware/EnsureCustomerAuthenticated.php"
+                    "bags-platform/backend/app/Http/Middleware/EnsureCustomerAuthenticated.php",
+                    "bags-platform/backend/app/Jobs/SendCustomerPasswordReset.php",
+                    "bags-platform/backend/app/Jobs/SendCustomerPhoneVerification.php",
+                    "bags-platform/backend/app/Services/Customer/CustomerPhoneVerificationService.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

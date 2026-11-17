@@ -13,7 +13,7 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
-/** L4: unified me/logout sit behind an active-account check, not bare sanctum auth. */
+/** L4: unified me sits behind an active-account check; logout (session revocation) stays reachable for any valid token. */
 class UnifiedAccountActiveTest extends TestCase
 {
     use LazilyRefreshDatabase;
@@ -26,8 +26,18 @@ class UnifiedAccountActiveTest extends TestCase
         // The middleware rejects before the controller, with its own message.
         $this->withToken($token)->getJson('/api/v1/auth/me')
             ->assertForbidden()->assertJsonPath('message', 'تم إيقاف الحساب.');
-        $this->withToken($token)->postJson('/api/v1/auth/logout')
-            ->assertForbidden()->assertJsonPath('message', 'تم إيقاف الحساب.');
+    }
+
+    public function test_disabled_staff_can_still_revoke_session_via_unified_logout(): void
+    {
+        $staff = User::factory()->create(['is_active' => false]);
+        $token = $staff->createToken('staff')->plainTextToken;
+
+        // Session revocation must always succeed for a valid token so a
+        // deactivated identity can still sign itself out everywhere.
+        $this->withToken($token)->postJson('/api/v1/auth/logout')->assertNoContent();
+
+        $this->assertSame(0, $staff->tokens()->count());
     }
 
     public function test_suspended_customer_cannot_use_unified_me(): void

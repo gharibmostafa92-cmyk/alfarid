@@ -22,6 +22,7 @@ export default function SupplierStatementPage() {
 
   const applyPeriod = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
     if (fromDate && toDate && toDate < fromDate) {
       setError('تاريخ النهاية يجب أن يكون بعد تاريخ البداية.');
       return;
@@ -43,7 +44,7 @@ export default function SupplierStatementPage() {
         <label className="grid gap-1">من تاريخ<input className="rounded border px-3 py-2" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label>
         <label className="grid gap-1">إلى تاريخ<input className="rounded border px-3 py-2" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label>
         <button className="rounded bg-black px-4 py-2 text-white" type="submit">عرض الكشف</button>
-        <button className="rounded border px-4 py-2" type="button" onClick={() => { setFromDate(''); setToDate(''); setPeriod({}); }}>آخر 365 يومًا</button>
+        <button className="rounded border px-4 py-2" type="button" onClick={() => { setFromDate(''); setToDate(''); setError(''); setPeriod({}); }}>آخر 365 يومًا</button>
       </form>
       {error && <p role="alert">{error}</p>}
       {!data && !error && <p role="status">جارٍ التحميل…</p>}

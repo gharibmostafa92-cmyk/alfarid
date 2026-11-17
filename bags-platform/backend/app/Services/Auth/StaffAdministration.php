@@ -83,16 +83,17 @@ final class StaffAdministration
 
     /**
      * Verify record lock_version matches expected optimistic concurrency version.
+     *
+     * A missing version fails closed: every known caller (REST validation,
+     * AI tools, undo flows) supplies the version it read, so a blind write
+     * is always a lost update in progress.
      */
     public static function assertVersion(Model $record, ?int $expected): void
     {
-        // L8: null expected_version currently bypasses optimistic locking. Log it so we can
-        // measure legacy clients before enforcing required versioning in a follow-up.
-        if ($expected === null) {
-            logger()->warning('staff.missing_expected_version', ['model' => $record::class, 'id' => $record->getKey()]);
-        }
+        abort_if($expected === null, 409,
+            'أعد تحميل السجل قبل الحفظ؛ نسخة التعديل غير معروفة.');
         // Detects concurrent permission/profile updates occurring within the same second
-        abort_if($expected !== null && (int) $record->lock_version !== $expected, 409,
+        abort_if((int) $record->lock_version !== $expected, 409,
             'تم تعديل السجل بواسطة مستخدم آخر؛ أعد التحميل قبل الحفظ.');
     }
 
@@ -102,6 +103,37 @@ final class StaffAdministration
     public static function advanceVersion(Model $record): void
     {
         $record->forceFill(['lock_version' => (int) $record->lock_version + 1])->save();
+    }
+
+    /**
+     * Verify the grant password BEFORE any transaction or advisory lock is taken.
+     *
+     * Bcrypt (Hash::check/Hash::make) costs ~250ms; running it while holding
+     * the global staff advisory lock serializes all staff administration and
+     * lets a handful of concurrent requests exhaust the 5s lock timeout.
+     * Verify here, on the unlocked row, and hand the verified hash to
+     * requireGrantPassword() so the in-transaction check collapses to a
+     * constant-time hash_equals().
+     *
+     * On verification failure the password is stripped (not thrown): the
+     * in-transaction requireGrantPassword() then fails closed without
+     * re-running bcrypt under the lock, while grant-free paths (e.g. pure
+     * permission removals) proceed exactly as before.
+     *
+     * @return array{0: string|null, 1: string|null} [verifiedHash, passwordForInside]
+     *
+     * @throws TooManyRequestsHttpException When the hourly attempt budget is exhausted.
+     */
+    public static function preVerifyGrantPassword(?User $actor, ?string $password, bool $grantLikely): array
+    {
+        if (! $grantLikely || ! $actor instanceof User || $password === null || $password === '') {
+            return [null, $password];
+        }
+        if (self::verifyCurrentPassword($actor, $password)) {
+            return [$actor->password, $password];
+        }
+
+        return [null, null];
     }
 
     /**
@@ -277,7 +309,7 @@ final class StaffAdministration
             // Sensitive fields (passwords, tokens) are stripped; only allowed state keys are stored
             'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['password', 'current_password', 'expected_version', 'cost_price'])),
                 'before' => $before, 'after' => $after,
-                'via' => array_intersect_key($via, array_flip(['channel', 'tool', 'entity', 'conversation_id', 'action_id', 'source'])),
+                'via' => array_intersect_key($via, array_flip(['channel', 'tool', 'entity', 'conversation_id', 'action_id', 'source', 'path'])),
                 'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
             'created_at' => now(),
         ]);

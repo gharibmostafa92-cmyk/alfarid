@@ -25,12 +25,16 @@ final class AuditStaffAdministration
         }
 
         $resourcePath = substr($path, strlen($adminPrefix));
-        // Logout has no administrative mutation; AI conversations have their own throttle.
-        if ($resourcePath === 'auth/logout'
-            || $resourcePath === 'ai/conversations'
-            || str_starts_with($resourcePath, 'ai/conversations/')) {
+        // Logout has no administrative mutation and stays out of both the
+        // throttle and the denial audit.
+        if ($resourcePath === 'auth/logout') {
             return $next($request);
         }
+        // AI conversations carry their own throttle, but their 403s must
+        // still be recorded: a snooping attempt on another agent's thread is
+        // a security event, not chat noise.
+        $skipThrottle = $resourcePath === 'ai/conversations'
+            || str_starts_with($resourcePath, 'ai/conversations/');
         $segments = explode('/', $resourcePath);
         $target = [$path, $segments[0] ?? 'admin_resource', $segments[1] ?? null];
 
@@ -38,7 +42,7 @@ final class AuditStaffAdministration
         $key = 'staff:admin-mutations:'.($actor?->id ?? 'guest');
         $limit = max(1, (int) config('auth.staff_admin_mutations_minute', 60));
         // L-2: hit-then-compare is atomic; check-then-hit let concurrent requests overshoot.
-        if (RateLimiter::hit($key, 60) > $limit) {
+        if (! $skipThrottle && RateLimiter::hit($key, 60) > $limit) {
             return response()->json(['message' => 'طلبات إدارية كثيرة؛ حاول بعد قليل.'], 429);
         }
         try {
@@ -86,7 +90,11 @@ final class AuditStaffAdministration
             ][$target[1]] ?? 'admin_resource';
             try {
                 $targetId = isset($target[2]) && ctype_digit($target[2]) ? (int) $target[2] : null;
-                StaffAdministration::audit($actor, 'administration.denied', $type, $targetId, []);
+                // Persist the full request path: nested resources
+                // (branches.locations, customers.documents, ai threads) keep
+                // only a segment here, so the path is what makes a denial
+                // attributable in forensic review.
+                StaffAdministration::audit($actor, 'administration.denied', $type, $targetId, [], [], [], ['path' => $target[0]]);
             } catch (Throwable $exception) {
                 report($exception);
             }

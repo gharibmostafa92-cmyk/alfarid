@@ -60,7 +60,6 @@ final class UnifiedAuthService
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
         $pairLimitReached = $pairAttempts >= $pairLimit;
-        $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
         $hourLimitReached = RateLimiter::tooManyAttempts($hourKey, $hourLimit);
         $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
         $dayLimitReached = RateLimiter::tooManyAttempts($dayKey, $dayLimit);
@@ -89,6 +88,10 @@ final class UnifiedAuthService
         if ($pairHits > $pairLimit * 5) {
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
+        // The users-table lookup runs only after the Turnstile challenge and
+        // the pair slot are satisfied, so rejected flood traffic costs zero
+        // PostgreSQL queries.
+        $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
         try {
             $actor = $this->resolve($identifier, $password, $staff, $suppressAudit, $staffOnly);
         } catch (BusinessException $exception) {
@@ -224,6 +227,7 @@ final class UnifiedAuthService
             Hash::check($password, CustomerAuthService::dummyHash());
             throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
         }
+
         return $this->customerAuth->login($login, $password);
     }
 

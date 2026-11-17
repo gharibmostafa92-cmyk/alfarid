@@ -38,6 +38,7 @@ class PurchaseOrderResource extends JsonResource
             'tax_amount' => $this->tax_amount,
             'grand_total' => $this->grand_total,
             'created_by' => $this->created_by,
+            'last_modified_by' => $this->last_modified_by,
             'approved_by' => $this->approved_by,
             'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
             'deliveries' => SupplierDeliveryResource::collection($this->whenLoaded('deliveries')),

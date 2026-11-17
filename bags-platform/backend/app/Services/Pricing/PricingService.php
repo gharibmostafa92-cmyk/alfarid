@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Pricing;
 
-use App\Enums\Customer\CustomerStatus;
 use App\Enums\Catalog\PriceListType;
+use App\Enums\Customer\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\PriceList;
@@ -16,6 +16,8 @@ use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /**
  * Central pricing engine across storefront, wholesale portal, POS, and admin backoffice.
@@ -33,7 +35,26 @@ use Illuminate\Support\Collection;
  */
 class PricingService
 {
+    public const CATALOG_VERSION_KEY = 'pricing:catalog_version';
+
     private array $catalogContexts = [];
+
+    public function catalogVersion(): string
+    {
+        $version = Cache::get(self::CATALOG_VERSION_KEY);
+        if (! is_string($version) || $version === '') {
+            $version = (string) Str::uuid();
+            Cache::forever(self::CATALOG_VERSION_KEY, $version);
+        }
+
+        return $version;
+    }
+
+    public function bumpCatalogVersion(): void
+    {
+        Cache::forever(self::CATALOG_VERSION_KEY, (string) Str::uuid());
+        $this->flushCatalogContexts();
+    }
 
     /**
      * Clears in-memory catalog context cache (useful across queue jobs and octane requests).
@@ -56,6 +77,7 @@ class PricingService
 
         $customer->loadMissing('customerGroup');
         $cacheKey = implode(':', [
+            $this->catalogVersion(),
             $customer->id,
             $customer->customer_group_id ?? 'none',
             $customer->updated_at?->getTimestamp() ?? 0,

@@ -36,7 +36,7 @@ final class StaffTokenService
             }
 
             // Prune expired tokens and enforce FIFO token cap to prevent unbounded session table growth.
-            self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20));
+            self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20), (int) config('auth.staff_token_minutes', 720));
 
             // L8: abilities follow the roles committed before this lock, not a
             // destination computed on the unlocked row.
@@ -47,16 +47,23 @@ final class StaffTokenService
             // inside the transaction, so no token (and no orphan) is ever committed.
             $destination = app(LoginDestinationResolver::class)->resolve($user);
             $abilities = ($destination['destination'] ?? null) === 'pos' ? ['pos'] : ['*'];
+
             return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 720))))->plainTextToken;
         });
     }
 
     /**
      * Prune expired personal access tokens and enforce a FIFO session cap for the given tokenable model.
+     *
+     * @param  int|null  $validMinutes  Token lifetime governing the created_at fallback. Each caller
+     *                                  passes the lifetime it issues tokens with (staff/customer/supplier
+     *                                  minutes) instead of the unrelated sanctum.expiration default, so a
+     *                                  shorter global expiry can never reap live channel tokens early —
+     *                                  and a longer one can never keep dead sessions prunable only by cap.
      */
-    public static function pruneAndCap(object $tokenable, int $maxTokens): void
+    public static function pruneAndCap(object $tokenable, int $maxTokens, ?int $validMinutes = null): void
     {
-        $expiry = config('sanctum.expiration');
+        $expiry = $validMinutes ?? config('sanctum.expiration');
         $tokenable->tokens()->where(fn ($query) => $query->where('expires_at', '<=', now())
             ->when($expiry, fn ($query) => $query->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
 

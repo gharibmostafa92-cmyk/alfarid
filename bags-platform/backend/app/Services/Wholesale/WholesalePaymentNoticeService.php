@@ -7,6 +7,7 @@ namespace App\Services\Wholesale;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryType;
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\RefundMethod;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Wholesale\PaymentNoticeReviewed;
 use App\Events\Wholesale\PaymentNoticeSubmitted;
@@ -152,7 +153,7 @@ class WholesalePaymentNoticeService
         $totalCreditNotes = BigDecimal::of((string) ReturnRequest::query()
             ->where('customer_id', $customer->id)
             ->where('status', 'refunded')
-            ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->where('refund_method', RefundMethod::CreditNote->value)
             ->whereHas('order', fn ($query) => $query
                 ->where('payment_method', 'credit')
                 ->where('status', '!=', OrderStatus::Cancelled->value))
@@ -174,7 +175,7 @@ class WholesalePaymentNoticeService
         $openCreditNotes = BigDecimal::of((string) ReturnRequest::query()
             ->where('customer_id', $customer->id)
             ->where('status', 'refunded')
-            ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->where('refund_method', RefundMethod::CreditNote->value)
             ->whereHas('order', fn ($query) => $query
                 ->where('payment_method', 'credit')
                 ->where('payment_status', 'unpaid')
@@ -308,7 +309,7 @@ class WholesalePaymentNoticeService
             ->where('reversed_at', '>=', $fromDate)->sum('amount');
 
         $openingReturns = ReturnRequest::query()->where('customer_id', $customer->id)
-            ->where('status', 'refunded')->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->where('status', 'refunded')->where('refund_method', RefundMethod::CreditNote->value)
             ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
             ->whereNotNull('refunded_at')->where('refunded_at', '<', $fromDate)->sum('total_refund_amount');
 
@@ -386,7 +387,7 @@ class WholesalePaymentNoticeService
         ReturnRequest::query()
             ->where('customer_id', $customer->id)
             ->where('status', 'refunded')
-            ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->where('refund_method', RefundMethod::CreditNote->value)
             ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
             ->whereNotNull('refunded_at')
             ->whereBetween('refunded_at', [$fromDate, $toDate])
@@ -457,7 +458,7 @@ class WholesalePaymentNoticeService
                         ->orWhereRaw($this->statementNoticeDateExpression().' BETWEEN ? AND ?', [$from, $to]);
                 })->count()
             + ReturnRequest::query()->where('customer_id', $customer->id)->where('status', 'refunded')
-                ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+                ->where('refund_method', RefundMethod::CreditNote->value)
                 ->whereNotNull('refunded_at')
                 ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
                 ->whereBetween('refunded_at', [$from, $to])->count();
@@ -554,9 +555,8 @@ class WholesalePaymentNoticeService
             if ($notice->order_id !== null) {
                 $this->settleOrderIfCovered((int) $notice->order_id, $adminId, $notice->notice_number);
             }
-            $approver = User::query()->find($adminId);
-            $restrictedBranchId = $approver !== null ? app(BranchAccess::class)->restrictedBranch($approver) : null;
-            $this->settleFreeNoticeFifo($customer, $adminId, $notice->notice_number, $restrictedBranchId);
+            // Free credit belongs to the customer, not the approver's branch.
+            $this->settleFreeNoticeFifo($customer, $adminId, $notice->notice_number);
 
             $notice = $notice->load(['customer', 'order', 'treasury', 'treasuryTransaction']);
             PaymentNoticeReviewed::dispatch($notice);
@@ -612,6 +612,18 @@ class WholesalePaymentNoticeService
 
         return DB::transaction(function () use ($notice, $adminId, $reason): WholesalePaymentNotice {
             Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+            $orderIds = WholesalePaymentAllocation::query()
+                ->where('notice_id', $notice->id)
+                ->pluck('order_id')
+                ->all();
+            if ($notice->order_id !== null) {
+                $orderIds[] = (int) $notice->order_id;
+            }
+            $orderIds = array_values(array_unique(array_map('intval', $orderIds)));
+            sort($orderIds, SORT_NUMERIC);
+            if ($orderIds !== []) {
+                Order::query()->whereIn('id', $orderIds)->orderBy('id')->lockForUpdate()->get();
+            }
             $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
 
             if ($notice->status !== WholesalePaymentNoticeStatus::Approved || $notice->reversed_at !== null) {
@@ -627,13 +639,6 @@ class WholesalePaymentNoticeService
             }
             app(BranchAccess::class)->assertTreasury($adminId, $treasury);
 
-            $orderIds = WholesalePaymentAllocation::query()
-                ->where('notice_id', $notice->id)
-                ->pluck('order_id')
-                ->all();
-            if ($notice->order_id !== null) {
-                $orderIds[] = (int) $notice->order_id;
-            }
             WholesalePaymentAllocation::query()->where('notice_id', $notice->id)->delete();
 
             $reversal = $this->treasury->record([
@@ -667,7 +672,7 @@ class WholesalePaymentNoticeService
             DB::afterCommit(static fn () => PaymentNoticeReviewed::dispatch($fresh));
 
             return $fresh;
-        });
+        }, attempts: 3);
     }
 
     private function assertCreditableOrder(Customer $customer, int $orderId): Order
@@ -1003,11 +1008,31 @@ class WholesalePaymentNoticeService
             }
 
             $toRelease = $excess;
+            $noticeIds = WholesalePaymentAllocation::query()
+                ->where('order_id', $order->id)
+                ->orderBy('notice_id')
+                ->pluck('notice_id')
+                ->merge(
+                    WholesalePaymentNotice::query()
+                        ->where('order_id', $order->id)
+                        ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+                        ->orderBy('id')
+                        ->pluck('id'),
+                )
+                ->map(fn ($id): int => (int) $id)
+                ->unique()
+                ->sort()
+                ->values();
+            if ($noticeIds->isNotEmpty()) {
+                WholesalePaymentNotice::query()->whereIn('id', $noticeIds)->orderBy('id')->lockForUpdate()->get();
+            }
             $allocations = WholesalePaymentAllocation::query()
                 ->where('order_id', $order->id)
-                ->orderByDesc('id')
+                ->orderBy('id')
                 ->lockForUpdate()
-                ->get();
+                ->get()
+                ->sortByDesc('id')
+                ->values();
 
             foreach ($allocations as $allocation) {
                 if ($toRelease->isLessThanOrEqualTo('0')) {
@@ -1029,7 +1054,10 @@ class WholesalePaymentNoticeService
             // then retain its non-excess portion as an allocation to the same order.
             if ($toRelease->isGreaterThan('0')) {
                 $linked = WholesalePaymentNotice::query()->where('order_id', $order->id)
-                    ->where('status', WholesalePaymentNoticeStatus::Approved->value)->orderByDesc('id')->lockForUpdate()->get();
+                    ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+                    ->get()
+                    ->sortByDesc('id')
+                    ->values();
                 foreach ($linked as $notice) {
                     if ($toRelease->isLessThanOrEqualTo('0')) {
                         break;
@@ -1078,7 +1106,7 @@ class WholesalePaymentNoticeService
         return BigDecimal::of((string) ReturnRequest::query()
             ->where('order_id', $orderId)
             ->where('status', 'refunded')
-            ->where('refund_method', \App\Enums\Orders\RefundMethod::CreditNote->value)
+            ->where('refund_method', RefundMethod::CreditNote->value)
             ->whereHas('order', fn ($q) => $q->where('payment_method', 'credit')->where('status', '!=', OrderStatus::Cancelled->value))
             ->when($excludeReturnRequestId !== null, fn ($q) => $q->whereKeyNot($excludeReturnRequestId))
             ->sum('total_refund_amount'))->toScale(2, RoundingMode::HalfUp);

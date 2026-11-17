@@ -74,6 +74,14 @@ test('wholesale registration preserves the guest cart session', async () => {
   assert.ok(!calls.some(call => call[0] === 'clear'));
 });
 
+test('retail registration preserves the guest cart when the server omits cart_merged', async () => {
+  const { service, calls } = loadService(undefined);
+  assert.equal(await service.registerWeb({ name: 'Customer', phone: '01012345678', password: 'password123' }, false), '/shop');
+  assert.ok(calls.some(call => call[0] === 'session'));
+  assert.ok(calls.some(call => call[0] === 'restore' && call[1] === 'guest-session'));
+  assert.ok(!calls.some(call => call[0] === 'clear'));
+});
+
 test('loginUnified preserves the guest cart session for wholesale_pending and supplier actors', async () => {
   for (const actor of [
     { type: 'customer', subtype: 'wholesale_pending' },

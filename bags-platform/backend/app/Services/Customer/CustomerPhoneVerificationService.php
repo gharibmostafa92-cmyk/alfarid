@@ -54,24 +54,39 @@ class CustomerPhoneVerificationService
             return true;
         });
         if ($created) {
-            DB::afterCommit(function () use ($phone, $code, $key, $networkKey, $budgetAt): void {
+            $expectedHash = 'hmac:'.hash_hmac('sha256', $key.':'.$code, (string) config('app.key'));
+            DB::afterCommit(function () use ($phone, $code, $key, $networkKey, $budgetAt, $expectedHash): void {
                 try {
                     Notification::route('customer_sms', $phone)->notify(new CustomerPhoneVerificationCode($code));
                     logger()->info('Customer OTP delivered.');
                 } catch (\Throwable $exception) {
-                    DB::table('customer_phone_verifications')->where('phone_key', $key)->update([
-                        'created_at' => now()->subMinutes(2),
-                    ]);
-                    try {
-                        app(CustomerMessageBudget::class)->releaseVerificationClaim($key, $networkKey, $budgetAt);
-                    } catch (\Throwable $refundException) {
-                        report($refundException);
-                    }
-                    logger()->error('Customer OTP delivery failed.', ['exception' => $exception::class]);
+                    $this->handleDeliveryFailure($key, $expectedHash, $networkKey, $budgetAt, $exception);
                     throw $exception;
                 }
             });
         }
+    }
+
+    /**
+     * Roll back the cooldown extension and refund the message budget after a
+     * failed OTP delivery without clobbering a newer concurrent challenge.
+     *
+     * The created_at pushback is conditional on the stored code still being
+     * the one this attempt generated (compare-and-swap on code_hash): a
+     * newer concurrent send must keep its own cooldown window.
+     */
+    public function handleDeliveryFailure(string $phoneKey, string $expectedHash, ?string $networkKey, CarbonImmutable $at, \Throwable $exception): void
+    {
+        DB::table('customer_phone_verifications')
+            ->where('phone_key', $phoneKey)
+            ->where('code_hash', $expectedHash)
+            ->update(['created_at' => now()->subMinutes(2)]);
+        try {
+            app(CustomerMessageBudget::class)->releaseVerificationClaim($phoneKey, $networkKey, $at);
+        } catch (\Throwable $refundException) {
+            report($refundException);
+        }
+        logger()->error('Customer OTP delivery failed.', ['exception' => $exception::class]);
     }
 
     /**

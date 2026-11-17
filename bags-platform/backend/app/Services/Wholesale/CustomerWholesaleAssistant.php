@@ -270,7 +270,7 @@ final class CustomerWholesaleAssistant
             return $e->getMessage();
         }
 
-        return 'اتقبل العرض واتعمل الطلب '.($accepted->converted_order_id ?? '');
+        return 'اتقبل العرض واتعمل الطلب '.($accepted->convertedOrder?->order_number ?? '');
     }
 
     private function balance(Customer $customer): string
@@ -605,16 +605,19 @@ final class CustomerWholesaleAssistant
             return false;
         }
 
-        // Give a complete model name or code precedence over a bare SKU followed by a count.
-        $description = $product.' '.$count;
+        // Preserve a full-phrase catalog match before interpreting its last number as a count.
+        $pattern = SearchTerm::pattern($product.' '.$count);
 
         return ! ProductVariant::query()->wholesalePurchasable()
             ->where(fn (Builder $query) => $query
-                ->whereRaw('LOWER(sku) = LOWER(?)', [$description])
-                ->orWhereRaw('LOWER(barcode) = LOWER(?)', [$description])
+                ->whereLike('sku', $pattern, caseSensitive: false)
+                ->orWhereLike('color_name_ar', $pattern, caseSensitive: false)
+                ->orWhereLike('size', $pattern, caseSensitive: false)
+                ->orWhereLike('capacity', $pattern, caseSensitive: false)
                 ->orWhereHas('product', fn (Builder $productQuery) => $productQuery
-                    ->whereRaw('LOWER(name_ar) = LOWER(?)', [$description])
-                    ->orWhereRaw('LOWER(name_en) = LOWER(?)', [$description])))
+                    ->whereLike('name_ar', $pattern, caseSensitive: false)
+                    ->orWhereLike('name_en', $pattern, caseSensitive: false)
+                    ->orWhereLike('code', $pattern, caseSensitive: false)))
             ->exists();
     }
 

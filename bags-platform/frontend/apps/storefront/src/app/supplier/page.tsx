@@ -18,7 +18,7 @@ export default function SupplierDashboardPage() {
   }, []);
 
   return (
-    <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-5 py-8">
+    <main id="main-content" tabIndex={-1} dir="rtl" className="mx-auto max-w-5xl px-5 py-8">
       <h1 className="mb-6 text-2xl font-semibold">لوحة تحكم المورد</h1>
       {error ? <p role="alert" className="mb-4 text-red-700">{error}</p> : null}
       {!data && !error ? <p role="status">جارٍ التحميل…</p> : null}

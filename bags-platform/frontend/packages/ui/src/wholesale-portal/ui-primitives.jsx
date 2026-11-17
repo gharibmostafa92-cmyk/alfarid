@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { pagerItems } from './data/helpers';
 
 /* Shared primitives — mirror @alfarid/ui + sophie.css patterns. */
 
@@ -84,7 +85,9 @@ export const Pager = ({ page = 1, pages = 3, total, per = 15, onPage = () => {} 
     <span>عرض <span className="num">{total ? (page - 1) * per + 1 : 0}–{Math.min(page * per, total)}</span> من <span className="num">{total}</span></span>
     <div className="pager-btns">
       <button disabled={page === 1} onClick={() => onPage(page - 1)} aria-label="السابق"><i className="fa-solid fa-chevron-right" /></button>
-      {Array.from({ length: pages }).map((_, i) => <button key={i} className={page === i + 1 ? 'is-on' : ''} onClick={() => onPage(i + 1)}>{i + 1}</button>)}
+      {pagerItems(page, pages).map((item, i) => (item === '…'
+        ? <span key={`gap-${i}`} className="pager-gap">…</span>
+        : <button key={item} className={page === item ? 'is-on' : ''} onClick={() => onPage(item)}>{item}</button>))}
       <button disabled={page === pages} onClick={() => onPage(page + 1)} aria-label="التالي"><i className="fa-solid fa-chevron-left" /></button>
     </div>
   </div>
@@ -103,11 +106,13 @@ export const Field = ({ label, req, opt, error, hint, span, children, counter })
 );
 
 export const Modal = ({ title, onClose, children, foot, wide, icon }) => {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
-    const k = (e) => e.key === 'Escape' && onClose();
+    const k = (e) => e.key === 'Escape' && onCloseRef.current();
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+  }, []);
   return (
     <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true">

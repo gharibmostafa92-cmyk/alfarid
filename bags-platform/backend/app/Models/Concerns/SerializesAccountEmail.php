@@ -22,7 +22,7 @@ trait SerializesAccountEmail
 
             if ($account->getConnection()->getDriverName() === 'pgsql') {
                 $account->getConnection()->select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
-                    mb_strtolower(trim($account->email)),
+                    'account_email:'.mb_strtolower(trim($account->email)),
                 ]);
             }
             Validator::make(['email' => $account->email], [

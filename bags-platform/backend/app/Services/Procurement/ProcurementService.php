@@ -212,10 +212,22 @@ class ProcurementService
                 if ($pr->status !== PurchaseRequestStatus::Approved) {
                     throw new BusinessException('لا يمكن إنشاء أمر شراء إلا من طلب داخلي معتمد.');
                 }
+                $this->assertBranchAccess($creator, (int) $pr->branch_id);
+                if (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $pr->branch_id) {
+                    throw new BusinessException('فرع أمر الشراء يجب أن يطابق فرع طلب الشراء الداخلي المرتبط.');
+                }
                 $pr->load('items.variant');
             }
 
             $items = $data['items'] ?? [];
+            if ($items !== [] && $pr !== null) {
+                $prVariantIds = $pr->items->pluck('product_variant_id')->map(fn ($id) => (int) $id)->all();
+                foreach ($items as $item) {
+                    if (! in_array((int) $item['product_variant_id'], $prVariantIds, true)) {
+                        throw new BusinessException('بنود أمر الشراء يجب أن تطابق أصناف طلب الشراء الداخلي المرتبط.');
+                    }
+                }
+            }
             if ($items === [] && $pr !== null) {
                 $items = $pr->items->map(fn ($item): array => [
                     'product_variant_id' => (int) $item->product_variant_id,
@@ -311,12 +323,34 @@ class ProcurementService
             }
             $probe = clone $po;
             $probe->fill($attributes);
-            if (! isset($data['items']) && ! $probe->isDirty()) {
+
+            $itemsChanged = false;
+            if (isset($data['items'])) {
+                $existingItems = $po->items()->orderBy('product_variant_id')->get();
+                $newItems = collect($data['items'])->sortBy(fn ($it) => (int) $it['product_variant_id'])->values();
+                if ($existingItems->count() !== $newItems->count()) {
+                    $itemsChanged = true;
+                } else {
+                    foreach ($newItems as $idx => $newItem) {
+                        $existing = $existingItems[$idx];
+                        if ((int) $existing->product_variant_id !== (int) $newItem['product_variant_id']
+                            || BigDecimal::of((string) $newItem['ordered_qty'])->compareTo((string) $existing->ordered_qty) !== 0
+                            || BigDecimal::of((string) $newItem['unit_cost'])->compareTo((string) $existing->unit_cost) !== 0
+                            || BigDecimal::of((string) ($newItem['tax_rate'] ?? 0))->compareTo((string) $existing->tax_rate) !== 0
+                            || (string) ($newItem['notes'] ?? '') !== (string) ($existing->notes ?? '')) {
+                            $itemsChanged = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (! $probe->isDirty() && ! $itemsChanged) {
                 throw new BusinessException('لا يوجد تغيير فعلي في أمر الشراء.');
             }
             $attributes['last_modified_by'] = $editor->id;
             $po->update($attributes);
-            if (isset($data['items'])) {
+            if ($itemsChanged) {
                 $po->items()->delete();
                 $this->syncOrderItems($po, $data['items']);
             }
@@ -394,7 +428,7 @@ class ProcurementService
     public function cancelPurchaseOrder(PurchaseOrder $po, ?User $actor = null): PurchaseOrder
     {
         return DB::transaction(function () use ($po, $actor): PurchaseOrder {
-            $po = $this->lockOrder($po);
+            $po = $this->lockSupplierThenOrder($po);
             $this->assertBranchAccess($actor, (int) $po->branch_id);
             if ($po->items()->where('received_qty', '>', 0)->exists()) {
                 throw new BusinessException('لا يمكن إلغاء أمر شراء بدأ استلام بضاعته.');
@@ -488,7 +522,7 @@ class ProcurementService
     public function deletePurchaseOrder(PurchaseOrder $po, ?User $actor = null): void
     {
         DB::transaction(function () use ($po, $actor): void {
-            $po = $this->lockOrder($po);
+            $po = $this->lockSupplierThenOrder($po);
             $this->assertBranchAccess($actor, (int) $po->branch_id);
             if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::Cancelled], true)
                 || $po->deliveries()->exists() || $po->items()->where('received_qty', '>', 0)->exists()
@@ -509,7 +543,7 @@ class ProcurementService
     public function closeShort(PurchaseOrder $po, ?User $actor = null): PurchaseOrder
     {
         return DB::transaction(function () use ($po, $actor): PurchaseOrder {
-            $po = $this->lockOrder($po);
+            $po = $this->lockSupplierThenOrder($po);
             $this->assertBranchAccess($actor, (int) $po->branch_id);
             if ($po->status !== PurchaseOrderStatus::PartiallyReceived) {
                 throw new BusinessException('إغلاق النقص متاح لأمر مستلم جزئيًا فقط.');
@@ -530,8 +564,9 @@ class ProcurementService
     public function closeDeliveryShort(SupplierDelivery $delivery, ?User $actor = null): SupplierDelivery
     {
         return DB::transaction(function () use ($delivery, $actor): SupplierDelivery {
-            // Receiving and closing the whole order already lock the order first.
-            $order = PurchaseOrder::query()->lockForUpdate()->findOrFail($delivery->purchase_order_id);
+            // Canonical lock hierarchy: Supplier -> PurchaseOrder -> Deliveries.
+            $order = PurchaseOrder::query()->findOrFail($delivery->purchase_order_id);
+            $order = $this->lockSupplierThenOrder($order);
             $this->assertBranchAccess($actor, (int) $order->branch_id);
             $delivery = $order->deliveries()->lockForUpdate()->findOrFail($delivery->id);
             if ($delivery->status !== SupplierDeliveryStatus::PendingReceipt) {
@@ -866,7 +901,7 @@ class ProcurementService
         $this->assertOwnsOrder($po, $user);
 
         return DB::transaction(function () use ($po, $user): PurchaseOrder {
-            $po = $this->lockOrder($po);
+            $po = $this->lockSupplierThenOrder($po);
             $this->assertOwnsOrder($po, $user, verifySupplierInDatabase: true);
             if ($po->status !== PurchaseOrderStatus::SentToSupplier) {
                 throw new BusinessException("لا يمكن قبول أمر شراء في حالة ({$po->status->value}).");
@@ -888,7 +923,7 @@ class ProcurementService
         $this->assertOwnsOrder($po, $user);
 
         return DB::transaction(function () use ($po, $user, $notes): PurchaseOrder {
-            $po = $this->lockOrder($po);
+            $po = $this->lockSupplierThenOrder($po);
             $this->assertOwnsOrder($po, $user, verifySupplierInDatabase: true);
             if (! in_array($po->status, [PurchaseOrderStatus::SentToSupplier, PurchaseOrderStatus::SupplierAccepted], true)) {
                 throw new BusinessException("لا يمكن طلب تعديل على أمر شراء في حالة ({$po->status->value}).");

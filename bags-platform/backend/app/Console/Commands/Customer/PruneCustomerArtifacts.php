@@ -40,6 +40,12 @@ class PruneCustomerArtifacts extends Command
                 report($exception);
                 $this->error('Customer storage cleanup ownership could not be verified.');
             }
+        } else {
+            // Never let a missing cleanup_owner silently disable cloud pruning:
+            // orphaned R2 objects would otherwise accumulate storage cost with
+            // zero signal while the command keeps reporting success.
+            logger()->warning('Customer storage cleanup disabled: filesystems.cleanup_owner is not set; R2 artifacts will accumulate.');
+            $this->warn('Customer storage cleanup is disabled (filesystems.cleanup_owner is not set); skipping R2 artifact pruning.');
         }
 
         $cutoffTimestamp = now()->subHour()->timestamp;
@@ -108,9 +114,13 @@ class PruneCustomerArtifacts extends Command
     }
 
     /**
-     * Delete storage directory if all files within it were modified before the cutoff timestamp.
+     * Delete storage files if all files within the directory were modified before the cutoff timestamp.
      *
-     * @param  Filesystem  $disk  Target storage disk instance
+     * Only the exact keys observed by the listing above are deleted — never a
+     * blind prefix delete — so an object uploaded between the listing and the
+     * delete (TOCTOU) can never be swept away with the stale batch.
+     *
+     * @param  FilesystemAdapter  $disk  Target storage disk instance
      * @param  string  $directory  Directory path to inspect
      * @param  int  $cutoffTimestamp  Unix cutoff timestamp
      * @param  int  $failures  Failure counter incremented by reference
@@ -133,13 +143,13 @@ class PruneCustomerArtifacts extends Command
                 $files[] = $attributes->path();
                 $newest = max($newest, $lastModified);
             }
-            if ($newest < $cutoffTimestamp) {
+            if ($files !== [] && $newest < $cutoffTimestamp) {
                 foreach (array_chunk($files, 500) as $paths) {
                     if (DB::table('customer_documents')->whereIn('file_path', $paths)->exists()) {
                         return;
                     }
                 }
-                if (! $disk->deleteDirectory($directory)) {
+                if (! $disk->delete($files)) {
                     throw new \RuntimeException('Storage did not confirm customer document cleanup.');
                 }
             }

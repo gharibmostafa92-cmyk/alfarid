@@ -129,4 +129,28 @@ class CustomerMessageBudget
             }
         });
     }
+
+    /**
+     * Refund all quota counters reserved for one password-reset message that failed to send.
+     */
+    public function releaseResetClaim(int $customerId, bool $sms, CarbonImmutable $at): void
+    {
+        $date = $at->toDateString();
+        $hour = $at->format('H');
+        $scopes = ['reset:customer:'.$customerId];
+        if ($sms) {
+            $scopes[] = 'sms:global:day';
+            $scopes[] = 'sms:global:hour:'.$hour;
+        }
+
+        DB::transaction(function () use ($scopes, $date): void {
+            foreach ($scopes as $scope) {
+                DB::table('customer_message_budgets')
+                    ->where('key', hash('sha256', $scope))
+                    ->where('date', $date)
+                    ->where('sends', '>', 0)
+                    ->decrement('sends');
+            }
+        });
+    }
 }

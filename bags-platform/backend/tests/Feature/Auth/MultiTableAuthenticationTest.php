@@ -77,14 +77,16 @@ class MultiTableAuthenticationTest extends TestCase
         $this->requestWithToken($inactiveToken, '/_test-auth/staff')->assertForbidden();
     }
 
-    public function test_returns_403_for_suspended_customers_but_allows_pending_customers(): void
+    public function test_returns_403_for_suspended_and_pending_customers_on_generic_routes(): void
     {
         $pendingCustomer = $this->createCustomer(status: CustomerStatus::Pending);
         $pendingToken = $pendingCustomer->createToken('test')->plainTextToken;
 
+        // Pending traders are confined to their self-service lanes
+        // (application status, document upload, logout); generic
+        // customer-guarded routes reject them like rejected accounts.
         $this->requestWithToken($pendingToken, '/_test-auth/customer')
-            ->assertOk()
-            ->assertJsonPath('model', Customer::class);
+            ->assertForbidden();
 
         $suspendedCustomer = $this->createCustomer(status: CustomerStatus::Suspended);
         $suspendedToken = $suspendedCustomer->createToken('test')->plainTextToken;

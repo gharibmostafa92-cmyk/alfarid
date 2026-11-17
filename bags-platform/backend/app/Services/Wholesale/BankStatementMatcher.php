@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Wholesale;
 
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
+use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
 use Brick\Math\BigDecimal;
@@ -26,10 +27,16 @@ final class BankStatementMatcher
         $digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
         $str = str_replace($arabicIndic, $digits, $str);
 
-        // Reject negative or accounting-parenthesized amounts (debits/fees must never match credit notices).
-        if (str_starts_with($str, '-') || str_ends_with($str, '-') || (str_starts_with($str, '(') && str_ends_with($str, ')'))) {
+        if (preg_match('/\b(dr|debit|مدين)\b/iu', $str) === 1) {
             return '0.00';
         }
+        if (preg_match('/-\s*\d/u', $str) === 1 || str_ends_with($str, '-') || (str_starts_with($str, '(') && str_ends_with($str, ')'))) {
+            return '0.00';
+        }
+
+        $str = preg_replace('/\b(egp|le|l\.e\.?)\b/iu', '', $str) ?? $str;
+        $str = str_replace(['ج.م.', 'ج.م', 'ج م'], '', $str);
+        $str = ltrim($str, " \t.");
 
         // Normalize European decimal commas (e.g. "1.500,50" -> "1500.50" or "1500,50" -> "1500.50") vs US thousands commas ("1,500.00").
         $lastComma = strrpos($str, ',');
@@ -39,10 +46,12 @@ final class BankStatementMatcher
             if (strlen($afterComma) <= 2) {
                 $str = str_replace('.', '', substr($str, 0, $lastComma)).'.'.$afterComma;
             }
+        } elseif ($lastComma === false && preg_match('/^\s*\d{1,3}(?:\.\d{3})+\s*$/', $str) === 1) {
+            $str = str_replace('.', '', $str);
         }
 
         $str = preg_replace('/[^\d.]/', '', $str) ?? '';
-        if ($str === '' || $str === '.') {
+        if ($str === '' || $str === '.' || substr_count($str, '.') > 1) {
             return '0.00';
         }
         try {
@@ -68,6 +77,24 @@ final class BankStatementMatcher
         return $ref;
     }
 
+    public static function bankIdentity(?string $bank): string
+    {
+        $compact = self::cleanReference($bank);
+        $compact = preg_replace('/[^a-z0-9\p{Arabic}]+/u', '', $compact) ?? $compact;
+
+        return match ($compact) {
+            'cib', 'commercialinternationalbank', 'commercialinternationalbankegypt', 'البنكالتجاريالدولي', 'البنكالتجارىالدولى' => 'cib',
+            'nbe', 'nationalbankofegypt', 'البنكالأهليالمصري', 'البنكالاهليالمصري' => 'nbe',
+            'banquemisr', 'banquedumisr', 'بنكمصر' => 'banque_misr',
+            'qnb', 'qnbalahli' => 'qnb',
+            'aaib', 'arabafricaninternationalbank' => 'aaib',
+            'hsbc', 'hsbcbankegypt' => 'hsbc',
+            'bdc', 'banqueducaire', 'بنكالقاهرة' => 'bdc',
+            'alexbank', 'bankofalexandria' => 'alexbank',
+            default => $compact,
+        };
+    }
+
     /**
      * Classifies statement credit transactions into exact, probable, or unmatched buckets against pending payment notices.
      *
@@ -77,7 +104,7 @@ final class BankStatementMatcher
     public function match(array $rows): array
     {
         if (count($rows) > 500) {
-            throw new \App\Exceptions\BusinessException('كشف البنك يتجاوز 500 حركة؛ قسّمه إلى ملفات أصغر.', [], 422);
+            throw new BusinessException('كشف البنك يتجاوز 500 حركة؛ قسّمه إلى ملفات أصغر.', [], 422);
         }
         $amounts = array_values(array_unique(array_filter(
             array_map(fn ($row) => self::cleanAmount($row['amount'] ?? 0), $rows),
@@ -91,7 +118,7 @@ final class BankStatementMatcher
             ->limit(2001)
             ->get();
         if ($notices->count() > 2000) {
-            throw new \App\Exceptions\BusinessException('عدد الإشعارات المرشحة كبير جدًا؛ قسّم كشف البنك إلى ملفات أصغر.', [], 422);
+            throw new BusinessException('عدد الإشعارات المرشحة كبير جدًا؛ قسّم كشف البنك إلى ملفات أصغر.', [], 422);
         }
 
         $preparedNoticesByAmount = $notices->map(fn ($n) => [
@@ -132,7 +159,8 @@ final class BankStatementMatcher
                     continue;
                 }
                 $sameReference = $prepared['reference'] === $parsed['reference'];
-                $closeDate = $parsed['date'] !== null && abs($parsed['date']->diffInDays($prepared['date'] ?? $parsed['date'], true)) <= 1;
+                $closeDate = $parsed['date'] !== null && $prepared['date'] !== null
+                    && abs($parsed['date']->diffInDays($prepared['date'], true)) <= 1;
                 if ($sameReference && $closeDate) {
                     $rowResults[$index] = ['kind' => 'exact', 'model' => $prepared['model']];
                     $claimedNoticeIds[$prepared['model']->id] = true;
@@ -148,6 +176,7 @@ final class BankStatementMatcher
             }
             if (BigDecimal::of($parsed['amount'])->isLessThanOrEqualTo('0')) {
                 $rowResults[$index] = ['kind' => 'unmatched', 'model' => null];
+
                 continue;
             }
             $hit = null;
@@ -156,12 +185,9 @@ final class BankStatementMatcher
                     continue;
                 }
                 $bothHaveRef = $parsed['reference'] !== '' && $prepared['reference'] !== '';
-                $refConflict = $bothHaveRef && ($parsed['reference'] !== $prepared['reference']);
-                if ($refConflict) {
-                    continue;
-                }
                 $sameReference = $bothHaveRef && ($prepared['reference'] === $parsed['reference']);
-                $closeDate = $parsed['date'] !== null && abs($parsed['date']->diffInDays($prepared['date'] ?? $parsed['date'], true)) <= 1;
+                $closeDate = $parsed['date'] !== null && $prepared['date'] !== null
+                    && abs($parsed['date']->diffInDays($prepared['date'], true)) <= 1;
                 if ($sameReference || $closeDate) {
                     $hit = $prepared['model'];
                     $claimedNoticeIds[$prepared['model']->id] = true;
@@ -199,12 +225,16 @@ final class BankStatementMatcher
         $descriptions = [];
         foreach ($unmatched as $index => $entry) {
             $description = mb_strtolower(trim((string) ($rows[$entry['row']]['description'] ?? '')));
-            if ($description !== '') $descriptions[$index] = $description;
+            if ($description !== '') {
+                $descriptions[$index] = $description;
+            }
         }
         if ($descriptions !== []) {
             foreach (Customer::query()->commercial()->orderBy('id')->cursor(['id', 'name', 'company_name']) as $customer) {
                 $name = mb_strtolower(trim((string) ($customer->company_name ?: $customer->name)));
-                if ($name === '' || mb_strlen($name) < 4) continue;
+                if ($name === '' || mb_strlen($name) < 4) {
+                    continue;
+                }
                 $pattern = '/(?<![\p{L}\p{N}])'.preg_quote($name, '/').'(?![\p{L}\p{N}])/u';
                 foreach ($descriptions as $index => $description) {
                     if (preg_match($pattern, $description) === 1) {
@@ -212,7 +242,9 @@ final class BankStatementMatcher
                         unset($descriptions[$index]);
                     }
                 }
-                if ($descriptions === []) break;
+                if ($descriptions === []) {
+                    break;
+                }
             }
         }
 

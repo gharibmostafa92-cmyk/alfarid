@@ -7,8 +7,8 @@ namespace App\Actions\Staff;
 use App\Enums\StaffRole;
 use App\Models\User;
 use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
-use App\Services\Inventory\BranchAccess;
 use App\Services\Auth\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -32,8 +32,14 @@ final class UpdateRole
         if (is_array($permissions) && ! StaffAdministration::mayGrantPermissions($actor, $permissions)) {
             abort(403, 'لا يمكنك إسناد صلاحيات لا تملكها.');
         }
+        // HIGH-01: verify the grant password before the transaction so no
+        // bcrypt ever runs under the global staff advisory lock. The
+        // in-transaction check re-decides authoritatively under row lock;
+        // a wrong password here only strips the credential so grant-free
+        // paths (pure removals) proceed exactly as before.
+        [$preVerifiedHash, $currentPassword] = StaffAdministration::preVerifyGrantPassword($actor, $currentPassword, is_array($permissions) && $permissions !== []);
 
-        return DB::transaction(function () use ($actor, $role, $data, $permissions, $via, $currentPassword): ?string {
+        return DB::transaction(function () use ($actor, $role, $data, $permissions, $via, $currentPassword, $preVerifiedHash): ?string {
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['roles.update', 'roles.manage']);
             $this->access->assertCentralAccess($actor);
@@ -46,7 +52,7 @@ final class UpdateRole
             }
             abort_unless(StaffAdministration::mayGrantPermissions($actor, array_unique(array_merge($locked->permissions()->pluck('name')->all(), $permissions ?? []))), 403);
             if (array_diff($permissions ?? [], $before['permissions']) !== []) {
-                StaffAdministration::requireGrantPassword($actor, $currentPassword);
+                StaffAdministration::requireGrantPassword($actor, $currentPassword, $preVerifiedHash);
             }
             StaffAdministration::clearPermissionCacheAfterCommit();
             if (array_key_exists('name', $data)) {
@@ -61,7 +67,14 @@ final class UpdateRole
             }
             if ($permissions !== null) {
                 $locked->syncPermissions($permissions);
-                if (array_diff($before['permissions'], $permissions) !== []) {
+                // Any effective permission-set change (removal OR addition,
+                // order-insensitive) invalidates issued tokens: abilities are
+                // snapshotted at login, so added permissions would otherwise
+                // stay dormant until the next login while removed ones were
+                // already revoked — an inconsistent session state.
+                $beforePermissions = collect($before['permissions'])->sort()->values()->all();
+                $afterPermissions = collect($permissions)->sort()->values()->all();
+                if ($beforePermissions !== $afterPermissions) {
                     PersonalAccessToken::query()
                         ->where('tokenable_type', (new User)->getMorphClass())
                         ->whereIn('tokenable_id', $locked->users()->select('users.id'))

@@ -70,7 +70,10 @@ final class CreateStaffUser
             $attrs['must_change_password'] = true;
         }
         $attrs['password'] = Hash::make($attrs['password']);
-        $user = DB::transaction(function () use ($attrs, $roles, $actor, $via, $currentPassword): User {
+        // HIGH-01: verify the grant password before the transaction so no
+        // bcrypt ever runs under the global staff advisory lock.
+        [$preVerifiedHash, $currentPassword] = StaffAdministration::preVerifyGrantPassword($actor, $currentPassword, $roles !== []);
+        $user = DB::transaction(function () use ($attrs, $roles, $actor, $via, $currentPassword, $preVerifiedHash): User {
             StaffAdministration::lock();
             // M7: same advisory key as customer/supplier registration
             // (normalized email) so the cross-table re-check below cannot race
@@ -85,7 +88,7 @@ final class CreateStaffUser
             StaffAdministration::lockRoles($roles);
             abort_unless(StaffAdministration::mayManageUser($actor, roles: $roles), 403);
             if ($roles !== []) {
-                StaffAdministration::requireGrantPassword($actor, $currentPassword);
+                StaffAdministration::requireGrantPassword($actor, $currentPassword, $preVerifiedHash);
             }
             // L-9: re-check branch activity under a row lock so a concurrent deactivation cannot slip past.
             if ((int) ($attrs['branch_id'] ?? 0) > 0) {
@@ -105,6 +108,11 @@ final class CreateStaffUser
                 ]);
             }
             $user->syncRoles($roles);
+            // Spatie clears its cache synchronously inside syncRoles, i.e.
+            // before this transaction commits. Re-invalidate after commit so
+            // a concurrent reader cannot repopulate the cache from the
+            // pre-commit snapshot under Read Committed isolation.
+            StaffAdministration::clearPermissionCacheAfterCommit();
             StaffAdministration::audit($actor, 'user.created', 'user', $user->id, array_keys($attrs + ['roles' => $roles]), [], StaffAdministration::userState($user), $via);
 
             return $user;

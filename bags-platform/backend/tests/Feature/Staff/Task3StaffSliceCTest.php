@@ -31,7 +31,7 @@ class Task3StaffSliceCTest extends TestCase
             'created_by' => $actor->id,
         ]);
 
-        $this->assertTrue(app(DeactivateStaffUser::class)($actor, $target));
+        $this->assertTrue(app(DeactivateStaffUser::class)($actor, $target, (int) $target->lock_version));
 
         $this->assertSame('revoked', AiWhatsappIdentity::where('user_id', $target->id)->value('status'));
     }

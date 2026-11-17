@@ -35,18 +35,20 @@ final class ReceiptMatchScorer
             $score += 50;
         }
         // Unique transaction reference match contributes 30% to prevent cross-account misallocation.
-        if ($reference !== '' && mb_strtolower($reference) === mb_strtolower(trim($stated['reference']))) {
+        if ($reference !== '' && BankStatementMatcher::cleanReference($reference) === BankStatementMatcher::cleanReference($stated['reference'])) {
             $score += 30;
         }
-        if ($date !== null) {
-            $statedDate = Carbon::parse($stated['date'])->startOfDay();
+        if ($date !== null && $this->calendarDate($stated['date']) !== null) {
+            $statedDate = Carbon::parse($this->calendarDate($stated['date']))->startOfDay();
+            $readDate = Carbon::parse($date)->startOfDay();
             // Allow a 1-day tolerance (15%) for interbank transfer cutoff times and weekend clearing delays.
-            if (abs($statedDate->diffInDays(Carbon::parse($date)->startOfDay(), true)) <= 1) {
+            if (abs($statedDate->diffInDays($readDate, true)) <= 1) {
                 $score += 15;
             }
         }
-        // Substring comparison (5%) accommodates abbreviations and informal bank names (e.g. CIB vs Commercial Int Bank).
-        if ($bank !== '' && (mb_stripos($stated['bank'], $bank) !== false || mb_stripos($bank, $stated['bank']) !== false)) {
+        $statedBank = BankStatementMatcher::bankIdentity($stated['bank']);
+        $readBank = BankStatementMatcher::bankIdentity($bank);
+        if ($statedBank !== '' && $readBank !== '' && ($statedBank === $readBank || (mb_strlen($readBank) >= 3 && (mb_stripos($statedBank, $readBank) !== false || mb_stripos($readBank, $statedBank) !== false)))) {
             $score += 5;
         }
 
@@ -65,14 +67,12 @@ final class ReceiptMatchScorer
 
     private function money(mixed $value): ?string
     {
-        if (is_int($value) || is_float($value)) {
-            return number_format((float) $value, 2, '.', '');
-        }
-        if (! is_string($value) || ! preg_match('/^\d+(\.\d{1,2})?$/', trim($value))) {
+        if (! is_int($value) && ! is_float($value) && ! is_string($value)) {
             return null;
         }
+        $cleaned = BankStatementMatcher::cleanAmount($value);
 
-        return number_format((float) trim($value), 2, '.', '');
+        return $cleaned === '0.00' ? null : $cleaned;
     }
 
     private function text(mixed $value): string
@@ -86,7 +86,16 @@ final class ReceiptMatchScorer
 
     private function date(mixed $value): ?string
     {
+        return $this->calendarDate($value);
+    }
+
+    private function calendarDate(mixed $value): ?string
+    {
         if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return null;
+        }
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+        if (! checkdate($month, $day, $year)) {
             return null;
         }
 

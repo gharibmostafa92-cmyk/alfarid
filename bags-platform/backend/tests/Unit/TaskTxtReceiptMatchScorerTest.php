@@ -23,7 +23,7 @@ class TaskTxtReceiptMatchScorerTest extends TestCase
 
     public function test_weight_vectors(): void
     {
-        $scorer = new ReceiptMatchScorer();
+        $scorer = new ReceiptMatchScorer;
 
         $this->assertSame(50.0, $scorer->score($this->stated(), [
             'amount' => '1500.00', 'reference' => 'nope', 'date' => '2020-01-01', 'bank' => 'zzz',
@@ -49,27 +49,33 @@ class TaskTxtReceiptMatchScorerTest extends TestCase
         ])['score']);
     }
 
-    public function test_unparseable_formats_score_zero_pending_owner_decision(): void
+    public function test_thousands_and_arabic_amounts_score_and_impossible_dates_do_not_throw(): void
     {
-        // Documents current strict parsing: thousands separators, Arabic-Indic
-        // digits, and DD/MM/YYYY dates contribute 0. Owner decision pending on
-        // whether these should parse (they lower bulk-approval eligibility).
-        $scorer = new ReceiptMatchScorer();
+        $scorer = new ReceiptMatchScorer;
 
-        $this->assertSame(0.0, $scorer->score($this->stated(), [
+        $this->assertSame(50.0, $scorer->score($this->stated(), [
             'amount' => '1,500.00', 'reference' => 'nope', 'date' => '2020-01-01', 'bank' => 'zzz',
         ])['score']);
-        $this->assertSame(0.0, $scorer->score($this->stated(), [
+        $this->assertSame(50.0, $scorer->score($this->stated(), [
             'amount' => '١٥٠٠', 'reference' => 'nope', 'date' => '2020-01-01', 'bank' => 'zzz',
         ])['score']);
         $this->assertSame(0.0, $scorer->score($this->stated(), [
             'amount' => '1.00', 'reference' => 'nope', 'date' => '07/11/2026', 'bank' => 'zzz',
         ])['score']);
+        $this->assertSame(0.0, $scorer->score($this->stated(), [
+            'amount' => '1.00', 'reference' => 'nope', 'date' => '2026-99-99', 'bank' => 'B',
+        ])['score']);
+        $this->assertSame(30.0, $scorer->score($this->stated(['reference' => 'REF-12345']), [
+            'amount' => '1.00', 'reference' => 'REF 12345', 'date' => '2020-01-01', 'bank' => 'zzz',
+        ])['score']);
+        $this->assertSame(5.0, $scorer->score($this->stated(), [
+            'amount' => '1.00', 'reference' => 'nope', 'date' => '2020-01-01', 'bank' => 'Commercial International Bank',
+        ])['score']);
     }
 
     public function test_injection_text_is_wrapped_as_untrusted_and_score_never_exceeds_100(): void
     {
-        $scorer = new ReceiptMatchScorer();
+        $scorer = new ReceiptMatchScorer;
         $random = new Randomizer(new Mt19937(20261107));
 
         $result = $scorer->score($this->stated(), [

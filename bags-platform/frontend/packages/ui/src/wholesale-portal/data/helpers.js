@@ -37,7 +37,46 @@ export function tierPrice(variant, quantity) {
 }
 
 export const calendarDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-export const today = () => calendarDay(new Date());
+
+export function cairoParts(date = new Date()) {
+  const parts = cairoCalendar.formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type).value;
+  return { year: get('year'), month: get('month'), day: get('day') };
+}
+
+export const today = () => {
+  const parts = cairoParts();
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+export const firstOfMonth = () => `${today().slice(0, 8)}01`;
+
+export const startOfYear = () => `${cairoParts().year}-01-01`;
+
+export function monthsAgoFirst(months) {
+  const parts = cairoParts();
+  const shifted = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1 - months, 1, 12));
+  const shiftedParts = cairoParts(shifted);
+  return `${shiftedParts.year}-${shiftedParts.month}-01`;
+}
+
+export function pagerItems(page, pages) {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const start = Math.max(2, page - 2);
+  const end = Math.min(pages - 1, page + 2);
+  const items = [1];
+  if (start > 2) items.push('…');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < pages - 1) items.push('…');
+  items.push(pages);
+  return items;
+}
+
+export function addQuoteLine(items, line) {
+  const index = items.findIndex((item) => item.variant_id === line.variant_id);
+  if (index === -1) return [...items, line];
+  return items.map((item, i) => (i === index ? { ...item, qty: Number(item.qty) + Number(line.qty || 1) } : item));
+}
 
 export function apiError(e) {
   const r = e?.response;

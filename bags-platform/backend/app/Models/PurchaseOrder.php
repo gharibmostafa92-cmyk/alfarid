@@ -73,6 +73,11 @@ class PurchaseOrder extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function lastModifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'last_modified_by');
+    }
+
     /** @return BelongsTo<User, $this> */
     public function approver(): BelongsTo
     {

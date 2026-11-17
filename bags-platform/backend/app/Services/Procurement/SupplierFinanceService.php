@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Procurement;
 
-use App\Enums\Procurement\PurchaseOrderStatus;
-use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryType;
+use App\Enums\Procurement\PurchaseOrderStatus;
+use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Exceptions\BusinessException;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -15,9 +15,9 @@ use App\Models\SupplierInvoice;
 use App\Models\SupplierPayment;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pos\TreasuryService;
+use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
 use Brick\Math\BigDecimal;
@@ -268,6 +268,9 @@ class SupplierFinanceService
                 throw new BusinessException('يجب تحديد خزينة لصرف دفعة المورد.');
             }
             $treasury = Treasury::query()->lockForUpdate()->findOrFail((int) $data['treasury_id']);
+            if (! $treasury->is_active) {
+                throw new BusinessException('الخزينة المحددة غير نشطة.');
+            }
             app(BranchAccess::class)->assertTreasury($creator->id, $treasury);
             $expectedType = $data['payment_method'] === 'cash' ? TreasuryType::MainSafe : TreasuryType::BankAccount;
             if ($treasury->type !== $expectedType) {
@@ -662,24 +665,23 @@ class SupplierFinanceService
             $receivedSubtotalExact = $receivedSubtotalExact->plus($line);
             $taxBaseWeights[] = ['line' => $line, 'rate' => BigDecimal::of((string) $item->tax_rate)];
         }
-        $receivedSubtotal = $receivedSubtotalExact->toScale(2, RoundingMode::HalfUp);
         $poSubtotal = BigDecimal::of((string) $po->subtotal);
-        $discountShare = $poSubtotal->compareTo('0') > 0
-            ? BigDecimal::of((string) $po->discount_amount)->multipliedBy($receivedSubtotal)
-                ->dividedBy($poSubtotal, 2, RoundingMode::HalfUp)
-            : BigDecimal::zero()->toScale(2);
-        // Match recalculateTotals(): discount scales the taxable base per line.
-        $taxableFactor = $receivedSubtotal->compareTo('0') > 0
-            ? $receivedSubtotal->minus($discountShare)->dividedBy($receivedSubtotal, 12, RoundingMode::HalfUp)
-            : BigDecimal::zero();
+        $poDiscount = BigDecimal::of((string) $po->discount_amount);
+        $netFactor = $poSubtotal->compareTo('0') > 0
+            ? $poSubtotal->minus($poDiscount)->dividedBy($poSubtotal, 12, RoundingMode::HalfUp)
+            : BigDecimal::one();
+
+        $receivedNetExact = $receivedSubtotalExact->multipliedBy($netFactor);
         $receivedTaxExact = BigDecimal::zero();
         foreach ($taxBaseWeights as $line) {
-            $receivedTaxExact = $receivedTaxExact->plus($line['line']->multipliedBy($taxableFactor)
-                ->multipliedBy($line['rate'])->dividedBy('100', 12, RoundingMode::HalfUp));
+            $receivedTaxExact = $receivedTaxExact->plus(
+                $line['line']->multipliedBy($netFactor)
+                    ->multipliedBy($line['rate'])
+                    ->dividedBy('100', 12, RoundingMode::HalfUp)
+            );
         }
-        $receivedTax = $receivedTaxExact->toScale(2, RoundingMode::HalfUp);
 
-        return $receivedSubtotal->minus($discountShare)->plus($receivedTax)->toScale(2, RoundingMode::HalfUp);
+        return $receivedNetExact->plus($receivedTaxExact)->toScale(2, RoundingMode::HalfUp);
     }
 
     /**
@@ -734,6 +736,8 @@ class SupplierFinanceService
     /** Read all ledger rows and the current balance from the same database snapshot. */
     private function buildStatementSnapshot(Supplier $supplier, ?string $fromDate, ?string $toDate, bool $internal): array
     {
+        // Snapshot freshness: ensure opening and current balances are read from the exact active snapshot
+        $supplier = Supplier::query()->findOrFail($supplier->id);
         $zone = (string) config('app.timezone');
         $today = Carbon::now($zone)->toDateString();
         if ($toDate === null && $fromDate !== null) {
@@ -772,52 +776,81 @@ class SupplierFinanceService
         $periodOpening = $running;
 
         $invoices = SupplierInvoice::query()
-            ->select(['id', 'invoice_number', 'supplier_invoice_no', 'purchase_order_id', 'issue_date', 'total_amount'])
-            ->with('purchaseOrder:id,po_number')
-            ->where('supplier_id', $supplier->id)
-            ->whereIn('status', $countedStatuses)
-            ->whereBetween('issue_date', [$from, $to])
+            ->leftJoin('purchase_orders', 'purchase_orders.id', '=', 'supplier_invoices.purchase_order_id')
+            ->where('supplier_invoices.supplier_id', $supplier->id)
+            ->whereIn('supplier_invoices.status', $countedStatuses)
+            ->whereBetween('supplier_invoices.issue_date', [$from, $to])
+            ->select([
+                'supplier_invoices.id',
+                'supplier_invoices.invoice_number',
+                'supplier_invoices.supplier_invoice_no',
+                'supplier_invoices.issue_date',
+                'supplier_invoices.total_amount',
+                'purchase_orders.po_number',
+            ])
+            ->toBase()
             ->get()
-            ->map(fn (SupplierInvoice $inv): array => [
-                'date' => $inv->issue_date->toDateString(),
+            ->map(fn ($inv): array => [
+                'date' => Carbon::parse($inv->issue_date)->toDateString(),
                 'type' => 'invoice',
-                'reference' => $inv->invoice_number,
-                'description' => 'فاتورة مورد '.$inv->supplier_invoice_no.($inv->purchaseOrder !== null ? ' — أمر شراء '.$inv->purchaseOrder->po_number : ''),
+                'reference' => (string) $inv->invoice_number,
+                'description' => 'فاتورة مورد '.$inv->supplier_invoice_no.($inv->po_number ? ' — أمر شراء '.$inv->po_number : ''),
                 'credit' => (string) BigDecimal::of((string) $inv->total_amount)->toScale(2),
                 'debit' => '0.00',
-                'sort' => [$inv->issue_date->toDateString(), 0, $inv->id],
+                'sort' => [Carbon::parse($inv->issue_date)->toDateString(), 0, (int) $inv->id],
             ]);
+
         $payments = SupplierPayment::query()
-            ->select(['id', 'payment_number', 'supplier_invoice_id', 'amount', 'payment_date'])
-            ->with('invoice:id,invoice_number')
-            ->where('supplier_id', $supplier->id)
-            ->whereBetween('payment_date', [$from, $to])
+            ->leftJoin('supplier_invoices', 'supplier_invoices.id', '=', 'supplier_payments.supplier_invoice_id')
+            ->where('supplier_payments.supplier_id', $supplier->id)
+            ->whereBetween('supplier_payments.payment_date', [$from, $to])
+            ->select([
+                'supplier_payments.id',
+                'supplier_payments.payment_number',
+                'supplier_payments.amount',
+                'supplier_payments.payment_date',
+                'supplier_invoices.invoice_number',
+            ])
+            ->toBase()
             ->get()
-            ->map(fn (SupplierPayment $pay): array => [
-                'date' => $pay->payment_date->toDateString(),
+            ->map(fn ($pay): array => [
+                'date' => Carbon::parse($pay->payment_date)->toDateString(),
                 'type' => 'payment',
-                'reference' => $pay->payment_number,
-                'description' => 'دفعة للمورد'.($pay->invoice !== null ? ' — سداد فاتورة '.$pay->invoice->invoice_number : ''),
+                'reference' => (string) $pay->payment_number,
+                'description' => 'دفعة للمورد'.($pay->invoice_number ? ' — سداد فاتورة '.$pay->invoice_number : ''),
                 'credit' => '0.00',
                 'debit' => (string) BigDecimal::of((string) $pay->amount)->toScale(2),
-                'sort' => [$pay->payment_date->toDateString(), 1, $pay->id],
+                'sort' => [Carbon::parse($pay->payment_date)->toDateString(), 1, (int) $pay->id],
             ]);
+
         $voids = SupplierPayment::query()
-            ->select(['id', 'payment_number', 'amount', 'voided_at', 'void_reason'])
             ->where('supplier_id', $supplier->id)
             ->whereNotNull('voided_at')
             ->where('voided_at', '>=', $fromStart)
             ->where('voided_at', '<', $toExclusive)
+            ->select([
+                'id',
+                'payment_number',
+                'amount',
+                'voided_at',
+                'void_reason',
+            ])
+            ->toBase()
             ->get()
-            ->map(fn (SupplierPayment $pay): array => [
-                'date' => $pay->voided_at->timezone($zone)->toDateString(),
+            ->map(fn ($pay): array => [
+                'date' => Carbon::parse($pay->voided_at)->timezone($zone)->toDateString(),
                 'type' => 'payment_void',
-                'reference' => $pay->payment_number,
+                'reference' => (string) $pay->payment_number,
                 'description' => 'إلغاء دفعة '.$pay->payment_number.($internal && $pay->void_reason ? ' — '.$pay->void_reason : ''),
                 'credit' => (string) BigDecimal::of((string) $pay->amount)->toScale(2),
                 'debit' => '0.00',
-                'sort' => [$pay->voided_at->timezone($zone)->toDateString(), 2, $pay->id],
+                'sort' => [Carbon::parse($pay->voided_at)->timezone($zone)->toDateString(), 2, (int) $pay->id],
             ]);
+
+        $totalCount = $invoices->count() + $payments->count() + $voids->count();
+        if ($totalCount > 5000) {
+            throw new BusinessException('عدد حركات كشف الحساب يتجاوز 5000 حركة؛ يرجى تضييق النطاق الزمني.');
+        }
 
         $entries = [];
         $totalCredit = BigDecimal::zero()->toScale(2);
@@ -836,7 +869,7 @@ class SupplierFinanceService
                 'id' => $supplier->id,
                 'code' => $supplier->code,
                 'name' => $supplier->name,
-                'current_balance' => Supplier::query()->whereKey($supplier->id)->value('current_balance'),
+                'current_balance' => (string) $supplier->current_balance,
             ],
             'from_date' => $from,
             'to_date' => $to,

@@ -10,6 +10,7 @@ use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
 use App\Events\Wholesale\WholesaleApplicationReviewed;
 use App\Events\Wholesale\WholesaleApplicationSubmitted;
+use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
@@ -22,13 +23,13 @@ use App\Models\User;
 use App\Notifications\Wholesale\WholesaleApplicationReviewedNotification;
 use App\Notifications\Wholesale\WholesaleApplicationSubmittedNotification;
 use App\Services\Auth\CustomerAuthService;
-use App\Services\Customer\CustomerManagementService;
 use App\Services\Auth\StaffAdministration;
+use App\Services\Customer\CustomerManagementService;
+use App\Services\Wholesale\WholesaleRegistrationService;
 use Database\Seeders\CustomerPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
-use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
@@ -39,7 +40,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
-use PHPUnit\Framework\Attributes\DataProvider;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -94,7 +95,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
      */
     public function test_01_suspend_approve_and_reactivate_persist_pre_suspension_status_on_fresh_schema(): void
     {
-        [, $token] = $this->createStaff(['customers.approve', 'customers.view']);
+        [, $token] = $this->createStaff(['customers.approve', 'customers.view', 'inventory.all_branches']);
         $customer = Customer::factory()->wholesale()->create([
             'status' => CustomerStatus::Pending,
             'company_name' => 'شركة الاختبار للتجارة',
@@ -140,11 +141,11 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         [, $view] = $this->createStaff(['customers.view']);
         [, $create] = $this->createStaff(['customers.create']);
         [, $update] = $this->createStaff(['customers.update']);
-        [, $approve] = $this->createStaff(['customers.approve']);
+        [, $approve] = $this->createStaff(['customers.approve', 'inventory.all_branches']);
         [, $docsView] = $this->createStaff(['customers.documents.view', 'inventory.all_branches']);
         [, $delete] = $this->createStaff(['customers.delete']);
-        [, $docsApprove] = $this->createStaff(['customers.documents.view', 'customers.approve']);
-        [, $docsUpdate] = $this->createStaff(['customers.documents.view', 'customers.update']);
+        [, $docsApprove] = $this->createStaff(['customers.documents.view', 'customers.approve', 'inventory.all_branches']);
+        [, $docsUpdate] = $this->createStaff(['customers.documents.view', 'customers.update', 'inventory.all_branches']);
 
         $customer = Customer::factory()->wholesale()->create(['status' => CustomerStatus::Pending]);
         $doc = $customer->documents()->create([
@@ -344,7 +345,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
     public function test_05_approval_rules_documents_legal_fields_and_state_machine(): void
     {
         Event::fake([WholesaleApplicationReviewed::class]);
-        [$admin, $token] = $this->createStaff(['customers.approve']);
+        [$admin, $token] = $this->createStaff(['customers.approve', 'inventory.all_branches']);
 
         // (أ) تاجر عنده مستند pending -> 422
         $cPendingDoc = Customer::factory()->wholesale()->create(['status' => CustomerStatus::Pending]);
@@ -456,7 +457,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
      */
     public function test_07_suspend_revokes_access_immediately_and_reactivate_restores_previous_status(): void
     {
-        [, $adminToken] = $this->createStaff(['customers.approve']);
+        [, $adminToken] = $this->createStaff(['customers.approve', 'inventory.all_branches']);
 
         foreach ([CustomerStatus::Approved, CustomerStatus::Pending, CustomerStatus::Rejected] as $initialStatus) {
             $customer = Customer::factory()->wholesale()->create([
@@ -580,13 +581,13 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         $disk = $this->fakeUploads();
         User::factory()->create(['email' => 'taken.staff@example.com']);
         try {
-            app(\App\Services\Wholesale\WholesaleRegistrationService::class)->register(
+            app(WholesaleRegistrationService::class)->register(
                 [...$basePayload, 'email' => 'TAKEN.STAFF@example.com'],
                 [UploadedFile::fake()->create('doc.pdf', 50, 'application/pdf')],
                 ['commercial_register'],
             );
             $this->fail('Expected ValidationException for email taken in users table.');
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             $this->assertArrayHasKey('email', $e->errors());
         }
         $this->assertDatabaseMissing('customers', ['phone' => '01019998887']);
@@ -631,7 +632,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
 
         // (د) عميل قطاعي -> 422 "رفع المستندات متاح للتجار والموزعين فقط."
         $retail = Customer::factory()->create(['type' => CustomerType::Retail]);
-        [, $staffToken] = $this->createStaff(['customers.documents.view', 'customers.update']);
+        [, $staffToken] = $this->createStaff(['customers.documents.view', 'customers.update', 'inventory.all_branches']);
         $this->apiAs($staffToken, 'POST', "/api/v1/admin/customers/{$retail->id}/documents", [
             'document' => UploadedFile::fake()->create('doc.pdf', 50, 'application/pdf'),
         ])->assertStatus(422)->assertJsonPath('message', 'رفع المستندات متاح للتجار والموزعين فقط.');
@@ -1309,7 +1310,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         try {
             User::factory()->create(['email' => 'UNVERIFIED.TRADER@a.com']);
             $this->fail('Creating staff with wholesale trader email must fail.');
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             $this->assertArrayHasKey('email', $e->errors());
         }
 
@@ -1376,7 +1377,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         try {
             $auth->login('ret.unv@example.com', 'secret-pass-123');
             $this->fail('Retail unverified email login must fail.');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame(401, $e->status);
         }
 
@@ -1391,7 +1392,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         try {
             $auth->login($customer->phone, 'wrong-password');
             $this->fail('Wrong password must fail.');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame(401, $e->status);
         }
         defer()->invoke();
@@ -1415,19 +1416,19 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         try {
             $auth->login($customer->phone, 'wrong-password');
             $this->fail('Suspended with wrong password must return 401.');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame(401, $e->status);
         }
         try {
             $auth->login($customer->phone, 'secret-pass-123');
             $this->fail('Suspended with right password must return 403.');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame(403, $e->status);
         }
         try {
             $auth->issueToken($customer, 'blocked');
             $this->fail('issueToken on suspended customer must return 403.');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame(403, $e->status);
         }
     }
@@ -1470,7 +1471,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         $this->apiAs($validStaffToken, 'GET', '/api/v1/admin/customers/abc')->assertNotFound();
 
         // 6. BusinessException with 503 includes Retry-After: 1 and errorCode in response
-        $ex = new \App\Exceptions\BusinessException('مشغول', [], 503, 'service_busy');
+        $ex = new BusinessException('مشغول', [], 503, 'service_busy');
         $rendered = $ex->render();
         $this->assertSame(503, $rendered->getStatusCode());
         $this->assertSame('1', $rendered->headers->get('Retry-After'));

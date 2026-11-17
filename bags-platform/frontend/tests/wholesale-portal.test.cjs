@@ -110,6 +110,17 @@ test('dates use the local calendar at the start of a month', () => {
   assert.equal(calendarDay(localMidnight), '2026-11-01');
 });
 
+test('today and pager follow Cairo and a bounded window', () => {
+  const { today, day, pagerItems, addQuoteLine } = load(`${root}helpers.js`);
+  assert.equal(today(), day(new Date().toISOString()));
+  assert.equal(day('2026-11-16T22:30:00.000Z'), '2026-11-17');
+  assert.deepEqual(pagerItems(1, 3), [1, 2, 3]);
+  assert.deepEqual(pagerItems(10, 40), [1, '…', 8, 9, 10, 11, 12, '…', 40]);
+  const merged = addQuoteLine([{ variant_id: 7, qty: 2 }], { variant_id: 7, qty: 3, name: 'Bag' });
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].qty, 5);
+});
+
 test('wholesale invoice timestamps use the Cairo calendar day', () => {
   const { day } = load(`${root}helpers.js`);
   assert.equal(mappers.mapInvoice({ created_at: '2026-11-03T22:30:00Z' }).date, '2026-11-04');

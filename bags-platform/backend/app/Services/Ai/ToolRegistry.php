@@ -12,22 +12,22 @@ use App\Actions\Staff\CreateStaffUser;
 use App\Actions\Staff\DeleteRole;
 use App\Actions\Staff\UpdateRole;
 use App\Actions\Staff\UpdateStaffUser;
-use App\Enums\Inventory\BranchType;
 use App\Enums\Customer\CustomerDocumentStatus;
 use App\Enums\Customer\CustomerDocumentType;
 use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
+use App\Enums\Inventory\BranchType;
 use App\Enums\Inventory\LocationType;
 use App\Enums\StaffRole;
-use App\Http\Requests\Admin\Customer\ApproveCustomerRequest;
-use App\Http\Requests\Admin\Customer\StoreCustomerRequest;
-use App\Http\Requests\Admin\Customer\UpdateCustomerRequest;
-use App\Http\Requests\Admin\Pricing\StoreCustomerGroupRequest;
-use App\Http\Requests\Admin\Pricing\UpdateCustomerGroupRequest;
-use App\Http\Requests\Admin\Inventory\StoreBranchRequest;
 use App\Http\Requests\Admin\Auth\StoreRoleRequest;
 use App\Http\Requests\Admin\Auth\StoreUserRequest;
 use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
+use App\Http\Requests\Admin\Customer\ApproveCustomerRequest;
+use App\Http\Requests\Admin\Customer\StoreCustomerRequest;
+use App\Http\Requests\Admin\Customer\UpdateCustomerRequest;
+use App\Http\Requests\Admin\Inventory\StoreBranchRequest;
+use App\Http\Requests\Admin\Pricing\StoreCustomerGroupRequest;
+use App\Http\Requests\Admin\Pricing\UpdateCustomerGroupRequest;
 use App\Models\AiConversation;
 use App\Models\AiMessage;
 use App\Models\AiPendingAction;
@@ -50,13 +50,13 @@ use App\Services\Ai\Finance\FinanceWelcome;
 use App\Services\Ai\Finance\Tools\DailyCloseBriefingTool;
 use App\Services\Ai\Inventory\InventoryWelcome;
 use App\Services\Ai\Pricing\PricingWelcome;
-use App\Services\Inventory\BranchAccess;
-use App\Services\Shared\CostAccess;
+use App\Services\Auth\StaffAdministration;
 use App\Services\Customer\CustomerGroupService;
 use App\Services\Customer\CustomerManagementService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\CostAccess;
 use App\Services\Shared\SearchTerm;
 use App\Services\Shared\SettingService;
-use App\Services\Auth\StaffAdministration;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -545,7 +545,7 @@ final class ToolRegistry
         if ($name === 'update_customer_profile') {
             $customerRules = array_intersect_key((new UpdateCustomerRequest)->rules(), array_flip(['name', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register']));
             // Ignore target customer ID in unique validation rules since route parameters are absent in agent turns.
-            $customerRules['phone'] = ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore((int) ($args['customer_id'] ?? 0))];
+            $customerRules['phone'] = ['sometimes', 'string', 'regex:/\A01[0125][0-9]{8}\z/', Rule::unique('customers', 'phone')->ignore((int) ($args['customer_id'] ?? 0))];
             $customerRules['email'] = ['sometimes', 'nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail((int) ($args['customer_id'] ?? 0))];
             $rules = array_replace($rules, $customerRules);
         }
@@ -2859,19 +2859,19 @@ final class ToolRegistry
             }
             if ($tool === 'update_role_permissions' && isset($inv['permissions'])) {
                 $r = Role::findOrFail($args['role_id']);
-                $f = app(UpdateRole::class)($actor, $r, ['permissions' => $inv['permissions']], $via);
+                $f = app(UpdateRole::class)($actor, $r, ['permissions' => $inv['permissions'], 'expected_version' => (int) $r->lock_version], $via);
 
                 return $f ? ToolOutcome::result(false, 'الدور محمي.') : ToolOutcome::result(true, 'تم التراجع.');
             }
             if ($tool === 'set_user_status' && isset($inv['is_active'])) {
                 $u = User::findOrFail($args['user_id']);
-                $f = app(UpdateStaffUser::class)($actor, $u, ['is_active' => (bool) $inv['is_active']], $via);
+                $f = app(UpdateStaffUser::class)($actor, $u, ['is_active' => (bool) $inv['is_active'], 'expected_version' => (int) $u->lock_version], $via);
 
                 return $f ? ToolOutcome::result(false, 'مش مسموح.') : ToolOutcome::result(true, 'تم التراجع.');
             }
             if ($tool === 'assign_roles' && isset($inv['roles'])) {
                 $u = User::findOrFail($args['user_id']);
-                $f = app(UpdateStaffUser::class)($actor, $u, ['roles' => $inv['roles']], $via);
+                $f = app(UpdateStaffUser::class)($actor, $u, ['roles' => $inv['roles'], 'expected_version' => (int) $u->lock_version], $via);
 
                 return $f ? ToolOutcome::result(false, 'مش مسموح.') : ToolOutcome::result(true, 'تم التراجع.');
             }

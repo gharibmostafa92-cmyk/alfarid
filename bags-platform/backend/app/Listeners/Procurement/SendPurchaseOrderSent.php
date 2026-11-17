@@ -26,16 +26,16 @@ class SendPurchaseOrderSent implements ShouldQueue
     public function handle(PurchaseOrderSentToSupplier $event): void
     {
         $po = $event->purchaseOrder->fresh();
-        if ($po === null || $po->status === PurchaseOrderStatus::Cancelled) {
+        if ($po === null || $po->status !== PurchaseOrderStatus::SentToSupplier) {
             return;
         }
         $users = SupplierUser::query()
-            ->where('supplier_id', $event->purchaseOrder->supplier_id)
+            ->where('supplier_id', $po->supplier_id)
             ->where('is_active', true)
             ->get();
 
         if ($users->isNotEmpty()) {
-            DB::transaction(fn () => Notification::sendNow($users, new PurchaseOrderSentNotification($event->purchaseOrder), ['database']));
+            Notification::sendNow($users, new PurchaseOrderSentNotification($po), ['database']);
         }
     }
 }

@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Customer;
 
-use App\Services\Auth\StaffAdministration;
-use App\Services\Shared\SearchTerm;
-
 use App\Exceptions\BusinessException;
 use App\Models\CustomerGroup;
 use App\Models\User;
+use App\Services\Auth\StaffAdministration;
+use App\Services\Pricing\PricingService;
+use App\Services\Shared\SearchTerm;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -87,6 +87,9 @@ class CustomerGroupService
                 $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
                 $before = $group->only(array_keys($data));
                 $group->update($data);
+                DB::afterCommit(static function (): void {
+                    app(PricingService::class)->bumpCatalogVersion();
+                });
 
                 // Audit when actor is supplied; assistant tools handle audit logging independently.
                 if ($actor !== null) {

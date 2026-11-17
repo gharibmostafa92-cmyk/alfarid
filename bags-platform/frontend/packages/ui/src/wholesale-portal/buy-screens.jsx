@@ -260,7 +260,7 @@ export const QuickOrder = () => {
     setAdding(true);
     setSkipped(null);
     try {
-      const r = await wholesaleEndpoints.quickAddToCart(valid.map((l) => ({ sku: l.sku, qty: l.qty })));
+      const r = await wholesaleEndpoints.quickAddToCart(valid.map((l) => ({ sku: l.sku || l.barcode, qty: l.qty })));
       applyCartResponse(r.cart);
       if (r.skipped?.length) setSkipped(r.skipped);
       else { toast('تمت الإضافة إلى سلة المشتريات بنجاح'); go('cart'); }
@@ -419,7 +419,11 @@ const CartRow = ({ line, onCommit, onRemove, busy }) => {
   const change = (n) => {
     setQty(n);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => { if (n !== line.qty) onCommit(line, n); }, 400);
+    timer.current = setTimeout(async () => {
+      if (n === line.qty) return;
+      const ok = await onCommit(line, n);
+      if (ok === false) setQty((current) => (current === n ? line.qty : current));
+    }, 400);
   };
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const shortage = !line.available || (line.max_qty > 0 && line.qty > line.max_qty);
@@ -446,20 +450,24 @@ export const Cart = () => {
   const [cErr, setCErr] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState(false);
+  const reqSeq = useRef(0);
   const lines = cart?.lines || [];
   const totals = cart?.totals || {};
   const discount = num(totals.pricing_discount ?? 0) + num(totals.coupon_discount ?? 0);
 
   const commit = async (line, qty) => {
-    if (!qty || qty < 1) return;
+    if (!qty || qty < 1) return false;
+    const seq = ++reqSeq.current;
     setBusy(true);
     try {
       const c = await cartEndpoints.update(line.id, qty, null);
-      applyCartResponse(c);
+      if (seq === reqSeq.current) applyCartResponse(c);
+      return true;
     } catch (e) {
       toast(apiError(e).message);
+      return false;
     } finally {
-      setBusy(false);
+      if (seq === reqSeq.current) setBusy(false);
     }
   };
   const remove = async (line) => {

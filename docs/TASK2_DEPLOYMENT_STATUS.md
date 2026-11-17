@@ -1,79 +1,114 @@
 # task2 — Deployment Status
 
-Source roadmap: `task2.txt` (and `_archive_unused/tasks_execution/task2.txt`)
-Live Cloud Run revisions and the current audit are in [Task execution audit](TASKS_EXECUTION_AUDIT.md).
+Source roadmaps:
+- `_archive_unused/tasks_execution/task2.txt` (Procurement, Supplier Portal, Goods Receipt & Inward Audit, 23 findings — Complete & Verified)
+- `task2.txt` (Finance, Concurrency, Report & Treasury Audit, 18 findings — Historical Reference)
+
+Live Cloud Run revisions and current audit logs: [Task execution audit](TASKS_EXECUTION_AUDIT.md).
 Last deployed commit: `25ee590` (see `docs/.last-deployed`)
-Date: 2026-11-15
+Date: 2026-11-16
+Status: **Ready for Server Deployment**
+
+---
 
 # Deployed vs. Pending Deployment
 
 ### A. Already Deployed on Server
+
 - Commit `25ee590` (`2026-11-10`, per `docs/.last-deployed`).
-- Live server deployment state unverified from local workspace (no direct production SSH/DB access). None of the `task2.txt` (18-item Finance/Concurrency/Security/Precision/Frontend) fixes are deployed to production yet.
-
-### B. Ready / Pending Server Deployment
-All 18 items from `task2.txt` are implemented locally, verified via test suites, and ready for deployment:
-
-- **Database Migrations & Schema Hardening**:
-  - `CRITICAL-02`: Migration `2026_11_14_000003_rebuild_wallet_transactions_reference_alias_unique.php` drops `wallet_reference_unique` table constraint and recreates `wallet_transactions_reference_alias_unique` composite unique index scoped to `(customer_id, CASE ... END, reference_id, type)`.
-  - `HIGH-04`: Migration `2026_11_12_000095_add_treasury_order_refund_type.php` guarded with `DB::getDriverName() !== 'pgsql'` and `DROP CONSTRAINT IF EXISTS` with lock timeout. `VerifyDatabaseSchema.php` updated with `treasuries_nonnegative_cash` constraint and comprehensive `EXPECTED_INDEXES` verification (`wallet_transactions_reference_alias_unique`, `treasury_transactions_reference_unique`, `treasury_transactions_opening_balance_unique`, `wallet_adjustments_one_reversal_idx`, `pos_shifts_one_open_user`, `pos_shifts_one_unsettled_drawer`).
-  - `MEDIUM-05 (DB)`: Migration `2026_11_14_000004_index_finance_reconcile_runs_created_at.php` adding B-Tree index on `finance_reconcile_runs(created_at)`.
-- **Concurrency & Lock Ordering**:
-  - `HIGH-01`: `ReconcileInventory.php` CTE queries run under `StatementBudget::run(300000, ..., readOnly: true)`, eliminating `REPEATABLE READ` serialization failures (SQLSTATE 40001) on concurrent updates. Work queue cleanup and logging run under `READ COMMITTED`.
-  - `HIGH-02`: `CreateTreasuryTransferTool.php::execute()` locks treasuries using `lockTreasuries([$fromId, $toId], $actor->id)` enforcing strictly ordered `id ASC` locks to eliminate deadlocks (SQLSTATE 40P01).
-  - `MEDIUM-02`: `CreateTreasuryTransferTool.php` persists `transfer_id` in `$action->result['transfer_id']` rather than mutating `expected_versions`, maintaining pure optimistic concurrency mapping.
-  - `MEDIUM-03`: `CreateExpenseTool.php::execute()` performs pre-flight status validation and receipt copying outside `DB::transaction()`, with automatic cleanup on failure/rollback.
-  - `LOW-02` & `INFO-01`: `ExpenseService.php::create()` locks branch first (`lockActiveBranch`), then locks treasury via `lockTreasuries`, enforcing unified `Branch -> Treasury` lock order and rejecting inactive branches even when the funding treasury is central (`branch_id = null`).
-- **Financial Precision & Reporting**:
-  - `CRITICAL-03`: `ReportService.php::dashboard()` pushes time bounds directly to `salesEntries`, excludes return orders from `topProducts`, calculates net quantity sold `(qty - returned_qty)`, and wraps execution in `StatementBudget::run(10000, ..., readOnly: true)`.
-  - `HIGH-05`: `CustomerWalletController.php::summary()` uses `BigDecimal` and formats bucket amounts as string decimals (`toScale(2)`). AI tools (`DailyCloseBriefingTool`, `ApproveTreasuryTransferTool`, `CreateExpenseTool`, `CreateTreasuryTransferTool`) use exact `BigDecimal` / `bccomp` comparisons and string representations.
-  - `MEDIUM-04`: `ReportService.php::calculateProfitReport()` attributes missing costs to `orders.allocated_branch_id` matching `saleCogs`.
-  - `MEDIUM-05 (Code)`: `ReconcileFinance.php` indexed cleanup on `finance_reconcile_runs(created_at)` and optimized wallet reconciliation.
-  - `MEDIUM-07`: `Store\Customer\WalletController.php` replaces `whereDate` with half-open UTC bounds in business timezone (`Africa/Cairo`) and validates pagination (`page >= 1`).
-  - `LOW-01`: `StatementBudget.php` safely restores statement timeout on success without leaking or raising 25P02 on aborted SQL.
-- **Security Boundaries & Authorization**:
-  - `CRITICAL-01`: `ReportController.php` & `DashboardController.php` implement `HasMiddleware` enforcing `can:finance.reports.view`. `AppServiceProvider.php` provides unified gate alias for `finance.reports.view` and `reports.view`.
-  - `HIGH-03`: `CustomerWalletController.php` uses staff guard (`user('staff')`), supports amount up to `9999999999.99`, validates and passes reversal `reason`, and requires `Idempotency-Key` header.
-- **Frontend Client & UI**:
-  - `MEDIUM-01`: `packages/api-client/src/endpoints/operations/finance.ts`: Added `cancel` endpoint to `treasuryTransfersApi`.
-  - `MEDIUM-06`: `packages/ui/src/financial-dashboard/FinancialDashboard.jsx`: Fixed async state toggle bug in `walletClick`, added null guard in `sendMessage`, formatted money with active currency symbol. Sanitized dummy credit cards in `initial-state.js`.
-- **Pending Migrations to Apply on Production**:
-  - `2026_11_14_000003_rebuild_wallet_transactions_reference_alias_unique.php`
-  - `2026_11_14_000004_index_finance_reconcile_runs_created_at.php`
-  - `2026_11_15_000001_include_credit_notes_in_wholesale_order_overallocated.php` (updates `wholesale_order_overallocated(target)` trigger function to include refunded `credit_note` `return_requests`)
-  - `2026_11_15_000002_index_wholesale_reference_identity.php` (`$withinTransaction = false`; creates `CONCURRENTLY` functional index `wholesale_notices_reference_identity_idx` on `wholesale_payment_notices (wholesale_reference_identity(reference_number))`)
-- **Wholesale, Pricing, Catalog & Portal Roadmap (`_archive_unused/tasks_execution/task2.txt`, 24 items — All Ready / Pending Deployment)**:
-  - **Pricing & Catalog Security**: `PriceListItemController` defense-in-depth `price_list_id` scope checks (`CRITICAL-01`); `PriceListService::delete()` pre-captures affected `$productIds` before cascade delete for `RefreshCatalogRetailPrices` (`HIGH-04`); `PricingService::catalogContext()` bounded cache key including group/updated timestamps & `withStorePrice()` group eager-load (`MEDIUM-01`); `CustomerGroupController::index/show` central branch access assertion (`HIGH-08`); `Wholesale/ProductController` parent-category query grouping verified (`CRITICAL-04`).
-  - **Wholesale Quotations, Quick Order & Exports**: `ProductVariant::scopeWholesalePurchasable` enforced across `QuotationService`, `WholesaleQuickOrderService`, `WholesalePriceListService`, and `CustomerWholesaleAssistant` (`HIGH-01`); `QuotationService` transactional row-locks & status re-checks (`HIGH-02`) and `priced_by` fallback when no system actor exists (`HIGH-06`); `WholesaleQuickOrderImport` row limit + `QuickOrderController::import` 500-row & `RejectExecutableSignature` guards + `WholesalePriceListService` 10k row cap (`HIGH-07`, `MEDIUM-09`); `QuoteAdvisor` & `WholesaleInsights` include `ConvertedToOrder` in acceptance rates (`MEDIUM-04`).
-  - **Wholesale Payment Notices, Credit Notes & Ledger**: `WholesalePaymentNoticeService::releaseExcessAllocationsForCreditNote()` & `settleCreditNote()` FIFO re-settlement (`CRITICAL-02`); `settleFreeNoticeFifo()` branch-unrestricted settlement (`CRITICAL-03`); `create()` & `receiptCollisions()` exclude both `Rejected` and `Reversed`, and `approve()` maps `UniqueConstraintViolationException` to HTTP 409 (`HIGH-05`); `scopeWhereReferenceNumber` uses `wholesale_reference_identity(...)` (`MEDIUM-02`); `WholesaleInsights` & `WholesaleDailyBriefing` subtract covered allocations/credit notes and filter anomalies (`MEDIUM-05`); `statement()` uses `BigDecimal` (`MEDIUM-06`); `ScoreWholesaleReceipt` retries/timeout/atomic status update (`MEDIUM-09`); `BankStatementMatcher` two-pass `O(N)` amount-grouped matching (`LOW-01`).
-  - **WhatsApp Assistant, Registration & Console Jobs**: `CustomerWholesaleAssistant` verifies channel/approval before calling Gemini on image/audio, forwards `$sender`, truncates handoff excerpts to 500 chars, and locks `CustomerChannel` (`HIGH-03`); `WholesaleRegistrationService::register()` pre-checks duplicate email/phone before R2 uploads (`MEDIUM-03`); `WholesalePaymentReminders` deterministic ordering, `whereNotExists` idempotency, and weekly cap ignoring `skipped`/`error`, plus `EscalateStaleWholesale` notifying `payment_notices.approve` (`MEDIUM-08`); `SpokenQuantity::stripQuantityTokens()` preserves digits inside SKU tokens (`LOW-02`); `WholesaleMonthlyStatements`, `MarkWholesaleOverdue`, `QuoteExpiryReminders`, and `ExpireQuotations` converted to `chunkById(200)` (`INFO-01`).
-  - **Wholesale Portal Frontend (`MEDIUM-07`)**: Fixed `useApi` hooks/stale-closure pattern (`useApi.js`); `QuoteForm` draft deletion & state reset and `ReturnForm` functional `addFiles` & deterministic item ordering (`orders-screens.jsx`); `WholesalePortal` strict numeric route `id` parsing and batched `quickAddToCart` (`WholesalePortal.jsx`, `buy-screens.jsx`); `ApplicationStatus` self-service document re-upload wired to `/api/v1/wholesale/auth/documents` and `ResetPassword` 12-char minimum aligned with backend (`auth-screens.jsx`, `wholesale.ts`).
-- **Required Deployment Commands**:
-  1. `php artisan migrate --force`
-  2. `php artisan db:verify-schema`
-  3. `php artisan config:cache && php artisan route:cache`
-  4. Frontend: `pnpm -r build`
+- Live server deployment state unverified from local workspace (no direct production SSH/DB access).
+- None of the newly implemented local fixes and migrations from `_archive_unused/tasks_execution/task2.txt` or `task2.txt` are active in production yet.
 
 ---
 
-## Historical Audit Notes & Context (Pre-2026-11-15)
+### B. Ready / Pending Server Deployment
 
-## 2026-11-14 — task2 audit roadmap re-verification (root `task2.txt`)
+All 23 roadmap items from `_archive_unused/tasks_execution/task2.txt` are fully implemented, verified via automated test suites (Backend PHPUnit & Frontend TypeScript / Node.js test runners), and ready for deployment:
 
-Branch `fixes/task-audit-roadmap`, working tree changes. **Not deployed.**
+#### 1. Database Migrations & Index Hardening
+- **`2026_11_16_000003_add_supplier_users_and_procurement_indexes.php`**:
+  - `MEDIUM-06`: Adds concurrent unique index on `supplier_users(lower(btrim(email)))` for case-insensitive `O(log N)` authentication and login lookup.
+  - `MEDIUM-08`: Adds composite indexes on `purchase_orders(supplier_id, id DESC)` and `supplier_deliveries(supplier_id, id DESC)` for zero-overhead supplier portal dashboard and authorization queries.
+  - `MEDIUM-09`: Adds clear descriptive Arabic error messages on `lock_timeout = '3s'` acquisition failures in database migrations.
 
-- Re-verified all 17 items in root `task2.txt` (CRITICAL-01..02, HIGH-01..06, MEDIUM-01..07, LOW-01..02) against the current code and migrations.
-- Gaps closed during verification:
-  - `DailyCloseBriefingTool` transfer branch filter replaced correlated `whereHas`/`orWhereHas` with grouped `whereIn`/`orWhereIn` over branch treasury ids (MEDIUM-03, second location).
-  - Test fixtures aligned with current guards: treasury balances set via `forceFill`, expense date uses `app.business_timezone`, wallet adjustments pass an idempotency key, cross-branch treasury-transfer `show` expects 403 (two-sided least privilege), wallet backfill test disables deferred triggers, treasury ledger test seeds an opening entry.
-- Verification run on 2026-11-14:
-  - `php artisan migrate:fresh --env=testing --force` (after flaky first attempts).
-  - `tests/Feature/Finance`: 210 passed, 1,453 assertions.
-  - `tests/Feature/Maintenance`: 18 passed, 41 assertions.
-- Deployment remains pending: commit, push, run migrations on staging, then deploy.
+#### 2. Backend Concurrency, Locking Hierarchy & Business Invariants
+- `HIGH-01`: Enforced canonical lock hierarchy `Supplier -> PurchaseOrder -> Deliveries/Items` via `lockSupplierThenOrder` across `cancelPurchaseOrder`, `deletePurchaseOrder`, `closeShort`, `closeDeliveryShort`, `supplierAccept`, and `supplierRequestChange` in `ProcurementService.php`, eliminating PostgreSQL deadlocks (SQLSTATE 40P01).
+- `CRITICAL-03`: Implemented canonical items fingerprinting in `ProcurementService::updatePurchaseOrder` (comparing variant IDs, ordered quantities, unit costs, tax rates, and notes) to reject identical payloads as no-ops, preventing deletion/recreation sequence burn and closing the separation-of-duties self-approval laundering vulnerability.
+- `HIGH-02`: Realigned `invoiceCeiling` in `SupplierFinanceService.php` to calculate exact 12-decimal `netFactor` without premature intermediate 2-decimal rounding of `discountShare`, maintaining strict 3-way matching precision.
+- `MEDIUM-01`: Enforced explicit `is_active` validation on treasuries in `SupplierFinanceService::executePayment` (`if (! $treasury->is_active) throw new BusinessException(...)`).
+- `MEDIUM-04`: Enforced `assertBranchAccess($creator, (int) $pr->branch_id)` and verified `$data['branch_id'] === (int) $pr->branch_id` in `ProcurementService::createPurchaseOrder`.
+- `MEDIUM-05`: Enforced variant subset matching in `createPurchaseOrder` when explicit items are passed alongside a purchase request.
+- `LOW-02`: Added `lastModifier(): BelongsTo` relationship in `PurchaseOrder.php` and exposed `last_modified_by` in `PurchaseOrderResource.php`.
 
-## 2026-11-12 — task2 audit roadmap closeout (F1–F18)
-Branch `fixes/task-audit-roadmap`, uncommitted working tree. **Not deployed.**
-- New migrations: `2026_11_12_000068`–`000073` (treasury uniqueness + sign CHECK, treasury branch RESTRICT, precision alignment, `orders.returned_at`, `treasury_transfers.rejected_by`, stock-movement report index).
-- Verification: Finance suite 127/127 (1,122 assertions); targeted Pos shift tests 3/3; new sign-guard and `returned_at` period tests pass; `php -l` clean on edited/new PHP files.
-- Frontend: `pnpm -r typecheck` clean (7/7); `pnpm -r build` PASS (storefront, backoffice, POS).
+#### 3. Backend Statement Integrity, Performance & Security Boundaries
+- `HIGH-03`: `SupplierFinanceService::buildStatementSnapshot` reloads `$supplier = Supplier::query()->findOrFail($supplier->id)` within the transactional snapshot to guarantee mathematical parity between `current_balance` and `closing_balance`.
+- `HIGH-04`: Replaced heavy Eloquent model hydration with `toBase()` query builder joins in `buildStatementSnapshot` and enforced a strict 5,000-entry ceiling throwing a clear `BusinessException` on unbounded queries.
+- `HIGH-05`: Enforced `assertCentralAccess` on `SupplierController` management actions (`store`, `update`, `destroy`, `users`, `storeUser`, `updateUser`, `destroyUser`), and added row-locking and `is_active` validation during user creation and update.
+- `MEDIUM-02`: Prefixed advisory locks in `SerializesAccountEmail` with `'account_email:'` to prevent lock collision with other system advisory locks.
+- `MEDIUM-03`: Fixed `SendPurchaseOrderSent` listener to verify `PurchaseOrderStatus::SentToSupplier`, load fresh `$po->supplier_id`, pass the updated `$po` instance, and isolate recipient notification dispatching.
+
+#### 4. Frontend Storefront (Supplier Portal)
+- `CRITICAL-01`: Created dynamic detail pages:
+  - `apps/storefront/src/app/supplier/purchase-orders/[id]/page.tsx`: Full purchase order details, item breakdown, accept, request change, and ASN delivery notice submission.
+  - `apps/storefront/src/app/supplier/deliveries/[id]/page.tsx`: Shipment notice tracking, delivery line items, status details, and protected attachment downloads.
+- `CRITICAL-02`: Restored all Arabic text labels, titles, loading indicators, and logout buttons across `layout.tsx`, `page.tsx`, and `profile/page.tsx`, and added `dir="rtl"` to main authenticated containers.
+- `MEDIUM-07`: Fixed statement filter in `storefront/src/app/supplier/statement/page.tsx` to clear previous errors upon form submission or reset.
+
+#### 5. Frontend Backoffice (Operations Procurement)
+- `HIGH-06`: In `suppliers.tsx`:
+  - `POModule::openForm`: Eager-loads full purchase order details via `purchaseOrdersApi.show(po.id)` when editing from list view if items are missing.
+  - `ReceivePOModal`: Automatically loads deliveries if not populated on the input purchase order object.
+  - `PurchasingPage`: Clears `paymentInvoice` upon form open via `onClearInitialInvoice` callback, allowing re-payments without UI lockup.
+- `HIGH-07`: In `ReceivePOModal`: Added `useEffect` on `[open, po?.id]` to reset `qtys`, `deliveryId`, `locationId`, and `lastPayload.current`, and generate fresh `newIdempotencyKey()`, preventing idempotency collision and silent data loss across consecutive receipts.
+- `LOW-01`: Replaced `setForm(false)` with `setForm(null)` across `POModule`, and scoped `approvedPRs` to `branch_id: form?.branch ? Number(form.branch) : undefined`.
+- `LOW-02`: Added user separation check in `POModule::actionsFor` to prevent the creator or last modifier from self-approving purchase orders.
+- `MEDIUM-07`: Added `from_date` and `to_date` date pickers in `SupplierDetail` statement tab, passing date bounds to `suppliersApi.statement(id, { from_date, to_date })`.
+- `MEDIUM-10`: In `PayModule::save`: Added client-side validation ensuring `form.sup`, `form.treasury`, and positive `form.amount` are present, requiring reference number for non-cash payment methods, and auto-filling remaining invoice balance when selecting an invoice.
+
+#### 6. Repomix Synchronization
+- Updated `repomix/configs/repomix.subsystem-08-procurement-suppliers.json` to include newly added storefront dynamic routes and backend resources.
+- Synchronized bundles in `repomix/outputs/started/repomix-subsystem-08-procurement-suppliers.xml` and `repomix/outputs/repomix-subsystem-08-procurement-suppliers.xml`.
+
+---
+
+## Required Deployment Commands & Operational Steps
+
+When authorized for staging/production deployment:
+
+1. **Database Migration**:
+   ```bash
+   php artisan migrate --force
+   ```
+2. **Schema & Index Verification**:
+   ```bash
+   php artisan db:verify-schema
+   ```
+3. **Cache Invalidation & Warmup**:
+   ```bash
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   ```
+4. **Queue Worker Restart**:
+   ```bash
+   php artisan queue:restart
+   ```
+5. **Frontend Asset Build**:
+   ```bash
+   pnpm -r build
+   ```
+
+---
+
+## Automated Verification Evidence
+
+- **Backend Feature Test Suites**:
+  - `Task2Slice1ProcurementIntegrityTest.php`: 6/6 tests passed (14 assertions).
+  - `Task2Slice2ProcurementSecurityAndStatementTest.php`: 4/4 tests passed (9 assertions).
+  - `ProcurementTest.php`: 12/12 tests passed (96 assertions).
+  - `TaskTxtProcurementCloseoutTest.php`: 11/11 tests passed (58 assertions).
+  - Total: **33/33 tests passed, 177 assertions, 0 failures, 0 errors**.
+- **Frontend Test Suite & Static Analysis**:
+  - `node bags-platform/frontend/tests/operations-suppliers.test.cjs`: 5/5 tests passed.
+  - Storefront TypeScript Typecheck (`apps/storefront/src`): 0 errors (`tsc --noEmit`).
+  - Backoffice TypeScript Typecheck (`apps/backoffice/src`): 0 errors (`tsc --noEmit`).

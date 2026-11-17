@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Pricing;
 
-use App\Services\Auth\StaffAdministration;
-use App\Services\Inventory\BranchAccess;
-use App\Services\Shared\SearchTerm;
-
 use App\Enums\Catalog\PriceListType;
 use App\Exceptions\BusinessException;
 use App\Jobs\RefreshCatalogRetailPrices;
@@ -16,6 +12,9 @@ use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
 use App\Models\User;
+use App\Services\Auth\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\SearchTerm;
 use Carbon\Carbon;
 use DateTimeInterface;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -89,7 +88,9 @@ class PriceListService
 
         return DB::transaction(function () use ($data, $user): PriceList {
             $list = PriceList::query()->create($data);
-            if ($user) StaffAdministration::audit($user, 'price_list.created', 'price_list', $list->id, array_keys($data), [], $list->only(array_keys($data)), []);
+            if ($user) {
+                StaffAdministration::audit($user, 'price_list.created', 'price_list', $list->id, array_keys($data), [], $list->only(array_keys($data)), []);
+            }
             $this->invalidateCustomerCatalogContextIfNeeded($list);
 
             return $list->load(['customer', 'customerGroup', 'branch']);
@@ -121,7 +122,9 @@ class PriceListService
             $before = $priceList->only(array_keys($data));
             $previousCustomerId = $priceList->customer_id;
             $priceList->update($data);
-            if ($user) StaffAdministration::audit($user, 'price_list.updated', 'price_list', $priceList->id, array_keys($data), $before, $priceList->only(array_keys($data)), []);
+            if ($user) {
+                StaffAdministration::audit($user, 'price_list.updated', 'price_list', $priceList->id, array_keys($data), $before, $priceList->only(array_keys($data)), []);
+            }
             $this->invalidateCustomerCatalogContextIfNeeded($priceList, $previousCustomerId);
 
             $impactedFields = ['is_active', 'type', 'starts_at', 'ends_at', 'branch_id', 'priority'];
@@ -192,7 +195,14 @@ class PriceListService
 
         DB::afterCommit(static function () use ($customerId): void {
             Customer::query()->whereKey($customerId)->update(['updated_at' => now()]);
-            app(PricingService::class)->flushCatalogContexts();
+            app(PricingService::class)->bumpCatalogVersion();
+        });
+    }
+
+    private function bumpSharedPricingCatalog(): void
+    {
+        DB::afterCommit(static function (): void {
+            app(PricingService::class)->bumpCatalogVersion();
         });
     }
 
@@ -215,7 +225,9 @@ class PriceListService
             $before = $locked->attributesToArray();
             $customerId = $locked->customer_id;
             $locked->delete();
-            if ($user) StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, [], []);
+            if ($user) {
+                StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, [], []);
+            }
             $this->invalidateCustomerCatalogContextById($customerId);
             if ($productIds !== []) {
                 DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
@@ -261,7 +273,11 @@ class PriceListService
             $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
 
             $item = $priceList->items()->create($data);
-            if ($user) StaffAdministration::audit($user, 'price_list_item.created', 'price_list_item', $item->id, array_keys($data), [], $item->only(array_keys($data)), []);
+            if ($user) {
+                StaffAdministration::audit($user, 'price_list_item.created', 'price_list_item', $item->id, array_keys($data), [], $item->only(array_keys($data)), []);
+            }
+            $this->bumpSharedPricingCatalog();
+
             return $item->load('variant.product');
         });
     }
@@ -292,7 +308,10 @@ class PriceListService
 
             $before = $item->only(array_keys($data));
             $item->update($data);
-            if ($user) StaffAdministration::audit($user, 'price_list_item.updated', 'price_list_item', $item->id, array_keys($data), $before, $item->only(array_keys($data)), []);
+            if ($user) {
+                StaffAdministration::audit($user, 'price_list_item.updated', 'price_list_item', $item->id, array_keys($data), $before, $item->only(array_keys($data)), []);
+            }
+            $this->bumpSharedPricingCatalog();
 
             return $item->load('variant.product');
         });
@@ -311,7 +330,10 @@ class PriceListService
             $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
             $before = $item->attributesToArray();
             $item->delete();
-            if ($user) StaffAdministration::audit($user, 'price_list_item.deleted', 'price_list_item', $item->id, array_keys($before), $before, [], []);
+            if ($user) {
+                StaffAdministration::audit($user, 'price_list_item.deleted', 'price_list_item', $item->id, array_keys($before), $before, [], []);
+            }
+            $this->bumpSharedPricingCatalog();
         });
     }
 
@@ -340,6 +362,7 @@ class PriceListService
             if ($productIds !== []) {
                 DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
             }
+            $this->bumpSharedPricingCatalog();
 
             return $updated;
         });
@@ -593,6 +616,8 @@ class PriceListService
                     StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['items', 'count'], ['items' => $existing->values()->toArray()], ['items' => $rows, 'count' => count($rows)], []);
                 }
             }
+
+            $this->bumpSharedPricingCatalog();
 
             // Query-builder upsert fires no Eloquent events, so the catalog
             // snapshot observer never sees these writes. Refresh the affected

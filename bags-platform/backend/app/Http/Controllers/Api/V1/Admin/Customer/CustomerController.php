@@ -116,6 +116,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function approve(ApproveCustomerRequest $request, Customer $customer): CustomerResource
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         $customer = $this->customers->approve($customer, $request->validated(), $request->user()->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم اعتماد الحساب بنجاح']);
@@ -126,6 +127,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function reject(RejectCustomerRequest $request, Customer $customer): CustomerResource
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         $customer = $this->customers->reject($customer, $request->validated()['reason'], $request->user()->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم رفض الحساب']);
@@ -136,6 +138,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function suspend(SuspendCustomerRequest $request, Customer $customer): CustomerResource
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         $customer = $this->customers->suspend($customer, $request->validated()['reason'], $request->user()->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
@@ -146,6 +149,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function reactivate(Request $request, Customer $customer): CustomerResource
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         $customer = $this->customers->reactivate($customer, $request->user()->id);
 
         return CustomerResource::make($customer)->additional(['message' => 'تم إعادة تفعيل الحساب']);
@@ -211,6 +215,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function reviewDocument(Request $request, Customer $customer, CustomerDocument $document): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         $data = $request->validate([
             'status' => ['required', Rule::in([
                 CustomerDocumentStatus::Verified->value,
@@ -228,6 +233,7 @@ class CustomerController extends Controller implements HasMiddleware
      */
     public function storeDocument(Request $request, Customer $customer): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user('staff'));
         $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120', new MaxImagePixels, new RejectExecutableSignature]]);
         $document = $this->customers->uploadDocument($customer, $request->file('document'), (int) $request->user()->id);
 

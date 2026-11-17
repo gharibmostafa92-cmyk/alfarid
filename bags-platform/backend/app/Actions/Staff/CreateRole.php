@@ -6,9 +6,12 @@ namespace App\Actions\Staff;
 
 use App\Enums\StaffRole;
 use App\Models\User;
-use App\Services\Inventory\BranchAccess;
 use App\Services\Auth\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Exceptions\RoleAlreadyExists;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -28,20 +31,23 @@ final class CreateRole
         if (! StaffAdministration::mayGrantPermissions($actor, $permissions)) {
             abort(403, 'لا يمكنك إسناد صلاحيات لا تملكها.');
         }
+        // HIGH-01: verify the grant password before the transaction so no
+        // bcrypt ever runs under the global staff advisory lock.
+        [$preVerifiedHash, $currentPassword] = StaffAdministration::preVerifyGrantPassword($actor, $currentPassword, $permissions !== []);
 
-        return DB::transaction(function () use ($actor, $data, $permissions, $via, $currentPassword): Role {
+        return DB::transaction(function () use ($actor, $data, $permissions, $via, $currentPassword, $preVerifiedHash): Role {
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['roles.create', 'roles.manage']);
             $this->access->assertCentralAccess($actor);
             abort_unless(StaffAdministration::mayGrantPermissions($actor, $permissions), 403);
             if ($permissions !== []) {
-                StaffAdministration::requireGrantPassword($actor, $currentPassword);
+                StaffAdministration::requireGrantPassword($actor, $currentPassword, $preVerifiedHash);
             }
             StaffAdministration::clearPermissionCacheAfterCommit();
             try {
                 $role = Role::create(['name' => $data['name'], 'guard_name' => 'staff']);
-            } catch (\Spatie\Permission\Exceptions\RoleAlreadyExists|\Illuminate\Database\UniqueConstraintViolationException $e) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
+            } catch (RoleAlreadyExists|UniqueConstraintViolationException $e) {
+                throw ValidationException::withMessages([
                     'name' => 'اسم الدور مستخدم بالفعل؛ أعد التحميل ثم حاول مرة أخرى.',
                 ]);
             }

@@ -27,7 +27,7 @@ class AuthController extends Controller
     public function login(LoginRequest $request): JsonResponse
     {
         $email = mb_strtolower(trim($request->validated('email')));
-        $user = SupplierUser::query()->whereRaw('lower(btrim(email)) = ?', [$email])->first();
+        $user = SupplierUser::query()->where('email', $email)->orWhereRaw('lower(btrim(email)) = ?', [$email])->first();
         $passwordMatches = Hash::check($request->validated('password'), $user?->password ?? CustomerAuthService::dummyHash());
 
         if ($user === null || ! $passwordMatches) {
@@ -75,7 +75,7 @@ class AuthController extends Controller
                     'email' => ['حساب المورد أو الموظف غير مفعّل.'],
                 ]);
             }
-            StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5));
+            StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5), (int) config('auth.supplier_token_minutes', 10080));
 
             return $user->createToken('supplier-token', ['supplier'],
                 now()->addMinutes(max(1, (int) config('auth.supplier_token_minutes', 10080))))->plainTextToken;

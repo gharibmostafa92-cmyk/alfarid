@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
-use App\Services\Auth\CustomerAuthService;
-use App\Services\Customer\CustomerPhoneVerificationService;
-
 use App\Enums\Customer\CustomerDocumentStatus;
 use App\Enums\Customer\CustomerDocumentType;
 use App\Enums\Customer\CustomerStatus;
@@ -15,6 +12,8 @@ use App\Events\Wholesale\WholesaleApplicationSubmitted;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
+use App\Services\Auth\CustomerAuthService;
+use App\Services\Customer\CustomerPhoneVerificationService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -130,7 +129,7 @@ class WholesaleRegistrationService
             });
         } catch (\Throwable $e) {
             // Purge uploaded cloud assets on rollback to prevent orphaned KYC files in storage bucket.
-            $this->purgePathsAndDirectory($customerDirectory, $storedPaths);
+            $this->purgeUploadedPaths($storedPaths);
 
             // Map PostgreSQL unique constraint violations (e.g. duplicate tax/phone/email) to friendly HTTP 422 validation errors.
             throw Customer::translateUniqueViolation($e);
@@ -142,7 +141,7 @@ class WholesaleRegistrationService
     /**
      * @param  list<string>  $storedPaths
      */
-    private function purgePathsAndDirectory(string $customerDirectory, array $storedPaths): void
+    private function purgeUploadedPaths(array $storedPaths): void
     {
         $disk = Storage::disk('r2');
         foreach ($storedPaths as $path) {
@@ -151,18 +150,6 @@ class WholesaleRegistrationService
             } catch (\Throwable $exception) {
                 report($exception);
             }
-        }
-        if ($storedPaths !== []) {
-            $this->deleteDirectorySilently($customerDirectory);
-        }
-    }
-
-    private function deleteDirectorySilently(string $directory): void
-    {
-        try {
-            Storage::disk('r2')->deleteDirectory($directory);
-        } catch (\Throwable $exception) {
-            report($exception);
         }
     }
 }

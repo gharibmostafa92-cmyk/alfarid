@@ -3,7 +3,7 @@ import { useApp } from './context';
 import { wholesaleEndpoints, accountEndpoints } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError, saveBlob, pageMeta, num, calendarDay, today } from './data/helpers';
+import { apiError, saveBlob, pageMeta, num, calendarDay, today, firstOfMonth, startOfYear, monthsAgoFirst } from './data/helpers';
 import { mapOrder, mapInvoice, mapStatement, mapNotice, mapWalletTx, mapNotif } from './data/mappers';
 import { ORDER_STATUS, PAY_METHOD, PAY_STATUS, NOTICE_STATUS, NOTICE_METHOD } from './data/constants';
 import { fmt, Money } from './data/format';
@@ -96,8 +96,6 @@ export const Invoices = () => {
 };
 
 /* ---------- 19. Statement ---------- */
-const firstOfMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
-
 export const Statement = () => {
   const { go, account } = useApp();
   const [from, setFrom] = useState(firstOfMonth());
@@ -120,10 +118,9 @@ export const Statement = () => {
 
   const setRange = (i) => {
     setChip(i);
-    const now = new Date();
     if (i === 0) { setFrom(firstOfMonth()); setTo(today()); }
-    else if (i === 1) { const d = new Date(now.getFullYear(), now.getMonth() - 2, 1); setFrom(calendarDay(d)); setTo(today()); }
-    else { setFrom(`${now.getFullYear()}-01-01`); setTo(today()); }
+    else if (i === 1) { setFrom(monthsAgoFirst(2)); setTo(today()); }
+    else { setFrom(startOfYear()); setTo(today()); }
   };
 
   return (
@@ -495,7 +492,7 @@ export const Notifications = () => {
         <button className="btn-pill" onClick={readAll}>تحديد الكل كمقروء</button>
       </PageHead>
       <section className="panel">
-        <div className="toolbar"><Seg value={f} onChange={setF} options={[{ value: 'all', label: 'الكل', n: allCount }, { value: 'unread', label: 'غير مقروء', n: unreadCount }]} /></div>
+        <div className="toolbar"><Seg value={f} onChange={(v) => { setF(v); setPage(1); }} options={[{ value: 'all', label: 'الكل', n: allCount }, { value: 'unread', label: 'غير مقروء', n: unreadCount }]} /></div>
         <DataBoundary api={api}>
           <Async rows={5} cols={3} isEmpty={!list.length} empty={<Empty icon="fa-bell-slash" title="مفيش إشعارات غير مقروءة" desc="كل الإشعارات اتقرت." />}>
             {list.map((n) => (

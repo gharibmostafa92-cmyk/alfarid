@@ -79,7 +79,7 @@ class PosCustomerController extends Controller
         ]);
 
         $normalizedPhone = Customer::normalizePhone($data['phone']);
-        if (! preg_match('/^01[0125][0-9]{8}$/', $normalizedPhone)) {
+        if (! preg_match('/\A01[0125][0-9]{8}\z/', $normalizedPhone)) {
             throw ValidationException::withMessages([
                 'phone' => ['رقم الموبايل غير صالح؛ يجب أن يكون رقم موبايل مصري صحيح (01xxxxxxxxx).'],
             ]);

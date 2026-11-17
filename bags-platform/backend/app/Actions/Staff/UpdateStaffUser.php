@@ -14,6 +14,7 @@ use App\Services\Inventory\BranchAccess;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
@@ -52,6 +53,14 @@ final class UpdateStaffUser
         $currentUser = $actor;
         $roles = $validated['roles'] ?? null;
         $userAttributes = Arr::except($validated, ['roles', 'current_password', 'expected_version']);
+        // HIGH-01: verify the grant password and hash any new password
+        // before the transaction so no bcrypt ever runs under the global
+        // staff advisory lock. A wrong password only strips the credential;
+        // grant-free paths proceed exactly as before.
+        [$preVerifiedHash, $currentPassword] = StaffAdministration::preVerifyGrantPassword($currentUser, $currentPassword, is_array($roles) && $roles !== []);
+        if (isset($userAttributes['password']) && is_string($userAttributes['password']) && ! Hash::isHashed($userAttributes['password'])) {
+            $userAttributes['password'] = Hash::make($userAttributes['password']);
+        }
         $isSuperAdminRequester = $actor->hasRole(StaffRole::SuperAdmin->value, 'staff');
         $assigningSuperAdmin = is_array($roles) && in_array(StaffRole::SuperAdmin->value, $roles, true);
 
@@ -63,7 +72,7 @@ final class UpdateStaffUser
             $isSuperAdminRequester,
             $assigningSuperAdmin,
             $validated,
-            $verifiedPasswordHash, $via, $selfRotation, $currentPassword,
+            $verifiedPasswordHash, $via, $selfRotation, $currentPassword, $preVerifiedHash,
         ): ?string {
             if (! $selfRotation) {
                 StaffAdministration::lock();
@@ -136,7 +145,7 @@ final class UpdateStaffUser
             }
 
             if (array_diff($roles ?? [], $before['roles']) !== []) {
-                StaffAdministration::requireGrantPassword($currentUser, $currentPassword, $verifiedPasswordHash);
+                StaffAdministration::requireGrantPassword($currentUser, $currentPassword, $verifiedPasswordHash ?? $preVerifiedHash);
             }
 
             // Re-validate email uniqueness under lock to prevent unique index collisions from concurrent edits.
@@ -180,6 +189,11 @@ final class UpdateStaffUser
                 $rolesChanged = $requestedRoles !== $currentRoles;
                 if ($rolesChanged) {
                     $lockedUser->syncRoles($roles);
+                    // Spatie clears its cache synchronously inside syncRoles,
+                    // i.e. before this transaction commits. Re-invalidate
+                    // after commit so a concurrent reader cannot repopulate
+                    // the cache from the pre-commit snapshot.
+                    StaffAdministration::clearPermissionCacheAfterCommit();
                 }
             }
             if ($rolesChanged && ! $lockedUser->wasChanged('lock_version')) {

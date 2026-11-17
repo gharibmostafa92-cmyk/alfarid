@@ -74,6 +74,7 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function store(SupplierRequest $request): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $supplier = $this->suppliers->create($request->validated());
 
         return SupplierResource::make($supplier)->response()->setStatusCode(201);
@@ -111,14 +112,17 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function update(SupplierRequest $request, Supplier $supplier): SupplierResource
     {
+        $this->branchAccess->assertCentralAccess($request->user());
+
         return SupplierResource::make($this->suppliers->update($supplier, $request->validated()));
     }
 
     /**
      * Delete an unused supplier profile.
      */
-    public function destroy(Supplier $supplier): JsonResponse
+    public function destroy(Request $request, Supplier $supplier): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         DB::transaction(function () use ($supplier): void {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
             if ($supplier->purchaseOrders()->exists() || $supplier->invoices()->exists()
@@ -137,8 +141,10 @@ class SupplierController extends Controller implements HasMiddleware
     /**
      * List portal user accounts associated with the supplier.
      */
-    public function users(Supplier $supplier): AnonymousResourceCollection
+    public function users(Request $request, Supplier $supplier): AnonymousResourceCollection
     {
+        $this->branchAccess->assertCentralAccess($request->user());
+
         return SupplierUserResource::collection($supplier->users()->latest('id')->get());
     }
 
@@ -147,8 +153,16 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function storeUser(StoreSupplierUserRequest $request, Supplier $supplier): JsonResponse
     {
-        // SerializesAccountEmail locks and validates the cross-realm email while saving.
-        $user = $supplier->users()->create($request->validated());
+        $this->branchAccess->assertCentralAccess($request->user());
+        $data = $request->validated();
+        $user = DB::transaction(function () use ($supplier, $data): SupplierUser {
+            $lockedSupplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
+            if (! $lockedSupplier->is_active && ($data['is_active'] ?? true)) {
+                throw new BusinessException('لا يمكن إنشاء أو تفعيل مستخدم لمورد معطل.');
+            }
+
+            return $lockedSupplier->users()->create($data);
+        });
 
         return SupplierUserResource::make($user)->response()->setStatusCode(201);
     }
@@ -158,13 +172,18 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function updateUser(UpdateSupplierUserRequest $request, Supplier $supplier, SupplierUser $user): SupplierUserResource
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $this->assertBelongsToSupplier($supplier, $user);
         $data = $request->validated();
         if (empty($data['password'])) {
             unset($data['password']);
         }
         $user = DB::transaction(function () use ($supplier, $user, $data): SupplierUser {
-            $user = $supplier->users()->lockForUpdate()->findOrFail($user->id);
+            $lockedSupplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
+            $user = $lockedSupplier->users()->lockForUpdate()->findOrFail($user->id);
+            if (! $lockedSupplier->is_active && ($data['is_active'] ?? $user->is_active)) {
+                throw new BusinessException('لا يمكن تفعيل مستخدم لمورد معطل.');
+            }
             $emailChanged = isset($data['email']) && mb_strtolower(trim((string) $data['email'])) !== mb_strtolower((string) $user->email);
             $user->update($data);
             if (isset($data['password']) || $emailChanged || (isset($data['is_active']) && ! $data['is_active'])) {
@@ -180,8 +199,9 @@ class SupplierController extends Controller implements HasMiddleware
     /**
      * Revoke tokens and delete a supplier portal user account.
      */
-    public function destroyUser(Supplier $supplier, SupplierUser $user): JsonResponse
+    public function destroyUser(Request $request, Supplier $supplier, SupplierUser $user): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $this->assertBelongsToSupplier($supplier, $user);
         DB::transaction(function () use ($supplier, $user): void {
             // Serialize with AuthController::issueToken(), which locks the same row.

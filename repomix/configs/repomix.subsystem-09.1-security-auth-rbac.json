@@ -30,6 +30,7 @@
                     "bags-platform/backend/app/Services/Auth/**",
                     "bags-platform/backend/app/Services/Customer/CustomerManagementService.php",
                     "bags-platform/backend/app/Services/Customer/CustomerPhoneVerificationService.php",
+                    "bags-platform/backend/app/Services/Customer/CustomerMessageBudget.php",
                     "bags-platform/backend/app/Actions/Staff/**",
                     "bags-platform/backend/app/Rules/**",
                     "bags-platform/backend/app/Enums/Customer/**",
@@ -62,6 +63,7 @@
                     "bags-platform/frontend/apps/storefront/src/components/auth/LoginScreen.tsx",
                     "bags-platform/frontend/apps/storefront/src/components/auth/AccountMenu.tsx",
                     "bags-platform/frontend/apps/storefront/src/components/auth/PhoneVerification.tsx",
+                    "bags-platform/frontend/apps/storefront/src/services/phone-format.ts",
                     "bags-platform/backend/database/migrations/*user*.php",
                     "bags-platform/backend/database/migrations/*staff*.php",
                     "bags-platform/backend/database/migrations/*permission*.php",
@@ -74,7 +76,8 @@
                     "bags-platform/backend/app/Notifications/Auth/StaffAuthenticationAlert.php",
                     "bags-platform/frontend/apps/backoffice/src/pages/auth/SessionProbePage.tsx",
                     "bags-platform/frontend/apps/storefront/src/lib/auth/password-byte-limit.ts",
-                    "bags-platform/frontend/apps/storefront/src/store/auth-redirect.ts"
+                    "bags-platform/frontend/apps/storefront/src/store/auth-redirect.ts",
+                    "bags-platform/backend/app/Services/Customer/CustomerGroupService.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

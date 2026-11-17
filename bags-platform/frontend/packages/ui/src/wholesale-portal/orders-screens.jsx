@@ -3,7 +3,7 @@ import { useApp } from './context';
 import { wholesaleEndpoints, accountEndpoints, defaultApiClient } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError, pageMeta, saveBlob } from './data/helpers';
+import { apiError, pageMeta, saveBlob, today, addQuoteLine } from './data/helpers';
 import { mapOrder, mapQuote, mapReturn } from './data/mappers';
 import { validateReturnFiles } from './data/validation';
 import { ORDER_STATUS, PAY_METHOD, PAY_STATUS, QUOTE_STATUS, RETURN_STATUS, REFUND_METHOD } from './data/constants';
@@ -400,7 +400,7 @@ export const QuoteForm = ({ id }) => {
             <span className="soft small"><span className="num">{items.length}</span> / <span className="num">100</span> بند</span>
             {matches.length > 0 && (
               <div className="qf-suggest">{matches.map((v) => (
-                <button key={v.variant_id} onClick={() => { setItems([...items, { variant_id: v.variant_id, name: v.name, sku: v.sku, qty: 1, target: '' }]); setSearch(''); setMatches([]); }}>
+                <button key={v.variant_id} onClick={() => { setItems(addQuoteLine(items, { variant_id: v.variant_id, name: v.name, sku: v.sku, qty: 1, target: '' })); setSearch(''); setMatches([]); }}>
                   <Thumb sm /><span style={{ flex: 1 }}><b>{v.name}</b><span className="sku">{v.sku}</span></span><span className="num small">{v.price != null ? fmt(v.price) : '—'}</span></button>))}</div>
             )}
           </div>
@@ -481,10 +481,11 @@ export const QuoteDetail = ({ id }) => {
         <Async rows={5} cols={4} empty={<Empty icon="fa-file-signature" title="العرض غير موجود" />}>
           {q && (
           <>
-            {q.status === 'priced' && <div className="mb-24"><Banner kind="info" icon="fa-clock" action={<div className="row"><button className="btn-pill is-danger sm" onClick={() => setConfirm('reject')}>رفض</button><button className="btn-pill is-dark sm" onClick={() => setConfirm('accept')}>قبول العرض</button></div>}><b>الإدارة سعّرت العرض.</b> راجع الأسعار وقرر قبل <span className="num">{q.valid_until}</span> — بعدها العرض بينتهي تلقائيًا.</Banner></div>}
+            {q.status === 'priced' && !(q.valid_until && q.valid_until < today()) && <div className="mb-24"><Banner kind="info" icon="fa-clock" action={<div className="row"><button className="btn-pill is-danger sm" onClick={() => setConfirm('reject')}>رفض</button><button className="btn-pill is-dark sm" onClick={() => setConfirm('accept')}>قبول العرض</button></div>}><b>الإدارة سعّرت العرض.</b> راجع الأسعار وقرر قبل <span className="num">{q.valid_until}</span> — بعدها العرض بينتهي تلقائيًا.</Banner></div>}
+            {q.status === 'priced' && q.valid_until && q.valid_until < today() && <div className="mb-24"><Banner kind="error" icon="fa-calendar-xmark">انتهت صلاحية العرض ولم يعد قابلًا للقبول.</Banner></div>}
             {q.status === 'requested' && <div className="mb-24"><Banner kind="warn" icon="fa-hourglass-half">الطلب عند الإدارة للتسعير. هيوصلك إشعار لما يتم الرد.</Banner></div>}
             {q.status === 'expired' && <div className="mb-24"><Banner kind="error" icon="fa-calendar-xmark">انتهت صلاحية العرض ولم يعد قابلًا للقبول. تقدر تطلب عرض جديد.</Banner></div>}
-            {q.status === 'converted' && <div className="mb-24"><Banner kind="ok" action={q.converted_order_id && <button className="btn-pill sm" onClick={() => go('order', q.converted_order_id)}>فتح الطلب <span className="num">{q.converted_order_id}</span></button>}>تم تحويل العرض لطلب.</Banner></div>}
+            {q.status === 'converted' && <div className="mb-24"><Banner kind="ok" action={q.converted_order_id && <button className="btn-pill sm" onClick={() => go('order', q.converted_order_id)}>فتح الطلب <span className="num">{q.converted_order_number || q.converted_order_id}</span></button>}>تم تحويل العرض لطلب.</Banner></div>}
             {q.status === 'accepted' && <div className="mb-24"><Banner kind="ok">تم قبول العرض. الإدارة هتحوله لطلب وهيظهر في طلباتك.</Banner></div>}
             <div className="grid-2">
               <Panel title="البنود" en="LINE ITEMS" body={false}>
@@ -516,7 +517,7 @@ export const QuoteDetail = ({ id }) => {
       </DataBoundary>
       {confirm && <Modal title={confirm === 'accept' ? 'قبول عرض السعر؟' : 'رفض عرض السعر؟'} onClose={() => setConfirm(null)} icon={<div className={`modal-icon${confirm === 'reject' ? ' is-err' : ''}`}><i className={`fa-solid ${confirm === 'accept' ? 'fa-check' : 'fa-xmark'}`} /></div>}
         foot={<><button className="btn-pill" onClick={() => setConfirm(null)}>رجوع</button><button className={`btn-pill ${confirm === 'accept' ? 'is-dark' : 'is-danger'}`} disabled={busy} onClick={() => act(confirm)}>{busy ? <span className="spin" /> : confirm === 'accept' ? 'قبول' : 'رفض'}</button></>}>
-        <p className="muted" style={{ lineHeight: 1.9 }}>{confirm === 'accept' && q ? <>بقبولك العرض بإجمالي <b className="num" style={{ color: 'var(--ink)' }}>{fmt(q.total)} EGP</b> الإدارة هتحوله لطلب.</> : 'الإجراء نهائي، ولن يكون العرض قابلًا للقبول بعد الرفض.'}</p></Modal>}
+        <p className="muted" style={{ lineHeight: 1.9 }}>{confirm === 'accept' && q ? <>بقبولك العرض بإجمالي <b className="num" style={{ color: 'var(--ink)' }}>{fmt(q.total)} EGP</b> هيتم إنشاء الطلب وتأكيده فورًا وخصم المخزون والائتمان.</> : 'الإجراء نهائي، ولن يكون العرض قابلًا للقبول بعد الرفض.'}</p></Modal>}
     </>
   );
 };

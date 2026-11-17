@@ -86,7 +86,10 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     token: response.data.token, actorType: 'customer',
     destination: wholesale ? 'wholesale_pending' : 'retail', home, user: response.data.data,
   });
-  if (!wholesale && response.data.cart_merged !== false) {
+  // Clear the guest cart only when the server explicitly confirms the merge.
+  // An absent cart_merged flag means the merge was skipped or failed: keep
+  // the guest session so its lines are not silently lost.
+  if (!wholesale && (response.data.cart_merged === true || !session)) {
     clearGuestCartSession();
   } else if (session) {
     restoreGuestCartSession(session);

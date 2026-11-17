@@ -16,6 +16,7 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -252,11 +253,26 @@ class CustomerAuthService
                 ['email' => $key], ['token' => hash('sha256', $plainToken), 'created_at' => now()],
             );
 
-            DB::afterCommit(function () use ($customer, $plainToken, $email): void {
+            DB::afterCommit(function () use ($customer, $key, $plainToken, $email): void {
                 try {
                     $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
                 } catch (\Throwable $exception) {
+                    // The token never reached the customer: drop it so the
+                    // queued retry regenerates a fresh one instead of hitting
+                    // the 60s throttle on a dead token, refund the budget,
+                    // and rethrow so the job retries with backoff.
+                    DB::table('password_reset_tokens')->where('email', $key)->delete();
+                    try {
+                        app(CustomerMessageBudget::class)->releaseResetClaim(
+                            $customer->id,
+                            ! $email,
+                            CarbonImmutable::now((string) config('app.business_timezone', 'Africa/Cairo'))
+                        );
+                    } catch (\Throwable $refundException) {
+                        report($refundException);
+                    }
                     report($exception);
+                    throw $exception;
                 }
             });
 
@@ -316,7 +332,7 @@ class CustomerAuthService
                 throw new BusinessException('هذا الحساب موقوف.', [], 403);
             }
 
-            StaffTokenService::pruneAndCap($customer, (int) config('auth.customer_max_tokens', 10));
+            StaffTokenService::pruneAndCap($customer, (int) config('auth.customer_max_tokens', 10), (int) config('auth.customer_token_minutes', 1440));
 
             // Scope the token to its channel instead of granting wildcard abilities,
             // and keep the lifetime short because these tokens live in localStorage.

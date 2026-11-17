@@ -19,6 +19,7 @@ use App\Services\Wholesale\WholesalePriceListService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -142,17 +143,16 @@ class ProductController extends Controller
 
         /** @var Customer $customer */
         $customer = $request->user();
-        if ($validated['format'] === 'xlsx') {
-            $rows = $this->priceList->rows($customer);
-            return Excel::download(new WholesalePriceListExport($rows), 'price-list.xlsx');
-        }
-
-        $cacheKey = 'wholesale:price-list-rows:c'.$customer->id.':u'.($customer->updated_at?->timestamp ?? 0);
-        $rows = \Illuminate\Support\Facades\Cache::remember(
+        $limit = $validated['format'] === 'xlsx' ? null : 501;
+        $cacheKey = 'wholesale:price-list-rows:c'.$customer->id.':v'.$this->pricing->catalogVersion().':'.$validated['format'];
+        $rows = Cache::remember(
             $cacheKey,
             300,
-            fn (): array => $this->priceList->rows($customer, 501),
+            fn (): array => $this->priceList->rows($customer, $limit),
         );
+        if ($validated['format'] === 'xlsx') {
+            return Excel::download(new WholesalePriceListExport($rows), 'price-list.xlsx');
+        }
         if (count($rows) > 500) {
             throw new BusinessException('قائمة الأسعار أكبر من حد PDF (500 صنف). استخدم تصدير Excel.');
         }

@@ -31,6 +31,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const [challengeRequired, setChallengeRequired] = useState(false);
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState('');
+  // Bumped whenever the solved widget becomes stale so HumanVerification
+  // remounts with a fresh single-use Turnstile token.
+  const [challengeAttempt, setChallengeAttempt] = useState(0);
 
   useEffect(() => {
     setIsReady(true);
@@ -42,9 +45,15 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const home = useAuthStore((s) => s.home);
   const destination = useAuthStore((s) => s.destination);
   const token = useAuthStore((s) => s.token);
+  // Latest keystrokes, read only when a probe message arrives: the probe
+  // effect below must not restart on every keystroke or autofill event.
+  const loginRef = useRef(login);
+  loginRef.current = login;
+  const passwordRef = useRef(password);
+  passwordRef.current = password;
 
   useEffect(() => {
-    if (view !== 'login' || token || login !== '' || password !== '' || params.get('as') === 'customer') {
+    if (view !== 'login' || token || loginRef.current !== '' || passwordRef.current !== '' || params.get('as') === 'customer') {
       return;
     }
     const office = new URL(resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'));
@@ -72,19 +81,24 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       )
         return;
       cleanup();
+      // Never redirect once the visitor started typing: they are proving a
+      // store identity, not waiting for a staff session.
+      if (loginRef.current !== '' || passwordRef.current !== '') return;
       const path = event.data.authenticated === true ? event.data.path : null;
       if (path === '/dashboard' || path === '/pos') window.location.replace(new URL(path, office).href);
     };
     window.addEventListener('message', receive);
     document.body.appendChild(frame);
+    // 2.5s matches real mobile networks (SPA bundle + /api/v1/admin/me);
+    // the probe listener above short-circuits earlier on success.
     const timer = window.setTimeout(() => {
       cleanup();
-    }, 800);
+    }, 2500);
     return () => {
       window.clearTimeout(timer);
       cleanup();
     };
-  }, [view, token, login, password, params]);
+  }, [view, token, params]);
 
   // If already authenticated, redirect to the intended destination or default home path.
   useEffect(() => {
@@ -137,6 +151,13 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data?.message;
+      if (challengeRequired) {
+        // Turnstile tokens are single-use and the server consumes them
+        // before checking credentials: any failed attempt invalidates the
+        // solved widget, so reset it and force a fresh challenge.
+        setTurnstileToken('');
+        setChallengeAttempt((v) => v + 1);
+      }
       if (status === 422) setErrors(err.response.data.errors ?? {});
       else if (status === 401) setFormError(lang === 'ar' ? 'بيانات الدخول غير صحيحة.' : 'Invalid credentials.');
       else if (status === 403) setFormError(msg ?? 'غير مسموح.');
@@ -321,13 +342,13 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                     )}
 
                     {challengeRequired && siteKey && (
-                      <HumanVerification siteKey={siteKey} lang={lang} onChange={setTurnstileToken} />
+                      <HumanVerification key={challengeAttempt} siteKey={siteKey} lang={lang} onChange={setTurnstileToken} />
                     )}
 
                     <div style={{ paddingTop: '4px' }}>
                       <button
                         type="submit"
-                        disabled={!isReady || isSubmitting}
+                        disabled={!isReady || isSubmitting || (challengeRequired && !!siteKey && !turnstileToken)}
                         className="pill-btn-primary"
                       >
                         {isSubmitting ? (

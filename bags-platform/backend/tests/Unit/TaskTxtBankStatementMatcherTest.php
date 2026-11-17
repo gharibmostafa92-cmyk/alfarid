@@ -53,6 +53,18 @@ class TaskTxtBankStatementMatcherTest extends TestCase
         $this->assertNull($result['unmatched'][0]['notice_id']);
     }
 
+    public function test_debit_markers_and_currency_prefixes_do_not_become_credits(): void
+    {
+        $this->assertSame('0.00', BankStatementMatcher::cleanAmount('1,500.00 DR'));
+        $this->assertSame('0.00', BankStatementMatcher::cleanAmount('EGP -1,500.00'));
+        $this->assertSame('0.00', BankStatementMatcher::cleanAmount('1500.00 مدين'));
+        $this->assertSame('1500.00', BankStatementMatcher::cleanAmount('EGP 1,500.00'));
+        $this->assertSame('1500.00', BankStatementMatcher::cleanAmount('ج.م. 1,500.00'));
+        $this->assertSame('1.50', BankStatementMatcher::cleanAmount('1,50'));
+        $this->assertSame('1500.00', BankStatementMatcher::cleanAmount('1.500'));
+        $this->assertSame('1500.00', BankStatementMatcher::cleanAmount('EGP. 1500.00'));
+    }
+
     public function test_garbage_row_date_does_not_abort_matching(): void
     {
         $this->pendingNotice();

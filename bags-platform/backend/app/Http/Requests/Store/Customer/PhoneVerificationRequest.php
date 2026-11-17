@@ -19,7 +19,7 @@ class PhoneVerificationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'phone' => ['required', 'string', 'regex:/^01[0125][0-9]{8}$/'],
+            'phone' => ['required', 'string', 'regex:/\A01[0125][0-9]{8}\z/'],
             'code' => [$this->routeIs('store.auth.phone-verification.verify') ? 'required' : 'sometimes', 'string', 'regex:/^[0-9]{6}$/'],
         ];
     }

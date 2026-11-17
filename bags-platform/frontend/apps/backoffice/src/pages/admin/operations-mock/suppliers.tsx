@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { suppliersApi, purchaseRequestsApi, purchaseOrdersApi, supplierInvoicesApi, supplierPaymentsApi, branchesApi, commerceLookupsApi, locationsApi, newIdempotencyKey, type Supplier as SupplierApi, type PurchaseRequest as PRApi, type PurchaseOrder as POApi, type SupplierInvoice as InvoiceApi, type SupplierPaymentApi } from '@alfarid/api-client';
 import { useCan } from '../../../hooks/useCan';
+import { useAuthStore } from '../../../stores/auth.store';
 import { RemoteFeedback } from './api/RemoteFeedback';
 import { useRemote, useDebounced, useAction, allPages } from './api/useRemote';
 import { useFormState } from './api/useFormState';
@@ -447,7 +448,9 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
   const posRemote = useRemote(signal => purchaseOrdersApi.list({ page: posPage, supplier_id: id }, signal).then(r => ({ ...r, data: r.data.map(mapPO) })), [id, posPage], { enabled: tab === 'pos', mock: () => pageOf(mockPOs.filter(p => p.supplier_id === id).map(mapPO)) });
   const invRemote = useRemote(signal => supplierInvoicesApi.list({ page: invPage, supplier_id: id }, signal).then(r => ({ ...r, data: r.data.map(mapInvoice) })), [id, invPage], { enabled: tab === 'invs', mock: () => pageOf(mockInvoices.filter(p => p.supplier_id === id).map(mapInvoice)) });
   const payRemote = useRemote(signal => supplierPaymentsApi.list({ page: payPage, supplier_id: id }, signal).then(r => ({ ...r, data: r.data.map(mapPayment) })), [id, payPage], { enabled: tab === 'pays', mock: () => pageOf(mockPayments.filter(p => p.supplier_id === id).map(mapPayment)) });
-  const statementRemote = useRemote(signal => suppliersApi.statement(id, undefined, signal), [id], { enabled: tab === 'statement', mock: () => ({ supplier: { id, code: '', name: '', current_balance: '0.00' }, from_date: '', to_date: '', opening_balance: '0.00', entries: [], total_credit: '0.00', total_debit: '0.00', closing_balance: '0.00' }) });
+  const [statementFrom, setStatementFrom] = useState('');
+  const [statementTo, setStatementTo] = useState('');
+  const statementRemote = useRemote(signal => suppliersApi.statement(id, { from_date: statementFrom || undefined, to_date: statementTo || undefined }, signal), [id, statementFrom, statementTo], { enabled: tab === 'statement', mock: () => ({ supplier: { id, code: '', name: '', current_balance: '0.00' }, from_date: '', to_date: '', opening_balance: '0.00', entries: [], total_credit: '0.00', total_debit: '0.00', closing_balance: '0.00' }) });
   useEffect(() => { setPosPage(1); setInvPage(1); setPayPage(1); }, [id]);
   const [uform, setUform] = useState<any>(null);
   const [udel, setUdel] = useState<any>(null);
@@ -556,6 +559,19 @@ export function SupplierDetail({ id, go }: { id: number; go: (r: { m: string; id
           )}
           {tab === 'statement' && (
             <Card stg={3}>
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] tx3">من:</span>
+                  <input type="date" className="inp inp-sm" value={statementFrom} onChange={e => setStatementFrom(e.target.value)} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] tx3">إلى:</span>
+                  <input type="date" className="inp inp-sm" value={statementTo} onChange={e => setStatementTo(e.target.value)} />
+                </div>
+                {(statementFrom || statementTo) && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setStatementFrom(''); setStatementTo(''); }}>إلغاء التصفية</button>
+                )}
+              </div>
               <RemoteFeedback state={statementRemote} />
               {statementRemote.data && (
                 <div className="space-y-3">
@@ -765,7 +781,7 @@ export function PurchasingPage({ sub = 'pr' }: { sub?: string }) {
       {tab === 'pr' && <PRModule />}
       {tab === 'po' && <POModule />}
       {tab === 'inv' && <InvModule onPayment={invoice => { setPaymentInvoice(invoice); setTab('pay'); }} />}
-      {tab === 'pay' && <PayModule initialInvoice={paymentInvoice} />}
+      {tab === 'pay' && <PayModule initialInvoice={paymentInvoice} onClearInitialInvoice={() => setPaymentInvoice(null)} />}
     </div>
   );
 }
@@ -1031,6 +1047,25 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
   const lastPayload = useRef('');
   const branchId = po?.branchId ?? po?.raw?.branch_id;
   const locations = useRemote(signal => branchId ? locationsApi.list(branchId, { per_page: 100 }, signal) : Promise.resolve({ data: [] } as any), [branchId], { enabled: open && !!branchId });
+
+  const poDeliveries = (po?.raw?.deliveries ?? po?.deliveries ?? []) as any[];
+  const deliveriesRemote = useRemote(
+    signal => po?.id && poDeliveries.length === 0 ? purchaseOrdersApi.show(po.id, signal).then(r => r.deliveries ?? []) : Promise.resolve(poDeliveries),
+    [po?.id, poDeliveries.length],
+    { enabled: open && !!po?.id && poDeliveries.length === 0 }
+  );
+  const activeDeliveries = poDeliveries.length > 0 ? poDeliveries : (deliveriesRemote.data ?? []);
+
+  useEffect(() => {
+    if (open) {
+      setQtys({});
+      setIdemKey(newIdempotencyKey());
+      setDeliveryId('');
+      setLocationId('');
+      lastPayload.current = '';
+    }
+  }, [open, po?.id]);
+
   if (!open) return null;
   const save = async () => {
     if (!po || po.demo || blocked) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
@@ -1053,7 +1088,7 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
     <Modal open onClose={onClose} title={'استلام ' + (po?.no || '')} icon="box" width={620}
       footer={<><button className="btn btn-soft" onClick={onClose}>إلغاء</button><button className="btn btn-accent" disabled={busy} onClick={save}>تأكيد الاستلام</button></>}>
       <div className="space-y-4">
-        <Field label="إشعار التوريد" hint="حدد الإشعار عند وجود توريد معلق"><select className="inp" value={deliveryId} onChange={e => setDeliveryId(e.target.value)}><option value="">بدون</option>{(po?.raw?.deliveries ?? []).filter((d: any) => d.status === 'pending_receipt').map((d: any) => <option key={d.id} value={d.id}>{d.delivery_number}</option>)}</select></Field>
+        <Field label="إشعار التوريد" hint="حدد الإشعار عند وجود توريد معلق"><select className="inp" value={deliveryId} onChange={e => setDeliveryId(e.target.value)}><option value="">بدون</option>{activeDeliveries.filter((d: any) => d.status === 'pending_receipt').map((d: any) => <option key={d.id} value={d.id}>{d.delivery_number}</option>)}</select></Field>
         <Field label="موقع التخزين" hint="اختياري — يوجّه البضاعة لموقع داخل الفرع"><select className="inp" value={locationId} onChange={e => setLocationId(e.target.value)}><option value="">الموقع الافتراضي للفرع</option>{((locations.data as any)?.data ?? []).filter((l: any) => l.is_active !== false).map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field>
         <div className="v-sub p-2">
           <div className="grid grid-cols-12 gap-2 px-2 py-1 text-[11px] tx3">
@@ -1080,6 +1115,7 @@ export function ReceivePOModal({ open, po, lines, onClose, onSaved, blocked }: {
 }
 
 export function POModule() {
+  const currentUser = useAuthStore((state) => state.user);
   const canCreate = useCan('purchases.create');
   const canUpdate = useCan('purchases.update');
   const canDelete = useCan('purchases.delete');
@@ -1103,16 +1139,45 @@ export function POModule() {
   useEffect(() => setPage(1), [dq, st, sp, br]);
   const list = useRemote(signal => purchaseOrdersApi.list({ page, search: dq || undefined, status: st ? toPOStatus(st) as any : undefined, supplier_id: sp ? Number(sp) : undefined, branch_id: br ? Number(br) : undefined }, signal), [page, dq, st, sp, br], { mock: () => pageOf(mockPOs.filter(p => (!st || p.status === toPOStatus(st)) && (!sp || p.supplier_id === Number(sp)))) });
   const branches = useRemote((signal) => branchesApi.list({}, signal).then(r => r.data), []);
-  const approvedPRs = useRemote(signal => allPages(page => purchaseRequestsApi.list({ page, status: 'approved' }, signal), undefined, { maxPages: 20 }), [], { enabled: !!form });
+  const approvedPRs = useRemote(signal => purchaseRequestsApi.list({ page: 1, status: 'approved', branch_id: form?.branch ? Number(form.branch) : undefined }, signal).then(r => r.data), [form?.branch], { enabled: !!form });
   const variants = useVariants();
   const rows = (list.data?.data ?? []).map(mapPO);
   const detail = useRemote(signal => purchaseOrdersApi.show(view.id, signal), [view?.id], { enabled: !!view, mock: () => mockPOs.find(p => p.id === view.id)! });
-  const openForm = (po?: any) => { const raw = po?.raw; setErrors({}); setFromPR(raw?.purchase_request_id ? String(raw.purchase_request_id) : ''); setForm({ demo: list.usingMock || po?.demo, id: po?.id, sup: raw?.supplier_id ?? '', branch: raw?.branch_id ?? '', eta: raw?.expected_delivery_date ?? '', discount: num(raw?.discount_amount), items: raw?.items?.map((it: any) => ({ product_variant_id: it.product_variant_id, qty: it.ordered_qty, cost: it.unit_cost, tax: it.tax_rate })) ?? [blankItem()] }); };
+  const openForm = async (po?: any) => {
+    setErrors({});
+    let raw = po?.raw;
+    if (po?.id && (!raw?.items || raw.items.length === 0)) {
+      try {
+        const full = await purchaseOrdersApi.show(po.id);
+        if (full) raw = full;
+      } catch {
+        // fallback to po.raw
+      }
+    }
+    setFromPR(raw?.purchase_request_id ? String(raw.purchase_request_id) : '');
+    setForm({
+      demo: list.usingMock || po?.demo,
+      id: po?.id,
+      sup: raw?.supplier_id ?? '',
+      branch: raw?.branch_id ?? '',
+      eta: raw?.expected_delivery_date ?? '',
+      discount: num(raw?.discount_amount),
+      items: raw?.items?.map((it: any) => ({
+        product_variant_id: it.product_variant_id,
+        qty: Number(it.ordered_qty),
+        cost: num(it.unit_cost),
+        tax: num(it.tax_rate),
+      })) ?? [blankItem()],
+    });
+  };
   const setItem = (index: number, key: string, value: string) => setForm({ ...form, items: form.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) });
   const act = async (id: number, fn: (id: number) => Promise<unknown>, msg: string) => { if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red'); const result = await run(() => fn(id), { toast, success: msg }); if (result) { setView(null); list.reload(); return true; } return false; };
   const actionsFor = (p: any): string[] => {
+    const isCreatorOrModifier = (p.raw?.created_by && p.raw.created_by === currentUser?.id) ||
+                                (p.raw?.last_modified_by && p.raw.last_modified_by === currentUser?.id);
+    const canSelfApprove = canApprove && !isCreatorOrModifier;
     if (['draft', 'revision'].includes(p.status)) return [
-      ...(canUpdate ? ['edit', ...(p.raw?.approved_by ? ['send'] : canApprove ? ['approve'] : []), 'cancel'] : []),
+      ...(canUpdate ? ['edit', ...(p.raw?.approved_by ? ['send'] : canSelfApprove ? ['approve'] : []), 'cancel'] : []),
       ...(canDelete && p.status === 'draft' ? ['delete'] : []),
     ];
     return (({ accepted: ['receive', 'cancel'], sent: ['receive', 'cancel'], partial: ['receive', 'close'] } as Record<string, string[]>)[p.status] ?? [])
@@ -1357,13 +1422,13 @@ export function POModule() {
       {form && (
         <Modal
           open
-          onClose={() => setForm(false)}
+          onClose={() => setForm(null)}
           title="أمر شراء"
           icon="cart"
           width={780}
           footer={
             <>
-              <button className="btn btn-soft" onClick={() => setForm(false)}>
+              <button className="btn btn-soft" onClick={() => setForm(null)}>
                 إلغاء
               </button>
               <button
@@ -1679,7 +1744,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
   );
 }
 
-export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
+export function PayModule({ initialInvoice, onClearInitialInvoice }: { initialInvoice?: any; onClearInitialInvoice?: () => void }) {
   const canCreate = useCan('supplier_payments.create');
   const canUpdate = useCan('supplier_payments.update');
   const canDelete = useCan('supplier_payments.delete');
@@ -1702,10 +1767,27 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
   const invoices = useRemote(signal => supplierInvoicesApi.list({ page: 1, supplier_id: Number(form?.sup || view?.sup), open: true, search: invDq || undefined }, signal).then(r => r.data.map(mapInvoice)), [form?.sup, view?.sup, allocateOpen, invDq], { enabled: (!!form?.sup && !form?.id) || (allocateOpen && !!view?.sup) });
   const list = useRemote(signal => supplierPaymentsApi.list({ page }, signal), [page], { mock: () => pageOf(mockPayments) });
   const rows = (list.data?.data ?? []).map(mapPayment);
-  const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); lastPayload.current = ''; setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? localToday(), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
-  useEffect(() => { if (initialInvoice && canCreate) openForm({ demo: initialInvoice.demo, sup: initialInvoice.sup, invId: initialInvoice.id, amount: initialInvoice.remaining }); }, [initialInvoice?.id, canCreate]);
+  const openForm = (payment?: any) => { setErrors({}); setIdemKey(newIdempotencyKey()); lastPayload.current = ''; setMethod(payment?.method ?? 'bank'); setForm({ ...payment, demo: list.usingMock || payment?.demo, sup: payment?.sup ?? '', treasury: payment?.treasury ?? '', invId: payment?.invId ?? '', amount: payment?.amount ?? '', date: payment?.date ?? localToday(), ref: payment?.ref ?? '', notes: payment?.notes ?? '' }); };
+  useEffect(() => {
+    if (initialInvoice && canCreate) {
+      openForm({ demo: initialInvoice.demo, sup: initialInvoice.sup, invId: initialInvoice.id, amount: initialInvoice.remaining });
+      onClearInitialInvoice?.();
+    }
+  }, [initialInvoice?.id, canCreate]);
   const save = async () => {
     if (form.demo || list.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    if (!form.id) {
+      if (!form.sup) return toast('حدد المورد', 'red');
+      if (!form.treasury) return toast('حدد الخزينة', 'red');
+      if (!Number(form.amount) || Number(form.amount) <= 0) return toast('المبلغ يجب أن يكون أكبر من الصفر', 'red');
+      if (method !== 'cash' && !form.ref?.trim()) return toast('رقم المرجع مطلوب لطرق الدفع غير النقدية', 'red');
+      if (form.invId) {
+        const inv = (invoices.data ?? []).find((i: any) => i.id === Number(form.invId));
+        if (inv && Number(form.amount) > inv.remaining) {
+          return toast('المبلغ لا يمكن أن يتجاوز المتبقي على الفاتورة (' + fmtMoney(inv.remaining) + ')', 'red');
+        }
+      }
+    }
     const updateBody = { reference_no: form.ref || null, notes: form.notes || null };
     const createBody = { ...updateBody, payment_method: paymentMethod(method), supplier_id: Number(form.sup), treasury_id: Number(form.treasury), supplier_invoice_id: form.invId ? Number(form.invId) : null, amount: Number(form.amount), payment_date: form.date };
     let key = idemKey;
@@ -1717,7 +1799,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
       }
       lastPayload.current = payload;
     }
-    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, updateBody) : supplierPaymentsApi.create(createBody, key), { toast, success: 'تم حفظ الدفعة', onFieldErrors: setErrors });
+    const r = await run(() => form.id ? supplierPaymentsApi.update(form.id, updateBody) : supplierPaymentsApi.create(createBody, key), { toast, success: form.id ? 'تم حفظ التعديلات' : 'تم تسجيل الدفعة', onFieldErrors: setErrors });
     if (r) { setForm(null); list.reload(); invoices.reload(); }
   };
   const voidPayment = async () => {
@@ -1934,7 +2016,11 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
               <Field label="فاتورة مرتبطة" err={errors.supplier_invoice_id} hint="اختيارية — ابحث برقم الفاتورة">
                 <div className="space-y-2">
                   <SearchPill value={invQ} onChange={setInvQ} placeholder="ابحث برقم الفاتورة" w="w-full" />
-                  <select className="inp" value={form.invId || ''} disabled={!!form.id} onChange={e => setForm({ ...form, invId: e.target.value })}>
+                  <select className="inp" value={form.invId || ''} disabled={!!form.id} onChange={e => {
+                    const val = e.target.value;
+                    const inv = (invoices.data ?? []).find((i: any) => i.id === Number(val));
+                    setForm({ ...form, invId: val, ...(inv && !form.id ? { amount: inv.remaining } : {}) });
+                  }}>
                     <option value="">بدون</option>
                     {(invoices.data ?? []).map((i) => (
                       <option key={i.id} value={i.id}>{i.sys}</option>

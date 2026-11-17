@@ -112,13 +112,20 @@ export function WholesalePortal({
   const [lastOrder, setLastOrder] = useState(null);
   const [unread, setUnread] = useState(0);
   const [toasts, setToasts] = useState([]);
+  const toastTimers = useRef(new Set());
 
   const toast = useCallback((msg) => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, msg }]);
-    setTimeout(() => {
+    const handle = setTimeout(() => {
+      toastTimers.current.delete(handle);
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3500);
+    toastTimers.current.add(handle);
+  }, []);
+
+  useEffect(() => () => {
+    toastTimers.current.forEach((handle) => clearTimeout(handle));
   }, []);
 
   const forbidden = useCallback(() => {

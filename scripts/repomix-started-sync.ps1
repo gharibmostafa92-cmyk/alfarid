@@ -116,6 +116,8 @@ $ignorePatterns = @(
     '^repomix/configs/',
     '^tasks/',
     '/tasks/',
+    '^scripts/',
+    '/scripts/',
     'phpunit.*\.xml$',
     '^_archive_unused/', '/_archive_unused/'
 )
@@ -248,6 +250,9 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     if ($p -match 'apps/pos/|packages/pos-core/|pos-core/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt|packages/utils/' -and $p -notmatch 'productionreceipt') {
         if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         if ($configs.ContainsKey('repomix.pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.pos-terminal.json') }
+        if ($p -match 'poscustomer' -and $configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json')
+        }
     }
 
     # 6. Inventory & Ledger
@@ -275,7 +280,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 9. Storefront & Catalog
-    if ($p -match 'apps/storefront/|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|normalizescustomerinput' -and $p -notmatch 'production') {
+    if ($p -match 'apps/storefront/|/store/|requests/store/|storefront|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|phoneverification|passwordreset|normalizescustomerinput' -and $p -notmatch 'production') {
         if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
         if ($configs.ContainsKey('repomix.subsystem-06.1-storefront-client.json') -and ($p -match 'apps/storefront')) {
             [void]$matchedConfigs.Add('repomix.subsystem-06.1-storefront-client.json')
@@ -298,9 +303,9 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput|app/rules|/rules/|operations/http' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth|wholesale') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|wholesale') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
-        if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff')) {
+        if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff|customer|admin')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json')
         }
         if ($configs.ContainsKey('repomix.subsystem-09.2-backoffice-notifications.json') -and ($p -match 'backoffice|notification|operations/http')) {
@@ -358,7 +363,11 @@ $allActiveConfigs = [System.Collections.Generic.HashSet[string]]::new()
 foreach ($file in $filteredFiles) {
     $targetConfigKeys = Get-MatchingConfigsForFile -relPath $file -configs $allConfigs -startedOnly $StartedOnly
     if (-not $targetConfigKeys -or $targetConfigKeys.Count -eq 0) {
-        Write-Warning "Could not find suitable config for file: $file"
+        if ($file -match '\.md$') {
+            Write-Host "  -> Skipping doc/markdown file (no system overview config active): $file" -ForegroundColor DarkGray
+        } else {
+            Write-Warning "Could not find suitable config for file: $file"
+        }
         continue
     }
 

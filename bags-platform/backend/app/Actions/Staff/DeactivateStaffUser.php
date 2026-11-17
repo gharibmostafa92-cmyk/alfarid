@@ -19,7 +19,7 @@ final class DeactivateStaffUser
     public function __construct(private BranchAccess $branches) {}
 
     /** @param array<string,mixed> $via */
-    public function __invoke(User $actor, User $target, ?int $expectedVersion = null, array $via = []): bool
+    public function __invoke(User $actor, User $target, int $expectedVersion, array $via = []): bool
     {
         abort_if($target->is_system, 404);
         abort_if($actor->is($target), 403, 'لا يمكنك تعطيل حسابك الحالي.');
@@ -39,9 +39,7 @@ final class DeactivateStaffUser
             if (! $locked->is_active) {
                 return true;
             }
-            if ($expectedVersion !== null) {
-                StaffAdministration::assertVersion($locked, $expectedVersion);
-            }
+            StaffAdministration::assertVersion($locked, $expectedVersion);
             $before = StaffAdministration::userState($locked);
             $locked->forceFill(['is_active' => false])->save();
             StaffAdministration::audit($actor, 'user.deactivated', 'user', $locked->id, ['is_active'], $before, StaffAdministration::userState($locked), $via);

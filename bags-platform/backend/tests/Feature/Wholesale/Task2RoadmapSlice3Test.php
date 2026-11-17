@@ -8,7 +8,6 @@ use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
 use App\Enums\Finance\TreasuryType;
 use App\Enums\Orders\OrderStatus;
-use App\Enums\Orders\RefundMethod;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Jobs\ScoreWholesaleReceipt;
@@ -20,10 +19,12 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentAllocation;
 use App\Models\WholesalePaymentNotice;
+use App\Services\Orders\ReturnService;
 use App\Services\Wholesale\BankStatementMatcher;
 use App\Services\Wholesale\WholesaleInsights;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -104,7 +105,7 @@ class Task2RoadmapSlice3Test extends TestCase
             'status' => 'received', 'total_refund_amount' => 300,
         ]);
 
-        app(\App\Services\Orders\ReturnService::class)->refund($return, $admin, ['refund_method' => 'credit_note']);
+        app(ReturnService::class)->refund($return, $admin, ['refund_method' => 'credit_note']);
 
         $this->assertSame('-300.00', $service->balanceBreakdown($customer)['outstanding']);
         $this->assertSame('-300.00', $service->statement($customer)['closing_balance']);
@@ -121,7 +122,7 @@ class Task2RoadmapSlice3Test extends TestCase
         WholesalePaymentNotice::factory()->create(['customer_id' => $customer->id, 'order_id' => $order->id, 'amount' => 800, 'status' => 'approved']);
         DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
         DB::statement('SET CONSTRAINTS ALL DEFERRED');
-        $this->expectException(\Illuminate\Database\QueryException::class);
+        $this->expectException(QueryException::class);
         DB::transaction(function () use ($customer, $order): void {
             ReturnRequest::factory()->create(['customer_id' => $customer->id, 'order_id' => $order->id, 'status' => 'refunded', 'refund_method' => 'credit_note', 'total_refund_amount' => 300, 'refunded_at' => now()]);
             DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
@@ -218,9 +219,9 @@ class Task2RoadmapSlice3Test extends TestCase
 
         app(WholesalePaymentNoticeService::class)->approve($notice, $branchStaffA->id, $branchATreasury->id);
 
-        // Under Task 3 CRITICAL-03 branch isolation, branch-scoped approver cannot settle orders of other branches
-        $this->assertSame('unpaid', $olderBranchB->fresh()->payment_status);
-        $this->assertSame('paid', $newerBranchA->fresh()->payment_status);
+        // Free credit is company-wide: the older order is settled before the approver's newer branch order.
+        $this->assertSame('paid', $olderBranchB->fresh()->payment_status);
+        $this->assertSame('unpaid', $newerBranchA->fresh()->payment_status);
     }
 
     // HIGH-05 & MEDIUM-02: Rejected/Reversed notices allow resubmission; Arabic/dashed reference numbers caught cleanly on approve
@@ -291,7 +292,9 @@ class Task2RoadmapSlice3Test extends TestCase
     public function test_statement_preserves_cents_when_the_total_exceeds_float_precision(): void
     {
         $customer = $this->wholesaleCustomer();
-        foreach (range(1, 100) as $_) $this->creditOrder($customer, 999999999999.00);
+        foreach (range(1, 100) as $_) {
+            $this->creditOrder($customer, 999999999999.00);
+        }
         $this->creditOrder($customer, 0.01);
         $result = app(WholesalePaymentNoticeService::class)->statement($customer);
         $this->assertSame('99999999999900.01', $result['closing_balance']);

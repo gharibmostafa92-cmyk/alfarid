@@ -13,7 +13,12 @@ final class RejectExecutableSignature implements ValidationRule
 {
     private const MAX_OOXML_UNCOMPRESSED_BYTES = 20_971_520; // 20 MB
 
-    public function __construct(private readonly bool $allowOfficeOpenXml = false) {}
+    private const MAX_OOXML_FILES = 200;
+
+    public function __construct(
+        private readonly bool $allowOfficeOpenXml = false,
+        private readonly int $maxOoxmlBytes = self::MAX_OOXML_UNCOMPRESSED_BYTES,
+    ) {}
 
     /**
      * Rejects executable magic byte signatures (Windows PE, Linux ELF, macOS Mach-O, shell/PHP scripts).
@@ -24,15 +29,20 @@ final class RejectExecutableSignature implements ValidationRule
             return;
         }
 
-        $head = @file_get_contents($value->getRealPath(), false, null, 0, 8);
+        // ISO 32000-1 allows the %PDF- marker anywhere within the first
+        // 1024 bytes (preamble), so a header strictly at offset zero is not
+        // required; embedded polyglots are still caught by the magic-byte
+        // and active-content checks below.
+        $head = @file_get_contents($value->getRealPath(), false, null, 0, 1024);
         if ($head === false) {
             $fail('تعذر التحقق من سلامة الملف المرفوع.');
+
             return;
         }
 
         $isPdfUpload = strtolower($value->getMimeType()) === 'application/pdf'
             || strtolower($value->getClientMimeType()) === 'application/pdf';
-        $hasPdfHeader = str_starts_with($head, '%PDF-');
+        $hasPdfHeader = str_contains($head, '%PDF-');
         if ($isPdfUpload && ! $hasPdfHeader) {
             $fail('ملف PDF لا يبدأ بترويسة PDF صالحة.');
 
@@ -65,6 +75,12 @@ final class RejectExecutableSignature implements ValidationRule
         }
 
         if ($hasPdfHeader) {
+            // NOTE: modern PDFs (1.5+) routinely compress catalogs and
+            // actions inside FlateDecode object streams (/ObjStm), which no
+            // plaintext scan can inspect. This check is therefore only a
+            // first line of defense: PDFs must only ever be served with
+            // Content-Disposition: attachment and X-Content-Type-Options:
+            // nosniff (see CustomerController::downloadDocument), never inline.
             $content = @file_get_contents($value->getRealPath());
             if ($content === false) {
                 $fail('يحتوي ملف PDF على محتوى تنفيذي غير مسموح.');
@@ -72,16 +88,20 @@ final class RejectExecutableSignature implements ValidationRule
                 return;
             }
 
-            // PDF names allow #xx escapes, so normalize them before checking active features.
-            $decodedNames = preg_replace_callback(
-                '/#([0-9a-f]{2})/i',
-                static fn (array $match): string => chr(hexdec($match[1])),
-                $content,
-            );
-            if ($decodedNames === null || preg_match(
-                '/\/(?:JavaScript|JS|Launch|EmbeddedFiles|OpenAction|AA|RichMedia|SubmitForm|ImportData|URI)(?=[\x00\x09\x0A\x0C\x0D\x20()<>{}\[\]\/%%])/i',
-                $decodedNames,
-            ) === 1) {
+            // Decode #xx only inside PDF name tokens. Binary streams contain
+            // the same byte pairs and must not be expanded into a second copy.
+            $active = '/\/(?:JavaScript|JS|Launch|EmbeddedFiles|OpenAction|AA|RichMedia|SubmitForm|ImportData|URI)(?=[\x00\x09\x0A\x0C\x0D\x20()<>{}\[\]\/%%])/i';
+            $names = '';
+            if (preg_match_all('/\/[A-Za-z0-9#]{1,64}/', $content, $found) > 0) {
+                foreach ($found[0] as $token) {
+                    $names .= preg_replace_callback(
+                        '/#([0-9a-f]{2})/i',
+                        static fn (array $match): string => chr(hexdec($match[1])),
+                        $token,
+                    ).' ';
+                }
+            }
+            if (preg_match($active, $content) === 1 || ($names !== '' && preg_match($active, $names) === 1)) {
                 $fail('يحتوي ملف PDF على محتوى تنفيذي غير مسموح.');
             }
         }
@@ -95,6 +115,12 @@ final class RejectExecutableSignature implements ValidationRule
         }
 
         try {
+            // A forged archive with thousands of entries alone can stall
+            // spreadsheet parsers; cap the entry count first.
+            if ($zip->numFiles > self::MAX_OOXML_FILES) {
+                return false;
+            }
+
             $hasContentTypes = false;
             $hasWorkbook = false;
             $totalUncompressed = 0;
@@ -105,19 +131,36 @@ final class RejectExecutableSignature implements ValidationRule
                     return false;
                 }
                 $name = (string) ($stat['name'] ?? '');
+                $lower = strtolower($name);
                 if (
                     $name === ''
                     || str_starts_with($name, '/')
                     || str_starts_with($name, '\\')
                     || str_contains($name, '../')
                     || str_contains($name, '..\\')
-                    || str_ends_with(strtolower($name), 'vbaproject.bin')
+                    || str_ends_with($lower, 'vbaproject.bin')
+                    || str_contains($lower, 'macrosheets')
+                    || str_contains($lower, 'externallinks')
+                    || str_contains($lower, 'embeddings')
+                    || str_contains($lower, 'activex/')
                 ) {
                     return false;
                 }
 
-                $totalUncompressed += max(0, (int) ($stat['size'] ?? 0));
-                if ($totalUncompressed > self::MAX_OOXML_UNCOMPRESSED_BYTES) {
+                if (str_ends_with($name, '/')) {
+                    continue;
+                }
+
+                // Never trust the central-directory size header: it is fully
+                // attacker-controlled (header-spoofed ZIP bombs). Count the
+                // bytes actually produced by the decompressor instead, bounded
+                // so a bomb aborts the scan instead of the worker.
+                $seen = $this->streamedEntryBytes($zip, $i);
+                if ($seen === null || $seen > $this->maxOoxmlBytes) {
+                    return false;
+                }
+                $totalUncompressed += $seen;
+                if ($totalUncompressed > $this->maxOoxmlBytes) {
                     return false;
                 }
 
@@ -131,6 +174,36 @@ final class RejectExecutableSignature implements ValidationRule
             return $hasContentTypes && $hasWorkbook;
         } finally {
             $zip->close();
+        }
+    }
+
+    /**
+     * Count the real decompressed bytes of one archive entry, or null when
+     * the entry cannot be streamed safely.
+     */
+    private function streamedEntryBytes(ZipArchive $zip, int $index): ?int
+    {
+        $stream = $zip->getStreamIndex($index);
+        if ($stream === false) {
+            return null;
+        }
+
+        try {
+            $seen = 0;
+            while (! feof($stream)) {
+                $chunk = fread($stream, 8192);
+                if ($chunk === false) {
+                    return null;
+                }
+                $seen += strlen($chunk);
+                if ($seen > $this->maxOoxmlBytes) {
+                    return $seen;
+                }
+            }
+
+            return $seen;
+        } finally {
+            fclose($stream);
         }
     }
 }

@@ -60,12 +60,12 @@ final class PreviewNoticeAllocationTool implements AgentTool
             return ToolOutcome::denied('إشعار السداد مش موجود.', auditable: false);
         }
         try {
-            $branchId = $this->branches->restrictedBranch($actor);
+            $this->branches->restrictedBranch($actor);
         } catch (Throwable) {
             return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
         }
 
-        $preview = $this->notices->previewNoticeAllocation($notice, $branchId);
+        $preview = $this->notices->previewNoticeAllocation($notice);
         $closed = [];
         $open = [];
         if (($preview['linked_order']['closes'] ?? false) === true) {

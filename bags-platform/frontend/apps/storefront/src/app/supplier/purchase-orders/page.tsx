@@ -55,7 +55,7 @@ function SupplierPurchaseOrdersContent() {
   }, [status, page]);
 
   return (
-    <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-5 py-8">
+    <main id="main-content" tabIndex={-1} dir="rtl" className="mx-auto max-w-5xl px-5 py-8">
       <h1 className="mb-4 text-2xl font-semibold">أوامر الشراء</h1>
       <div className="mb-5 flex flex-wrap gap-2">
         {statuses.map((item) => (

@@ -49,6 +49,7 @@ final class LoginDestinationResolver
                 && ($isCashierName || $actor->can('pos.access'));
             if ($isPosRole) {
                 // Block cashiers without an active assigned branch to prevent partially-functioning POS sessions.
+                $actor->loadMissing('branch');
                 if ($actor->branch_id === null || $actor->branch === null || ! $actor->branch->is_active) {
                     throw new BusinessException('حسابك غير مرتبط بفرع نشط.', [], 403);
                 }

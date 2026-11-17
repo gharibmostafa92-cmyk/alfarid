@@ -19,7 +19,7 @@ export default function SupplierLayout({ children }: { children: React.ReactNode
   }
   return (
     <RequireActor allow={['supplier']}>
-      <div className="min-h-screen bg-[#f3f5f7]">
+      <div className="min-h-screen bg-[#f3f5f7]" dir="rtl">
         <nav className="border-b border-black/10 bg-white" aria-label="Supplier portal">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-4 px-5 py-3 text-sm">
             {links.map((link) => {

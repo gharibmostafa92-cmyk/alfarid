@@ -19,7 +19,7 @@ trait NormalizesCustomerInput
     protected function prepareForValidation(): void
     {
         $normalized = [];
-        foreach (['email', 'phone', 'login', 'recipient_phone'] as $field) {
+        foreach (['email', 'phone', 'login', 'recipient_phone', 'whatsapp_phone'] as $field) {
             if (! $this->has($field)) {
                 continue;
             }
@@ -29,24 +29,27 @@ trait NormalizesCustomerInput
                 $this->request->remove($field);
                 $this->query->remove($field);
                 $this->offsetUnset($field);
+
                 continue;
             }
 
             if (is_string($value)) {
                 $trimmed = trim($value);
                 $canonical = match ($field) {
-                    'phone', 'recipient_phone' => Customer::normalizePhone($trimmed),
+                    'phone', 'recipient_phone', 'whatsapp_phone' => Customer::normalizePhone($trimmed),
                     'login' => Customer::normalizeIdentifier($trimmed) ?? '',
                     default => mb_strtolower($trimmed),
                 };
                 if ($canonical === '') {
                     if ($field === 'recipient_phone') {
                         $normalized[$field] = '-';
+
                         continue;
                     }
                     $this->request->remove($field);
                     $this->query->remove($field);
                     $this->offsetUnset($field);
+
                     continue;
                 }
                 $normalized[$field] = $canonical;

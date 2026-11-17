@@ -36,7 +36,7 @@ class UpdateCustomerRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail($customerId)],
-            'phone' => ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore($customerId)->whereNull('deleted_at')],
+            'phone' => ['sometimes', 'string', 'regex:/\A01[0125][0-9]{8}\z/', Rule::unique('customers', 'phone')->ignore($customerId)->whereNull('deleted_at')],
             // Staff-assigned passwords intentionally require 12 characters; retail self-service allows 8.
             'password' => ['sometimes', 'string', new PasswordByteLimit, 'min:12', 'max:72'],
             'type' => ['missing'],
@@ -47,7 +47,7 @@ class UpdateCustomerRequest extends FormRequest
             'customer_group_id' => ['sometimes', 'nullable', 'integer', Rule::exists('customer_groups', 'id')->where('is_active', true)],
             'credit_limit' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
             'payment_terms_days' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:365'],
-            'whatsapp_phone' => ['sometimes', 'nullable', 'string', 'regex:/^01[0125][0-9]{8}$/'],
+            'whatsapp_phone' => ['sometimes', 'nullable', 'string', 'regex:/\A01[0125][0-9]{8}\z/'],
             'whatsapp_opt_in' => ['sometimes', 'boolean'],
             'preferred_contact_hours' => ['sometimes', 'nullable', 'array'],
             'preferred_contact_hours.from' => ['required_with:preferred_contact_hours', 'date_format:H:i'],
