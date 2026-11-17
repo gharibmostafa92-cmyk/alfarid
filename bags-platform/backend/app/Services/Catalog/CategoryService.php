@@ -190,7 +190,7 @@ class CategoryService
                 throw new BusinessException('القسم تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
             }
 
-            if ($locked->children()->exists()) {
+            if ($locked->children()->withTrashed()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
             }
 

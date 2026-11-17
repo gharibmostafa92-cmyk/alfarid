@@ -25,9 +25,11 @@ class RetailPriceSnapshot
                     // Serialize concurrent snapshot writers (e.g. VariantService vs RefreshCatalogRetailPrices)
                     // in deterministic ID order without blocking reads or order foreign keys.
                     DB::table('products')->whereIn('id', $ids)->orderBy('id')->lock('for no key update')->pluck('id');
-                    $query = app(StoreCatalogService::class)->liveMinimumPriceQuery(null);
-                    DB::update('UPDATE products SET catalog_min_retail_price = ('.$query->toSql().'), catalog_price_refreshed_at = ? WHERE id IN ('.implode(',', array_fill(0, count($ids), '?')).')',
-                        [...$query->getBindings(), now(), ...$ids]);
+                    $catalog = app(StoreCatalogService::class);
+                    $query = $catalog->liveMinimumPriceQuery(null);
+                    $discount = $catalog->liveRetailDiscountQuery();
+                    DB::update('UPDATE products SET catalog_min_retail_price = ('.$query->toSql().'), catalog_has_retail_discount = COALESCE(('.$discount->toSql().'), false), catalog_price_refreshed_at = ? WHERE id IN ('.implode(',', array_fill(0, count($ids), '?')).')',
+                        [...$query->getBindings(), ...$discount->getBindings(), now(), ...$ids]);
                 });
             });
     }

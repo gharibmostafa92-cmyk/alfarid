@@ -84,6 +84,27 @@ export function buildAddressLine(
     .join(', ');
 }
 
+export function applySavedAddressFields(form: CheckoutForm, address: SavedAddressItem): CheckoutForm {
+  return {
+    ...form,
+    cityId: address.city_id,
+    street: address.address_line,
+    building: '',
+    floor: '',
+    apartment: '',
+  };
+}
+
+export function checkoutShippingLengthErrors(
+  addressLine: string,
+  notes: string,
+): Partial<Pick<CheckoutForm, 'street' | 'notes'>> {
+  const errors: Partial<Pick<CheckoutForm, 'street' | 'notes'>> = {};
+  if (addressLine.length > 500) errors.street = 'العنوان أطول من الحد المسموح';
+  if (notes.length > 500) errors.notes = 'ملاحظات الشحن أطول من الحد المسموح';
+  return errors;
+}
+
 /**
  * Generate a unique idempotency key with fallback for non-secure HTTP contexts.
  */
@@ -301,12 +322,15 @@ export function useCheckout() {
   }, []);
 
   const applySavedAddress = useCallback((addr: SavedAddressItem) => {
-    setForm((f) => ({
-      ...f,
-      cityId: addr.city_id,
-      street: addr.address_line,
+    setForm((form) => applySavedAddressFields(form, addr));
+    setFieldErrors((errors) => ({
+      ...errors,
+      cityId: undefined,
+      street: undefined,
+      building: undefined,
+      floor: undefined,
+      apartment: undefined,
     }));
-    setFieldErrors((e) => ({ ...e, cityId: undefined, street: undefined }));
   }, []);
 
   // Prefill contact fields for signed-in shoppers.
@@ -333,9 +357,7 @@ export function useCheckout() {
         if (cancelled || list.length === 0) return;
         setSavedAddresses(list as SavedAddressItem[]);
         const d = list.find((a) => a.is_default) ?? list[0];
-        setForm((f) =>
-          f.street || f.cityId ? f : { ...f, cityId: d.city_id, street: d.address_line },
-        );
+        setForm((form) => form.street || form.cityId ? form : applySavedAddressFields(form, d));
       })
       .catch(() => {});
     return () => {
@@ -447,6 +469,7 @@ export function useCheckout() {
     }
     if (form.cityId === null) e.cityId = 'اختار المدينة';
     if (!form.street.trim()) e.street = 'العنوان مطلوب';
+    Object.assign(e, checkoutShippingLengthErrors(addressLine, form.notes));
     if (!form.agreeTerms) e.agreeTerms = 'لازم توافق على الشروط عشان تكمل الطلب';
     return e;
   }, [form]);
@@ -466,6 +489,7 @@ export function useCheckout() {
       email: true,
       cityId: true,
       street: true,
+      notes: true,
       agreeTerms: true,
     });
     if (Object.keys(errors).length > 0) {

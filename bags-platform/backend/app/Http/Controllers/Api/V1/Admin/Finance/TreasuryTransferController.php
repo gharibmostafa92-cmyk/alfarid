@@ -57,6 +57,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         $filters = $request->validate([
             'from_treasury_id' => ['nullable', 'integer', 'min:1'],
             'to_treasury_id' => ['nullable', 'integer', 'min:1'],
+            'treasury_id' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', Rule::in(array_column(TreasuryTransferStatus::cases(), 'value'))],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
@@ -64,7 +65,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         $staff = $request->user('staff');
         $branch = $this->branchAccess->restrictedBranch($staff);
         if ($branch !== null) {
-            foreach (['from_treasury_id', 'to_treasury_id'] as $filterKey) {
+            foreach (['from_treasury_id', 'to_treasury_id', 'treasury_id'] as $filterKey) {
                 if (isset($filters[$filterKey])) {
                     $probedTreasury = Treasury::query()->find((int) $filters[$filterKey]);
                     if ($probedTreasury === null) {
@@ -89,6 +90,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
             ->with(self::RELATIONS_INDEX)
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
             ->when($filters['to_treasury_id'] ?? null, fn ($q, $v) => $q->where('to_treasury_id', $v))
+            ->when($filters['treasury_id'] ?? null, fn ($q, $v) => $q->where(fn ($sub) => $sub->where('from_treasury_id', $v)->orWhere('to_treasury_id', $v)))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->orderByDesc('id')
             ->paginate($filters['per_page'] ?? 15);

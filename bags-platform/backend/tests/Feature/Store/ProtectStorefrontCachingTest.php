@@ -35,6 +35,7 @@ class ProtectStorefrontCachingTest extends TestCase
         $this->assertContains('Accept-Language', $vary);
         $this->assertContains('Authorization', $vary);
         $this->assertContains('Accept-Encoding', $vary);
+        $this->assertContains('Cookie', $vary);
         $this->assertCacheControl($response, ['private', 'no-store']);
     }
 
@@ -65,6 +66,7 @@ class ProtectStorefrontCachingTest extends TestCase
         $this->assertContains('Origin', $vary);
         $this->assertContains('Accept-Language', $vary);
         $this->assertContains('Authorization', $vary);
+        $this->assertContains('Cookie', $vary);
         $this->assertCacheControl($response, ['public', 'max-age=0', 's-maxage=60']);
     }
 

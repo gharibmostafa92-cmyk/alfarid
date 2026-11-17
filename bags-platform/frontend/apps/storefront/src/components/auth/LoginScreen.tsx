@@ -12,6 +12,20 @@ import { AccountForm, type AuthView } from './AccountForm';
 import { createSessionNonce } from './session-nonce';
 import { safeReturnPath } from '@/lib/orders/safe-return-path';
 
+/**
+ * Recovery token from the URL. SMS links carry the raw secret in the
+ * fragment (#token=...) so it never leaves the browser via HTTP, logs, or
+ * Referer; mailed links still use the query string. Fragment wins, query is
+ * the backward-compatible fallback.
+ */
+function resetTokenFromUrl(params: ReturnType<typeof useSearchParams>): string {
+  if (typeof window !== 'undefined') {
+    const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token');
+    if (hashToken) return hashToken;
+  }
+  return params.get('token') ?? '';
+}
+
 export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView = 'login' }) => {
   const { branding } = useBranding();
   const [view, setView] = useState<AuthView>(initialView);
@@ -433,7 +447,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                   lang={lang}
                   onChangeView={setView}
                   initialIdentifier={params.get('email') ?? params.get('phone') ?? login}
-                  initialToken={params.get('token') ?? ''}
+                  initialToken={resetTokenFromUrl(params)}
                 />
               )}
             </div>

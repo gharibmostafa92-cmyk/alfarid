@@ -368,6 +368,8 @@ export function ToastHost({ children, portalHost }: { children: ReactNode; porta
   const [t, setT] = useState<{ text: string; tone: string; k: number } | null>(null);
   const timer = useRef<any>(null);
 
+  useEffect(() => () => clearTimeout(timer.current), []);
+
   const show: ToastFunction = (text, tone = 'accent') => {
     setT({ text, tone, k: Date.now() });
     clearTimeout(timer.current);
@@ -377,6 +379,8 @@ export function ToastHost({ children, portalHost }: { children: ReactNode; porta
   const toastEl = (
     <div
       className="toast"
+      role="status"
+      aria-live="polite"
       style={{
         opacity: t ? 1 : 0,
         transform: t ? 'none' : 'translateY(8px)',
@@ -446,6 +450,8 @@ export function Toggle({
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={on}
       disabled={disabled}
       className={'tgl' + (on ? ' on' : '')}
       onClick={() => onChange && onChange(!on)}
@@ -853,6 +859,19 @@ export function DataTable<T extends Record<string, any>>({
   );
 }
 
+export function pagerWindow(page: number, pages: number): (number | '...')[] {
+  if (pages <= 5) return Array.from({ length: pages }, (_, i) => i + 1);
+  const cur = Math.max(1, Math.min(pages, page));
+  const out: (number | '...')[] = [1];
+  const start = Math.max(2, cur - 1);
+  const end = Math.min(pages - 1, cur + 1);
+  if (start > 2) out.push('...');
+  for (let p = start; p <= end; p++) out.push(p);
+  if (end < pages - 1) out.push('...');
+  out.push(pages);
+  return out;
+}
+
 export function Pager({
   total,
   per = 20,
@@ -864,39 +883,51 @@ export function Pager({
   page?: number;
   onPage?: (p: number) => void;
 }) {
-  const pages = Math.max(1, Math.ceil(total / per));
+  const safePer = Math.max(1, per || 20);
+  const pages = Math.max(1, Math.ceil(total / safePer));
+  const cur = Math.max(1, Math.min(pages, page));
+  const startItem = total === 0 ? 0 : Math.min(total, (cur - 1) * safePer + 1);
+  const endItem = total === 0 ? 0 : Math.min(total, cur * safePer);
+  const items = pagerWindow(cur, pages);
   return (
     <div className="flex items-center justify-between pt-4 text-[12px] tx2">
       <span>
-        عرض <Num>{Math.min(total, (page - 1) * per + 1)}–{Math.min(total, page * per)}</Num> من{' '}
+        عرض <Num>{startItem}–{endItem}</Num> من{' '}
         <Num>{total}</Num>
       </span>
       <div className="flex items-center gap-1.5">
         <button
           className="icon-btn !w-7 !h-7"
-          disabled={page <= 1}
-          onClick={() => onPage && onPage(page - 1)}
+          disabled={cur <= 1}
+          onClick={() => onPage && onPage(cur - 1)}
+          aria-label="الصفحة السابقة"
         >
           <Icon name="chevR" size={13} />
         </button>
-        {Array.from({ length: Math.min(pages, 4) }).map((_, i) => (
-          <button
-            key={i}
-            onClick={() => onPage && onPage(i + 1)}
-            className={'w-7 h-7 rounded-full text-[11.5px] font-semibold num ' + (page === i + 1 ? '' : 'tx2')}
-            style={
-              page === i + 1
-                ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }
-                : {}
-            }
-          >
-            {i + 1}
-          </button>
-        ))}
+        {items.map((item, i) =>
+          item === '...' ? (
+            <span key={`e-${i}`} className="w-6 text-center text-[11.5px] tx3 select-none">…</span>
+          ) : (
+            <button
+              key={item}
+              onClick={() => onPage && onPage(item)}
+              aria-current={cur === item ? 'page' : undefined}
+              className={'w-7 h-7 rounded-full text-[11.5px] font-semibold num ' + (cur === item ? '' : 'tx2')}
+              style={
+                cur === item
+                  ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }
+                  : {}
+              }
+            >
+              {item}
+            </button>
+          ),
+        )}
         <button
           className="icon-btn !w-7 !h-7"
-          disabled={page >= pages}
-          onClick={() => onPage && onPage(page + 1)}
+          disabled={cur >= pages}
+          onClick={() => onPage && onPage(cur + 1)}
+          aria-label="الصفحة التالية"
         >
           <Icon name="chevL" size={13} />
         </button>
@@ -912,6 +943,8 @@ export function RowActions({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+const openModalStack: symbol[] = [];
 
 /* ---------- modal / drawer ---------- */
 export function Modal({
@@ -935,18 +968,33 @@ export function Modal({
   icon?: string;
   tone?: string;
 }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const modalIdRef = useRef<symbol | null>(null);
+  if (!modalIdRef.current) modalIdRef.current = Symbol('modal');
+
   useEffect(() => {
     if (!open) return;
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const id = modalIdRef.current!;
+    openModalStack.push(id);
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && openModalStack[openModalStack.length - 1] === id) {
+        onCloseRef.current();
+      }
+    };
     window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [open, onClose]);
+    return () => {
+      const idx = openModalStack.lastIndexOf(id);
+      if (idx !== -1) openModalStack.splice(idx, 1);
+      window.removeEventListener('keydown', h);
+    };
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div className="modal-bd" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: width }} dir="rtl">
+      <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: width }} dir="rtl">
         <div className="sm:hidden w-10 h-1 bg-[var(--toggle-off-bg)] rounded-full mx-auto mt-3 -mb-1" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4 p-6 pb-4">
           <div className="flex items-start gap-3">
@@ -1149,6 +1197,38 @@ export function Note({
   );
 }
 
+export function parseMaxBytes(max?: string | number): number | null {
+  if (typeof max === 'number') return Number.isFinite(max) && max > 0 ? max : null;
+  if (!max) return null;
+  const m = String(max).trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?$/i);
+  if (!m) return null;
+  const val = Number(m[1]);
+  const unit = (m[2] || 'B').toUpperCase();
+  const mult = unit === 'GB' ? 1024 ** 3 : unit === 'MB' ? 1024 ** 2 : unit === 'KB' ? 1024 : 1;
+  return Math.floor(val * mult);
+}
+
+export function validateDropzoneFile(file: File, accept?: string, max?: string | number): string | null {
+  const maxBytes = parseMaxBytes(max);
+  if (maxBytes !== null && file.size > maxBytes) {
+    return `حجم الملف يتجاوز الحد الأقصى المسموح (${max})`;
+  }
+  if (accept) {
+    const tokens = accept.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (tokens.length > 0) {
+      const name = file.name.toLowerCase();
+      const mime = (file.type || '').toLowerCase();
+      const ok = tokens.some((tok) => {
+        if (tok.startsWith('.')) return name.endsWith(tok);
+        if (tok.endsWith('/*')) return mime.startsWith(tok.slice(0, -1));
+        return mime === tok;
+      });
+      if (!ok) return `صيغة الملف غير مدعومة (${accept})`;
+    }
+  }
+  return null;
+}
+
 export function Dropzone({
   accept,
   max,
@@ -1161,6 +1241,7 @@ export function Dropzone({
   label?: string;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const ref = useRef<HTMLInputElement>(null);
   return (
     <div className="drop" onClick={() => ref.current?.click()}>
@@ -1169,7 +1250,26 @@ export function Dropzone({
         type="file"
         className="hidden"
         accept={accept}
-        onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); onFile?.(selected); }}
+        onChange={(e) => {
+          const selected = e.target.files?.[0] || null;
+          if (!selected) {
+            setFile(null);
+            setErr(null);
+            onFile?.(null);
+            return;
+          }
+          const validationError = validateDropzoneFile(selected, accept, max);
+          if (validationError) {
+            setErr(validationError);
+            setFile(null);
+            onFile?.(null);
+            e.target.value = '';
+            return;
+          }
+          setErr(null);
+          setFile(selected);
+          onFile?.(selected);
+        }}
       />
       {file ? (
         <div className="flex items-center justify-center gap-2 text-[12.5px] tx1">
@@ -1186,6 +1286,7 @@ export function Dropzone({
           <div className="text-[11px] tx3 mt-1">
             <span className="ltr">{accept}</span> {max && <>· حتى <Num>{max}</Num></>}
           </div>
+          {err && <div className="text-[11.5px] text-red-500 mt-1.5 font-medium">{err}</div>}
         </>
       )}
     </div>

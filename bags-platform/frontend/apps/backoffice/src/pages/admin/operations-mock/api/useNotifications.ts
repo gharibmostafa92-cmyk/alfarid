@@ -7,7 +7,6 @@ export function notificationTarget(n: NotificationItem): { m: string; id?: numbe
   const d = n.data ?? {};
   if (d.return_request_id) return { m: 'returns', id: Number(d.return_request_id) };
   if (d.order_id) return { m: 'orders', id: Number(d.order_id) };
-  if (d.purchase_order_id) return { m: 'purchasing', sub: 'po', id: Number(d.purchase_order_id) };
   if (d.quotation_id) return { m: 'wholesale', sub: 'quotes' };
   if (d.payment_notice_id) return { m: 'wholesale', sub: 'notices' };
   if (d.pos_shift_id) return { m: 'shifts' };
@@ -85,10 +84,13 @@ export function useNotifications(onError?: (message: string) => void) {
   const markRead = useCallback(async (id: string) => {
     const item = itemsRef.current.find(n => n.id === id);
     if (!item || item.read_at || pending.current.has(id) || bulkPending.current) return;
-    if (usingMock && !USE_MOCK) { setError('البيانات تجريبية — تعذّر حفظ القراءة'); return; }
-    ctrlRef.current?.abort();
+    if (usingMock && !USE_MOCK) {
+      const msg = 'البيانات تجريبية — تعذّر حفظ القراءة';
+      setError(msg);
+      onErrorRef.current?.(msg);
+      return;
+    }
     refreshCtrl.current?.abort();
-    setLoading(false);
     pending.current.add(id);
     const now = new Date().toISOString();
     setItems(prev => prev.map(n => n.id === id ? { ...n, read_at: now } : n));
@@ -113,7 +115,9 @@ export function useNotifications(onError?: (message: string) => void) {
   const markAllRead = useCallback(async () => {
     if (bulkPending.current || pending.current.size > 0) return;
     if (usingMock && !USE_MOCK) {
-      setError('البيانات تجريبية — تعذّر حفظ القراءة');
+      const msg = 'البيانات تجريبية — تعذّر حفظ القراءة';
+      setError(msg);
+      onErrorRef.current?.(msg);
       return;
     }
     bulkPending.current = true;

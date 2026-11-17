@@ -79,7 +79,7 @@ const PR = '/api/v1/admin/products';
 
 export interface BrandListParams { search?: string; is_active?: 0 | 1; page?: number; per_page?: number }
 export interface ProductListParams {
-  search?: string; category_id?: number; include_children?: 0 | 1; brand_id?: number;
+  search?: string; category_id?: number; include_children?: 0 | 1;
   status?: ProductStatus; sales_channel?: SalesChannel; is_featured?: 0 | 1;
   sort?: 'latest' | 'oldest' | 'name'; page?: number; per_page?: number;
 }

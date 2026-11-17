@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { supplierPortalApi, type SupplierStatement } from '@alfarid/api-client';
 import { formatStorePrice } from '@alfarid/utils';
+import { utcDateSpanDays } from '@/lib/orders/guest-orders';
 
 export default function SupplierStatementPage() {
   const [data, setData] = useState<SupplierStatement | null>(null);
@@ -28,8 +29,8 @@ export default function SupplierStatementPage() {
       return;
     }
     if (fromDate && toDate) {
-      const days = (new Date(toDate).getTime() - new Date(fromDate).getTime()) / 86400000;
-      if (days > 366) {
+      const days = utcDateSpanDays(fromDate, toDate);
+      if (!Number.isFinite(days) || days >= 366) {
         setError('فترة كشف الحساب يجب ألا تتجاوز 366 يومًا.');
         return;
       }

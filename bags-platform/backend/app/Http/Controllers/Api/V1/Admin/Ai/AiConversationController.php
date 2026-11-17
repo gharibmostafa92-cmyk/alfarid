@@ -30,8 +30,10 @@ class AiConversationController extends Controller
             $query->where('user_id', $actor->id);
         }
         $perPage = min(100, max(1, (int) $request->query('per_page', 15)));
+        $totalTokens = (int) (clone $query)->reorder()->sum('total_tokens');
+        $page = $query->paginate($perPage);
 
-        return response()->json($query->paginate($perPage));
+        return response()->json([...$page->toArray(), 'total_tokens' => $totalTokens]);
     }
 
     public function store(Request $request): JsonResponse
@@ -46,7 +48,7 @@ class AiConversationController extends Controller
         $this->authorizeView($request, $conversation);
 
         // Fetch only the latest 200 messages to prevent unbounded memory consumption on large histories.
-        $conversation->load(['messages' => fn ($q) => $q->where('role', '!=', 'tool')->where(fn ($m) => $m->whereNotNull('content')->orWhereNotNull('ui_blocks'))->orderByDesc('id')->limit(200), 'pendingActions' => fn ($q) => $q->select('id', 'conversation_id', 'status', 'expires_at')]);
+        $conversation->load(['messages' => fn ($q) => $q->where('role', '!=', 'tool')->where(fn ($m) => $m->whereNotNull('content')->orWhereNotNull('ui_blocks'))->orderByDesc('id')->limit(200), 'pendingActions' => fn ($q) => $q->select('id', 'conversation_id', 'status', 'expires_at', 'created_at')]);
         $conversation->setRelation('messages', $conversation->messages->sortBy('id')->values());
 
         return response()->json(['data' => $conversation]);

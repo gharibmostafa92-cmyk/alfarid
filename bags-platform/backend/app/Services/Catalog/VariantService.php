@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Catalog;
 
 use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Exceptions\BusinessException;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReturnRequestItem;
 use App\Models\StockLevel;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -155,6 +159,23 @@ class VariantService
                 throw new BusinessException('المتغير تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
             }
             $this->assertNotLastActiveOfPublished($variant);
+            if (OrderItem::query()->where('product_variant_id', $variant->id)
+                ->whereHas('order', fn ($query) => $query->whereIn('status', [
+                    OrderStatus::Pending->value,
+                    OrderStatus::Confirmed->value,
+                    OrderStatus::Processing->value,
+                    OrderStatus::Shipped->value,
+                ]))->exists()) {
+                throw new BusinessException('لا يمكن حذف متغير مرتبط بطلب نشط؛ استخدم الأرشفة بدلًا من الحذف.');
+            }
+            if (ReturnRequestItem::query()->where('product_variant_id', $variant->id)
+                ->whereHas('returnRequest', fn ($query) => $query->whereIn('status', [
+                    ReturnStatus::Pending->value,
+                    ReturnStatus::Approved->value,
+                    ReturnStatus::Received->value,
+                ]))->exists()) {
+                throw new BusinessException('لا يمكن حذف متغير مرتبط بمرتجع مفتوح؛ أكمل معالجة المرتجع أولًا.');
+            }
             // Prevent soft-deleting variants with non-zero stock to avoid stranding physical inventory.
             if (StockLevel::query()->where('product_variant_id', $variant->id)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف متغير له رصيد مخزون؛ صفِّ رصيده أولًا أو عطّله بدلًا من حذفه.');

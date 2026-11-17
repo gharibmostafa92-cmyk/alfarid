@@ -25,7 +25,13 @@ class WalletController extends Controller
         ]);
 
         $customerId = $request->user()->id;
-        $query = CustomerWalletTransaction::query()->where('customer_id', $customerId)->useWritePdo();
+        $page = (int) ($validated['page'] ?? 1);
+        $query = CustomerWalletTransaction::query()->where('customer_id', $customerId);
+        if ($page === 1) {
+            // Keep the newest page read-after-write consistent; historical pages
+            // can use the configured read connection instead of the primary.
+            $query->useWritePdo();
+        }
         if (isset($validated['direction'])) {
             $query->where('amount', $validated['direction'] === 'credit' ? '>' : '<', 0);
         }
@@ -47,7 +53,7 @@ class WalletController extends Controller
             }
         }
 
-        $entries = $query->latest('id')->paginate(20, ['id', 'type', 'amount', 'balance_after', 'reference_type', 'reference_id', 'created_at']);
+        $entries = $query->latest('id')->paginate(20, ['id', 'type', 'amount', 'balance_after', 'reference_type', 'reference_id', 'created_at'], 'page', $page);
         $entries->getCollection()->transform(fn (CustomerWalletTransaction $tx) => [
             'id' => $tx->id,
             'type' => $tx->type,

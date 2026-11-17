@@ -46,6 +46,14 @@ export default function StocktakeVoiceCount() {
     [],
   );
 
+  // Manual escape hatch: aborting ends the session even on engines that
+  // never fire onend/onerror after start.
+  const stopListening = () => {
+    recognition.current?.abort();
+    recognition.current = null;
+    setListening(false);
+  };
+
   const listen = () => {
     if (!Speech || busy || listening) return;
     setError("");
@@ -54,7 +62,12 @@ export default function StocktakeVoiceCount() {
     listener.lang = "ar-EG";
     listener.onresult = (event) =>
       setWords(event.results[0]?.[0]?.transcript ?? "");
-    listener.onerror = () => setError("تعذّر سماع العدد؛ جرّب تاني أو اكتبه.");
+    // Some embedded WebViews never fire onend after certain onerror kinds;
+    // without this the form locks in listening=true with no way out.
+    listener.onerror = () => {
+      setListening(false);
+      setError("تعذّر سماع العدد؛ جرّب تاني أو اكتبه.");
+    };
     listener.onend = () => setListening(false);
     try {
       setListening(true);
@@ -91,18 +104,20 @@ export default function StocktakeVoiceCount() {
           setError("");
           setMessage("");
           try {
-            const normalized = session.replace(
-              /[\u0660-\u0669\u06F0-\u06F9]/g,
-              (digit) => {
+            // Arabic-Indic and Eastern Arabic digits arrive from Arabic
+            // keyboards in both the session and the barcode fields.
+            const toAsciiDigits = (value: string) =>
+              value.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (digit) => {
                 const code = digit.charCodeAt(0);
                 return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
-              },
-            );
+              });
+            const normalized = toAsciiDigits(session);
+            const cleanBarcode = toAsciiDigits(barcode).trim();
             if (!/^[1-9]\d*$/.test(normalized))
               throw new Error("اكتب معرّف جلسة الجرد كرقم صحيح.");
             const payload = JSON.stringify({
               session: normalized,
-              barcode: barcode.trim(),
+              barcode: cleanBarcode,
               words: words.trim(),
             });
             if (!request.current || request.current.payload !== payload)
@@ -111,7 +126,7 @@ export default function StocktakeVoiceCount() {
               sku: string;
               counted_qty: string | number;
             }>(`/api/v1/pos/stocktakes/${normalized}/scan`, {
-              barcode: barcode.trim(),
+              barcode: cleanBarcode,
               qty_words: words.trim(),
               scan_id: request.current.id,
             });
@@ -176,10 +191,10 @@ export default function StocktakeVoiceCount() {
         {Speech ? (
           <button
             type="button"
-            onClick={listen}
-            disabled={busy || listening || !barcode.trim()}
+            onClick={listening ? stopListening : listen}
+            disabled={busy || (!listening && !barcode.trim())}
           >
-            {listening ? "بسمع العدد…" : "قول العدد"}
+            {listening ? "إيقاف الاستماع" : "قول العدد"}
           </button>
         ) : (
           <p>الإملاء الصوتي غير متاح في المتصفح ده؛ اكتب العدد.</p>

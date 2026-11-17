@@ -42,26 +42,50 @@ class SendOutboundMessage implements ShouldQueue
         return [(new WithoutOverlapping('outbound-message:'.$this->messageId))->releaseAfter(10)->expireAfter(300)];
     }
 
-    /** Remove OTP secrets even when the queue exhausts all transient retries. */
+    /**
+     * Close every non-terminal row. OTP rows are wiped of secrets; other
+     * templates keep their payload for diagnosis. Rows already sent stay
+     * untouched even if the worker fails after delivery.
+     */
     public function failed(?Throwable $exception): void
     {
+        $reason = mb_substr($exception?->getMessage() ?? 'job_failed', 0, 180);
         OutboundMessage::query()->whereKey($this->messageId)
-            ->where('template', 'customer_otp')->where('status', 'pending')
-            ->update(['status' => 'error', 'error' => 'otp_delivery_failed', 'payload' => '[]']);
+            ->whereIn('status', ['pending', 'sending'])
+            ->update(['status' => 'error', 'error' => $reason]);
+        OutboundMessage::query()->whereKey($this->messageId)
+            ->where('template', 'customer_otp')->where('status', 'error')
+            ->update(['error' => 'otp_delivery_failed', 'payload' => '[]']);
     }
 
     public function handle(SettingService $settings): void
     {
         $message = OutboundMessage::query()->find($this->messageId);
-        if ($message === null || $message->status !== 'pending') {
+        if ($message === null) {
             return;
         }
+
+        // Atomic pending -> sending claim (compare-and-swap on the row): a
+        // second worker that lost the WithoutOverlapping lock (cache restart,
+        // expired lock) can no longer enter the network section for the same
+        // message, so Meta never receives it twice from two workers.
+        $claimed = OutboundMessage::query()->whereKey($this->messageId)
+            ->where('status', 'pending')
+            ->update(['status' => 'sending']);
+        if ($claimed === 0) {
+            return;
+        }
+        $message->refresh();
 
         if ($message->scheduled_for !== null && $message->scheduled_for->isFuture()) {
             // Carbon 3 reports signed differences (now - scheduled_for), so the
             // old diffInSeconds() released immediately. Hand the DateTime itself
-            // to the queue so "future" always means future.
-            $this->release($message->scheduled_for);
+            // to the queue so "future" always means future. Re-dispatch as a
+            // fresh job instead of release(): every release() consumes one of
+            // the $tries attempts, so repeated deferrals killed the message
+            // before its scheduled time.
+            $message->update(['status' => 'pending']);
+            $this->defer($message->scheduled_for);
 
             return;
         }
@@ -75,19 +99,15 @@ class SendOutboundMessage implements ShouldQueue
             return;
         }
 
-        $message->loadMissing('customer');
-        $destination = CustomerChannel::canonicalPhone((string) ($message->customer?->whatsapp_phone ?: $message->customer?->phone));
-        if ($destination === null) {
-            $message->update(['status' => 'skipped', 'error' => 'no_customer_destination', ...$redacted]);
-
-            return;
-        }
-
         $parameters = $message->payload ?? [];
         if ($otp) {
+            // F3: the number under verification lives on the channel row, not
+            // on the customer (whatsapp_phone is only set after verification).
+            // Deriving the destination from the owned channel keeps OTPs
+            // deliverable while the ownership/expiry checks keep them safe.
             $channel = CustomerChannel::query()->where('customer_id', $message->customer_id)
                 ->where('provider', 'whatsapp_cloud')->find($parameters['channel_id'] ?? null);
-            if (! is_string($parameters['code'] ?? null) || $channel === null || $channel->phone !== $destination
+            if (! is_string($parameters['code'] ?? null) || $channel === null
                 || $channel->verification_code_hash === null
                 || ! $channel->verification_expires_at?->isFuture()
                 || $channel->verification_expires_at->timestamp !== ($parameters['expires_at'] ?? null)) {
@@ -95,7 +115,21 @@ class SendOutboundMessage implements ShouldQueue
 
                 return;
             }
+            $destination = CustomerChannel::canonicalPhone((string) $channel->phone);
+            if ($destination === null) {
+                $message->update(['status' => 'skipped', 'error' => 'no_channel_destination', 'payload' => []]);
+
+                return;
+            }
             $parameters = [$parameters['code']];
+        } else {
+            $message->loadMissing('customer');
+            $destination = CustomerChannel::canonicalPhone((string) ($message->customer?->whatsapp_phone ?: $message->customer?->phone));
+            if ($destination === null) {
+                $message->update(['status' => 'skipped', 'error' => 'no_customer_destination', ...$redacted]);
+
+                return;
+            }
         }
 
         $token = config('services.whatsapp_business.token');
@@ -111,8 +145,12 @@ class SendOutboundMessage implements ShouldQueue
         }
 
         try {
+            // Split connect vs read timeouts: a read timeout fires only after
+            // Meta accepted the request, so a retry would double-send. A
+            // short connect timeout keeps pre-send failures fast while the
+            // longer read window tolerates slow Graph responses.
             $response = Http::withToken($token)
-                ->timeout(15)
+                ->connectTimeout(5)->timeout(20)
                 ->post("https://graph.facebook.com/v21.0/{$phoneId}/messages", [
                     'messaging_product' => 'whatsapp',
                     'to' => ltrim($destination, '+'),
@@ -157,5 +195,19 @@ class SendOutboundMessage implements ShouldQueue
             'error' => null,
             ...$redacted,
         ]);
+    }
+
+    /**
+     * Re-dispatch a scheduled message as a brand-new job: release() burns one
+     * of the $tries attempts per deferral, while a fresh dispatch resets the
+     * attempt budget. Guarded for direct handle() invocations (tests/seeds)
+     * where no queue worker owns this job.
+     */
+    protected function defer(\DateTimeInterface $at): void
+    {
+        if ($this->job !== null) {
+            $this->delete();
+        }
+        self::dispatch($this->messageId)->delay($at);
     }
 }

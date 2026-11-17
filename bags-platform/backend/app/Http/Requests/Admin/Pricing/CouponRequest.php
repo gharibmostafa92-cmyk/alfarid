@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Pricing;
 
+use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Models\Coupon;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -14,9 +15,11 @@ use Illuminate\Validation\Validator;
  */
 class CouponRequest extends FormRequest
 {
+    use AuthorizesStaffRequest;
+
     public function authorize(): bool
     {
-        return true;
+        return $this->authorizeStaffAction(['store' => 'coupons.create', 'update' => 'coupons.update']);
     }
 
     /**
@@ -30,7 +33,7 @@ class CouponRequest extends FormRequest
 
         return [
             // Case-insensitive uppercase uniqueness check prevents duplicate variants of the same code.
-            'code' => ['required', 'string', 'max:50', Rule::unique('coupons', 'code')->ignore($coupon),
+            'code' => ['required', 'string', 'max:50', 'alpha_dash:ascii', Rule::unique('coupons', 'code')->ignore($coupon),
                 function (string $attribute, mixed $value, \Closure $fail) use ($coupon): void {
                     if (is_string($value) && Coupon::query()
                         ->whereRaw('upper(code) = ?', [strtoupper($value)])

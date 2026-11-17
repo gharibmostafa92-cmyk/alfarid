@@ -209,7 +209,7 @@ export function SophieHeader() {
         <Link
           href="/"
           title={branding.name}
-          className="flex items-center gap-2 min-w-0 min-h-[44px] font-['Poppins'] text-xl sm:text-2xl font-bold tracking-tight text-black"
+          className="flex items-center gap-2 min-w-0 min-h-[44px] font-[var(--font-poppins)] text-xl sm:text-2xl font-bold tracking-tight text-black"
         >
           <BrandLogo
             className="w-6 h-6 shrink-0"
@@ -226,7 +226,7 @@ export function SophieHeader() {
         </Link>
 
         {/* Desktop Navigation */}
-        <nav aria-label="Main navigation" className="hidden lg:flex items-center gap-7 xl:gap-8 font-['Oswald'] text-[13px] font-medium tracking-wide uppercase">
+        <nav aria-label="Main navigation" className="hidden lg:flex items-center gap-7 xl:gap-8 font-[var(--font-oswald)] text-[13px] font-medium tracking-wide uppercase">
           <Link
             href="/"
             aria-current={pathname === '/' ? 'page' : undefined}
@@ -342,7 +342,7 @@ export function SophieHeader() {
           ) : (
             <Link
               href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-              className="font-['Oswald'] text-[13px] uppercase tracking-wide hover:text-[#4f7d88] px-2 py-2 min-h-[44px] hidden sm:inline-flex items-center transition-colors"
+              className="font-[var(--font-oswald)] text-[13px] uppercase tracking-wide hover:text-[#4f7d88] px-2 py-2 min-h-[44px] hidden sm:inline-flex items-center transition-colors"
             >
               Sign in
             </Link>
@@ -360,7 +360,7 @@ export function SophieHeader() {
             </svg>
             <span
               data-cart-count
-              className="bg-black text-white font-['Poppins'] text-[10px] font-semibold min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center"
+              className="bg-black text-white font-[var(--font-poppins)] text-[10px] font-semibold min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center"
             >
               {mounted ? cartCount : 0}
             </span>
@@ -465,7 +465,7 @@ export function SophieHeader() {
           >
             {/* Mobile Sheet Grab Handle & Header */}
             <div className="pt-2.5 pb-2 px-4 border-b border-gray-100 flex items-center justify-between bg-white">
-              <span className="font-['Oswald'] text-sm font-semibold uppercase tracking-wider text-gray-900">
+              <span className="font-[var(--font-oswald)] text-sm font-semibold uppercase tracking-wider text-gray-900">
                 Browse Store
               </span>
               <button
@@ -494,14 +494,14 @@ export function SophieHeader() {
               />
               <button
                 type="submit"
-                className="h-11 px-4 rounded-lg bg-black text-white font-['Oswald'] text-xs uppercase tracking-wider shrink-0 hover:bg-[#2c2c2c] transition-colors"
+                className="h-11 px-4 rounded-lg bg-black text-white font-[var(--font-oswald)] text-xs uppercase tracking-wider shrink-0 hover:bg-[#2c2c2c] transition-colors"
               >
                 Search
               </button>
             </form>
 
             {/* Scrollable Navigation Links & Department Accordions */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-1 font-['Oswald'] uppercase text-sm tracking-wide">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-1 font-[var(--font-oswald)] uppercase text-sm tracking-wide">
               <Link
                 href="/"
                 onClick={() => setMobileMenuOpen(false)}
@@ -529,7 +529,7 @@ export function SophieHeader() {
 
               {/* Departments accordion from the same live menu data */}
               {menuError && (
-                <p role="alert" className="py-2 px-2 text-xs text-red-700 font-['Poppins'] normal-case">
+                <p role="alert" className="py-2 px-2 text-xs text-red-700 font-[var(--font-poppins)] normal-case">
                   تعذّر تحميل الأقسام.{' '}
                   <button type="button" onClick={retryMenu} className="underline font-semibold ml-1">
                     إعادة المحاولة
@@ -556,7 +556,7 @@ export function SophieHeader() {
                       </span>
                     </button>
                     {expanded && (
-                      <div className="pb-3 pl-3 pr-1 space-y-2.5 normal-case font-['Poppins']">
+                      <div className="pb-3 pl-3 pr-1 space-y-2.5 normal-case font-[var(--font-poppins)]">
                         {[dept.col1, dept.col2, dept.col3].flat().map((group) => (
                           <div key={group.slug} className="bg-gray-50/70 rounded-lg p-2.5">
                             <Link
@@ -619,7 +619,7 @@ export function SophieHeader() {
                   setMobileMenuOpen(false);
                   setCartOpen(true);
                 }}
-                className="flex-1 min-h-[46px] rounded-lg border border-gray-300 bg-white text-gray-900 font-['Oswald'] text-xs uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors"
+                className="flex-1 min-h-[46px] rounded-lg border border-gray-300 bg-white text-gray-900 font-[var(--font-oswald)] text-xs uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors"
               >
                 <span>Cart ({mounted ? cartCount : 0})</span>
               </button>

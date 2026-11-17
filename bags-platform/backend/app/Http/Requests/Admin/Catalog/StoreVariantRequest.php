@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
+use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreVariantRequest extends FormRequest
 {
+    use AuthorizesStaffRequest;
+
     use NormalizesCatalogInput;
 
     protected function prepareForValidation(): void
@@ -20,7 +23,7 @@ class StoreVariantRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return $this->authorizeStaffPermission('products.update');
     }
 
     /**

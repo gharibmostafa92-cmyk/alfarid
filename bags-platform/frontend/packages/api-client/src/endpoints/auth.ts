@@ -17,6 +17,7 @@ export interface UnifiedLoginResponse {
   handoff_code: string | null;
   data: Record<string, unknown>;
   cart_merged?: boolean | null;
+  cart_merge_warnings?: string[] | null;
 }
 
 export interface HandoffExchangeResponse {

@@ -15,7 +15,7 @@ const ts = require('typescript');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const requests = [];
-    await page.route('https://attachments.example.test/**', route => {
+    await page.route('https://bucket.r2.dev/**', route => {
       requests.push(route.request().resourceType());
       return route.fulfill({ body: 'private receipt', contentType: 'application/pdf',
         headers: { 'content-disposition': 'attachment; filename="receipt.pdf"' } });
@@ -25,7 +25,7 @@ const ts = require('typescript');
       const exports = {};
       const api = { get: async (_url, config) => {
         if (config.params.signed !== 1) throw new Error('Missing signed URL negotiation');
-        return { data: new Blob([JSON.stringify({ url: 'https://attachments.example.test/receipt?signed=test' })]),
+        return { data: new Blob([JSON.stringify({ url: 'https://bucket.r2.dev/receipt?signed=test' })]),
           headers: { 'content-type': 'application/json' } };
       } };
       new Function('exports', 'require', code)(exports, () => ({ defaultApiClient: api }));

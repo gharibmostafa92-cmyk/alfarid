@@ -9,6 +9,8 @@ return new class extends Migration
 
     public function up(): void
     {
+        DB::statement('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+
         foreach ($this->indexes() as $name => $definition) {
             $this->ensureIndex($name, $definition);
         }
@@ -16,8 +18,9 @@ return new class extends Migration
 
     public function down(): void
     {
-        $this->dropIndex('products_catalog_retail_price_index');
-        $this->dropIndex('products_occasions_gin');
+        foreach (array_keys($this->indexes()) as $name) {
+            $this->dropIndex($name);
+        }
     }
 
     // F22: frozen copy of App\Support\ConcurrentIndex logic (2026-11-10) so

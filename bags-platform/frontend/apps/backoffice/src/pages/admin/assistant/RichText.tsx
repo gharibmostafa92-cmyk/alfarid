@@ -6,7 +6,10 @@ import { Icon } from './icons';
 
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*)/g;
+  // Bold may contain single asterisks (e.g. **5 * 120**); only a double
+  // asterisk closes it. The tempered dot keeps matching linear — no
+  // catastrophic backtracking.
+  const re = /(`[^`\n]+`|\*\*(?:(?!\*\*)[^`\n])+\*\*)/g;
   let last = 0; let m: RegExpExecArray | null; let i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));

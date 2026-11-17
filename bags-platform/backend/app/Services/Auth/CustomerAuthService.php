@@ -168,11 +168,7 @@ class CustomerAuthService
 
         if ($customer->status === CustomerStatus::Suspended) {
             CustomerAuditLog::record($customer, 'login_failed', null, ['reason' => 'suspended']);
-            throw new BusinessException(
-                'هذا الحساب موقوف.'.($customer->suspension_reason ? ' السبب: '.$customer->suspension_reason : ''),
-                ['suspension_reason' => $customer->suspension_reason],
-                403,
-            );
+            throw new BusinessException('هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.', [], 403);
         }
 
         if ((bool) config('auth.require_phone_verification', false) && $customer->phone_verified_at === null) {

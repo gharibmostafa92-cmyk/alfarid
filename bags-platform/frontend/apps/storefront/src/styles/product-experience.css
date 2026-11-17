@@ -28,7 +28,7 @@
 .product-variant-sku { font-size: 10px; color: #647078; overflow-wrap: anywhere; margin-top: 17px; }
 .product-image-empty { font-size: 13px; color: #66747b; }
 .product-fine-details { display: grid; grid-template-columns: 1fr 1fr; gap: 90px; border-top: 1px solid #dce2e5; padding-top: 60px; padding-bottom: 70px; scroll-margin-top: 125px; }
-.product-fine-details h2 { font-family: 'Oswald', sans-serif; font-size: 34px; margin-bottom: 20px; }
+.product-fine-details h2 { font-family: var(--font-oswald), sans-serif; font-size: 34px; margin-bottom: 20px; }
 .product-fine-details p, .product-fine-details dd { font-size: 13px; line-height: 1.9; color: #56636b; }
 .product-fine-details dl > div { border-bottom: 1px solid #e3e7e9; padding-block: 18px; }
 .product-fine-details dl > div:first-child { padding-top: 0; }
@@ -44,7 +44,7 @@
 .product-mode .product-configurator { position: absolute; top: 46px; left: 50px; width: 235px; padding: 0; z-index: 20; }
 .product-mode .product-back { margin-bottom: 24px; }
 .product-mode .design-sidebar-tag { margin-bottom: 10px; }
-.product-mode .product-selection-prompt { font-family: 'Oswald', sans-serif; font-size: 29px; font-weight: 600; line-height: 1.15; text-transform: uppercase; margin-bottom: 25px; }
+.product-mode .product-selection-prompt { font-family: var(--font-oswald), sans-serif; font-size: 29px; font-weight: 600; line-height: 1.15; text-transform: uppercase; margin-bottom: 25px; }
 .product-mode .product-filter-selection { font-size: 10px; line-height: 1.7; color: #4f7d88; margin: -12px 0 20px; }
 .product-mode .product-visual { position: relative; top: auto; min-width: 0; padding: 0; background: radial-gradient(circle at 50% 45%, #f9fbfd 0%, #fff 70%); }
 .product-mode .product-stage-image { width: 420px; height: 320px; z-index: auto; will-change: auto; transition: transform .85s cubic-bezier(.22,1,.36,1); }

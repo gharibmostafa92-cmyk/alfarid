@@ -10,7 +10,7 @@ export function SophieBagPlaceholder() {
         <path d="M20 35h60l6 52H14l6-52Z" fill="currentColor" />
         <path d="M35 39V27a15 15 0 0 1 30 0v12" stroke="currentColor" strokeWidth="6" />
       </svg>
-      <span dir="auto" className="font-['Oswald'] text-[10px] tracking-[3px] text-[#b9bec4] mt-2 max-w-[150px] truncate uppercase">{branding.name}</span>
+      <span dir="auto" className="font-[var(--font-oswald)] text-[10px] tracking-[3px] text-[#b9bec4] mt-2 max-w-[150px] truncate uppercase">{branding.name}</span>
     </div>
   );
 }

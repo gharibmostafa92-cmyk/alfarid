@@ -8,7 +8,7 @@
   z-index: 9999;
   background-color: #111111;
   color: #ffffff;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 12px;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -86,7 +86,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background-color: #f8fafc;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 16px;
   color: #111111;
   transition: border-color 0.2s ease, background-color 0.2s ease;
@@ -111,7 +111,7 @@
   border-radius: 6px;
   background-color: #111111;
   color: #ffffff;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.8px;
@@ -147,7 +147,7 @@
   border: none;
   background: transparent;
   color: #475569;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
@@ -234,7 +234,7 @@
   background: transparent;
   border: none;
   color: #475569;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.4px;
@@ -275,7 +275,7 @@
   border-radius: 999px;
   background-color: #159a8c;
   color: #ffffff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 9.5px;
   font-weight: 700;
   display: inline-flex;
@@ -583,7 +583,7 @@
   padding: 4px 0;
   background: linear-gradient(135deg, #ffe0c8 0%, #ffc099 100%);
   color: #b44d12;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 11px;
   font-weight: 600;
   text-align: center;
@@ -615,7 +615,7 @@
   border-radius: 12px;
   border: none;
   background: transparent;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 13.5px;
   font-weight: 500;
   color: #18181b;
@@ -665,7 +665,7 @@
 }
 
 .profile-identity-name {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 14px;
   font-weight: 600;
   color: #18181b;
@@ -830,7 +830,7 @@
 .mega-dept-tab {
   background: none;
   border: none;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 13.5px;
   font-weight: 600;
   color: #334155;
@@ -914,7 +914,7 @@
 }
 
 .mega-group-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 13.5px;
   font-weight: 600;
   color: #1e293b;
@@ -935,7 +935,7 @@
 }
 
 .mega-link {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 13px;
   font-weight: 400;
   color: #475569;
@@ -1005,7 +1005,7 @@
   left: 12px;
   background-color: #d93832;
   color: #ffffff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1017,7 +1017,7 @@
 }
 
 .mega-spotlight-title {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: #334155;
@@ -1025,7 +1025,7 @@
 }
 
 .mega-spotlight-price {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 15.5px;
   font-weight: 700;
   color: #1e293b;
@@ -1050,7 +1050,7 @@
   border: none;
   border-radius: 999px;
   padding: 12px 20px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 13px;
   font-weight: 500;
   display: inline-flex;
@@ -1141,7 +1141,7 @@
 }
 
 .checkout-giant-title {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: clamp(2.15rem, 8vw, 4rem);
   font-weight: 700;
   letter-spacing: 1.5px;
@@ -1156,7 +1156,7 @@
   min-height: 42px;
   padding: 8px 18px;
   border-radius: 999px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 12px;
   font-weight: 500;
   color: #334155;
@@ -1196,7 +1196,7 @@
 }
 
 .checkout-section-heading {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 19px;
   font-weight: 600;
   color: #111111;
@@ -1248,7 +1248,7 @@
   border: none;
   border-bottom: 1.5px solid #cbd5e1;
   padding: 10px 0;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 16px;
   color: #111111;
   outline: none;
@@ -1374,7 +1374,7 @@
   color: #ffffff;
   border: none;
   padding: 15px 24px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 1px;
@@ -1550,7 +1550,7 @@
   color: #1e293b;
   border: none;
   padding: 11px 18px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.8px;
@@ -1592,7 +1592,7 @@
 }
 
 .bag-grand-total .total-amount {
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 22px;
   font-weight: 700;
 }
@@ -1648,7 +1648,7 @@
 }
 
 .order-modal-title {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 24px;
   text-transform: uppercase;
   margin-bottom: 8px;
@@ -1710,7 +1710,7 @@
   border-radius: 999px;
   min-height: 34px;
   padding: 6px 14px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
@@ -1749,7 +1749,7 @@
   list-style: none;
   margin: 0 0 24px;
   padding: 0;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 12.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;

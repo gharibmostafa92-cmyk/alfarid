@@ -284,11 +284,11 @@ class StoreCatalogService
         }
 
         if (! empty($filters['search'])) {
-            $term = SearchTerm::pattern(mb_strtolower(trim($filters['search'])));
+            $term = SearchTerm::pattern(trim($filters['search']));
             $query->where(fn (Builder $q) => $q
-                ->whereRaw('LOWER(products.name_en) LIKE ?', [$term])
-                ->orWhereRaw('LOWER(products.name_ar) LIKE ?', [$term])
-                ->orWhereHas('variants', fn ($v) => $v->where('is_active', true)->whereRaw('LOWER(sku) LIKE ?', [$term])));
+                ->whereLike('products.name_en', $term, caseSensitive: false)
+                ->orWhereLike('products.name_ar', $term, caseSensitive: false)
+                ->orWhereHas('variants', fn ($v) => $v->where('is_active', true)->whereRaw('LOWER(sku) LIKE ?', [mb_strtolower($term)])));
         }
 
         if (! empty($filters['on_sale']) || ! empty($filters['discounted'])) {
@@ -301,17 +301,23 @@ class StoreCatalogService
     /** Match the priced variant selected by the product card. */
     private function applyDiscountedFilter(Builder $query, ?Customer $customer): void
     {
-        $variants = $this->withVariantAvailability($this->pricing->withStorePrice(ProductVariant::query(), $customer))
-            ->whereColumn('product_variants.product_id', 'products.id')
-            ->where('product_variants.is_active', true);
-        $basis = 'GREATEST(priced.compare_at_price, priced.store_base_price)';
-        $discount = DB::query()->fromSub($variants, 'priced')
-            ->whereNotNull('priced.store_price')
-            ->orderByRaw('(priced.store_available > 0) DESC')
-            ->orderBy('priced.store_price')->orderBy('priced.sort_order')->orderBy('priced.id')
-            ->selectRaw("ROUND((1 - priced.store_price / NULLIF({$basis}, 0)) * 100) >= 1")
-            ->limit(1);
+        if ($customer === null) {
+            $freshAfter = now()->subMinutes(10);
+            $live = $this->liveRetailDiscountQuery();
+            $query->where(fn (Builder $sale) => $sale
+                ->where(fn (Builder $snapshot) => $snapshot
+                    ->where('products.catalog_price_refreshed_at', '>', $freshAfter)
+                    ->where('products.catalog_has_retail_discount', true))
+                ->orWhere(fn (Builder $fallback) => $fallback
+                    ->where(fn (Builder $stale) => $stale
+                        ->whereNull('products.catalog_price_refreshed_at')
+                        ->orWhere('products.catalog_price_refreshed_at', '<=', $freshAfter))
+                    ->whereRaw('('.$live->toSql().') IS TRUE', $live->getBindings())));
 
+            return;
+        }
+
+        $discount = $this->liveRetailDiscountQuery($customer);
         $query->whereRaw('('.$discount->toSql().') IS TRUE', $discount->getBindings());
     }
 
@@ -476,6 +482,22 @@ class StoreCatalogService
             ->whereColumn('priced_variants.product_id', 'products.id');
     }
 
+    /** Build the discount flag query for the same variant the product card displays. */
+    public function liveRetailDiscountQuery(?Customer $customer = null): QueryBuilder
+    {
+        $variants = $this->withVariantAvailability($this->pricing->withStorePrice(ProductVariant::query(), $customer))
+            ->where('is_active', true);
+        $basis = 'GREATEST(priced.compare_at_price, priced.store_base_price)';
+
+        return DB::query()->fromSub($variants, 'priced')
+            ->whereColumn('priced.product_id', 'products.id')
+            ->whereNotNull('priced.store_price')
+            ->orderByRaw('(priced.store_available > 0) DESC')
+            ->orderBy('priced.store_price')->orderBy('priced.sort_order')->orderBy('priced.id')
+            ->limit(1)
+            ->selectRaw("ROUND((1 - priced.store_price / NULLIF({$basis}, 0)) * 100) >= 1");
+    }
+
     // ------------------------------------------------------------------ Facets & Aggregations
 
     /**
@@ -486,6 +508,12 @@ class StoreCatalogService
     {
         $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
         if ((string) config('cache.default') === 'array') {
+            return [...$this->computeStructuralFacets($filters), 'price_ranges' => $this->computePriceRanges($filters)];
+        }
+        // Arbitrary search strings have near-zero cache reuse and let public
+        // callers mint unbounded short-lived keys. Compute these facets without
+        // adding attacker-controlled entries to the shared cache.
+        if (trim((string) ($filters['search'] ?? '')) !== '') {
             return [...$this->computeStructuralFacets($filters), 'price_ranges' => $this->computePriceRanges($filters)];
         }
         $key = $this->facetsCacheKey($filters);
@@ -499,13 +527,26 @@ class StoreCatalogService
     /** @param array{0: int, 1: int} $ttl */
     private function cachedFacetsPart(string $key, \Closure $load, array $ttl = [60, 600]): mixed
     {
-        $flexible = fn () => Cache::flexible($key, $ttl, $load, ['seconds' => 15]);
+        $stableIdentity = preg_replace('/^store:facets:v3(?::r\d+)?:/', '', $key) ?? $key;
+        $staleKey = 'store:facets:last-good:'.hash('sha256', $stableIdentity);
+        $refresh = function () use ($load, $staleKey): mixed {
+            $value = $load();
+            Cache::put($staleKey, $value, 600);
+
+            return $value;
+        };
+        $flexible = fn () => Cache::flexible($key, $ttl, $refresh, ['seconds' => 15]);
         if (Cache::has($key)) {
             return $flexible();
         }
         try {
             return Cache::lock($key.':build', 15)->block(2, $flexible);
         } catch (LockTimeoutException) {
+            $stale = Cache::get($staleKey);
+            if (is_array($stale)) {
+                return $stale;
+            }
+
             throw new BusinessException('جاري تحديث الفلاتر؛ أعد المحاولة بعد لحظات.', [], 503);
         }
     }

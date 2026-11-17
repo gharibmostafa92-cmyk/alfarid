@@ -41,11 +41,6 @@ trait NormalizesCustomerInput
                     default => mb_strtolower($trimmed),
                 };
                 if ($canonical === '') {
-                    if ($field === 'recipient_phone') {
-                        $normalized[$field] = '-';
-
-                        continue;
-                    }
                     $this->request->remove($field);
                     $this->query->remove($field);
                     $this->offsetUnset($field);

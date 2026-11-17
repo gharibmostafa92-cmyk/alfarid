@@ -22,7 +22,6 @@ use App\Services\Orders\CartService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Handles retail customer authentication, self-registration, session tokens, and password recovery.
@@ -61,14 +60,20 @@ class AuthController extends Controller
 
         // Automatically merge existing guest cart items into the newly registered account.
         $cartMerged = false;
+        $cartMergeWarnings = [];
         try {
-            $cartMerged = $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+            $merge = $this->carts->mergeGuestCartWithReport($customer, $request->header('X-Cart-Session'));
+            $cartMerged = $merge['merged'];
+            $cartMergeWarnings = $merge['warnings'];
         } catch (\Throwable $exception) {
             report($exception);
+            if ($request->header('X-Cart-Session')) {
+                $cartMergeWarnings[] = 'تعذر نقل محتويات سلة الزائر بالكامل؛ راجع السلة قبل إتمام الطلب.';
+            }
         }
 
         return CustomerResource::make($customer)
-            ->additional(['message' => 'تم إنشاء حسابك بنجاح', 'token' => $token, 'cart_merged' => $cartMerged])
+            ->additional(['message' => 'تم إنشاء حسابك بنجاح', 'token' => $token, 'cart_merged' => $cartMerged, 'cart_merge_warnings' => $cartMergeWarnings])
             ->response()
             ->setStatusCode(201);
     }
@@ -83,14 +88,20 @@ class AuthController extends Controller
 
         // Merge guest cart items into the customer account upon login.
         $cartMerged = false;
+        $cartMergeWarnings = [];
         try {
-            $cartMerged = $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+            $merge = $this->carts->mergeGuestCartWithReport($customer, $request->header('X-Cart-Session'));
+            $cartMerged = $merge['merged'];
+            $cartMergeWarnings = $merge['warnings'];
         } catch (\Throwable $exception) {
             report($exception);
+            if ($request->header('X-Cart-Session')) {
+                $cartMergeWarnings[] = 'تعذر نقل محتويات سلة الزائر بالكامل؛ راجع السلة قبل إتمام الطلب.';
+            }
         }
 
         return CustomerResource::make($customer)
-            ->additional(['message' => 'تم تسجيل الدخول بنجاح', 'token' => $token, 'cart_merged' => $cartMerged]);
+            ->additional(['message' => 'تم تسجيل الدخول بنجاح', 'token' => $token, 'cart_merged' => $cartMerged, 'cart_merge_warnings' => $cartMergeWarnings]);
     }
 
     /**
@@ -133,12 +144,10 @@ class AuthController extends Controller
         // Enforce Cloudflare Turnstile verification strictly on SMS dispatch to protect gateway budget.
         $request->validate(['turnstile_token' => [new TurnstileToken($request->ip())]]);
         $phone = $request->validated()['phone'];
-        // A registered number must fail fast with 422 instead of trapping the
-        // user in an OTP screen for a code that will never arrive (the signup
-        // endpoint itself already discloses phone ownership, so this reveals
-        // nothing new to an attacker holding a valid Turnstile solution).
+        // Keep the response identical for registered and unregistered numbers
+        // so this public endpoint cannot be used to enumerate customer phones.
         if (Customer::query()->where('phone', Customer::normalizePhone($phone))->exists()) {
-            throw ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل؛ سجل الدخول أو استعد كلمة المرور.']);
+            return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم إذا كان متاحًا.']);
         }
         $networkKey = CustomerMessageBudget::subnetKey($request->ip());
         if ($networkKey === null) {

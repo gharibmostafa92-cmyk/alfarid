@@ -13,6 +13,7 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,7 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
     public function __construct(
         private readonly WholesalePaymentNoticeService $service,
         private readonly BranchAccess $branchAccess,
+        private readonly OperationIdempotencyService $idempotency,
     ) {}
 
     public static function middleware(): array
@@ -103,12 +105,18 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
             $this->branchAccess->assertCentralAccess($request->user());
         }
 
-        $approved = $this->service->approve(
-            $notice,
-            (int) $request->user()->id,
-            isset($data['treasury_id']) ? (int) $data['treasury_id'] : null,
-            $data['admin_notes'] ?? null,
-        );
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $treasuryId = isset($data['treasury_id']) ? (int) $data['treasury_id'] : null;
+        $notes = $data['admin_notes'] ?? null;
+        $approved = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'payment_notice_approve',
+                $request->user(),
+                $idempotencyKey,
+                ['notice_id' => $notice->id, 'treasury_id' => $treasuryId, 'admin_notes' => $notes],
+                fn () => $this->service->approve($notice, (int) $request->user()->id, $treasuryId, $notes),
+            )
+            : $this->service->approve($notice, (int) $request->user()->id, $treasuryId, $notes);
 
         return WholesalePaymentNoticeResource::make($approved)->response();
     }

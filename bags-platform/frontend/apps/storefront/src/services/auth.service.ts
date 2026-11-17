@@ -11,6 +11,18 @@ async function revokePreviousSession(previous: string | null | undefined, nextTo
   } catch { /* The previous session may already have expired. */ }
 }
 
+function publishCartMergeWarnings(warnings: string[] | null | undefined, hasGuestSession: boolean, merged: boolean | null | undefined) {
+  const messages = (warnings ?? []).filter((warning) => typeof warning === 'string' && warning.trim() !== '');
+  if (messages.length === 0 && hasGuestSession && merged === false) {
+    messages.push('تعذر نقل بعض محتويات سلة الزائر إلى الحساب؛ راجع السلة قبل إتمام الطلب.');
+  }
+  if (messages.length === 0 || typeof window === 'undefined') return;
+
+  const message = messages.join(' ');
+  try { window.sessionStorage.setItem('cart_merge_warning', message); } catch { /* The live event still shows the notice. */ }
+  window.dispatchEvent(new CustomEvent('cart-merge-warning', { detail: message }));
+}
+
 /** Same-origin relative logout targets only. Anything else returns the login page. */
 export function safeLogoutNext(next: string): string {
   if (!next || /[\u0000-\u001F\u007F\\]/.test(next) || !next.startsWith('/') || next.startsWith('//')) {
@@ -60,6 +72,7 @@ export async function loginUnified(login: string, password: string, redirect?: s
   } else if (guestSession) {
     restoreGuestCartSession(guestSession);
   }
+  publishCartMergeWarnings(res.cart_merge_warnings, Boolean(guestSession), res.cart_merged);
   return res.redirect.path;
 }
 
@@ -82,6 +95,7 @@ export interface RegistrationInput {
 
 interface RegistrationResponse {
   cart_merged?: boolean;
+  cart_merge_warnings?: string[];
   token: string;
   data: Record<string, unknown>;
 }
@@ -99,7 +113,6 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
   const response = await defaultApiClient.post<RegistrationResponse>(
     wholesale ? '/api/v1/wholesale/auth/register' : '/api/v1/store/auth/register', body,
     { headers: {
-      ...(wholesale ? { 'Content-Type': 'multipart/form-data' } : {}),
       ...(!wholesale && session ? { 'X-Cart-Session': session } : {}),
     } },
   );
@@ -118,6 +131,9 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     clearGuestCartSession();
   } else if (session) {
     restoreGuestCartSession(session);
+  }
+  if (!wholesale) {
+    publishCartMergeWarnings(response.data.cart_merge_warnings, Boolean(session), response.data.cart_merged);
   }
   return home;
 }

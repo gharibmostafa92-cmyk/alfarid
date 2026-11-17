@@ -81,6 +81,10 @@ class OrderService
      */
     public function createFromCart(Cart $cart, array $data, ?Customer $customer = null): Order
     {
+        if (! $cart->exists) {
+            throw new BusinessException('السلة فارغة؛ لا يمكن إنشاء طلب.');
+        }
+
         // Idempotency key scoped to authenticated customer or normalized guest phone to prevent replay attacks.
         $idempotencyKey = isset($data['idempotency_key']) && is_string($data['idempotency_key']) && $data['idempotency_key'] !== ''
             ? mb_substr($data['idempotency_key'], 0, 191)

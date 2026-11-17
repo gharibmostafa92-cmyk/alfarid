@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Cairo, Oswald, Poppins } from 'next/font/google';
 import { headers } from 'next/headers';
 import './globals.css';
 import { QueryProvider } from '../providers/query-provider';
@@ -6,6 +7,10 @@ import { StorefrontShell } from '@/components/StorefrontShell';
 import { StoreBrandingProvider } from '@/providers/store-branding-provider';
 import { NonceProvider } from '@/providers/csp-nonce';
 import { getServerBranding, getServerBrandingResult } from '@/lib/core/server-branding';
+
+const oswald = Oswald({ weight: ['300', '400', '500', '600', '700'], subsets: ['latin'], display: 'swap', variable: '--font-oswald' });
+const poppins = Poppins({ weight: ['300', '400', '500', '600', '700'], subsets: ['latin'], display: 'swap', variable: '--font-poppins' });
+const cairo = Cairo({ weight: ['400', '600', '700'], subsets: ['arabic', 'latin'], display: 'swap', variable: '--font-cairo' });
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -35,15 +40,9 @@ export default async function RootLayout({
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   const { branding, fromFallback } = await getServerBrandingResult();
   return (
-    <html lang="en" dir="ltr">
+    <html lang="ar" dir="rtl" className={`${oswald.variable} ${poppins.variable} ${cairo.variable}`}>
       <head>
         {nonce ? <meta property="csp-nonce" content={nonce} /> : null}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Cairo:wght@400;600;700&display=swap"
-          rel="stylesheet"
-        />
         <link
           rel="stylesheet"
           href="/vendor/fontawesome/css/all.min.css"

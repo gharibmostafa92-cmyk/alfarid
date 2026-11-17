@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature\Orders;
 
 use App\Models\Order;
+use App\Services\Auth\NetworkIdentity;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
@@ -94,6 +96,23 @@ class OrderTrackRateLimitTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
             ->getJson($wrong)
+            ->assertTooManyRequests();
+    }
+
+    public function test_tracking_caps_distinct_order_numbers_from_one_ip(): void
+    {
+        $ip = '198.51.100.99';
+        $request = Request::create('/', 'GET', [], [], [], ['REMOTE_ADDR' => $ip]);
+        RateLimiter::clear('order-tracking-ip:'.NetworkIdentity::forRequest($request));
+
+        foreach (range(1, 10) as $attempt) {
+            $this->withServerVariables(['REMOTE_ADDR' => $ip])
+                ->getJson('/api/v1/store/orders/UNKNOWN-'.uniqid((string) $attempt, true).'/track?phone=01012345678')
+                ->assertNotFound();
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->getJson('/api/v1/store/orders/ANOTHER-UNKNOWN/track?phone=01012345678')
             ->assertTooManyRequests();
     }
 }

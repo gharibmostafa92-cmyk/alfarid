@@ -56,7 +56,7 @@ import {
 export function PayCell({ o }: { o: OrderRow }) {
   return (
     <div className="leading-tight">
-      <div className="text-[12.5px] tx1 font-medium">{PAY_METHODS[o.pay]}</div>
+      <div className="text-[12.5px] tx1 font-medium">{PAY_METHODS[o.pay] || o.pay || '—'}</div>
       <div className={'text-[11px] mt-0.5 font-semibold c-' + (PAY_STATUS[o.payStatus]?.tone || 'gray')}>
         {PAY_STATUS[o.payStatus]?.label || o.payStatus}
       </div>
@@ -96,9 +96,7 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
   const toast = useToast();
   const [page, setPage] = useState(1);
   const dq = useDebounced(q);
-
-  // Reset to page 1 upon filter mutation
-  useEffect(() => { setPage(1); }, [dq, st, br, pm, from, to, fu, rf]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
 
   const params: AdminOrderListParams = {
     page,
@@ -238,26 +236,26 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
       </div>
       <Card stg={3}>
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          <SearchPill value={q} onChange={setQ} placeholder="رقم الطلب، العميل، الهاتف" w="w-48" />
+          <SearchPill value={q} onChange={setFilter(setQ)} placeholder="رقم الطلب، العميل، الهاتف" w="w-48" />
           <FSelect
             value={st}
-            onChange={setSt}
+            onChange={setFilter(setSt)}
             placeholder="كل الحالات"
             options={Object.entries(ORDER_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
           />
-          <FSelect value={br} onChange={setBr} placeholder="كل الفروع" options={branchOpts.length ? branchOpts : []} />
+          <FSelect value={br} onChange={setFilter(setBr)} placeholder="كل الفروع" options={branchOpts.length ? branchOpts : []} />
           <FSelect
             value={pm}
-            onChange={setPm}
+            onChange={setFilter(setPm)}
             placeholder="طريقة الدفع"
             options={Object.entries(PAY_METHODS).map(([v, l]) => ({ value: v, label: l }))}
           />
-          <FDate label="من" value={from} onChange={setFrom} />
-          <FDate label="إلى" value={to} onChange={setTo} />
-          <FChip on={fu} onClick={() => setFu(!fu)} icon="flag">
+          <FDate label="من" value={from} onChange={setFilter(setFrom)} />
+          <FDate label="إلى" value={to} onChange={setFilter(setTo)} />
+          <FChip on={fu} onClick={() => setFilter(setFu)(!fu)} icon="flag">
             يحتاج متابعة
           </FChip>
-          <FChip on={rf} onClick={() => setRf(!rf)} icon="returns">
+          <FChip on={rf} onClick={() => setFilter(setRf)(!rf)} icon="returns">
             يتطلب استرداد
           </FChip>
           {anyFilter && (
@@ -380,6 +378,7 @@ export function OrderDetail({
     title: (ORDER_STATUS as any)[h.to_status]?.label ?? h.to_status,
     date: `${toDate(h.at)} ${toTime(h.at)}`,
     note: h.notes ?? undefined,
+    by: h.changed_by_type ? `${h.changed_by_type}${h.changed_by_id != null ? ` #${h.changed_by_id}` : ''}` : undefined,
     from: h.from_status,
     to: h.to_status,
   }));
@@ -860,7 +859,6 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
   const toast = useToast();
   const [page, setPage] = useState(1);
   const dq = useDebounced(q);
-  useEffect(() => { setPage(1); }, [dq, st]);
   const { data, loading, error, reload, usingMock } = useRemote(
     (signal) => adminReturnsApi.list({ page, search: dq || undefined, status: (st === '' ? undefined : st) as ReturnStatus | undefined }, signal),
     [page, dq, st],
@@ -876,10 +874,8 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
     [data, usingMock, st, dq, branchMap],
   );
   const counts = useRemote(async (signal) => {
-    const qq = (status?: ReturnStatus) => adminReturnsApi.list({ status, page: 1 }, signal).then((r) => r.meta.total);
-    const entries = await Promise.all(Object.keys(RETURN_STATUS).map(async (k) => [k, await qq(k as ReturnStatus)] as const));
-    const total = await qq(undefined);
-    return { total, byStatus: Object.fromEntries(entries) as Record<string, number> };
+    const s = await adminReturnsApi.stats(signal);
+    return { total: s.total, byStatus: s as unknown as Record<string, number> };
   }, []);
 
   return (
@@ -898,7 +894,7 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
       <Card stg={2} pad="p-4">
         <div className="flex gap-2 overflow-x-auto">
           <button
-            onClick={() => setSt('')}
+            onClick={() => { setSt(''); setPage(1); }}
             className={'v-sub px-4 py-3 rounded-[14px] text-start min-w-[120px] transition ' + (!st ? 'ring-2' : '')}
             style={!st ? { '--tw-ring-color': 'var(--accent)' } as any : {}}
           >
@@ -908,7 +904,7 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
           {Object.entries(RETURN_STATUS).map(([k, s]) => (
             <button
               key={k}
-              onClick={() => setSt(k)}
+              onClick={() => { setSt(k); setPage(1); }}
               className={'v-sub px-4 py-3 rounded-[14px] text-start min-w-[120px] transition ' + (st === k ? 'ring-2' : '')}
               style={st === k ? { '--tw-ring-color': 'var(--accent)' } as any : {}}
             >
@@ -1090,7 +1086,7 @@ export function CreateReturnModal({ open, onClose, onSaved }: { open: boolean; o
                 >
                   <option value="">{orderId ? 'اختر بندًا' : 'اختر الطلب أولًا'}</option>
                   {orderItems.map((it: any) => (
-                    <option key={String(it.product_variant_id ?? it.id)} value={String(it.id ?? it.product_variant_id)}>
+                    <option key={String(it.id)} value={String(it.id)}>
                       {it.product_name ?? it.name} · {it.sku}
                     </option>
                   ))}
@@ -1098,6 +1094,10 @@ export function CreateReturnModal({ open, onClose, onSaved }: { open: boolean; o
                 <input
                   type="number"
                   min="1"
+                  max={(() => {
+                    const matched = orderItems.find((it: any) => String(it.id) === String(l.item));
+                    return matched?.qty != null ? Number(matched.qty) : undefined;
+                  })()}
                   className="inp inp-sm col-span-2 num !bg-[var(--bg-card)]"
                   value={l.qty}
                   onChange={(e) => set(i, 'qty', e.target.value)}
@@ -1190,6 +1190,17 @@ export function ReturnDetail({
     if (!ret || remote.usingMock) return;
     const missing = (ret.items ?? []).filter((it) => goodQtys[it.id] === undefined || damagedQtys[it.id] === undefined);
     if (missing.length > 0) return toast('أدخل الكمية السليمة والتالفة لكل بند بعد الفحص الفعلي', 'red');
+    for (const it of ret.items ?? []) {
+      const g = Number(goodQtys[it.id] ?? 0);
+      const d = Number(damagedQtys[it.id] ?? 0);
+      const maxAllowed = Number(it.approved_qty ?? it.requested_qty);
+      if (!Number.isFinite(g) || !Number.isFinite(d) || g < 0 || d < 0) {
+        return toast('الكميات المستلمة لا يمكن أن تكون سالبة', 'red');
+      }
+      if (g + d > maxAllowed) {
+        return toast(`مجموع السليم والتالف للبند (${g + d}) يتجاوز الكمية المعتمدة (${maxAllowed})`, 'red');
+      }
+    }
     const items = (ret.items ?? []).map((it) => ({ id: it.id, received_good_qty: goodQtys[it.id] ?? 0, received_damaged_qty: damagedQtys[it.id] ?? 0 }));
     const res = await run(() => adminReturnsApi.receive(ret.id, { items }), { toast, success: 'تم استلام المرتجع وفحصه' });
     if (res) { setRet(res); setModal(null); }

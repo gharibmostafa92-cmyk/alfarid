@@ -20,7 +20,9 @@ use Database\Seeders\PricingPermissionSeeder;
 use Database\Seeders\PromotionPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -91,6 +93,33 @@ class P07CouponsTest extends TestCase
             $this->assertSame(self::NOT_REDEEMABLE, $e->getMessage());
         }
         $this->assertSame(1, CouponUsage::count());
+    }
+
+    public function test_coupon_usage_persists_long_normalized_phones_and_is_unique_per_order(): void
+    {
+        $coupon = Coupon::factory()->create();
+        $order = $this->order(['guest_phone' => '01012345678']);
+        $longPhone = str_repeat('7', 30);
+
+        $usage = CouponUsage::create([
+            'coupon_id' => $coupon->id,
+            'order_id' => $order->id,
+            'discount_amount' => 0,
+            'phone_normalized' => $longPhone,
+        ]);
+        $this->assertSame($longPhone, $usage->fresh()->phone_normalized);
+
+        try {
+            DB::transaction(fn () => CouponUsage::create([
+                'coupon_id' => $coupon->id,
+                'order_id' => $order->id,
+                'discount_amount' => 0,
+                'phone_normalized' => $longPhone,
+            ]));
+            $this->fail('One order must not record coupon usage more than once.');
+        } catch (QueryException) {
+            $this->assertSame(1, CouponUsage::where('order_id', $order->id)->count());
+        }
     }
 
     // ── item 8c: guest without a phone has no per-customer cap (owner decision) ──

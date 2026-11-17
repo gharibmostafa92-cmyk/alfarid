@@ -255,6 +255,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->where('notice', '[0-9]{1,18}')->name('payment-notices.receipt');
 
         // Return requests (RMA)
+        Route::get('returns/stats', [ReturnController::class, 'stats'])->name('returns.stats');
         Route::apiResource('returns', ReturnController::class)->parameters(['returns' => 'return_request']);
         Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
         Route::post('returns/{return_request}/receive', [ReturnController::class, 'receive'])->name('returns.receive');

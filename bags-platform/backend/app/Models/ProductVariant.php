@@ -64,11 +64,7 @@ class ProductVariant extends Model implements HasMedia
             ->whereHas('product', fn (Builder $p) => $p
                 ->where('status', ProductStatus::Published->value)
                 ->whereIn('sales_channel', [SalesChannel::Wholesale->value, SalesChannel::Both->value])
-                ->whereHas('category', fn (Builder $c) => $c
-                    ->where('is_active', true)
-                    ->whereDoesntHave('parent', fn (Builder $parent) => $parent
-                        ->where('is_active', false)
-                        ->orWhereHas('parent', fn (Builder $gp) => $gp->where('is_active', false)))));
+                ->whereHas('category', fn (Builder $c) => $c->activeHierarchy()));
     }
 
     /** Compatibility with the catalog's existing editable retail price. */

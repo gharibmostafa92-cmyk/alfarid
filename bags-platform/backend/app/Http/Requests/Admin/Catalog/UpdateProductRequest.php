@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
+use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Enums\Catalog\Occasion;
 use App\Enums\Catalog\ProductStatus;
 use App\Enums\Orders\SalesChannel;
@@ -20,6 +21,8 @@ use Illuminate\Validation\Rule;
  */
 class UpdateProductRequest extends FormRequest
 {
+    use AuthorizesStaffRequest;
+
     use NormalizesCatalogInput;
 
     protected function prepareForValidation(): void
@@ -30,7 +33,7 @@ class UpdateProductRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return $this->authorizeStaffPermission('products.update');
     }
 
     /**

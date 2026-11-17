@@ -2,7 +2,7 @@ import {
   ADMIN,
   asPage,
   crud,
-  newIdempotencyKey,
+  idempotentPost,
   one,
   api,
   cleanParams,
@@ -81,16 +81,7 @@ export const expensesApi = {
       })
       .then((r) => one<Expense>(r)),
   void: (id: Id, void_reason: string, idempotencyKey?: string) =>
-    api
-      .post(
-        `${ADMIN}/expenses/${id}/void`,
-        { void_reason },
-        {
-          headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-          },
-        },
-      )
+    idempotentPost(`${ADMIN}/expenses/${id}/void`, { void_reason }, idempotencyKey)
       .then((r) => one<Expense>(r)),
 };
 
@@ -136,44 +127,16 @@ export const treasuryTransfersApi = {
     },
     idempotencyKey: string,
   ) =>
-    api
-      .post(TT, body, { headers: { "Idempotency-Key": idempotencyKey } })
+    idempotentPost(TT, body, idempotencyKey)
       .then((r) => one<TreasuryTransfer>(r)),
   approve: (id: Id, idempotencyKey?: string) =>
-    api
-      .post(
-        `${TT}/${id}/approve`,
-        {},
-        {
-          headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-          },
-        },
-      )
+    idempotentPost(`${TT}/${id}/approve`, {}, idempotencyKey)
       .then((r) => one<TreasuryTransfer>(r)),
   reject: (id: Id, reason: string, idempotencyKey?: string) =>
-    api
-      .post(
-        `${TT}/${id}/reject`,
-        { reason },
-        {
-          headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-          },
-        },
-      )
+    idempotentPost(`${TT}/${id}/reject`, { reason }, idempotencyKey)
       .then((r) => one<TreasuryTransfer>(r)),
   cancel: (id: Id, idempotencyKey?: string) =>
-    api
-      .post(
-        `${TT}/${id}/cancel`,
-        {},
-        {
-          headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-          },
-        },
-      )
+    idempotentPost(`${TT}/${id}/cancel`, {}, idempotencyKey)
       .then((r) => one<TreasuryTransfer>(r)),
 };
 
@@ -220,53 +183,21 @@ export const shiftsApi = {
     const isKey = typeof payloadOrKey === "string";
     const body = isKey || !payloadOrKey ? {} : payloadOrKey;
     const key = isKey ? payloadOrKey : idempotencyKey;
-    return api
-      .post(
-        `${SH}/${id}/approve`,
-        body,
-        {
-          headers: {
-            "Idempotency-Key": key ?? newIdempotencyKey(),
-          },
-        },
-      )
+    return idempotentPost(`${SH}/${id}/approve`, body, key)
       .then((r) => one<PosShift>(r));
   },
   reject: (id: Id, reason: string, idempotencyKey?: string) =>
-    api
-      .post(
-        `${SH}/${id}/reject`,
-        { reason },
-        {
-          headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-          },
-        },
-      )
+    idempotentPost(`${SH}/${id}/reject`, { reason }, idempotencyKey)
       .then((r) => one<PosShift>(r)),
   reopen: (id: Id, reason: string, idempotencyKey?: string) =>
-    api
-      .post(
-        `${SH}/${id}/reopen`,
-        { reason },
-        {
-          headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-          },
-        },
-      )
+    idempotentPost(`${SH}/${id}/reopen`, { reason }, idempotencyKey)
       .then((r) => one<PosShift>(r)),
   forceClose: (
     id: Id,
     payload: { actual_closing_cash: string; reason: string },
     idempotencyKey?: string,
   ) =>
-    api
-      .post(`${SH}/${id}/force-close`, payload, {
-        headers: {
-          "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
-        },
-      })
+    idempotentPost(`${SH}/${id}/force-close`, payload, idempotencyKey)
       .then((r) => one<PosShift>(r)),
 };
 
@@ -355,10 +286,7 @@ export const paymentNoticesApi = {
     body: { treasury_id?: number | null; admin_notes?: string | null },
     idempotencyKey?: string,
   ) =>
-    api
-      .post(`${PN}/${id}/approve`, body, {
-        headers: { "Idempotency-Key": idempotencyKey ?? newIdempotencyKey() },
-      })
+    idempotentPost(`${PN}/${id}/approve`, body, idempotencyKey)
       .then((r) => one<PaymentNotice>(r)),
   reject: (id: Id, admin_notes: string) =>
     api

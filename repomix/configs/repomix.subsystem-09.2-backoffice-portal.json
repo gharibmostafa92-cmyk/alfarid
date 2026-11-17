@@ -21,7 +21,8 @@
                     "bags-platform/frontend/packages/api-client/src/endpoints/operations/http.ts",
                     "bags-platform/frontend/apps/backoffice/vite.config.ts",
                     "bags-platform/frontend/apps/backoffice/public/auth/session-probe.html",
-                    "bags-platform/frontend/apps/backoffice/public/auth/session-probe.js"
+                    "bags-platform/frontend/apps/backoffice/public/auth/session-probe.js",
+                    "bags-platform/frontend/apps/backoffice/index.html"
                 ],
     "ignore":  {
                    "useGitignore":  true,

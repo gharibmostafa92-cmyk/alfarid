@@ -17,7 +17,9 @@ class ProtectStorefrontCaching
         app()->setLocale($locale);
 
         $response = $next($request);
-        $this->mergeVary($response, ['Origin', 'Accept-Language', 'Authorization']);
+        // The CDN must distinguish session-authenticated responses from anonymous ones
+        // before it can see the origin's private/no-store response.
+        $this->mergeVary($response, ['Origin', 'Accept-Language', 'Authorization', 'Cookie']);
         if ($this->requestIsPersonalized($request)) {
             $response->headers->set('Cache-Control', 'private, no-store');
         } elseif ($request->isMethod('GET') && $response->isSuccessful()) {

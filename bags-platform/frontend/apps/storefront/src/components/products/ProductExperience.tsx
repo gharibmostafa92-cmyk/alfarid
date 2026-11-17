@@ -42,10 +42,11 @@ export function ProductExperience({ product, onBack, initialColor, initialSize }
     const available = detail.variants.filter((item) => item.sizeLabel === nextSize && item.inStock && item.price !== null);
     const colors = [...new Set(available.map((item) => item.colorKey))];
     setSelection({ size: nextSize, color: color && colors.includes(color) ? color : colors.length === 1 ? colors[0] : null });
+    setQuantity(1);
     resetFeedback();
   };
-  const chooseColor = (nextColor: string) => { setSelection((state) => ({ ...state, color: nextColor })); resetFeedback(); };
-  const navigate = (direction: number) => { const photo = photoAt(direction); if (photo) { setSelection((state) => ({ ...state, color: photo.colorKey })); setActiveImage(photo.key); setAdded(false); setNotice(''); } };
+  const chooseColor = (nextColor: string) => { setSelection((state) => ({ ...state, color: nextColor })); setQuantity(1); resetFeedback(); };
+  const navigate = (direction: number) => { const photo = photoAt(direction); if (photo) { setSelection((state) => ({ ...state, color: photo.colorKey })); setQuantity(1); setActiveImage(photo.key); setAdded(false); setNotice(''); } };
   const add = async () => {
     if (!variant || !canBuy || adding) return;
     setAdding(true); setNotice('');
@@ -60,7 +61,7 @@ export function ProductExperience({ product, onBack, initialColor, initialSize }
         <button className="product-back" onClick={onBack}><ArrowLeft size={14} /> Back to collection</button>
         <div className="design-sidebar-tag">{'// YOUR PIECE'}</div>
         <h2 className="product-selection-prompt" aria-live="polite">{prompt}</h2>
-        {initialColor && color === initialColor.toLowerCase() && <p className="product-filter-selection">Color selected from your filters</p>}
+        {initialColor && color === detail.colors.find((option) => option.key === initialColor.trim().toLowerCase())?.key && <p className="product-filter-selection">Color selected from your filters</p>}
         {detail.sizes.length > 0 && <fieldset className="product-option"><legend>Size / volume</legend><div className="product-size-options">{detail.sizes.map((option) => <button key={option} type="button" aria-pressed={size === option} disabled={!detail.variants.some((item) => item.sizeLabel === option && item.inStock && item.price !== null)} onClick={() => chooseSize(option)}>{option}</button>)}</div></fieldset>}
         {sizeReady && <fieldset className="product-option"><legend>Color{color && <strong>{detail.colors.find((item) => item.key === color)?.label}</strong>}</legend><div className="product-color-options">{detail.colors.map((option) => {
           const available = detail.variants.some((item) => item.colorKey === option.key && item.sizeLabel === size && item.inStock && item.price !== null);

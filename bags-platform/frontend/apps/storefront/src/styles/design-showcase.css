@@ -15,7 +15,7 @@
 
   background-color: var(--bg);
   color: var(--text);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   overflow-x: hidden;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -61,7 +61,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 1px;
@@ -101,7 +101,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.5px;
@@ -128,7 +128,7 @@
   display: flex;
   align-items: center;
   gap: 34px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.5px;
@@ -186,7 +186,7 @@
   right: -8px;
   background: var(--text);
   color: #fff;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 9px;
   font-weight: 700;
   width: 16px;
@@ -232,7 +232,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.6px;
@@ -283,7 +283,7 @@
 }
 
 .design-sidebar-tag {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 1px;
@@ -294,7 +294,7 @@
 
 .design-cat-list {
   list-style: none;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 30px;
   line-height: 1.15;
   font-weight: 700;
@@ -321,7 +321,7 @@
 .design-subcat-list {
   list-style: none;
   margin-top: 14px;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 12px;
   font-weight: 400;
   color: #888;
@@ -377,7 +377,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 11px;
   font-weight: 400;
   letter-spacing: 0.8px;
@@ -486,7 +486,7 @@
 }
 
 .design-brand-title {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 58px;
   font-weight: 700;
   letter-spacing: 1px;
@@ -509,7 +509,7 @@
   border: none;
   padding: 13px 38px;
   border-radius: 30px;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.8px;
@@ -644,7 +644,7 @@
 }
 
 .design-details-title-group h1 {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 52px;
   font-weight: 700;
   text-transform: uppercase;
@@ -653,7 +653,7 @@
 }
 
 .design-sku-code {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 32px;
   font-weight: 700;
   color: transparent;
@@ -675,7 +675,7 @@
 }
 
 .design-details-price {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 32px;
   font-weight: 700;
   color: #111;
@@ -709,7 +709,7 @@
 .design-swatch.swatch-slate { background: #4f7d88; }
 
 .design-size-select {
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   border: 1px solid #ddd;
   border-radius: 20px;
   padding: 6px 14px;
@@ -812,7 +812,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -904,7 +904,7 @@
   left: 12px;
   background: var(--accent);
   color: #fff;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.5px;
@@ -916,7 +916,7 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-family: 'Oswald', sans-serif;
+  font-family: var(--font-oswald), sans-serif;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -942,7 +942,7 @@
   gap: 12px;
   box-shadow: 0 10px 25px rgba(0,0,0,0.25);
   border-left: 4px solid var(--accent);
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 12.5px;
   z-index: 9999;
   transform: translateY(100px);

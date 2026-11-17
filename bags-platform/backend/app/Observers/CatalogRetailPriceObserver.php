@@ -27,6 +27,15 @@ class CatalogRetailPriceObserver
 
     private array $transactionSnapshots = [];
 
+    /** @var array<string, array<int, int>> Product IDs queued for one refresh per connection transaction. */
+    private array $transactionProductIds = [];
+
+    /** @var array<string, bool> Whether a refresh callback is registered for each connection transaction. */
+    private array $transactionRefreshScheduled = [];
+
+    /** @var array<string, bool> Whether the queued refresh must cover the whole catalog. */
+    private array $transactionRefreshAll = [];
+
     /**
      * Records pre-transaction state snapshot on connection begin.
      *
@@ -34,9 +43,14 @@ class CatalogRetailPriceObserver
      */
     public function transactionBegan(Connection $connection): void
     {
-        if ($this->batchDepth > 0 && $connection->getName() === config('database.default')) {
-            $this->transactionSnapshots[$connection->transactionLevel()] = $this->pendingProductIds;
-        }
+        $name = $connection->getName();
+        $level = $connection->transactionLevel();
+        $this->transactionSnapshots[$name][$level] = [
+            'batch_ids' => $this->pendingProductIds,
+            'product_ids' => $this->transactionProductIds[$name] ?? [],
+            'refresh_scheduled' => $this->transactionRefreshScheduled[$name] ?? false,
+            'refresh_all' => $this->transactionRefreshAll[$name] ?? false,
+        ];
     }
 
     /**
@@ -47,17 +61,27 @@ class CatalogRetailPriceObserver
      */
     public function transactionFinished(Connection $connection, bool $rolledBack = false): void
     {
-        if ($this->batchDepth === 0 || $connection->getName() !== config('database.default')) {
-            return;
-        }
+        $name = $connection->getName();
         $level = $connection->transactionLevel();
-        if ($rolledBack && isset($this->transactionSnapshots[$level + 1])) {
-            $this->pendingProductIds = $this->transactionSnapshots[$level + 1];
+        if ($rolledBack && isset($this->transactionSnapshots[$name][$level + 1])) {
+            $snapshot = $this->transactionSnapshots[$name][$level + 1];
+            $this->pendingProductIds = $snapshot['batch_ids'];
+            $this->transactionProductIds[$name] = $snapshot['product_ids'];
+            $this->transactionRefreshScheduled[$name] = $snapshot['refresh_scheduled'];
+            $this->transactionRefreshAll[$name] = $snapshot['refresh_all'];
         }
-        foreach (array_keys($this->transactionSnapshots) as $snapshotLevel) {
+        foreach (array_keys($this->transactionSnapshots[$name] ?? []) as $snapshotLevel) {
             if ($snapshotLevel > $level) {
-                unset($this->transactionSnapshots[$snapshotLevel]);
+                unset($this->transactionSnapshots[$name][$snapshotLevel]);
             }
+        }
+        if ($rolledBack && $level === 0) {
+            unset(
+                $this->transactionProductIds[$name],
+                $this->transactionRefreshScheduled[$name],
+                $this->transactionRefreshAll[$name],
+                $this->transactionSnapshots[$name],
+            );
         }
     }
 
@@ -167,11 +191,44 @@ class CatalogRetailPriceObserver
 
     private function dispatchRefresh(int|array|null $productIds = null): void
     {
-        // PendingDispatch acquires the unique lock before the job's afterCommit
-        // setting takes effect. Defer dispatch itself so a database cache lock
-        // collision cannot abort the transaction saving the model.
-        DB::afterCommit(static function () use ($productIds): void {
-            RefreshCatalogRetailPrices::dispatch($productIds);
+        $connection = DB::connection();
+        $name = $connection->getName();
+
+        if ($connection->transactionLevel() === 0) {
+            // PendingDispatch acquires its unique lock only after the callback;
+            // cache-lock failures must not abort a model write.
+            $connection->afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
+
+            return;
+        }
+
+        if ($productIds === null) {
+            $this->transactionRefreshAll[$name] = true;
+            $this->transactionProductIds[$name] = [];
+        } elseif (! ($this->transactionRefreshAll[$name] ?? false)) {
+            $this->transactionProductIds[$name] = array_values(array_unique([
+                ...($this->transactionProductIds[$name] ?? []),
+                ...array_map('intval', (array) $productIds),
+            ]));
+        }
+
+        if ($this->transactionRefreshScheduled[$name] ?? false) {
+            return;
+        }
+
+        $this->transactionRefreshScheduled[$name] = true;
+        $connection->afterCommit(function () use ($name): void {
+            $refreshAll = $this->transactionRefreshAll[$name] ?? false;
+            $ids = $this->transactionProductIds[$name] ?? [];
+            unset(
+                $this->transactionProductIds[$name],
+                $this->transactionRefreshScheduled[$name],
+                $this->transactionRefreshAll[$name],
+            );
+
+            if ($refreshAll || $ids !== []) {
+                RefreshCatalogRetailPrices::dispatch($refreshAll ? null : $ids);
+            }
         });
     }
 }

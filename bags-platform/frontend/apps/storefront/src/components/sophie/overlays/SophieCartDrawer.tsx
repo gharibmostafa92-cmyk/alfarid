@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useCartStore } from '@/stores/cart-store';
+import { nextCartQuantity } from '@/stores/cart-add';
 import { formatStorePrice } from '@alfarid/utils';
 import { StoreProductImage } from '../product/StoreProductImage';
 
@@ -65,7 +66,7 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
         >
           {/* Header */}
           <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex items-center justify-between gap-2">
-            <h2 className="font-['Oswald'] text-lg sm:text-xl uppercase tracking-wider font-semibold text-black">
+            <h2 className="font-[var(--font-oswald)] text-lg sm:text-xl uppercase tracking-wider font-semibold text-black">
               Shopping Cart ({items.reduce((s, i) => s + i.quantity, 0)})
             </h2>
             <button
@@ -107,26 +108,29 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                   </svg>
                 </div>
-                <p className="font-['Oswald'] text-lg font-medium text-gray-900 uppercase tracking-wide">Your cart is empty</p>
+                <p className="font-[var(--font-oswald)] text-lg font-medium text-gray-900 uppercase tracking-wide">Your cart is empty</p>
                 <p className="text-xs sm:text-sm text-gray-600 mt-1.5 max-w-[260px] leading-relaxed">
                   Discover our exclusive bag collections and new arrivals.
                 </p>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="mt-6 bg-black text-white px-7 py-3 min-h-[44px] font-['Oswald'] text-xs uppercase tracking-widest hover:bg-neutral-800 transition-colors"
+                  className="mt-6 bg-black text-white px-7 py-3 min-h-[44px] font-[var(--font-oswald)] text-xs uppercase tracking-widest hover:bg-neutral-800 transition-colors"
                 >
                   Start Shopping
                 </button>
               </div>
             ) : (
-              items.map((item) => (
+              items.map((item) => {
+                const decreaseTo = nextCartQuantity(item.quantity, item.available, -1);
+                const increaseTo = nextCartQuantity(item.quantity, item.available, 1);
+                return (
                 <div key={item.id} className="flex gap-3.5 sm:gap-4 pb-4 border-b border-gray-100 items-start">
                   <div className="w-20 h-20 bg-gray-50 rounded-md p-2 flex items-center justify-center shrink-0 [&_svg]:w-10 [&_span]:hidden">
                     <StoreProductImage src={item.image} alt={item.name} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-['Oswald'] text-sm font-medium text-gray-900 line-clamp-2 leading-snug">
+                    <h3 className="font-[var(--font-oswald)] text-sm font-medium text-gray-900 line-clamp-2 leading-snug">
                       {item.name}
                     </h3>
                     {(item.color || item.size) && (
@@ -140,8 +144,8 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
                     <div className="flex items-center gap-1.5 mt-2.5">
                       <button
                         type="button"
-                        onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))}
-                        disabled={busy || item.quantity <= 1}
+                        onClick={() => decreaseTo !== null && updateQuantity(item.id, decreaseTo)}
+                        disabled={busy || decreaseTo === null || decreaseTo === item.quantity}
                         aria-label={`Decrease quantity of ${item.name}`}
                         className="w-11 h-11 border border-gray-200 rounded-md text-sm font-medium flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       >
@@ -152,8 +156,8 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
                       </span>
                       <button
                         type="button"
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                        disabled={busy || item.quantity >= item.available || item.price === null}
+                        onClick={() => increaseTo !== null && updateQuantity(item.id, increaseTo)}
+                        disabled={busy || increaseTo === null || item.price === null}
                         aria-label={`Increase quantity of ${item.name}`}
                         className="w-11 h-11 border border-gray-200 rounded-md text-sm font-medium flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       >
@@ -174,7 +178,8 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
                     </svg>
                   </button>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -182,15 +187,15 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
           {items.length > 0 && (
             <div className="px-4 sm:px-6 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] border-t border-gray-100 bg-gray-50/80">
               <div className="flex justify-between items-center mb-2">
-                <span className="font-['Oswald'] text-sm uppercase text-gray-700 tracking-wider">Cart total:</span>
-                <span className="font-['Oswald'] text-lg font-bold text-gray-900">{formatStorePrice(total())}</span>
+                <span className="font-[var(--font-oswald)] text-sm uppercase text-gray-700 tracking-wider">Cart total:</span>
+                <span className="font-[var(--font-oswald)] text-lg font-bold text-gray-900">{formatStorePrice(total())}</span>
               </div>
               <p className="text-[11.5px] text-gray-600 mb-4">Shipping and taxes calculated at checkout.</p>
               <div className="space-y-2.5">
                 <Link
                   href="/checkout"
                   onClick={onClose}
-                  className="w-full min-h-[48px] inline-flex items-center justify-center text-center bg-black text-white py-3.5 px-6 font-['Oswald'] text-xs font-medium uppercase tracking-widest hover:bg-[#159a8c] transition-colors"
+                  className="w-full min-h-[48px] inline-flex items-center justify-center text-center bg-black text-white py-3.5 px-6 font-[var(--font-oswald)] text-xs font-medium uppercase tracking-widest hover:bg-[#159a8c] transition-colors"
                 >
                   Proceed to Checkout
                 </Link>

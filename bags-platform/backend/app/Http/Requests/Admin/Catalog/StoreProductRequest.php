@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
+use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Enums\Catalog\Occasion;
 use App\Enums\Orders\SalesChannel;
 use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
@@ -23,6 +24,8 @@ use Illuminate\Validation\Rules\Unique;
  */
 class StoreProductRequest extends FormRequest
 {
+    use AuthorizesStaffRequest;
+
     use LimitsArrayInput;
 
     protected function arrayLimits(): array
@@ -32,7 +35,7 @@ class StoreProductRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return $this->authorizeStaffPermission('products.create');
     }
 
     /**

@@ -103,8 +103,11 @@ class StoreAuthTest extends TestCase
             'phone' => '01011112222', 'password' => 'password123',
             'status' => CustomerStatus::Suspended, 'suspension_reason' => 'تأخر سداد',
         ]);
-        $this->postJson('/api/v1/store/auth/login', ['login' => '01011112222', 'password' => 'password123'])
-            ->assertForbidden();
+        $suspended = $this->postJson('/api/v1/store/auth/login', ['login' => '01011112222', 'password' => 'password123'])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.');
+        $this->assertArrayNotHasKey('suspension_reason', $suspended->json());
+        $this->assertStringNotContainsString('تأخر سداد', $suspended->getContent());
 
         Customer::factory()->wholesale()->create(['phone' => '01033334444', 'password' => 'password123']);
         $this->postJson('/api/v1/store/auth/login', ['login' => '01033334444', 'password' => 'password123'])

@@ -108,6 +108,7 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
             aria-describedby={visibleErrors.street ? 'chk-street-error' : undefined}
             className="line-input"
             placeholder="الشارع، الحي، أو أقرب علامة مميزة"
+            maxLength={350}
             autoComplete="street-address"
             enterKeyHint="next"
             value={form.street}
@@ -135,6 +136,7 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
               aria-label="رقم العمارة"
               className="line-input"
               placeholder="رقم العمارة (اختياري)"
+              maxLength={30}
               inputMode="numeric"
               enterKeyHint="next"
               value={form.building}
@@ -153,6 +155,7 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
               aria-label="الدور"
               className="line-input"
               placeholder="الدور (اختياري)"
+              maxLength={30}
               inputMode="numeric"
               enterKeyHint="next"
               value={form.floor}
@@ -171,6 +174,7 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
               aria-label="الشقة"
               className="line-input"
               placeholder="الشقة (اختياري)"
+              maxLength={30}
               inputMode="numeric"
               enterKeyHint="next"
               value={form.apartment}
@@ -190,11 +194,20 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
             aria-label="ملاحظات للشحن"
             className="line-input"
             placeholder="ملاحظات للشحن (اختياري) — مثل: بجوار صيدلية، اتصل قبل الوصول"
+            maxLength={500}
+            aria-describedby={visibleErrors.notes ? 'chk-notes-error' : undefined}
+            aria-invalid={!!visibleErrors.notes}
             enterKeyHint="done"
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
             onBlur={() => blur('notes')}
+            data-checkout-error={visibleErrors.notes ? 'true' : undefined}
           />
+          {visibleErrors.notes && (
+            <p id="chk-notes-error" className="luxury-field-error" role="alert">
+              {visibleErrors.notes}
+            </p>
+          )}
         </div>
       </div>
     </div>

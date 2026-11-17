@@ -6,6 +6,7 @@ import { useBranding } from '@alfarid/ui/branding';
 import { registerWeb, requestPasswordReset, resetWebPassword } from '@/services/auth.service';
 import { PhoneVerification, type PhoneProof } from './PhoneVerification';
 import { PASSWORD_BYTE_LIMIT, passwordByteLength } from '@/lib/auth/password-byte-limit';
+import { isAcceptedBusinessDocument } from '@/lib/auth/business-document';
 
 export type AuthView = 'login' | 'register' | 'wholesale-register' | 'forgot-password' | 'reset-password';
 type AccountView = Exclude<AuthView, 'login'>;
@@ -419,9 +420,8 @@ export function AccountForm({
                     aria-describedby="documents-hint documents-error"
                     onChange={(e) => {
                       const selected = Array.from(e.target.files ?? []);
-                      if (selected.length > 5 || selected.some((f) => f.size > 5 * 1024 * 1024 || !/\.(pdf|jpe?g|png)$/i.test(f.name))) {
-                        setErrors({ documents: [text('اختر حتى 5 ملفات PDF أو صور، بحجم 5 ميجابايت أو أقل لكل ملف.', 'Choose up to 5 PDF or image files, no larger than 5 MB each.')] });
-                        setDocuments([]);
+                      if (selected.length > 5 || selected.some((file) => !isAcceptedBusinessDocument(file))) {
+                        setErrors((current) => ({ ...current, documents: [text('اختر حتى 5 ملفات PDF أو صور غير فارغة، بحجم 5 ميجابايت أو أقل لكل ملف.', 'Choose up to 5 non-empty PDF or image files, no larger than 5 MB each.')] }));
                         e.target.value = '';
                         return;
                       }
@@ -429,7 +429,11 @@ export function AccountForm({
                       // React owns the chosen files. Clear the native input so
                       // removal restores required validation and reselection works.
                       e.currentTarget.value = '';
-                      setErrors({});
+                      setErrors((current) => {
+                        const next = { ...current };
+                        delete next.documents;
+                        return next;
+                      });
                     }}
                   />
                   </div>

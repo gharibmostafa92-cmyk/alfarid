@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { assistantApi, type AgentSettings, type ToolStatsSummary } from './api';
+import { assistantApi, diffSettings, type AgentSettings, type ToolStatsSummary } from './api';
 import { Icon } from './icons';
 import WhatsAppPanel from './WhatsAppPanel';
 
@@ -36,6 +36,19 @@ export default function AssistantAdministration({ can }: { can: (permission: str
   const allUsers = can('ai_agent.logs.view');
   const [section, setSection] = useState<'usage' | 'whatsapp'>('usage');
   const [channel, setChannel] = useState<'' | 'web' | 'whatsapp'>('');
+  // Raw text for numeric fields while typing: committing Number('') would
+  // store 0, and 0 means "unlimited" for the daily budget. Only finite
+  // numbers reach settings; clearing a field leaves the last valid value
+  // until a new number is typed (the form is required, so empties cannot
+  // be submitted).
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const numericFallback = (key: string) => key === 'ai_inventory_high_risk_value' ? 50000 : key === 'ai_max_steps' ? 6 : key === 'ai_catalog_bulk_price_max_items' ? 200 : key === 'ai_finance_high_risk_amount' ? 20000 : key === 'ai_wallet_adjust_max_amount' ? 5000 : '';
+  const setNumeric = (key: keyof AgentSettings, raw: string) => {
+    setDrafts(current => ({ ...current, [key]: raw }));
+    if (raw === '') return;
+    const n = Number(raw);
+    if (Number.isFinite(n)) setSettings(current => (current ? { ...current, [key]: n } : current));
+  };
 
   useEffect(() => {
     let live = true;
@@ -77,7 +90,9 @@ export default function AssistantAdministration({ can }: { can: (permission: str
           </div>
         </div>
 
-        {section === 'whatsapp' && canSettings ? <WhatsAppPanel /> : null}
+        {section === 'whatsapp' && canSettings && settings && original ? (
+          <WhatsAppPanel settings={settings} original={original} onSettingsChange={setSettings} onSaved={setOriginal} />
+        ) : null}
         {section === 'usage' && <>
 
         {notice && (!dirty || notice.tone === 'danger') && (
@@ -187,7 +202,15 @@ export default function AssistantAdministration({ can }: { can: (permission: str
           {settings && original ? (
             <form className="as-card" onSubmit={async e => {
               e.preventDefault(); setSaving(true); setNotice(null);
-              try { await assistantApi.saveSettings(settings, original); setOriginal(settings); setNotice({ tone: 'success', text: 'اتحفظت الإعدادات.' }); }
+              // Changed-keys-only delta: the backend 422s unless data and
+              // expected share identical key sets, and a full-object save
+              // would clobber the other tab's edits with stale values.
+              try {
+                const { data, expected } = diffSettings(settings, original);
+                await assistantApi.saveSettings(data, expected);
+                setOriginal(settings); setDrafts({});
+                setNotice({ tone: 'success', text: 'اتحفظت الإعدادات.' });
+              }
               catch (error) { setNotice({ tone: 'danger', text: (error as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'تعذر الحفظ. أعد فتح الإعدادات لو اتعدلت من مستخدم تاني.' }); }
               finally { setSaving(false); }
             }}>
@@ -269,7 +292,7 @@ export default function AssistantAdministration({ can }: { can: (permission: str
                 {NUMERIC_FIELDS.map(([key, label, help, min, max]) => (
                   <label className="as-field" key={key}>
                     <span className="as-field-label"><strong>{label}</strong><small>{help}</small></span>
-                    <input className="as-input" type="number" inputMode="numeric" min={min} max={max} required value={settings[key] ?? (key === 'ai_inventory_high_risk_value' ? 50000 : key === 'ai_max_steps' ? 6 : key === 'ai_catalog_bulk_price_max_items' ? 200 : key === 'ai_finance_high_risk_amount' ? 20000 : key === 'ai_wallet_adjust_max_amount' ? 5000 : '')} disabled={saving} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })} />
+                    <input className="as-input" type="number" inputMode="numeric" min={min} max={max} required value={drafts[key] ?? String(settings[key] ?? numericFallback(key))} disabled={saving} onChange={e => setNumeric(key, e.target.value)} />
                   </label>
                 ))}
                 <fieldset disabled={saving} style={{ borderBottom: '1px solid var(--as-border)' }}>
@@ -300,7 +323,7 @@ export default function AssistantAdministration({ can }: { can: (permission: str
               <div className="as-savebar">
                 {dirty ? <span className="as-dirty">تعديلات غير محفوظة</span> : notice ? <span role="status" style={{ fontSize: '.8rem', color: notice.tone === 'success' ? 'var(--as-success)' : 'var(--as-danger)' }}>{notice.text}</span> : null}
                 <span className="as-spacer" />
-                {dirty && <button type="button" className="as-btn as-btn--ghost" disabled={saving} onClick={() => setSettings(original)}>تراجع</button>}
+                {dirty && <button type="button" className="as-btn as-btn--ghost" disabled={saving} onClick={() => { setSettings(original); setDrafts({}); }}>تراجع</button>}
                 <button className="as-btn as-btn--primary" disabled={saving || !dirty} type="submit">{saving ? <><span className="as-spin" />جارٍ الحفظ…</> : 'حفظ الإعدادات'}</button>
               </div>
             </form>

@@ -15,6 +15,7 @@ use App\Models\PosHeldSale;
 use App\Models\PosShift;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
+use App\Models\Promotion;
 use App\Models\Product;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
@@ -30,6 +31,7 @@ use App\Models\User;
 use App\Models\WalletAdjustment;
 use App\Models\WholesalePaymentNotice;
 use App\Observers\CatalogRetailPriceObserver;
+use App\Observers\PromotionObserver;
 use App\Services\Ai\Catalog\CatalogToolProvider;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Finance\FinanceToolProvider;
@@ -127,6 +129,7 @@ class AppServiceProvider extends ServiceProvider
             StockLevel::class, Branch::class, Location::class] as $model) {
             $model::observe(CatalogRetailPriceObserver::class);
         }
+        Promotion::observe(PromotionObserver::class);
     }
 
     private function configureLifecycleEvents(): void
@@ -397,6 +400,7 @@ class AppServiceProvider extends ServiceProvider
             'stock_transfer' => StockTransfer::class,
             'stocktake' => Stocktake::class,
             'order' => Order::class,
+            'shipment' => \App\Models\Shipment::class,
             'return_request' => ReturnRequest::class,
             'purchase_order' => PurchaseOrder::class,
             'pos_shift' => PosShift::class,

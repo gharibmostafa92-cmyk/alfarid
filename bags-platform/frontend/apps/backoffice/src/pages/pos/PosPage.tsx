@@ -19,6 +19,10 @@ export function PosPage() {
   }, [user]);
 
   useEffect(() => {
+    // The voice-count view below renders its own inline styles: only inject
+    // the heavy POS bundle when the full POS app actually mounts.
+    if (!canCreateSales) return;
+    const hadDark = document.documentElement.classList.contains('theme-dark');
     const styleEl = document.createElement('style');
     styleEl.setAttribute('data-pos-styles', '');
     styleEl.textContent = `${tokensCss}\n${posCss}`;
@@ -26,9 +30,11 @@ export function PosPage() {
 
     return () => {
       styleEl.remove();
-      document.documentElement.classList.remove('theme-dark');
+      // Restore the host theme instead of wiping it: the POS shell may add
+      // theme-dark, but a dark-mode backoffice must stay dark afterwards.
+      document.documentElement.classList.toggle('theme-dark', hadDark);
     };
-  }, []);
+  }, [canCreateSales]);
 
   const branchId = user?.branch_id ?? user?.branch?.id;
   if (!branchId) {

@@ -342,7 +342,12 @@ class AuditRoundTwoVerificationTest extends TestCase
             ->assertOk();
     }
 
-    /** Password reset URL in SMS messages uses standard ASCII Latin encoding. */
+    /**
+     * Password reset secret in SMS links travels in the URL fragment (never
+     * the query string) and the phone number is omitted: fragments never
+     * reach HTTP logs, proxies, or Referer headers. Task6 F8 changed this
+     * contract deliberately; the old query-string assertions pinned the leak.
+     */
     public function test_customer_password_reset_notification_to_sms_url(): void
     {
         $customer = Customer::factory()->create(['phone' => '01012345678']);
@@ -350,8 +355,9 @@ class AuditRoundTwoVerificationTest extends TestCase
         $sms = $notification->toSms($customer);
 
         $this->assertStringStartsWith('Password reset: ', $sms);
-        $this->assertStringContainsString('token=test-token-1234', $sms);
-        $this->assertStringContainsString('phone=01012345678', $sms);
+        $this->assertStringContainsString('#token=test-token-1234', $sms);
+        $this->assertStringNotContainsString('?token=', $sms);
+        $this->assertStringNotContainsString('01012345678', $sms);
     }
 
     /** AI token usage quotas reset daily aligned with Cairo business timezone. */

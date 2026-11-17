@@ -18,7 +18,7 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
       style={{ backgroundColor: banner.bg_color || PALETTE[index % PALETTE.length] }}
     >
       {failed ? (
-        <p dir="auto" className="w-full px-6 py-10 self-center text-center font-['Poppins'] font-bold text-black">
+        <p dir="auto" className="w-full px-6 py-10 self-center text-center font-[var(--font-poppins)] font-bold text-black">
           {banner.title}
         </p>
       ) : (
@@ -35,12 +35,12 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
           {hasText && (
             <div className="flex-1 min-w-0 px-4 sm:px-5 py-5 self-center break-words">
               {banner.kicker && (
-                <p dir="auto" className="font-['Oswald'] text-[12.5px] sm:text-[13px] uppercase text-[#222] tracking-[0.5px] mb-1">
+                <p dir="auto" className="font-[var(--font-oswald)] text-[12.5px] sm:text-[13px] uppercase text-[#222] tracking-[0.5px] mb-1">
                   {banner.kicker}
                 </p>
               )}
               {(banner.headline_bold || banner.headline) && (
-                <h3 dir="auto" className="font-['Poppins'] text-[21px] sm:text-[26px] text-black leading-[1.18] mb-2">
+                <h3 dir="auto" className="font-[var(--font-poppins)] text-[21px] sm:text-[26px] text-black leading-[1.18] mb-2">
                   {banner.headline}
                   {banner.headline && banner.headline_bold ? ' ' : ''}
                   <strong>{banner.headline_bold}</strong>

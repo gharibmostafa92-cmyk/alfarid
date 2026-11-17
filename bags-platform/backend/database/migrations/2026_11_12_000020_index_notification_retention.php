@@ -16,6 +16,11 @@ return new class extends Migration
 
     public function up(): void
     {
+        // pg_index / to_regclass are PostgreSQL-only; every sibling migration
+        // guards on the driver so sqlite/mysql test runs keep working.
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
         foreach (self::INDEXES as $index => $predicate) {
             $existing = DB::selectOne('SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass(?)', [$index]);
             if ($existing?->indisvalid) {
@@ -31,6 +36,9 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
         foreach (array_keys(self::INDEXES) as $index) {
             DB::statement("DROP INDEX CONCURRENTLY IF EXISTS {$index}");
         }

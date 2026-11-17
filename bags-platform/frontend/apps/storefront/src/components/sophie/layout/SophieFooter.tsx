@@ -47,13 +47,13 @@ export function SophieFooter() {
       </div>
 
       {/* Main Luxury Dark Footer */}
-      <footer className="bg-[#151823] text-[#a4abba] pt-16 pb-14 font-['Poppins'] relative">
+      <footer className="bg-[#151823] text-[#a4abba] pt-16 pb-14 font-[var(--font-poppins)] relative">
         <div className="max-w-[1140px] mx-auto px-5">
           {/* 4-Column Main Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10 mb-10 lg:mb-14">
             {/* Column 1: ABOUT US */}
             <div>
-              <h4 className="font-['Oswald'] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
+              <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
                 ABOUT US
               </h4>
               <p className="text-[12.5px] leading-[1.78] text-[#a4abba] mb-3.5">
@@ -66,7 +66,7 @@ export function SophieFooter() {
 
             {/* Column 2: ADDRESS */}
             <div>
-              <h4 className="font-['Oswald'] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
+              <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
                 ADDRESS
               </h4>
               <ul className="space-y-4 text-[12.5px] leading-[1.65]">
@@ -89,7 +89,7 @@ export function SophieFooter() {
 
             {/* Column 3: COMPANY */}
             <div>
-              <h4 className="font-['Oswald'] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
+              <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
                 COMPANY
               </h4>
               <ul className="space-y-2.5 text-[12.5px]">
@@ -128,7 +128,7 @@ export function SophieFooter() {
 
             {/* Column 4: NEWSLETTER */}
             <div id="footer-newsletter">
-              <h4 className="font-['Oswald'] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
+              <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
                 NEWSLETTER
               </h4>
               <p className="text-[12.5px] leading-[1.75] text-[#a4abba] mb-5">
@@ -195,7 +195,7 @@ export function SophieFooter() {
               <line x1="151" y1="69" x2="156" y2="63" stroke="#dce0e8" strokeWidth="2" strokeLinecap="round" />
             </svg>
 
-            <div className="font-['Oswald'] text-[21px] font-normal tracking-[3.5px] uppercase text-[#8c93a4] mb-3.5">
+            <div className="font-[var(--font-oswald)] text-[21px] font-normal tracking-[3.5px] uppercase text-[#8c93a4] mb-3.5">
               <BrandLogo className="w-12 h-12 mx-auto mb-2" />
               <span dir="auto" className="break-words">{branding.name}</span>
             </div>

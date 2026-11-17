@@ -26,7 +26,12 @@ class SendStaffOrderNotification implements ShouldQueue
         if ($event->order->allocated_branch_id !== null) {
             $branches->push($event->order->allocated_branch_id);
         }
-        $staff = StaffRecipients::withAnyPermission(['orders.view'], $branches->map(fn ($id) => (int) $id)->unique()->values()->all());
+        // Orders without any allocation stay central-only by policy: pass the
+        // empty scope through so only Super Admins and branch-less (central)
+        // staff are notified. Passing null here would fan unroutable orders
+        // out to every branch team, which is a behavior change, not a fix.
+        $branchIds = $branches->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $staff = StaffRecipients::withAnyPermission(['orders.view'], $branchIds);
 
         if ($staff->isNotEmpty()) {
             DB::transaction(fn () => Notification::sendNow($staff, new AdminOrderCreatedNotification($event->order), ['database']));

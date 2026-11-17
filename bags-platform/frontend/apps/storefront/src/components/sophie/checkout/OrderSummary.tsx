@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { useCartStore } from '@/stores/cart-store';
+import { nextCartQuantity } from '@/stores/cart-add';
 import Link from 'next/link';
 import { formatShippingPrice, formatStorePrice } from '@alfarid/utils';
 import type { CheckoutVM } from './useCheckout';
@@ -53,8 +54,8 @@ export function OrderSummary({
   const changeQty = async (id: number, current: number, delta: number) => {
     const item = items.find((i) => i.id === id);
     if (!item || changing.current || vm.cartBusy || !item.priced) return;
-    const next = current + delta;
-    if (next < 1 || next > item.available) return;
+    const next = nextCartQuantity(current, item.available, delta);
+    if (next === null || next === current) return;
     changing.current = true;
     // Optimistic update — revert to the server value on failure.
     setOverrides((o) => ({ ...o, [id]: next }));

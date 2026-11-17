@@ -104,8 +104,7 @@ class ShippingWebhookService
 
         // Derive sanitized event identifier after cryptographic verification succeeds
         $eventId = $this->effectiveEventId($payload, $rawBody);
-        $log = $this->startLog($provider, $eventId, $payload, $ip);
-        $log->update(['signature_valid' => true]);
+        $log = $this->startLog($provider, $eventId, $payload, $ip, true);
 
         return DB::transaction(function () use ($provider, $payload, $log, $company): array {
             DB::statement('SELECT pg_advisory_xact_lock(102, hashtext(?))', [$provider.':'.$log->event_id]);
@@ -142,10 +141,21 @@ class ShippingWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
 
-            // A replacement waybill is the live shipment. A late "delivered" on the
-            // failed original must not mark the order delivered.
-            if ($status === ShipmentStatus::Delivered && $this->hasNewerActiveShipment($shipment)) {
-                $log->update(['status' => 'ignored', 'error' => 'تسليم لبوليصة استُبدلت بأحدث منها — يُتجاهل']);
+            // Once a newer viable waybill exists, the old shipment is superseded.
+            // Ignore every status except Returned (which only annotates that old
+            // shipment); a stale Delivered event raises a review flag without
+            // settling or changing the order.
+            if ($this->hasNewerDeliveredOrActiveShipment($shipment) && $status !== ShipmentStatus::Returned) {
+                $deliveryWarning = $status === ShipmentStatus::Delivered;
+                if ($deliveryWarning && $order !== null) {
+                    $order->update(['needs_attention' => true]);
+                }
+                $log->update([
+                    'status' => 'ignored',
+                    'error' => $deliveryWarning
+                        ? 'وصل بلاغ تسليم لبوليصة مستبدلة — يلزم التحقق من احتمال ازدواج التسليم'
+                        : 'وصل تحديث لبوليصة استُبدلت بأحدث منها — يُتجاهل',
+                ]);
 
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
@@ -178,7 +188,6 @@ class ShippingWebhookService
                 }
             }
             if ($status === ShipmentStatus::Delivered) {
-                $order = $shipment->order;
                 if ($order !== null && $order->status === OrderStatus::Shipped) {
                     try {
                         // Nested transaction is a savepoint. A constraint failure inside
@@ -256,17 +265,29 @@ class ShippingWebhookService
             $status = $this->rawStatus($payload);
             $suffix = $status !== null ? ':'.$status : '';
 
-            return mb_substr((string) $eventId.$suffix, 0, 191);
+            return $this->boundedEventKey((string) $eventId.$suffix);
         }
 
         $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number']);
         $status = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status']);
         $timestamp = $this->firstValue($payload, ['timestamp', 'occurred_at', 'updated_at', 'data.timestamp', 'data.updated_at']);
         if (is_scalar($awb) && is_scalar($status) && is_scalar($timestamp)) {
-            return mb_substr($awb.'|'.$status.'|'.$timestamp, 0, 191);
+            return $this->boundedEventKey($awb.'|'.$status.'|'.$timestamp);
         }
 
         return 'sha256:'.hash('sha256', $rawBody);
+    }
+
+    /**
+     * Keep event keys within the database column while preserving distinction at the end.
+     */
+    private function boundedEventKey(string $key): string
+    {
+        if (mb_strlen($key, 'UTF-8') <= 191) {
+            return $key;
+        }
+
+        return mb_substr($key, 0, 126, 'UTF-8').':'.hash('sha256', $key);
     }
 
     /**
@@ -338,14 +359,35 @@ class ShippingWebhookService
         return null;
     }
 
-    private function startLog(string $provider, string $eventId, array $payload, ?string $ip): WebhookLog
+    private function startLog(string $provider, string $eventId, array $payload, ?string $ip, bool $signatureValid = false): WebhookLog
     {
+        // A transient transaction rollback leaves a verified event in received
+        // state. Reuse that row on the carrier retry instead of storing another
+        // full copy of the same payload for every retry.
+        $received = WebhookLog::query()
+            ->where('provider', $provider)
+            ->where('event_id', $eventId)
+            ->where('status', 'received')
+            ->latest('id')
+            ->first();
+        if ($received !== null) {
+            $received->update([
+                'payload' => WebhookLog::sanitizePayload($payload),
+                'signature_valid' => $signatureValid,
+                'ip_address' => $ip,
+                'error' => null,
+            ]);
+
+            return $received;
+        }
+
         return WebhookLog::create([
             'provider' => $provider,
             'event_id' => $eventId,
             // Sanitize sensitive credentials before persisting webhook body
             'payload' => WebhookLog::sanitizePayload($payload),
             'status' => 'received',
+            'signature_valid' => $signatureValid,
             'ip_address' => $ip,
         ]);
     }

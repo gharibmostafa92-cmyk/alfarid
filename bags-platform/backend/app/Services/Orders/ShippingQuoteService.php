@@ -24,14 +24,20 @@ class ShippingQuoteService
      */
     public function quoteForCity(int $cityId, float $merchandiseTotal, bool $cod): array
     {
-        $rate = ShippingRate::query()
+        $rates = ShippingRate::query()
             ->forCity($cityId)
             ->join('shipping_companies', 'shipping_companies.id', '=', 'shipping_rates.shipping_company_id')
             ->where('shipping_companies.is_active', true)
-            ->orderBy('shipping_companies.id')
-            ->orderBy('shipping_rates.id')
             ->select('shipping_rates.*')
-            ->first();
+            ->get();
+        $rate = $rates->sort(function (ShippingRate $left, ShippingRate $right) use ($merchandiseTotal): int {
+            $costOrder = $left->effectiveCost($merchandiseTotal) <=> $right->effectiveCost($merchandiseTotal);
+            if ($costOrder !== 0) {
+                return $costOrder;
+            }
+
+            return [$left->shipping_company_id, $left->id] <=> [$right->shipping_company_id, $right->id];
+        })->first();
 
         if ($rate === null) {
             $city = City::query()->where('is_active', true)->find($cityId);

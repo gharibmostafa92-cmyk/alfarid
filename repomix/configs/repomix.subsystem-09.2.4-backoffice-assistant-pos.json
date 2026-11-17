@@ -1,0 +1,36 @@
+{
+    "output": {
+        "filePath": "repomix/outputs/repomix-subsystem-09.2.4-backoffice-assistant-pos.xml",
+        "style": "xml",
+        "parsableStyle": true,
+        "fileSummary": true,
+        "directoryStructure": true,
+        "removeComments": false,
+        "removeEmptyLines": true,
+        "truncateBase64": true,
+        "topFilesLength": 20,
+        "showLineNumbers": true,
+        "copyToClipboard": false,
+        "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
+        "headerText": "SUBSYSTEM 9.2.4: BACKOFFICE AI ASSISTANT, OMNICHANNEL & POS EXTENSIONS\nAI Assistant console, conversational composer, WhatsApp management panel, streaming responses, POS portal routing, and voice-assisted stocktake counting."
+    },
+    "include": [
+        "bags-platform/frontend/apps/backoffice/src/pages/admin/assistant/**",
+        "bags-platform/frontend/apps/backoffice/src/pages/pos/**"
+    ],
+    "ignore": {
+        "useGitignore": true,
+        "useDefaultPatterns": true,
+        "customPatterns": [
+            "**/tests/**",
+            "**/*.test.*",
+            "**/*.spec.*",
+            "**/vendor/**",
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/storage/**",
+            "**/*.log",
+            "**/dist/**"
+        ]
+    }
+}

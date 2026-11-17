@@ -75,6 +75,25 @@ class P07AiExtendedTest extends TestCase
         return AiConversation::create(['user_id' => $u->id, 'model' => 'gemini-test']);
     }
 
+    public function test_conversation_index_paginates_and_returns_filtered_token_total(): void
+    {
+        $user = $this->aiStaff();
+        foreach (range(1, 25) as $tokens) {
+            AiConversation::create(['user_id' => $user->id, 'model' => 'gemini-test', 'total_tokens' => $tokens]);
+        }
+        $other = User::factory()->create();
+        AiConversation::create(['user_id' => $other->id, 'model' => 'gemini-test', 'total_tokens' => 9000]);
+
+        $this->withToken($this->token($user))
+            ->getJson('/api/v1/admin/ai/conversations?per_page=20&page=2')
+            ->assertOk()
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('last_page', 2)
+            ->assertJsonPath('total', 25)
+            ->assertJsonPath('total_tokens', 325)
+            ->assertJsonCount(5, 'data');
+    }
+
     private function upload(User $u, AiConversation $c): AiAttachment
     {
         $token = $this->token($u);

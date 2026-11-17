@@ -14,7 +14,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "node --experimental-strip-types --test \"tests/*.test.cjs\"",
+    "test": "node --experimental-strip-types --test \"tests/*.test.cjs\" \"tests/*.test.mts\"",
     "test:utils": "node --test tests/utils-formatters.test.cjs",
     "test:operations": "node --test tests/operations-core.test.cjs tests/operations-hooks.test.cjs tests/operations-commerce.test.cjs tests/operations-finance.test.cjs tests/operations-suppliers.test.cjs",
     "test:operations:e2e": "node tests/operations.e2e.cjs",

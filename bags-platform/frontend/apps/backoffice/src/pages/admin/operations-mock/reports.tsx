@@ -1,5 +1,5 @@
 import { AdminLoading } from '../../../components/admin/AdminLoading';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { reportsApi, validatePeriod } from '@alfarid/api-client';
 import { RemoteFeedback } from './api/RemoteFeedback';
@@ -312,7 +312,7 @@ export function InventoryReport() {
           value={<span className="ltr">{totV >= 1e6 ? (totV / 1e6).toFixed(2) + 'M' : fmtInt(totV)}</span>}
           foot="EGP بسعر التكلفة"
         />
-        <KPI label="عدد المتغيرات بالفروع" value={br.reduce((a, x) => a + x.variants, 0)} format={fmtInt} />
+        <KPI label="إجمالي أرصدة المتغيرات بالفروع" value={br.reduce((a, x) => a + x.variants, 0)} format={fmtInt} />
         <KPI label="إجمالي الكميات" value={br.reduce((a, x) => a + x.qty, 0)} format={fmtInt} />
         <KPI
           label="أصناف راكدة"
@@ -361,7 +361,12 @@ export function InventoryReport() {
           />
           <DataTable
             compact
-            rows={(live.data?.dead_stock ?? []).map(r => ({ v: { name: r.product_name, sku: r.sku }, qty: num(r.on_hand), br: '—', last: r.last_movement_at ? Math.max(0, Math.floor((Date.now() - Date.parse(r.last_movement_at)) / 864e5)) : '—' }))}
+            rows={(live.data?.dead_stock ?? []).map((r: any) => {
+              const rawTs = r.last_movement_at ? String(r.last_movement_at) : '';
+              const parsed = rawTs ? Date.parse(rawTs.includes('T') ? rawTs : rawTs.replace(' ', 'T')) : NaN;
+              const last = Number.isFinite(parsed) ? Math.max(0, Math.floor((Date.now() - parsed) / 864e5)) : '—';
+              return { v: { name: r.product_name, sku: r.sku }, qty: num(r.on_hand), br: r.branch_name ?? '—', last };
+            })}
             cols={[
               {
                 h: 'الصنف',
@@ -770,6 +775,13 @@ export function NotifDrawer({
   go: (r: { m: string; id?: any; sub?: any }) => void;
   container?: Element | DocumentFragment | null;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open, onClose]);
+
   if (!open) return null;
   const unread = items.filter((n) => !n.read_at).length;
 

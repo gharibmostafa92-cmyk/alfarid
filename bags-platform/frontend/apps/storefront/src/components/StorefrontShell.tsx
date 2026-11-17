@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AccountMenu } from './auth/AccountMenu';
@@ -30,9 +31,31 @@ export function shellLayoutFor(pathname: string): ShellLayout {
 
 export function StorefrontShell({ children }: { children: React.ReactNode }) {
   useCartSync();
+  const [cartMergeWarning, setCartMergeWarning] = useState('');
   const { branding } = useBranding();
   const pathname = usePathname();
   const layout = shellLayoutFor(pathname);
+
+  useEffect(() => {
+    const show = (message: string) => { if (message.trim()) setCartMergeWarning(message); };
+    const onWarning = (event: Event) => show((event as CustomEvent<string>).detail ?? '');
+    try {
+      const saved = sessionStorage.getItem('cart_merge_warning');
+      if (saved) {
+        show(saved);
+        sessionStorage.removeItem('cart_merge_warning');
+      }
+    } catch { /* Session storage is optional. */ }
+    window.addEventListener('cart-merge-warning', onWarning);
+    return () => window.removeEventListener('cart-merge-warning', onWarning);
+  }, []);
+
+  const cartMergeNotice = cartMergeWarning ? (
+    <div role="alert" className="mx-auto my-3 flex max-w-5xl items-start justify-between gap-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+      <span>{cartMergeWarning}</span>
+      <button type="button" className="shrink-0 underline" onClick={() => setCartMergeWarning('')}>إغلاق</button>
+    </div>
+  ) : null;
 
   if (layout === 'storefront') {
     return (
@@ -45,6 +68,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
             <SophieHeader />
           </div>
         </div>
+        {cartMergeNotice}
         {children}
       </div>
     );
@@ -56,6 +80,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
         <a href="#main-content" className="skip-to-content">
           Skip to main content
         </a>
+        {cartMergeNotice}
         {children}
       </>
     );
@@ -71,11 +96,11 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4 sm:gap-6 min-w-0">
             <Link
               href="/"
-              className="text-lg sm:text-xl font-bold text-black font-['Poppins'] truncate min-h-[44px] inline-flex items-center"
+              className="text-lg sm:text-xl font-bold text-black font-[var(--font-poppins)] truncate min-h-[44px] inline-flex items-center"
             >
               <span dir="auto" className="truncate">{branding.name}</span>
             </Link>
-            <nav aria-label="Portal navigation" className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm font-medium text-slate-700 font-['Oswald'] uppercase">
+            <nav aria-label="Portal navigation" className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm font-medium text-slate-700 font-[var(--font-oswald)] uppercase">
               <Link href="/" className="hover:text-[#4f7d88] transition-colors px-2 py-2.5 min-h-[44px] inline-flex items-center">
                 Home
               </Link>
@@ -87,6 +112,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
           <AccountMenu />
         </div>
       </header>
+      {cartMergeNotice}
       <main id="main-content">{children}</main>
     </>
   );

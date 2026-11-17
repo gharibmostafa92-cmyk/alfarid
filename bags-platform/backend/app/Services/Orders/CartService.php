@@ -111,29 +111,39 @@ class CartService
      */
     public function mergeGuestCart(Customer $customer, ?string $guestToken): bool
     {
+        return $this->mergeGuestCartWithReport($customer, $guestToken)['merged'];
+    }
+
+    /**
+     * Merge purchasable guest lines while retaining anything that could not move.
+     *
+     * @return array{merged: bool, warnings: list<string>}
+     */
+    public function mergeGuestCartWithReport(Customer $customer, ?string $guestToken): array
+    {
         $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
         if ($guestToken === null) {
-            return true;
+            return ['merged' => true, 'warnings' => []];
         }
 
         // Lock both carts in ID order so concurrent merges share the same lock order.
-        return DB::transaction(function () use ($customer, $guestToken): bool {
+        return DB::transaction(function () use ($customer, $guestToken): array {
             $guestId = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->value('id');
             if ($guestId === null) {
-                return false;
+                return ['merged' => false, 'warnings' => []];
             }
             $accountId = $this->accountCart($customer)->id;
             $carts = Cart::query()->whereKey([$guestId, $accountId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $guest = $carts->get($guestId);
             $account = $carts->get($accountId);
             if ($guest === null) {
-                return false;
+                return ['merged' => false, 'warnings' => []];
             }
-            $guestItems = $guest->items()->get();
+            $guestItems = $guest->items()->lockForUpdate()->get();
             if ($guestItems->isEmpty()) {
                 $guest->delete();
 
-                return true;
+                return ['merged' => true, 'warnings' => []];
             }
 
             $purchasableIds = $this->retailVariants()->whereKey($guestItems->pluck('product_variant_id')->all())
@@ -148,11 +158,18 @@ class CartService
                 ->map(fn ($qty): float => (float) $qty)->all();
             $accountLines = count($accountQty);
             $rows = [];
+            $remainingQuantities = [];
+            $unavailable = false;
+            $lineLimitReached = false;
+            $stockLimitReached = false;
             $timestamp = now();
 
             foreach ($guestItems as $item) {
                 $variantId = (int) $item->product_variant_id;
                 if (! $purchasableIds->has($variantId)) {
+                    $remainingQuantities[$item->id] = (float) $item->qty;
+                    $unavailable = true;
+
                     continue;
                 }
                 $existingQty = $accountQty[$variantId] ?? null;
@@ -160,6 +177,9 @@ class CartService
 
                 // Skip new items exceeding max cart lines to avoid blocking user login.
                 if ($isNew && $maxLines > 0 && $accountLines >= $maxLines) {
+                    $remainingQuantities[$item->id] = (float) $item->qty;
+                    $lineLimitReached = true;
+
                     continue;
                 }
 
@@ -169,10 +189,19 @@ class CartService
                     $room = min($room, $lineCap - $held);
                 }
                 if ($room <= 0) {
+                    $remainingQuantities[$item->id] = (float) $item->qty;
+                    $stockLimitReached = true;
+
                     continue;
                 }
 
-                $qty = min((float) $item->qty, $room);
+                $requestedQty = (float) $item->qty;
+                $qty = min($requestedQty, $room);
+                $remainingQty = round(max(0, $requestedQty - $qty), 4);
+                if ($remainingQty > 0) {
+                    $remainingQuantities[$item->id] = $remainingQty;
+                    $stockLimitReached = true;
+                }
                 $rows[] = [
                     'cart_id' => $account->id,
                     'product_variant_id' => $variantId,
@@ -193,7 +222,16 @@ class CartService
                     ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
                 );
             }
-            if ($account->coupon_id === null && $guest->coupon_id !== null) {
+            if ($remainingQuantities !== []) {
+                foreach ($remainingQuantities as $itemId => $qty) {
+                    $guest->items()->whereKey($itemId)->update(['qty' => $qty, 'updated_at' => $timestamp]);
+                }
+                $guest->items()->whereNotIn('id', array_keys($remainingQuantities))->delete();
+            } else {
+                $guest->items()->delete();
+            }
+
+            if ($remainingQuantities === [] && $account->coupon_id === null && $guest->coupon_id !== null) {
                 $account->unsetRelation('items');
                 try {
                     $itemsTotal = $this->totals($account->load('items'), $customer)['items_total'];
@@ -203,10 +241,22 @@ class CartService
                     // A guest coupon the account cannot redeem must not stick on the customer cart.
                 }
             }
-            $guest->items()->delete();
-            $guest->delete();
+            $warnings = [];
+            if ($unavailable) {
+                $warnings[] = 'بعض المنتجات لم تعد متاحة، وما تبقى منها محفوظ في سلة الزائر.';
+            }
+            if ($lineLimitReached) {
+                $warnings[] = 'سلة الحساب وصلت إلى الحد الأقصى؛ ما تبقى من المنتجات محفوظ في سلة الزائر.';
+            }
+            if ($stockLimitReached) {
+                $warnings[] = 'نُقلت الكمية المتاحة فقط، وما تبقى محفوظ في سلة الزائر.';
+            }
 
-            return true;
+            if ($remainingQuantities === []) {
+                $guest->delete();
+            }
+
+            return ['merged' => $remainingQuantities === [], 'warnings' => $warnings];
         });
     }
 
@@ -621,7 +671,10 @@ class CartService
     private function purchasableVariant(int $variantId): ProductVariant
     {
         // Apply storefront catalog publishing rules to ensure discontinued products cannot be added to cart.
-        $variant = $this->retailVariants()->with('product')->find($variantId);
+        // The shared row lock serializes cart writes with VariantService's
+        // delete lock. If deletion commits first, PostgreSQL rechecks the
+        // predicate after waiting and this lookup returns no purchasable row.
+        $variant = $this->retailVariants()->with('product')->whereKey($variantId)->sharedLock()->first();
         if ($variant === null) {
             throw new BusinessException('الصنف غير متاح للشراء.');
         }

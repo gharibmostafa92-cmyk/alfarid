@@ -200,7 +200,7 @@ class ShippingWebhookContractTest extends TestCase
         $this->assertSame(OrderStatus::Delivered, $order->fresh()->status);
         $this->assertSame('paid', $order->fresh()->payment_status);
         $this->assertSame(1, $order->statusHistories()->count());
-        $this->assertSame(['received', 'processed'], WebhookLog::query()->orderBy('id')->pluck('status')->all());
+        $this->assertSame(['processed'], WebhookLog::query()->orderBy('id')->pluck('status')->all());
     }
 
     public function test_status_transition_matrix_matches_the_rank_rules(): void
@@ -337,6 +337,31 @@ class ShippingWebhookContractTest extends TestCase
         $this->assertSame(2, WebhookLog::query()->where('status', 'processed')->where('event_id', 'like', 'sha256:%')->count());
     }
 
+    public function test_long_event_ids_keep_status_suffix_in_the_deduplication_key(): void
+    {
+        $company = $this->company('bosta', self::SECRET);
+        $shipment = Shipment::factory()->create([
+            'shipping_company_id' => $company->id,
+            'awb_number' => 'AWB-LONG-EVENT',
+            'status' => ShipmentStatus::Created,
+        ]);
+        $eventId = str_repeat('x', 200);
+
+        $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
+            'event_id' => $eventId, 'awb_number' => $shipment->awb_number, 'status' => 'picked_up',
+        ], self::SECRET)->assertOk()->assertExactJson(['received' => true]);
+        $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
+            'event_id' => $eventId, 'awb_number' => $shipment->awb_number, 'status' => 'in_transit',
+        ], self::SECRET)->assertOk()->assertExactJson(['received' => true]);
+
+        $this->assertSame(ShipmentStatus::InTransit, $shipment->fresh()->status);
+        $logs = WebhookLog::query()->orderBy('id')->get();
+        $this->assertCount(2, $logs);
+        $this->assertNotSame($logs[0]->event_id, $logs[1]->event_id);
+        $this->assertLessThanOrEqual(191, mb_strlen($logs[0]->event_id));
+        $this->assertLessThanOrEqual(191, mb_strlen($logs[1]->event_id));
+    }
+
     public function test_malformed_verified_payload_and_alternate_tracking_key(): void
     {
         $company = $this->company('bosta', self::SECRET);
@@ -406,6 +431,47 @@ class ShippingWebhookContractTest extends TestCase
         ], self::SECRET)->assertOk();
         $this->assertFalse($processing->fresh()->needs_attention);
         $this->assertSame(OrderStatus::Processing, $processing->fresh()->status);
+    }
+
+    public function test_superseded_shipments_ignore_late_progression_and_delivery_only_flags_attention(): void
+    {
+        $company = $this->company('bosta', self::SECRET);
+
+        $activeOrder = Order::factory()->create(['status' => OrderStatus::Shipped, 'needs_attention' => false]);
+        $oldActive = Shipment::factory()->create([
+            'order_id' => $activeOrder->id, 'shipping_company_id' => $company->id,
+            'awb_number' => 'AWB-SUPERSEDED-ACTIVE', 'status' => ShipmentStatus::Failed,
+        ]);
+        Shipment::factory()->create([
+            'order_id' => $activeOrder->id, 'shipping_company_id' => $company->id,
+            'awb_number' => 'AWB-SUPERSEDED-NEW-ACTIVE', 'status' => ShipmentStatus::InTransit,
+        ]);
+        $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
+            'event_id' => 'old-resume', 'awb_number' => $oldActive->awb_number, 'status' => 'in_transit',
+        ], self::SECRET)->assertOk()->assertJsonPath('ignored', true);
+        $this->assertSame(ShipmentStatus::Failed, $oldActive->fresh()->status);
+        $this->assertFalse($activeOrder->fresh()->needs_attention);
+
+        $deliveredOrder = Order::factory()->create([
+            'status' => OrderStatus::Delivered, 'payment_method' => 'cod', 'payment_status' => 'paid', 'needs_attention' => false,
+        ]);
+        $oldDelivered = Shipment::factory()->create([
+            'order_id' => $deliveredOrder->id, 'shipping_company_id' => $company->id,
+            'awb_number' => 'AWB-SUPERSEDED-DELIVERED', 'status' => ShipmentStatus::Failed,
+        ]);
+        Shipment::factory()->create([
+            'order_id' => $deliveredOrder->id, 'shipping_company_id' => $company->id,
+            'awb_number' => 'AWB-SUPERSEDED-NEW-DELIVERED', 'status' => ShipmentStatus::Delivered,
+        ]);
+        $historyCount = $deliveredOrder->statusHistories()->count();
+        $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
+            'event_id' => 'old-delivered', 'awb_number' => $oldDelivered->awb_number, 'status' => 'delivered',
+        ], self::SECRET)->assertOk()->assertJsonPath('ignored', true);
+        $this->assertSame(ShipmentStatus::Failed, $oldDelivered->fresh()->status);
+        $this->assertSame(OrderStatus::Delivered, $deliveredOrder->fresh()->status);
+        $this->assertSame('paid', $deliveredOrder->fresh()->payment_status);
+        $this->assertTrue($deliveredOrder->fresh()->needs_attention);
+        $this->assertSame($historyCount, $deliveredOrder->statusHistories()->count());
     }
 
     public function test_sensitive_payload_keys_are_redacted_at_every_depth(): void

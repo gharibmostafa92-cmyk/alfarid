@@ -55,10 +55,10 @@ class CartServiceRaceFixesTest extends TestCase
 
         $merged = app(CartService::class)->mergeGuestCart($customer, $guest->cart_token);
 
-        $this->assertTrue($merged);
+        $this->assertFalse($merged);
         $account = Cart::query()->where('customer_id', $customer->id)->first();
         $this->assertNotNull($account);
         $this->assertNull($account->coupon_id);
-        $this->assertNull(Cart::query()->find($guest->id));
+        $this->assertNotNull(Cart::query()->find($guest->id));
     }
 }

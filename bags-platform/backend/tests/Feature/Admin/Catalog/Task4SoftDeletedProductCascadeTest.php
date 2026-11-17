@@ -8,11 +8,15 @@ use App\Exceptions\BusinessException;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductVariant;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Services\Catalog\BrandService;
 use App\Services\Catalog\CategoryService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class Task4SoftDeletedProductCascadeTest extends TestCase
@@ -75,5 +79,21 @@ class Task4SoftDeletedProductCascadeTest extends TestCase
         $this->expectExceptionMessage('لا يمكن استعادة منتج يتبع لعلامة تجارية محذوفة');
 
         $product->restore();
+    }
+
+    public function test_wholesale_variant_is_hidden_when_an_ancestor_category_was_soft_deleted(): void
+    {
+        $parent = Category::factory()->create(['is_active' => true]);
+        $child = Category::factory()->create(['parent_id' => $parent->id, 'is_active' => true]);
+        $product = Product::factory()->published()->create([
+            'category_id' => $child->id,
+            'sales_channel' => SalesChannel::Wholesale,
+        ]);
+        $variant = ProductVariant::factory()->create(['product_id' => $product->id, 'is_active' => true]);
+
+        // Model an old or externally corrupted hierarchy that normal service paths now prevent.
+        DB::table('categories')->where('id', $parent->id)->update(['deleted_at' => now()]);
+
+        $this->assertFalse(ProductVariant::query()->wholesalePurchasable()->whereKey($variant->id)->exists());
     }
 }

@@ -23,7 +23,8 @@ class NotificationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = $request->boolean('unread_only') ? $user->unreadNotifications() : $user->notifications();
+        $unreadOnly = $request->boolean('unread_only');
+        $query = $unreadOnly ? $user->unreadNotifications() : $user->notifications();
         $page = $query->paginate(20);
 
         return response()->json([
@@ -33,7 +34,10 @@ class NotificationController extends Controller
                 'last_page' => $page->lastPage(),
                 'per_page' => $page->perPage(),
                 'total' => $page->total(),
-                'unread_count' => $user->unreadNotifications()->count(),
+                // unread_only=1 already counted the unread set via paginate();
+                // a second identical COUNT(*) doubles write-table load on the
+                // hottest bell-poll endpoint in every portal.
+                'unread_count' => $unreadOnly ? $page->total() : $user->unreadNotifications()->count(),
             ],
         ]);
     }
@@ -71,8 +75,14 @@ class NotificationController extends Controller
         $user = $request->user();
         $startedAt = now();
         do {
+            // Scan the partial index (notifiable_*, created_at DESC) in its
+            // own order: forward ASC scans force a sort node in memory on
+            // top of the index, while DESC is an index-only walk. No
+            // iteration cap: capping would silently leave items unread, and
+            // each batch removes its rows from the unread set, so the loop
+            // always terminates.
             $ids = $user->unreadNotifications()->where('created_at', '<=', $startedAt)
-                ->reorder()->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+                ->reorder()->orderByDesc('created_at')->limit(1000)->pluck('id');
             if ($ids->isEmpty()) {
                 break;
             }

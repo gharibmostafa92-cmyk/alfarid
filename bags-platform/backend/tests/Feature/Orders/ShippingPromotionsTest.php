@@ -136,6 +136,38 @@ class ShippingPromotionsTest extends TestCase
         $this->assertSame(1, Shipment::query()->count());
     }
 
+    public function test_free_shipping_coupon_does_not_waive_the_carrier_tariff_on_the_shipment(): void
+    {
+        $variant = $this->purchasableVariant(200);
+        $this->giveStock($variant, 10);
+        $city = City::factory()->create(['shipping_cost' => 30]);
+        $order = $this->orderFromCart($variant, 2, $city->id);
+        $coupon = Coupon::factory()->create(['type' => 'free_shipping']);
+        $order->update(['coupon_id' => $coupon->id, 'shipping_cost' => 0, 'grand_total' => 400]);
+        app(OrderService::class)->changeStatus($order, OrderStatus::Confirmed, $this->admin);
+
+        $company = ShippingCompany::factory()->create(['code' => 'bosta']);
+        $zone = ShippingZone::factory()->create();
+        $zone->cities()->sync([$city->id]);
+        ShippingRate::factory()->create([
+            'shipping_company_id' => $company->id, 'shipping_zone_id' => $zone->id, 'base_cost' => 60,
+        ]);
+
+        $this->api('POST', "/api/v1/admin/orders/{$order->id}/shipment", [
+            'shipping_company_id' => $company->id,
+        ])->assertOk()
+            ->assertJsonPath('data.shipping_cost', '60.00')
+            ->assertJsonPath('data.cod_amount', '400.00');
+        $this->assertSame('0.00', $order->fresh()->shipping_cost);
+    }
+
+    public function test_coupon_codes_are_ascii_to_match_the_case_insensitive_unique_index(): void
+    {
+        $this->api('POST', '/api/v1/admin/coupons', [
+            'code' => 'CÓUPON', 'type' => 'fixed', 'value' => 10,
+        ])->assertUnprocessable()->assertJsonValidationErrors('code');
+    }
+
     public function test_shipping_configuration_rejects_invalid_codes_templates_zones_and_rate_bounds(): void
     {
         foreach ([str_repeat('x', 41), 'two words'] as $code) {
@@ -232,6 +264,7 @@ class ShippingPromotionsTest extends TestCase
             Auth::forgetGuards();
 
             return $this->withToken($token)->postJson('/api/v1/store/checkout', [
+                'recipient_name' => 'عميل', 'recipient_phone' => '01012345678',
                 'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',
             ])->assertCreated()->assertJsonPath('data.discount_amount', '30.00');
         };

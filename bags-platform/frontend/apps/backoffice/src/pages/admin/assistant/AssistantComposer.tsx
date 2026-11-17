@@ -122,12 +122,26 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   const wasBusy = useRef(busy);
   useEffect(() => { if (wasBusy.current && !busy) input.current?.focus(); wasBusy.current = busy; }, [busy]);
 
+  // Mirror the backend caps (images 5MB, pricing CSV/TXT 1MB): rejecting here
+  // prevents creating an empty conversation that the upload then orphans
+  // with a 413.
   const addFiles = (incoming: FileList | File[]) => {
-    const valid = Array.from(incoming).filter(f => /^image\/(jpeg|png|webp)$/.test(f.type)
-      || (enablePricing && /\.(csv|txt)$/i.test(f.name)));
+    const picked = Array.from(incoming);
+    const isCsv = (f: File) => enablePricing && /\.(csv|txt)$/i.test(f.name);
+    const limitFor = (f: File) => (isCsv(f) ? 1 : 5) * 1024 * 1024;
+    const oversized = picked.filter(f => f.size > limitFor(f));
+    if (oversized.length) setSearchError(`ملف ${oversized[0].name} أكبر من الحد (${oversized[0].size > 5 * 1024 * 1024 ? '5' : '1'}MB).`);
+    const valid = picked.filter(f => (/^image\/(jpeg|png|webp)$/.test(f.type) || isCsv(f)) && f.size <= limitFor(f));
     if (!valid.length) return;
+    setSearchError('');
     setFiles(prev => [...prev, ...valid].slice(0, 4));
   };
+
+  // Drop mention chips the user deleted by hand: a mention only survives
+  // while its label is still in the message sent to the server.
+  useEffect(() => {
+    setMentions(items => (items.length && items.some(m => !text.includes(m.label)) ? items.filter(m => text.includes(m.label)) : items));
+  }, [text]);
 
   const submit = async () => {
     if (busy || (!text.trim() && files.length === 0)) return;
@@ -159,14 +173,21 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   };
 
   const count = slash ? commands.length : options.length;
+  // Barcode scanners fire rapid successive Enters: a second lookup must not
+  // start while the first is in flight, or duplicate requests race and the
+  // form can submit before the barcode resolves.
+  const barcodeLookupInFlight = useRef(false);
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && marker === '@' && enableInventory && /^[0-9٠-٩۰-۹]{6,}$/.test(query ?? '')) {
       e.preventDefault();
+      if (barcodeLookupInFlight.current) return;
+      barcodeLookupInFlight.current = true;
       void assistantApi.mentions(query ?? '').then(result => {
         const variants: Option[] = (result.variants ?? []).map(o => ({ entity: 'variant', id: o.id, label: o.label, meta: o.meta }));
         if (variants.length === 1) pickMention(variants[0]);
         else { setOptions(variants); if (!variants.length) setSearchError('مفيش صنف بالباركود ده.'); }
-      }).catch(() => setSearchError('تعذر البحث بالباركود؛ جرّب تاني.'));
+      }).catch(() => setSearchError('تعذر البحث بالباركود؛ جرّب تاني.'))
+        .finally(() => { barcodeLookupInFlight.current = false; });
       return;
     }
     if (popOpen && count > 0) {

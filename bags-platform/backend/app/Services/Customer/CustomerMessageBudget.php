@@ -27,6 +27,13 @@ class CustomerMessageBudget
             return null;
         }
 
+        // IPv4-mapped IPv6 (::ffff:a.b.c.d) arrives as 16 bytes on dual-stack
+        // sockets; without unwrapping, every mapped client collapses into one
+        // all-zero bucket and trips the network cap for the whole platform.
+        if (strlen($bin) === 16 && str_starts_with($bin, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff")) {
+            $bin = substr($bin, 12, 4);
+        }
+
         // Mask to /24 (IPv4) or /48 (IPv6) to prevent rate-limit evasion via cheap /64 VPS address rotation.
         $bin = strlen($bin) === 4 ? substr($bin, 0, 3)."\0" : substr($bin, 0, 6).str_repeat("\0", 10);
 
@@ -83,17 +90,16 @@ class CustomerMessageBudget
 
         $keyedBudgets = [];
         $rowsToInsert = [];
-        foreach ($budgets as $scope => $limit) {
-            $key = hash('sha256', $scope);
-            $keyedBudgets[$key] = ['scope' => $scope, 'limit' => $limit];
-            $rowsToInsert[] = ['key' => $key, 'date' => $date, 'sends' => 0];
+        foreach ($budgets as $budgetScope => $limit) {
+            $key = hash('sha256', $budgetScope);
+            $keyedBudgets[$key] = ['scope' => $budgetScope, 'limit' => $limit];
+            $rowsToInsert[$key] = ['key' => $key, 'date' => $date, 'sends' => 0];
         }
         // Sort deterministically by hashed key so every transaction acquires row locks
         // in the exact same total order, eliminating wait-for-graph cycles (deadlocks).
         ksort($keyedBudgets, SORT_STRING);
 
         return DB::transaction(function () use ($keyedBudgets, $rowsToInsert, $date): bool {
-            DB::table('customer_message_budgets')->insertOrIgnore($rowsToInsert);
             $rows = DB::table('customer_message_budgets')
                 ->where('date', $date)
                 ->whereIn('key', array_keys($keyedBudgets))
@@ -101,6 +107,30 @@ class CustomerMessageBudget
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('key');
+
+            // Fail closed on already-exhausted buckets BEFORE writing anything:
+            // a blocked network must not mint a fresh row per random scope.
+            foreach ($keyedBudgets as $key => $meta) {
+                $row = $rows->get($key);
+                if ($row !== null && (int) $row->sends >= $meta['limit']) {
+                    return false;
+                }
+            }
+
+            $missing = array_values(array_diff(array_keys($keyedBudgets), $rows->keys()->all()));
+            if ($missing !== []) {
+                DB::table('customer_message_budgets')->insertOrIgnore(array_intersect_key($rowsToInsert, array_flip($missing)));
+                $fresh = DB::table('customer_message_budgets')
+                    ->where('date', $date)
+                    ->whereIn('key', $missing)
+                    ->orderBy('key')
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('key');
+                foreach ($fresh as $key => $row) {
+                    $rows->put($key, $row);
+                }
+            }
 
             foreach ($keyedBudgets as $key => $meta) {
                 $row = $rows->get($key);
@@ -111,7 +141,7 @@ class CustomerMessageBudget
 
             foreach ($keyedBudgets as $key => $meta) {
                 $sends = (int) $rows->get($key)->sends;
-                $scope = $meta['scope'];
+                $scopeName = $meta['scope'];
                 $limit = $meta['limit'];
 
                 DB::table('customer_message_budgets')
@@ -120,13 +150,13 @@ class CustomerMessageBudget
                     ->increment('sends');
 
                 // Defer warnings until commit to avoid holding database row locks during logging.
-                if (str_starts_with($scope, 'sms:') && $sends + 1 === $limit) {
-                    DB::afterCommit(fn () => logger()->warning('Customer SMS budget exhausted.', ['scope' => $scope, 'date' => $date, 'limit' => $limit]));
+                if (str_starts_with($scopeName, 'sms:') && $sends + 1 === $limit) {
+                    DB::afterCommit(fn () => logger()->warning('Customer SMS budget exhausted.', ['scope' => $scopeName, 'date' => $date, 'limit' => $limit]));
                 }
                 foreach ([0.5, 0.8] as $ratio) {
                     $mark = (int) ceil($limit * $ratio);
-                    if ((str_starts_with($scope, 'sms:global:') || str_starts_with($scope, 'sms:verify:day')) && $sends < $mark && $sends + 1 >= $mark) {
-                        DB::afterCommit(fn () => logger()->warning('Customer SMS budget reached '.($ratio * 100).'%.', ['scope' => $scope, 'date' => $date, 'limit' => $limit]));
+                    if ((str_starts_with($scopeName, 'sms:global:') || str_starts_with($scopeName, 'sms:verify:day')) && $sends < $mark && $sends + 1 >= $mark) {
+                        DB::afterCommit(fn () => logger()->warning('Customer SMS budget reached '.($ratio * 100).'%.', ['scope' => $scopeName, 'date' => $date, 'limit' => $limit]));
                     }
                 }
             }

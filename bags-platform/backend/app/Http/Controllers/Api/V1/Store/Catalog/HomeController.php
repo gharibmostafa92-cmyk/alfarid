@@ -99,6 +99,9 @@ class HomeController extends Controller
 
         $banners = Cache::remember(StoreCatalogService::HOME_BANNERS_CACHE_KEY, 60, $load);
 
-        return $banners instanceof Collection ? $banners : collect($banners);
+        // BannerLinkResolver attaches request-derived attributes. Never mutate the
+        // model instances held by a shared in-memory cache (Octane/array cache).
+        return ($banners instanceof Collection ? $banners : collect($banners))
+            ->map(static fn (Banner $banner): Banner => clone $banner);
     }
 }

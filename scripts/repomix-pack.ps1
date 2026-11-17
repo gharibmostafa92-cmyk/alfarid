@@ -21,6 +21,10 @@ param (
         'security', 'auth', 'backoffice', 'security-backoffice',
         '9.1', 'security-auth', 'security-auth-rbac',
         '9.2', 'backoffice-portal', 'backoffice-ui', 'backoffice-notifications',
+        '9.2.1', 'backoffice-admin', 'backoffice-admin-governance',
+        '9.2.2', 'backoffice-operations', 'backoffice-operations-commerce',
+        '9.2.3', 'backoffice-catalog', 'backoffice-catalog-inventory',
+        '9.2.4', 'backoffice-assistant', 'backoffice-assistant-pos',
         '9.3', 'notifications-settings', 'notifications', 'settings',
         'infra', 'devops', 'infra-devops'
     )]
@@ -64,8 +68,11 @@ $SplitConfigs = [ordered]@{
     'ai-domain-tools'          = 'repomix.subsystem-05.2-ai-domain-tools.json'
     'storefront-client'        = 'repomix.subsystem-06.1-storefront-client.json'
     'catalog-shipping'         = 'repomix.subsystem-06.2-catalog-shipping.json'
-    'security-auth-rbac'       = 'repomix.subsystem-09.1-security-auth-rbac.json'
     'backoffice-portal'        = 'repomix.subsystem-09.2-backoffice-portal.json'
+    'backoffice-admin-gov'     = 'repomix.subsystem-09.2.1-backoffice-admin-governance.json'
+    'backoffice-ops-comm'      = 'repomix.subsystem-09.2.2-backoffice-operations-commerce.json'
+    'backoffice-cat-inv'       = 'repomix.subsystem-09.2.3-backoffice-catalog-inventory.json'
+    'backoffice-asst-pos'      = 'repomix.subsystem-09.2.4-backoffice-assistant-pos.json'
     'notifications-settings'   = 'repomix.subsystem-09.3-notifications-settings.json'
 }
 
@@ -80,6 +87,10 @@ function Resolve-DomainKey([string]$key) {
         '^(6\.1|storefront-client)$'                        { return 'storefront-client' }
         '^(6\.2|catalog-shipping)$'                         { return 'catalog-shipping' }
         '^(9\.1|security-auth|security-auth-rbac)$'         { return 'security-auth-rbac' }
+        '^(9\.2\.1|backoffice-admin|backoffice-admin-governance)$' { return 'backoffice-admin-gov' }
+        '^(9\.2\.2|backoffice-operations|backoffice-operations-commerce)$' { return 'backoffice-ops-comm' }
+        '^(9\.2\.3|backoffice-catalog|backoffice-catalog-inventory)$' { return 'backoffice-cat-inv' }
+        '^(9\.2\.4|backoffice-assistant|backoffice-assistant-pos)$' { return 'backoffice-asst-pos' }
         '^(9\.2|backoffice-portal|backoffice-ui|backoffice-notifications)$' { return 'backoffice-portal' }
         '^(9\.3|notifications-settings|notifications|settings)$' { return 'notifications-settings' }
         '^(pos|terminal|shifts)'                            { return 'pos-terminal' }

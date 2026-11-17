@@ -68,7 +68,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
           <span
             className={`absolute top-0 left-0 ${
               product.badgeTone === 'sale' ? 'bg-[#111]' : product.badgeTone === 'muted' ? 'bg-[#6b7280]' : 'bg-[#4f7d86]'
-            } text-white font-['Oswald'] text-[10px] font-medium uppercase px-2.5 py-1 tracking-[0.5px] z-10`}
+            } text-white font-[var(--font-oswald)] text-[10px] font-medium uppercase px-2.5 py-1 tracking-[0.5px] z-10`}
           >
             {product.badge}
           </span>
@@ -92,7 +92,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
               disabled={adding}
               aria-live="polite"
               aria-label={`Add ${product.name} to cart`}
-              className={`font-['Oswald'] text-[11px] uppercase tracking-wider min-h-[44px] py-1.5 px-4 rounded-xs shadow-sm transition-all duration-200 active:scale-[0.98] ${
+              className={`font-[var(--font-oswald)] text-[11px] uppercase tracking-wider min-h-[44px] py-1.5 px-4 rounded-xs shadow-sm transition-all duration-200 active:scale-[0.98] ${
                 added ? 'bg-emerald-600 text-white' : 'bg-black text-white hover:bg-neutral-800'
               }`}
             >
@@ -105,7 +105,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
       {/* Product Name */}
       <h3
         dir="auto"
-        className="font-['Oswald'] text-[15px] sm:text-[13.5px] font-medium text-[#222] mb-1 tracking-[0.2px] hover:text-[#4f7d88] transition-colors line-clamp-2 leading-snug"
+        className="font-[var(--font-oswald)] text-[15px] sm:text-[13.5px] font-medium text-[#222] mb-1 tracking-[0.2px] hover:text-[#4f7d88] transition-colors line-clamp-2 leading-snug"
       >
         {product.href ? (
           <Link href={product.href} className="py-0.5 inline-block">
@@ -117,7 +117,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
       </h3>
 
       {/* Product Price */}
-      <p className="font-['Oswald'] text-[16px] sm:text-[14px] font-semibold text-[#111] mt-auto flex flex-wrap items-baseline justify-center gap-x-1">
+      <p className="font-[var(--font-oswald)] text-[16px] sm:text-[14px] font-semibold text-[#111] mt-auto flex flex-wrap items-baseline justify-center gap-x-1">
         {product.oldPrice && (
           <span className="text-[#767676] line-through font-normal mr-1.5 text-[12.5px]">
             {formatStorePrice(product.oldPrice)}

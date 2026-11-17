@@ -332,10 +332,13 @@ class ProductService
             }
             foreach ($variants as $variant) {
                 $variant->clearMediaCollection('images');
+                $variant->clearMediaCollection('images_staging');
                 $variant->forceDelete();
             }
             $product->clearMediaCollection('images');
             $product->clearMediaCollection('video');
+            $product->clearMediaCollection('images_staging');
+            $product->clearMediaCollection('video_staging');
             $product->forceDelete();
 
             DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());

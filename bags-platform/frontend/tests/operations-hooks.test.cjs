@@ -219,3 +219,40 @@ test('pending bulk read blocks notification polling until it completes',async()=
   release();await pending;browser.poll();await tick();assert.equal(requests,2);
  }finally{release?.();await pending;h?.unmount();browser.restore();}
 });
+
+test('notificationTarget ignores disabled purchasing routes and markRead does not abort loadMore', async () => {
+ const browser = notificationBrowser();
+ let h, resolvePage2, page2Signal;
+ try {
+  h = harness('useNotifications.ts', undefined, {
+   api: {
+    notificationsApi: {
+     list: async (page, signal) => {
+      if (page === 1) {
+       return notificationPage([notification('n1')], 1, 2, 1);
+      }
+      page2Signal = signal;
+      return new Promise((resolve) => {
+       resolvePage2 = () => resolve(notificationPage([notification('n2')], 2, 2, 1));
+      });
+     },
+     markRead: async (id) => ({ data: { id, read_at: 'now' }, meta: { unread_count: 0 } }),
+    },
+   },
+  });
+  assert.equal(h.hook.notificationTarget({ id: '1', type: 't', data: { purchase_order_id: 42 }, read_at: null, created_at: '' }), null);
+  h.render(() => h.hook.useNotifications());
+  await tick();
+  const loadMorePromise = h.render(() => h.hook.useNotifications()).loadMore();
+  await h.render(() => h.hook.useNotifications()).markRead('n1');
+  assert.equal(page2Signal.aborted, false, 'markRead must not abort an in-flight loadMore request');
+  resolvePage2();
+  await loadMorePromise;
+  await tick();
+  assert.deepEqual(h.render(() => h.hook.useNotifications()).items.map((n) => n.id), ['n1', 'n2']);
+ } finally {
+  resolvePage2?.();
+  h?.unmount();
+  browser.restore();
+ }
+});

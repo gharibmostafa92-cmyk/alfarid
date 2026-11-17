@@ -1,49 +1,50 @@
-{
-    "output": {
-        "filePath": "repomix/outputs/repomix-subsystem-09.3-notifications-settings.xml",
-        "style": "xml",
-        "parsableStyle": true,
-        "fileSummary": true,
-        "directoryStructure": true,
-        "removeComments": false,
-        "removeEmptyLines": true,
-        "truncateBase64": true,
-        "topFilesLength": 20,
-        "showLineNumbers": true,
-        "copyToClipboard": false,
-        "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
-        "headerText": "SUBSYSTEM 9.3: NOTIFICATIONS DISPATCH ENGINE & PLATFORM SETTINGS\nAdministrative notification dispatch pipeline, messaging templates, customer communication budgets, and platform settings schema migrations."
-    },
-    "include": [
-        "bags-platform/backend/app/Http/Controllers/Api/V1/Shared/NotificationController.php",
-        "bags-platform/backend/app/Services/Customer/CustomerMessageBudget.php",
-        "bags-platform/backend/app/Services/Shared/SettingService.php",
-        "bags-platform/backend/app/Notifications/**",
-        "bags-platform/backend/app/Jobs/SendOutboundMessage.php",
-        "bags-platform/backend/app/Listeners/Orders/SendStaffOrderNotification.php",
-        "bags-platform/backend/app/Models/Setting.php",
-        "bags-platform/backend/app/Models/MessageTemplate.php",
-        "bags-platform/backend/app/Models/InboundMessage.php",
-        "bags-platform/backend/app/Models/OutboundMessage.php",
-        "bags-platform/backend/app/Models/Concerns/TracksEditVersion.php",
-        "bags-platform/backend/database/migrations/*notification*.php",
-        "bags-platform/backend/database/migrations/*setting*.php",
-        "bags-platform/backend/database/migrations/*message_budget*.php",
-        "bags-platform/backend/database/migrations/*widen_text*.php"
-    ],
-    "ignore": {
-        "useGitignore": true,
-        "useDefaultPatterns": true,
-        "customPatterns": [
-            "**/tests/**",
-            "**/*.test.*",
-            "**/*.spec.*",
-            "**/vendor/**",
-            "**/node_modules/**",
-            "**/.git/**",
-            "**/storage/**",
-            "**/*.log",
-            "**/dist/**"
-        ]
-    }
+﻿{
+    "output":  {
+                   "filePath":  "repomix/outputs/repomix-subsystem-09.3-notifications-settings.xml",
+                   "style":  "xml",
+                   "parsableStyle":  true,
+                   "fileSummary":  true,
+                   "directoryStructure":  true,
+                   "removeComments":  false,
+                   "removeEmptyLines":  true,
+                   "truncateBase64":  true,
+                   "topFilesLength":  20,
+                   "showLineNumbers":  true,
+                   "copyToClipboard":  false,
+                   "instructionFilePath":  "repomix/instructions/subsystem-audit-master-prompt.md",
+                   "headerText":  "SUBSYSTEM 9.3: NOTIFICATIONS DISPATCH ENGINE \u0026 PLATFORM SETTINGS\nAdministrative notification dispatch pipeline, messaging templates, customer communication budgets, and platform settings schema migrations."
+               },
+    "include":  [
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Shared/NotificationController.php",
+                    "bags-platform/backend/app/Services/Customer/CustomerMessageBudget.php",
+                    "bags-platform/backend/app/Services/Shared/SettingService.php",
+                    "bags-platform/backend/app/Notifications/**",
+                    "bags-platform/backend/app/Jobs/SendOutboundMessage.php",
+                    "bags-platform/backend/app/Listeners/Orders/SendStaffOrderNotification.php",
+                    "bags-platform/backend/app/Models/Setting.php",
+                    "bags-platform/backend/app/Models/MessageTemplate.php",
+                    "bags-platform/backend/app/Models/InboundMessage.php",
+                    "bags-platform/backend/app/Models/OutboundMessage.php",
+                    "bags-platform/backend/app/Models/Concerns/TracksEditVersion.php",
+                    "bags-platform/backend/database/migrations/*notification*.php",
+                    "bags-platform/backend/database/migrations/*setting*.php",
+                    "bags-platform/backend/database/migrations/*message_budget*.php",
+                    "bags-platform/backend/database/migrations/*widen_text*.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/operations-mock/api/useNotifications.ts"
+                ],
+    "ignore":  {
+                   "useGitignore":  true,
+                   "useDefaultPatterns":  true,
+                   "customPatterns":  [
+                                          "**/tests/**",
+                                          "**/*.test.*",
+                                          "**/*.spec.*",
+                                          "**/vendor/**",
+                                          "**/node_modules/**",
+                                          "**/.git/**",
+                                          "**/storage/**",
+                                          "**/*.log",
+                                          "**/dist/**"
+                                      ]
+               }
 }

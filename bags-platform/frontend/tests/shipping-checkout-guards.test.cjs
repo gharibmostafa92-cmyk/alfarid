@@ -42,6 +42,19 @@ test('address lines skip empty parts', () => {
   assert.equal(buildAddressLine({ street: '  Nile ', building: '', floor: ' 2 ', apartment: '' }), 'Nile, Floor 2');
 });
 
+test('choosing a saved address clears stale unit details and address validation enforces server limits', () => {
+  const { applySavedAddressFields, checkoutShippingLengthErrors } = loadTs('../apps/storefront/src/components/sophie/checkout/useCheckout.ts');
+  const previous = { cityId: 1, street: 'Old street', building: '9', floor: '4', apartment: '12', notes: 'Gate' };
+  assert.deepEqual(applySavedAddressFields(previous, { city_id: 2, address_line: 'New street' }), {
+    ...previous, cityId: 2, street: 'New street', building: '', floor: '', apartment: '',
+  });
+  assert.deepEqual(checkoutShippingLengthErrors('x'.repeat(500), 'y'.repeat(500)), {});
+  assert.deepEqual(checkoutShippingLengthErrors('x'.repeat(501), 'y'.repeat(501)), {
+    street: 'العنوان أطول من الحد المسموح',
+    notes: 'ملاحظات الشحن أطول من الحد المسموح',
+  });
+});
+
 test('idempotency keys do not require crypto.randomUUID', () => {
   const { newIdempotencyKey } = loadTs('../apps/storefront/src/components/sophie/checkout/useCheckout.ts');
   const original = global.crypto;

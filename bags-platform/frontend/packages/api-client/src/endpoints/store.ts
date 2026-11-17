@@ -30,6 +30,7 @@ export const brandingEndpoints = {
 };
 
 export const cartHeaders = (session: string | null) => session ? { 'X-Cart-Session': session } : {};
+const CART_REQUEST_TIMEOUT = 12_000;
 
 const emptyStoreCart = (): StoreCart => ({
   id: null,
@@ -47,13 +48,13 @@ const emptyStoreCart = (): StoreCart => ({
 });
 
 export const cartEndpoints = {
-  clear: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.status === 204 ? emptyStoreCart() : response.data.data),
-  get: (session: string | null) => apiClient.get<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.data.data),
-  add: (variantId: number, qty: number, session: string | null) => apiClient.post<{ data: StoreCart }>('/api/v1/store/cart/items', { product_variant_id: variantId, qty }, { headers: cartHeaders(session) }).then(response => response.data.data),
-  update: (id: number, qty: number, session: string | null) => apiClient.put<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { qty }, { headers: cartHeaders(session) }).then(response => response.data.data),
-  remove: (id: number, session: string | null) => apiClient.delete<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { headers: cartHeaders(session) }).then(response => response.status === 204 ? emptyStoreCart() : response.data.data),
-  applyCoupon: (code: string, session: string | null) => apiClient.post<{ data: CartCouponResponse }>('/api/v1/store/cart/coupon', { code }, { headers: cartHeaders(session) }).then(response => response.data.data),
-  removeCoupon: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/coupon', { headers: cartHeaders(session) }).then(response => response.data.data),
+  clear: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.status === 204 ? emptyStoreCart() : response.data.data),
+  get: (session: string | null) => apiClient.get<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.data.data),
+  add: (variantId: number, qty: number, session: string | null) => apiClient.post<{ data: StoreCart }>('/api/v1/store/cart/items', { product_variant_id: variantId, qty }, { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.data.data),
+  update: (id: number, qty: number, session: string | null) => apiClient.put<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { qty }, { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.data.data),
+  remove: (id: number, session: string | null) => apiClient.delete<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.status === 204 ? emptyStoreCart() : response.data.data),
+  applyCoupon: (code: string, session: string | null) => apiClient.post<{ data: CartCouponResponse }>('/api/v1/store/cart/coupon', { code }, { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.data.data),
+  removeCoupon: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/coupon', { headers: cartHeaders(session), timeout: CART_REQUEST_TIMEOUT }).then(response => response.data.data),
 };
 
 export const storeEndpoints = {
@@ -94,6 +95,6 @@ export const accountEndpoints = {
   wallet: (page = 1, filters: { direction?: 'credit' | 'debit'; type?: string; from?: string; to?: string } = {}) => apiClient.get<{ balance: number | string; transactions: { data: Array<{ id: number; type: string; type_label?: string | null; amount: number | string; balance_after: number | string; reference_type: string | null; reference_id: number | null; reference_label?: string | null; created_at: string }>; current_page: number; last_page: number; total: number } }>('/api/v1/store/account/wallet', { params: { page, ...filters } }).then((r) => r.data),
   returns: (page = 1) => apiClient.get<{ data: unknown[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/v1/store/account/returns?page=${page}`).then((r) => r.data),
   returnDetail: (id: number) => apiClient.get<{ data: unknown }>(`/api/v1/store/account/returns/${id}`).then((r) => r.data.data),
-  createReturn: (fd: FormData) => apiClient.post<{ data: { id: number } }>('/api/v1/store/account/returns', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data),
+  createReturn: (fd: FormData) => apiClient.post<{ data: { id: number } }>('/api/v1/store/account/returns', fd).then((r) => r.data.data),
   addresses: () => apiClient.get<{ data: Array<{ id: number; city_id: number; city_name_ar: string | null; city_name_en: string | null; address_line: string; is_default: boolean }> }>('/api/v1/store/account/addresses').then((r) => r.data.data),
 };

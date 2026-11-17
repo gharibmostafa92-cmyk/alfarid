@@ -45,6 +45,26 @@ class CatalogPriceBatchTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
+    public function test_unbatched_mutations_in_one_transaction_dispatch_one_refresh_with_all_product_ids(): void
+    {
+        Bus::fake([RefreshCatalogRetailPrices::class]);
+        $observer = app(CatalogRetailPriceObserver::class);
+
+        DB::transaction(function () use ($observer): void {
+            $observer->saved((new ProductVariant)->forceFill(['product_id' => 31]));
+            $observer->saved((new ProductVariant)->forceFill(['product_id' => 42]));
+            $observer->saved((new ProductVariant)->forceFill(['product_id' => 31]));
+            Bus::assertNothingDispatched();
+        });
+
+        Bus::assertDispatchedTimes(RefreshCatalogRetailPrices::class, 1);
+        Bus::assertDispatched(RefreshCatalogRetailPrices::class, function (RefreshCatalogRetailPrices $job): bool {
+            $this->assertEqualsCanonicalizing([31, 42], $job->productId);
+
+            return true;
+        });
+    }
+
     public function test_failed_batch_does_not_publish_or_leak_product_ids_into_the_next_batch(): void
     {
         $discarded = ProductVariant::factory()->create();

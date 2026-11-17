@@ -121,6 +121,11 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
 
   const [conversations, setConversations] = useState<Conv[]>([]);
   const [listLoading, setListLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
+  const [conversationTotal, setConversationTotal] = useState(0);
+  const [totalTokens, setTotalTokens] = useState(0);
+  const listRequestSequence = useRef(0);
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ConvMsg[]>([]);
   const [actionStatus, setActionStatus] = useState<Record<string, string>>({});
@@ -135,6 +140,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [oncePassword, setOncePassword] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [tab, setTab] = useState<'chat' | 'admin'>('chat');
   const [showLogs, setShowLogs] = useState(false);
@@ -159,6 +165,10 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   ];
 
   const consumedPrompt = useRef(false);
+  // initialSelection belongs to the entry context only: consume it on the
+  // first send, and drop it whenever the conversation changes, so later
+  // chats are never polluted with a stale entity.
+  const consumedSelection = useRef(false);
   useEffect(() => {
     if (!initialPrompt || consumedPrompt.current) return;
     consumedPrompt.current = true;
@@ -175,18 +185,46 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   useEffect(() => { const t = setTimeout(() => setDebouncedQuery(searchQuery), 250); return () => clearTimeout(t); }, [searchQuery]);
 
   const refreshList = useCallback(async () => {
+    const request = ++listRequestSequence.current;
     setListLoading(true);
     try {
       const page = await assistantApi.listPaginated(1, debouncedQuery, showLogs);
+      if (request !== listRequestSequence.current) return;
       setConversations(page.data);
+      setCurrentPage(page.current_page);
+      setLastPage(page.last_page);
+      setConversationTotal(page.total);
+      setTotalTokens(page.total_tokens);
     } catch {
-      setError({ message: 'تعذر تحميل المحادثات.', kind: 'transient', retry: () => void refreshList() });
+      if (request === listRequestSequence.current) setError({ message: 'تعذر تحميل المحادثات.', kind: 'transient', retry: () => void refreshList() });
     } finally {
-      setListLoading(false);
+      if (request === listRequestSequence.current) setListLoading(false);
     }
   }, [debouncedQuery, showLogs]);
 
   useEffect(() => { void refreshList(); }, [refreshList]);
+
+  const loadMoreConversations = useCallback(async () => {
+    if (listLoading || currentPage >= lastPage) return;
+    const request = ++listRequestSequence.current;
+    setListLoading(true);
+    try {
+      const page = await assistantApi.listPaginated(currentPage + 1, debouncedQuery, showLogs);
+      if (request !== listRequestSequence.current) return;
+      setConversations(prev => {
+        const existing = new Set(prev.map(conversation => conversation.id));
+        return [...prev, ...page.data.filter(conversation => !existing.has(conversation.id))];
+      });
+      setCurrentPage(page.current_page);
+      setLastPage(page.last_page);
+      setConversationTotal(page.total);
+      setTotalTokens(page.total_tokens);
+    } catch {
+      if (request === listRequestSequence.current) setError({ message: 'تعذر تحميل محادثات أقدم.', kind: 'transient', retry: () => void loadMoreConversations() });
+    } finally {
+      if (request === listRequestSequence.current) setListLoading(false);
+    }
+  }, [listLoading, currentPage, lastPage, debouncedQuery, showLogs]);
 
   // Welcome card is built deterministically on the backend without LLM tokens and shown in new sessions for authorized staff.
   const canWelcome = (can('customers.approve') && can('customers.view')) || can('products.view');
@@ -209,22 +247,12 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   }, []);
   useEffect(() => { if (atBottom) scrollToBottom(); }, [messages, steps, pendingText, streaming, atBottom, scrollToBottom]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setTab('chat'); setCollapsed(false); setDrawer(true); setTimeout(() => searchRef.current?.focus(), 50); }
-      if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); void createConversation(); }
-      if (e.key === 'Escape') setDrawer(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
-
   const openConversation = useCallback(async (id: number) => {
     setBusy(true);
     setError(null);
     setDrawer(false);
     setTab('chat');
+    consumedSelection.current = true;
     try {
       const conv = await assistantApi.show(id);
       setCurrentId(conv.id);
@@ -244,13 +272,14 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   useEffect(() => { if (initialConversationId) void openConversation(initialConversationId); }, [initialConversationId, openConversation]);
 
   const createConversation = useCallback(async () => {
-    if (showLogs) return;
+    if (showLogs || busy) return;
     if (currentId && messages.length === 0) { setDrawer(false); setTab('chat'); return; }
     setBusy(true);
     setError(null);
     try {
       const conv = await assistantApi.create();
       setConversations(prev => [conv, ...prev]);
+      setConversationTotal(prev => prev + 1);
       setCurrentId(conv.id);
       setMessages([]);
       setActionStatus({});
@@ -261,18 +290,34 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     } finally {
       setBusy(false);
     }
-  }, [currentId, messages.length, showLogs]);
+  }, [currentId, messages.length, showLogs, busy]);
+
+  // Declared after createConversation: the shortcut rebinds when the guarded
+  // callback identity changes instead of re-subscribing on every render.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setTab('chat'); setCollapsed(false); setDrawer(true); setTimeout(() => searchRef.current?.focus(), 50); }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); void createConversation(); }
+      if (e.key === 'Escape') setDrawer(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [createConversation]);
 
   const deleteConversation = useCallback(async (id: number) => {
     setConfirmDelete(null);
     try {
       await assistantApi.remove(id);
+      const removed = conversations.find(c => c.id === id);
       setConversations(prev => prev.filter(c => c.id !== id));
+      setConversationTotal(prev => Math.max(0, prev - 1));
+      setTotalTokens(prev => Math.max(0, prev - (removed?.total_tokens ?? 0)));
       if (currentId === id) { setCurrentId(null); setMessages([]); }
     } catch {
       setError({ message: 'تعذر حذف المحادثة.', kind: 'transient' });
     }
-  }, [currentId]);
+  }, [currentId, conversations]);
 
   const togglePin = useCallback(async (c: Conv) => {
     setConversations(prev => prev.map(x => (x.id === c.id ? { ...x, is_pinned: !c.is_pinned } : x)));
@@ -291,6 +336,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
           const conv = await assistantApi.create();
           id = conv.id;
           setConversations(prev => [conv, ...prev]);
+          setConversationTotal(prev => prev + 1);
           setCurrentId(id);
         } catch {
           setError({ message: 'تعذر إنشاء محادثة.', kind: 'transient' });
@@ -312,9 +358,11 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
           attachmentIds = uploaded.map(u => u.id);
           setStatus('ببعت الطلب…');
         }
+        const selection = consumedSelection.current ? undefined : initialSelection;
+        consumedSelection.current = true;
         await assistantApi.stream(
           id,
-          { text, selection: initialSelection, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })), attachments: attachmentIds },
+          { text, selection, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })), attachments: attachmentIds },
           message => {
             setStatus(prev => {
               if (prev !== message && prev !== 'جاهز') setSteps(s => (s.at(-1) === prev ? s : [...s, prev].slice(-4)));
@@ -325,6 +373,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         setStreaming(false);
         setPendingText(null);
         await openConversation(id);
+        await refreshList();
         return true;
       } catch (e) {
         const convId = id;
@@ -341,7 +390,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         setStatus('جاهز');
       }
     },
-    [currentId, openConversation, initialSelection],
+    [currentId, openConversation, initialSelection, refreshList],
   );
 
   const pick = useCallback(
@@ -364,12 +413,14 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         if (kind === 'confirm') {
           const res = await assistantApi.confirm(id, typed, selected);
           const pw = (res.result as { generated_password?: unknown } | undefined)?.generated_password;
-          if (typeof pw === 'string' && pw !== '') { setOncePassword(pw); setCopied(false); setRevealed(false); }
+          if (typeof pw === 'string' && pw !== '') { setOncePassword(pw); setCopied(false); setCopyFailed(false); setRevealed(false); }
         } else if (kind === 'cancel') await assistantApi.cancel(id);
         else await assistantApi.undo(id);
         if (currentId) await openConversation(currentId);
+        return true;
       } catch (e) {
         setError({ message: apiErrorMessage(e, 'تعذر تنفيذ الإجراء.'), kind: apiErrorKind(e) });
+        return false;
       } finally {
         setBusy(false);
       }
@@ -388,8 +439,6 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
 
   const pendingCount = (c: Conv) => (c.pending_actions ?? []).filter(a => a.status === 'pending').length;
   const elapsed = streaming ? Math.floor((Date.now() - startedAt) / 1000) : 0;
-  const totalTokens = conversations.reduce((s, c) => s + (c.total_tokens || 0), 0);
-
   /* ---------------- Sidebar ---------------- */
   const sidebar = (
     <aside className="as-sidebar" aria-label="المحادثات">
@@ -471,10 +520,21 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
             <span>محادثاتك مع المساعد هتظهر هنا، وتقدر تثبّت المهم منها.</span>
           </div>
         )}
+        {currentPage < lastPage && (
+          <button
+            type="button"
+            className="as-btn as-btn--ghost as-btn--sm"
+            style={{ width: '100%', marginBlock: 8 }}
+            disabled={listLoading}
+            onClick={() => void loadMoreConversations()}
+          >
+            {listLoading ? 'جاري التحميل…' : `تحميل محادثات أقدم (${conversations.length} من ${conversationTotal})`}
+          </button>
+        )}
       </nav>
       <div className="as-sidebar-foot">
         <Icon name="chart" size={14} />
-        <span className="as-num">{totalTokens.toLocaleString('ar-EG')} توكن</span>
+        <span className="as-num">{totalTokens.toLocaleString('ar-EG')} توكن · {conversationTotal.toLocaleString('ar-EG')} محادثة</span>
         <button type="button" className="as-btn as-btn--ghost as-btn--sm" style={{ marginInlineStart: 'auto' }} onClick={() => { setTab('admin'); setDrawer(false); }}>التفاصيل</button>
       </div>
     </aside>
@@ -564,13 +624,16 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
                         <RichText text={m.content} />
                         {(m.ui_blocks ?? []).map((block: UiBlock, i: number) => (
                           <AssistantBlock
-                            key={`${m.id}-${i}`}
-                            block={block}
+                            key={`${m.id}-${String(block.action_id ?? block.undo_action_id ?? i)}`}
+                            block={{
+                              ...block,
+                              created_at: block.created_at ?? current?.pending_actions?.find(action => action.id === String(block.action_id))?.created_at,
+                            }}
                             busy={busy || showLogs}
                             status={actionStatus[String(block.action_id ?? block.undo_action_id ?? '')]}
                             execute={execute}
                             onPick={(entity, id, label) => { if (!showLogs) void pick(entity, id, label); }}
-                            onAction={(kind, id, typed, selected) => { if (!showLogs) void act(kind, id, typed, selected); }}
+                            onAction={(kind, id, typed, selected) => showLogs ? false : act(kind, id, typed, selected)}
                             onPrompt={showLogs ? undefined : (text, submit) => {
                               if (submit) void send(text);
                               else setSeed({ text, n: Date.now() });
@@ -656,7 +719,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       </div>
 
       {oncePassword !== '' && (
-        <div className="as-scrim">
+        <div className="as-scrim" onKeyDown={e => { if (e.key === 'Escape') { setOncePassword(''); setRevealed(false); setCopyFailed(false); } }}>
           <div role="dialog" aria-modal="true" aria-labelledby="as-pw-title" className="as-modal">
             <span className="as-modal-ic"><Icon name="key" size={22} /></span>
             <div style={{ display: 'grid', gap: '.35rem' }}>
@@ -669,11 +732,17 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
               <button
                 type="button"
                 className={`as-btn as-btn--sm ${copied ? '' : 'as-btn--primary'}`}
-                onClick={() => { void navigator.clipboard?.writeText(oncePassword).then(() => setCopied(true)).catch(() => undefined); }}
+                onClick={() => {
+                  if (!navigator.clipboard) { setCopyFailed(true); return; }
+                  void navigator.clipboard.writeText(oncePassword).then(() => { setCopied(true); setCopyFailed(false); }).catch(() => setCopyFailed(true));
+                }}
               >
                 <Icon name={copied ? 'check' : 'copy'} size={14} />{copied ? 'اتنسخت' : 'نسخ'}
               </button>
             </div>
+            {copyFailed && (
+              <div className="as-alert as-alert--warning"><Icon name="alert" size={16} /><div className="as-alert-body"><span>تعذر النسخ التلقائي — حدد كلمة المرور وانسخها يدويًا قبل إغلاق النافذة.</span></div></div>
+            )}
             {!copied && (
               <div className="as-alert as-alert--warning"><Icon name="alert" size={16} /><div className="as-alert-body"><span>لو قفلت النافذة من غير ما تنسخ، هتحتاج تعمل إعادة تعيين لكلمة المرور.</span></div></div>
             )}

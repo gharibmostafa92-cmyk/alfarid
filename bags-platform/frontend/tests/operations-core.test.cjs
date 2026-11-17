@@ -9,7 +9,11 @@ function load(relative, dependencies = {}) {
   compiled.filename = filename; compiled.paths = Module._nodeModulePaths(path.dirname(filename));
   compiled.require = name => name in dependencies ? dependencies[name] : Module.prototype.require.call(compiled, name);
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      ...(filename.endsWith('.tsx') ? { jsx: ts.JsxEmit.React } : {}),
+    },
   }).outputText, filename);
   return compiled.exports;
 }
@@ -98,7 +102,7 @@ test('protected signed attachments navigate directly without fetching R2 bytes',
   const tab = { opener: {}, location: { href: '' }, close() {} };
   global.window = { open: () => tab };
   const signedUrl = 'https://private.example/receipt?signature=abc';
-  const files = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: { get: async (url, config) => {
+  const files = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: { defaults: { baseURL: 'https://private.example' }, get: async (url, config) => {
     assert.equal(config.params.signed, 1);
     return { data: new Blob([JSON.stringify({ url: signedUrl })]), headers: { 'content-type': 'application/json' } };
   } } } });
@@ -148,4 +152,108 @@ test('reports preserve rows/totals, encode booleans and notifications retain UUI
   await reportsApi.shifts({only_differences:true}); assert.equal(calls[1].config.params.only_differences,1);
   const page = await notificationsApi.list(2); assert.equal(page.meta.unread_count,5); assert.equal(calls[2].config.params.page,2);
   const r = await notificationsApi.markRead('uuid-a'); assert.equal(r.meta.unread_count,4); assert.ok(calls[3].url.endsWith('/uuid-a/read'));
+});
+
+test('allPages enforces a default page cap to prevent unbounded memory and network exhaustion', async () => {
+  let calls = 0;
+  await assert.rejects(
+    http.allPages(async (page) => {
+      calls++;
+      return { data: [{ id: page }], meta: { last_page: 100 } };
+    }),
+    /max|limit|page/i,
+  );
+  assert.equal(calls, 20);
+});
+
+test('idempotent posts reuse a retry key, rotate for changed input, and clear after success', async () => {
+  const keys = [];
+  let fail = true;
+  const client = { post: async (_url, _body, config) => {
+    keys.push(config.headers['Idempotency-Key']);
+    if (fail) throw new Error('network timeout');
+    return { data: { ok: true } };
+  } };
+  const requests = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: client } });
+
+  await assert.rejects(requests.idempotentPost('/payments/1/approve', { amount: '12.00' }));
+  await assert.rejects(requests.idempotentPost('/payments/1/approve', { amount: '12.00' }));
+  assert.equal(keys[0], keys[1], 'retrying the same action must reuse its original key');
+
+  await assert.rejects(requests.idempotentPost('/payments/1/approve', { amount: '13.00' }));
+  assert.notEqual(keys[1], keys[2], 'changed operation input must get a new key');
+
+  fail = false;
+  await requests.idempotentPost('/payments/1/approve', { amount: '13.00' });
+  await requests.idempotentPost('/payments/1/approve', { amount: '13.00' });
+  assert.notEqual(keys[3], keys[4], 'a completed action must not reuse its key');
+});
+
+test('signedAttachmentUrl rejects insecure http:// and untrusted external hosts', async () => {
+  const mkResp = (url) => ({
+    headers: { 'content-type': 'application/json' },
+    data: new Blob([JSON.stringify({ url })], { type: 'application/json' }),
+  });
+  await assert.rejects(http.signedAttachmentUrl(mkResp('http://evil.example/file.pdf')), /Invalid attachment URL/i);
+  await assert.rejects(http.signedAttachmentUrl(mkResp('https://evil.example/phish.html')), /Invalid attachment URL|Untrusted/i);
+});
+
+test('openProtectedFile decodes JSON Blob errors so server messages are not lost', async () => {
+  const previous = { window: global.window };
+  const tab = { opener: {}, location: { href: '' }, close() {} };
+  global.window = { open: () => tab, location: { origin: 'https://admin.alfarid.test' } };
+  const errBlob = new Blob([JSON.stringify({ message: 'ليس لديك صلاحية لهذا المرفق' })], { type: 'application/json' });
+  const files = load(base + 'http.ts', {
+    '../../axios-instance': {
+      defaultApiClient: {
+        defaults: { baseURL: 'https://api.alfarid.test' },
+        get: async () => {
+          const e = new Error('Forbidden');
+          e.response = { status: 403, headers: { 'content-type': 'application/json' }, data: errBlob };
+          throw e;
+        },
+      },
+    },
+  });
+  try {
+    await assert.rejects(
+      files.openProtectedFile('/receipt'),
+      (err) => files.parseApiError(err).message === 'ليس لديك صلاحية لهذا المرفق',
+    );
+  } finally {
+    global.window = previous.window;
+  }
+});
+
+test('pagerWindow renders sliding window around current page with ellipses', () => {
+  const ui = load('apps/backoffice/src/pages/admin/operations-mock/ui.tsx', {
+    react: { default: { createElement: () => null }, createContext: () => ({}), createElement: () => null, Fragment: 'fragment', useContext: () => ({}), useEffect: () => {}, useRef: () => ({}), useState: (v) => [v, () => {}] },
+    'react-dom': { createPortal: (x) => x },
+    '@alfarid/ui': {},
+  });
+  assert.deepEqual(ui.pagerWindow(1, 4), [1, 2, 3, 4]);
+  assert.deepEqual(ui.pagerWindow(6, 10), [1, '...', 5, 6, 7, '...', 10]);
+  assert.deepEqual(ui.pagerWindow(1, 10), [1, 2, '...', 10]);
+  assert.deepEqual(ui.pagerWindow(10, 10), [1, '...', 9, 10]);
+  assert.equal(ui.parseMaxBytes('10MB'), 10 * 1024 * 1024);
+  assert.ok(ui.validateDropzoneFile({ name: 'big.pdf', size: 11 * 1024 * 1024, type: 'application/pdf' }, '.pdf', '10MB'));
+  assert.ok(ui.validateDropzoneFile({ name: 'bad.exe', size: 100, type: 'application/x-msdownload' }, '.pdf,.png', '10MB'));
+  assert.equal(ui.validateDropzoneFile({ name: 'ok.pdf', size: 1024, type: 'application/pdf' }, '.pdf,.png', '10MB'), null);
+});
+
+test('canViewOperation fails closed for unknown pages and parseOperationsHash parses route', () => {
+  const noop = new Proxy({}, { get: () => () => null });
+  const pageMod = load('apps/backoffice/src/pages/admin/operations-mock/OperationsMockPage.tsx', {
+    react: { default: {}, useLayoutEffect: () => {}, useEffect: () => {}, useRef: () => ({}), useState: (v) => [v, () => {}], useMemo: (f) => f() },
+    'react-dom': { createPortal: (x) => x },
+    './operations-reference.css?inline': '',
+    './api/useNotifications': { useNotifications: () => ({}) },
+    './api/source': { USE_MOCK: false },
+    './ui': noop, './orders': noop, './commerce': noop, './finance': noop, './reports': noop,
+  });
+  assert.equal(pageMod.canViewOperation('unknown_secret_page', () => true), false);
+  assert.equal(pageMod.canViewOperation('orders', () => false), false);
+  assert.equal(pageMod.canViewOperation('orders', (p) => p === 'orders.view'), true);
+  assert.deepEqual(pageMod.parseOperationsHash('#/wholesale?sub=notices'), { m: 'wholesale', id: undefined, sub: 'notices' });
+  assert.deepEqual(pageMod.parseOperationsHash('#/orders/123'), { m: 'orders', id: '123', sub: undefined });
 });

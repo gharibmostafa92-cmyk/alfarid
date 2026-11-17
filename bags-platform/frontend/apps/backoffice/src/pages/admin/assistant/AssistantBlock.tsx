@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { isSensitive, permLabel } from '../admin-mock/api/permission-catalog';
 import { defaultApiClient, priceListsApi } from '@alfarid/api-client';
-import type { UiBlock } from './api';
+import { isSafeImageSrc, resolveSafeDownloadPath, sanitizeDownloadName, type UiBlock } from './api';
 import { Icon, Ring, entityIcon, entityLabel } from './icons';
 
 interface Props {
@@ -11,7 +11,7 @@ interface Props {
   execute: boolean;
   confirmationBlocked?: boolean;
   onPick: (entity: string, id: string | number, label: string) => void;
-  onAction: (kind: 'confirm' | 'cancel' | 'undo', id: string, typed?: string, selected?: string[]) => void;
+  onAction: (kind: 'confirm' | 'cancel' | 'undo', id: string, typed?: string, selected?: string[]) => void | boolean | Promise<boolean>;
   /** Populates composer with suggested action message on prompt click. */
   onPrompt?: (text: string, submit?: boolean) => void;
 }
@@ -168,10 +168,15 @@ const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart
 const inventoryBucketLabels: Record<string, string> = { on_hand: 'الرصيد الفعلي', reserved: 'المحجوز', damaged: 'التالف', in_transit: 'في الطريق', available: 'المتاح' };
 
 async function downloadDocument(url: string, name: string) {
-  const r = await defaultApiClient.get(url, { responseType: 'blob' });
+  // Never pass model-supplied URLs to the authenticated client unchecked:
+  // only same-API-origin admin download paths are fetched, so a prompt-
+  // injected link cannot leak the staff token to an outside host.
+  const path = resolveSafeDownloadPath(url);
+  if (!path) throw new Error('رابط التنزيل غير موثوق.');
+  const r = await defaultApiClient.get(path, { responseType: 'blob' });
   const href = URL.createObjectURL(r.data as Blob);
   const a = document.createElement('a');
-  a.href = href; a.download = name; a.click();
+  a.href = href; a.download = sanitizeDownloadName(name, 'document'); a.click();
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
@@ -200,9 +205,20 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   const items = (block.items ?? []) as { key: string; label: string; change: string; before?: unknown; after?: unknown; ok?: boolean; message?: string }[];
   const selectableItems = items.filter(item => item.ok !== false);
   const [selected, setSelected] = useState(() => selectableItems.map(item => item.key));
-  // Initial remaining timeout stored as denominator for progress ring calculation.
-  const ttlTotal = useRef<number | null>(null);
-  const undoTotal = useRef<number | null>(null);
+  // Derive the proposal's full TTL from server timestamps, so reopening a
+  // conversation does not make an almost-expired action look brand new.
+  const [ttlTotal] = useState<number | null>(() => {
+    const created = Date.parse(String(block.created_at));
+    const expires = Date.parse(String(block.expires_at));
+    if (!Number.isFinite(created) || !Number.isFinite(expires) || expires <= created) return null;
+    return Math.ceil((expires - created) / 1000);
+  });
+  const [undoTotal] = useState<number | null>(() => {
+    const until = Date.parse(String(block.undo_available_until));
+    if (!Number.isFinite(until)) return null;
+    const s = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    return s > 0 ? s : null;
+  });
 
   useEffect(() => {
     if (!block.expires_at && !block.undo_available_until) return;
@@ -234,8 +250,14 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
             {needsReview && <label><input type="checkbox" checked={countsReviewed} onChange={e => setCountsReviewed(e.target.checked)} /> راجعت السطور ذات الثقة المنخفضة</label>}
             {edited && onPrompt && <button type="button" className="as-btn" disabled={counts.some((r, i) => { const n = Number(countEdits[i] ?? r.counted_qty); return (countEdits[i] === '') || !Number.isSafeInteger(n) || n < 0; })} onClick={() => {
               const rows = counts.map((row, i) => `${row.sku ?? `variant_id=${row.product_variant_id ?? row.variant_id}`}: ${countEdits[i] ?? row.counted_qty}`).join('، ');
-              onAction('cancel', String(block.action_id));
-              onPrompt(`جهز اقتراح تسجيل عد جديد للجرد ${block.stocktake_number ?? block.stocktake_id ?? ''} بالكميات المعدلة: ${rows}`);
+              // Await the cancel round-trip before seeding the new prompt so
+              // the replacement proposal cannot collide with the in-flight
+              // cancellation (or a 423 lock) on the server.
+              void (async () => {
+                const cancelled = await onAction('cancel', String(block.action_id));
+                if (cancelled === false) return;
+                onPrompt(`جهز اقتراح تسجيل عد جديد للجرد ${block.stocktake_number ?? block.stocktake_id ?? ''} بالكميات المعدلة: ${rows}`);
+              })();
             }}>جهز اقتراحًا بالعد المعدّل</button>}
           </fieldset>
         )}
@@ -270,7 +292,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     const variantsList = (block.variants ?? []) as { id: number; sku: string; color_name_ar?: string; color_hex?: string; size?: string; retail_price?: number; wholesale_price?: number; is_active: boolean }[];
     const priceRange = asRecord(block.price_range);
     const link = normalizeDeepLink(block.deep_link ?? (block.product_id ? `#/products/${String(block.product_id)}/edit` : undefined));
-    const thumb = typeof block.thumb_url === 'string' && block.thumb_url ? block.thumb_url : undefined;
+    const thumb = typeof block.thumb_url === 'string' && isSafeImageSrc(block.thumb_url) ? block.thumb_url : undefined;
     return (
       <section className="as-block" aria-label="كارت المنتج">
         <header className="as-block-head">
@@ -365,7 +387,8 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '.65rem' }}>
               {galleryItems.map((img, idx) => {
                 const isCover = img.is_cover ?? idx === 0;
-                const src = img.thumb_url ?? img.url ?? '';
+                const rawSrc = img.thumb_url ?? img.url ?? '';
+                const src = isSafeImageSrc(rawSrc) ? rawSrc : '';
                 return (
                   <div key={img.id} style={{ border: isCover ? '2px solid var(--as-accent, #3b82f6)' : '1px solid var(--as-border)', borderRadius: 8, padding: '.35rem', display: 'grid', gap: '.3rem', position: 'relative' }}>
                     {src ? (
@@ -633,7 +656,6 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   ) {
     const expires = Date.parse(String(block.expires_at));
     const seconds = Math.max(0, Math.ceil((expires - now) / 1000));
-    if (ttlTotal.current === null && seconds > 0) ttlTotal.current = seconds;
     const expired = !Number.isFinite(expires) || seconds === 0;
     const pending = !status || status === 'pending';
     const required = typeof block.typed_confirmation === 'string' ? block.typed_confirmation : '';
@@ -647,7 +669,9 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     const sensitive = !!required || warnings.length > 0 || addList.some(isSensitive);
     const state = !pending ? status! : expired ? 'expired' : 'pending';
     const level = seconds <= 15 ? 'crit' : seconds <= 60 ? 'warn' : 'ok';
-    const typedOk = !required || typed.trim().toLocaleLowerCase() === required.trim().toLocaleLowerCase();
+    // Plain toLowerCase: locale-aware casing (e.g. Turkish dotted-I) would
+    // reject a correct Latin SKU typed on a device with another locale.
+    const typedOk = !required || typed.trim().toLowerCase() === required.trim().toLowerCase();
     const icon = block.type === 'permission_diff' ? 'key' : block.type === 'bulk_plan' ? 'layers' : block.type === 'category_tree_diff' ? 'folder' : block.type === 'variant_matrix' || block.type === 'price_diff' ? 'tag' : 'shield';
     const kindLabel = block.type === 'permission_diff' ? 'تعديل صلاحيات' : block.type === 'bulk_plan' ? 'عملية جماعية' : block.type === 'category_tree_diff' ? 'تعديل شجرة الأقسام' : block.type === 'variant_matrix' ? 'مصفوفة التشكيلات' : block.type === 'price_diff' ? 'تعديل أسعار جماعي' : 'تعديل يحتاج تأكيد';
     const allOn = selectableItems.length > 0 && selected.length === selectableItems.length;
@@ -919,7 +943,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
             <button type="button" className="as-btn" disabled={busy || !pending || expired} onClick={() => onAction('cancel', String(block.action_id))}>إلغاء</button>
             <span className="as-spacer" />
             <span className="as-timer as-num" data-level={level} role="timer" aria-label={`متبقي ${fmtClock(seconds)} على انتهاء المهلة`}>
-              <Ring fraction={ttlTotal.current ? seconds / ttlTotal.current : 1} size={18} />
+              <Ring fraction={ttlTotal ? seconds / ttlTotal : 1} size={18} />
               متبقي {fmtClock(seconds)}
             </span>
           </footer>
@@ -1176,7 +1200,6 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     const undo = typeof block.undo_action_id === 'string' ? block.undo_action_id : undefined;
     const undoUntil = Date.parse(String(block.undo_available_until));
     const undoSec = Math.max(0, Math.ceil((undoUntil - now) / 1000));
-    if (undoTotal.current === null && undoSec > 0) undoTotal.current = undoSec;
     const undone = status === 'undone';
     const undoLive = undo && !undone && undoUntil > now;
     const ok = !!block.ok;
@@ -1202,7 +1225,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
         )}
         {(link || (undoLive && execute) || (onPrompt && execute && quickActions.length > 0)) && (
           <>
-            {undoLive && execute && <div className="as-undo-bar" aria-hidden="true"><span style={{ width: `${undoTotal.current ? (undoSec / undoTotal.current) * 100 : 100}%` }} /></div>}
+            {undoLive && execute && <div className="as-undo-bar" aria-hidden="true"><span style={{ width: `${undoTotal ? (undoSec / undoTotal) * 100 : 100}%` }} /></div>}
             <footer className="as-block-foot">
               {link && <a className="as-btn as-btn--sm" href={link} style={{ textDecoration: 'none' }}><Icon name="external" size={15} />افتح في الشاشة</a>}
               {onPrompt && execute && quickActions.map(action => <button key={action.prompt} type="button" className="as-btn as-btn--sm" disabled={busy} onClick={() => onPrompt(action.prompt, action.submit)}>{action.label}</button>)}

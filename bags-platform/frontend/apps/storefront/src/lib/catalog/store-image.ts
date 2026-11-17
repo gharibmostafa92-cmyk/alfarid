@@ -41,6 +41,12 @@ function safeStoreMediaPath(pathname: string): string | null {
   return segments.join('/');
 }
 
+/** Keep only the non-sensitive cache version when proxying API storage paths. */
+function safeMediaVersion(searchParams: URLSearchParams): string {
+  const version = searchParams.get('v');
+  return version && /^[A-Za-z0-9_-]{1,64}$/.test(version) ? `?v=${encodeURIComponent(version)}` : '';
+}
+
 function isR2Host(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host.endsWith('.r2.dev') || host.endsWith('.r2.cloudflarestorage.com');
@@ -83,9 +89,11 @@ function resolveStoreImage(source: string | null | undefined, allowHttp: boolean
     if (['http:', 'https:'].includes(url.protocol) && url.protocol === api.protocol && url.port === api.port
       && sameApiHost
       && url.pathname.startsWith('/storage/')) {
-      return `/store-media/${url.pathname.slice('/storage/'.length)}${url.search}`;
+      const mediaPath = safeStoreMediaPath(url.pathname.slice('/storage/'.length));
+      return mediaPath ? `/store-media/${mediaPath}${safeMediaVersion(url.searchParams)}` : '';
     }
-    if (url.protocol === 'https:' && (url.origin === api.origin || url.hostname === 'images.unsplash.com')) return source;
+    if (url.protocol === 'https:' && url.origin === api.origin) return source;
+    if (allowHttp && url.protocol === 'https:' && url.hostname === 'images.unsplash.com') return source;
     // The public R2 origin is inlined at build time. When it is missing, keep a
     // known object-storage host reachable through the same-origin media proxy.
     if (url.protocol === 'https:') return publicObjectImageUrl(source, process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? '');

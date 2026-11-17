@@ -108,4 +108,18 @@ class CatalogCacheStampedeTest extends TestCase
         $this->getJson('/api/v1/store/home')->assertOk()->assertJsonPath('data.banners.0.title', 'عرض اليوم');
         $this->assertSame(0, $bannerQueries());
     }
+
+    public function test_cached_banner_models_are_cloned_before_request_derived_attributes_are_attached(): void
+    {
+        $cachedBanner = new Banner;
+        Cache::shouldReceive('remember')->once()->andReturn(collect([$cachedBanner]));
+        $controller = new HomeController(Mockery::mock(StoreCatalogService::class), app(BannerLinkResolver::class));
+        $method = new ReflectionMethod(HomeController::class, 'activeBanners');
+
+        $result = $method->invoke($controller);
+        $result->first()->setAttribute('resolved_href', '/shop');
+
+        $this->assertNotSame($cachedBanner, $result->first());
+        $this->assertNull($cachedBanner->getAttribute('resolved_href'));
+    }
 }

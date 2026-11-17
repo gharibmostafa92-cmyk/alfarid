@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Catalog;
 
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
+use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Rules\MaxImagePixels;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -13,6 +14,7 @@ use Illuminate\Foundation\Http\FormRequest;
 class StoreBrandRequest extends FormRequest
 {
     use NormalizesCatalogInput;
+    use AuthorizesStaffRequest;
 
     protected function prepareForValidation(): void
     {
@@ -22,7 +24,7 @@ class StoreBrandRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return $this->authorizeStaffAction(['store' => 'brands.create', 'update' => 'brands.update']);
     }
 
     /**

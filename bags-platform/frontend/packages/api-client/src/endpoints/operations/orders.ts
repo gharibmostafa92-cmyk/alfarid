@@ -1,4 +1,4 @@
-import { api, ADMIN, asPage, one, crud, cleanParams, reader, type Id, type Paginated } from './http';
+import { api, ADMIN, asPage, one, crud, cleanParams, reader, idempotentPost, type Id, type Paginated } from './http';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'returned';
 export type PaymentStatus = 'unpaid' | 'paid' | 'failed' | 'partially_refunded' | 'refund_pending' | 'refunded';
@@ -104,8 +104,8 @@ export const adminOrdersApi = {
   allocate: (id: Id, branch_id: number | null) =>
     api.post(`${O}/${id}/allocate`, { branch_id }).then((r) => one<AdminOrder>(r)),
   deallocate: (id: Id) => api.post(`${O}/${id}/deallocate`).then((r) => one<AdminOrder>(r)),
-  createShipment: (id: Id, body: { shipping_company_id: number; awb_number?: string | null }) =>
-    api.post(`${O}/${id}/shipment`, body).then((r) => one<ShipmentResponse>(r)),
+  createShipment: (id: Id, body: { shipping_company_id: number; awb_number?: string | null }, idempotencyKey?: string) =>
+    idempotentPost(`${O}/${id}/shipment`, body, idempotencyKey).then((r) => one<ShipmentResponse>(r)),
   stats: (signal?: AbortSignal): Promise<AdminOrderStats> =>
     api.get<{ data: AdminOrderStats }>(`${O}/stats`, { signal }).then((r) => r.data.data),
 };
@@ -156,7 +156,16 @@ export interface ReturnRequest {
   updated_at: string | null;
 }
 
-export interface ReturnListParams { page?: number; search?: string; status?: ReturnStatus; order_id?: number; customer_id?: number }
+export interface ReturnListParams { page?: number; per_page?: number; search?: string; status?: ReturnStatus; order_id?: number; customer_id?: number }
+export interface ReturnStats {
+  pending: number;
+  approved: number;
+  rejected: number;
+  received: number;
+  refunded: number;
+  cancelled: number;
+  total: number;
+}
 export interface StoreReturnPayload {
   order_id: number;
   reason: string;
@@ -170,9 +179,16 @@ export interface RefundReturnPayload { refund_method?: RefundMethod | null; refu
 const R = `${ADMIN}/returns`;
 export const adminReturnsApi = {
   ...crud<ReturnRequest, StoreReturnPayload, ReturnListParams>(R),
+  stats: (signal?: AbortSignal): Promise<ReturnStats> =>
+    api.get<{ data: ReturnStats }>(`${R}/stats`, { signal }).then((r) => r.data.data),
+  create: (body: StoreReturnPayload, idempotencyKey?: string) =>
+    idempotentPost(R, body, idempotencyKey).then((r) => one<ReturnRequest>(r)),
   update: (id: Id, b: Partial<StoreReturnPayload> & { status?: 'rejected' | 'cancelled'; admin_notes?: string; refund_method?: RefundMethod | null }) =>
     api.put(`${R}/${id}`, b).then((r) => one<ReturnRequest>(r)),
-  approve: (id: Id, b: ApproveReturnPayload) => api.post(`${R}/${id}/approve`, b).then((r) => one<ReturnRequest>(r)),
-  receive: (id: Id, b: ReceiveReturnPayload) => api.post(`${R}/${id}/receive`, b).then((r) => one<ReturnRequest>(r)),
-  refund: (id: Id, b: RefundReturnPayload) => api.post(`${R}/${id}/refund`, b).then((r) => one<ReturnRequest>(r)),
+  approve: (id: Id, b: ApproveReturnPayload, idempotencyKey?: string) =>
+    idempotentPost(`${R}/${id}/approve`, b, idempotencyKey).then((r) => one<ReturnRequest>(r)),
+  receive: (id: Id, b: ReceiveReturnPayload, idempotencyKey?: string) =>
+    idempotentPost(`${R}/${id}/receive`, b, idempotencyKey).then((r) => one<ReturnRequest>(r)),
+  refund: (id: Id, b: RefundReturnPayload, idempotencyKey?: string) =>
+    idempotentPost(`${R}/${id}/refund`, b, idempotencyKey).then((r) => one<ReturnRequest>(r)),
 };

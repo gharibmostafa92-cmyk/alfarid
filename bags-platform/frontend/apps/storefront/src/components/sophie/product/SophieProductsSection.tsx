@@ -39,10 +39,10 @@ export function SophieProductsSection({
           </div>
         ) : (
           <div className="text-center mb-8 sm:mb-10">
-            <h2 className="font-['Oswald'] text-[24px] sm:text-[28px] font-semibold uppercase tracking-[0.5px] text-[#111] mb-1.5">
+            <h2 className="font-[var(--font-oswald)] text-[24px] sm:text-[28px] font-semibold uppercase tracking-[0.5px] text-[#111] mb-1.5">
               {title}
             </h2>
-            <p className="text-[12.5px] text-[#555] font-normal font-['Poppins']">
+            <p className="text-[12.5px] text-[#555] font-normal font-[var(--font-poppins)]">
               {subtitle}
             </p>
           </div>
@@ -84,14 +84,14 @@ export function SophieProductsSection({
             {safeViewMoreHref.startsWith('/') ? (
               <Link
                 href={safeViewMoreHref}
-                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
+                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
               >
                 VIEW MORE
               </Link>
             ) : (
               <a
                 href={safeViewMoreHref}
-                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-['Oswald'] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
+                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
               >
                 VIEW MORE
               </a>

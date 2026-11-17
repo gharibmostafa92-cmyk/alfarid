@@ -17,10 +17,13 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReturnRequest;
+use App\Models\ReturnRequestItem;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Catalog\ProductService;
+use App\Services\Catalog\VariantService;
 use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -235,6 +238,48 @@ class TaskTxtCostAndDeleteTest extends TestCase
         $res->assertStatus(422);
         $this->assertDatabaseHas('products', ['id' => $product->id, 'deleted_at' => null]);
         $this->assertDatabaseHas('product_variants', ['id' => $variant->id, 'deleted_at' => null]);
+    }
+
+    public function test_variant_delete_is_blocked_by_active_orders_and_open_returns(): void
+    {
+        [, $activeVariant] = $this->draftProduct('P95223');
+        $activeOrder = Order::factory()->create(['status' => OrderStatus::Shipped]);
+        $activeItem = OrderItem::factory()->create([
+            'order_id' => $activeOrder->id,
+            'product_variant_id' => $activeVariant->id,
+        ]);
+
+        try {
+            app(VariantService::class)->delete($activeVariant);
+            $this->fail('A variant referenced by an active order must not be deleted.');
+        } catch (BusinessException $e) {
+            $this->assertStringContainsString('طلب', $e->getMessage());
+        }
+        $this->assertNotSoftDeleted($activeVariant);
+
+        [, $returnVariant] = $this->draftProduct('P95224');
+        $returnOrder = Order::factory()->create(['status' => OrderStatus::Delivered]);
+        $returnOrderItem = OrderItem::factory()->create([
+            'order_id' => $returnOrder->id,
+            'product_variant_id' => $returnVariant->id,
+        ]);
+        $returnRequest = ReturnRequest::factory()->create([
+            'order_id' => $returnOrder->id,
+            'status' => 'approved',
+        ]);
+        ReturnRequestItem::factory()->create([
+            'return_request_id' => $returnRequest->id,
+            'order_item_id' => $returnOrderItem->id,
+            'product_variant_id' => $returnVariant->id,
+        ]);
+
+        try {
+            app(VariantService::class)->delete($returnVariant);
+            $this->fail('A variant referenced by an open return must not be deleted.');
+        } catch (BusinessException $e) {
+            $this->assertStringContainsString('مرتجع', $e->getMessage());
+        }
+        $this->assertNotSoftDeleted($returnVariant);
     }
 
     // ── task 8c: published product needs products.publish ──

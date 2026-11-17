@@ -35,14 +35,16 @@ class MergeGuestCartStockTest extends TestCase
             'qty' => 4,
         ]);
 
-        $merged = app(CartService::class)->mergeGuestCart($customer, $guest->cart_token);
+        $merge = app(CartService::class)->mergeGuestCartWithReport($customer, $guest->cart_token);
 
-        $this->assertTrue($merged);
+        $this->assertFalse($merge['merged']);
+        $this->assertNotEmpty($merge['warnings']);
         $this->assertSame(5.0, (float) CartItem::query()
             ->where('cart_id', $account->id)
             ->where('product_variant_id', $variant->id)
             ->value('qty'));
-        $this->assertNull(Cart::query()->find($guest->id));
+        $this->assertSame(3.0, (float) CartItem::query()->where('cart_id', $guest->id)->value('qty'));
+        $this->assertNotNull(Cart::query()->find($guest->id));
     }
 
     public function test_merge_keeps_account_quantity_when_fulfillable_stock_is_zero(): void
@@ -61,14 +63,16 @@ class MergeGuestCartStockTest extends TestCase
             'qty' => 2,
         ]);
 
-        $merged = app(CartService::class)->mergeGuestCart($customer, $guest->cart_token);
+        $merge = app(CartService::class)->mergeGuestCartWithReport($customer, $guest->cart_token);
 
-        $this->assertTrue($merged);
+        $this->assertFalse($merge['merged']);
+        $this->assertNotEmpty($merge['warnings']);
         $this->assertSame(4.0, (float) CartItem::query()
             ->where('cart_id', $account->id)
             ->where('product_variant_id', $variant->id)
             ->value('qty'));
-        $this->assertNull(Cart::query()->find($guest->id));
+        $this->assertSame(2.0, (float) CartItem::query()->where('cart_id', $guest->id)->value('qty'));
+        $this->assertNotNull(Cart::query()->find($guest->id));
     }
 
     /**

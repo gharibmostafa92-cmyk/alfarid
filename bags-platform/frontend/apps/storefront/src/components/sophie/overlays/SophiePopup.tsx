@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
 import { StoreImage } from '../../StoreImage';
 import { storeImageUrl } from '@/lib/catalog/store-image';
+import { safeStoreHref } from '@/lib/core/safe-href';
 
 export function SophiePopup({ banner }: { banner: StoreBanner }) {
   const [open, setOpen] = useState(false);
@@ -68,6 +69,8 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
       }}
     />
   );
+  const href = safeStoreHref(banner.href);
+  const external = href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
   return (
     <div
       className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"
@@ -92,12 +95,12 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
             <path d="m6 6 12 12M6 18 18 6" />
           </svg>
         </button>
-        {banner.href ? (
+        {href ? (
           <a
-            href={banner.href}
+            href={href}
             onClick={close}
             className="block w-full h-full"
-            {...(banner.is_external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            {...external}
           >
             {image}
           </a>

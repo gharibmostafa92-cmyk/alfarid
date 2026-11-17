@@ -1,5 +1,5 @@
 import { AdminLoading } from '../../../components/admin/AdminLoading';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CUSTOMER_GROUPS,
   PRICE_LISTS,
@@ -404,6 +404,7 @@ export function RateModal({ row, companies, zones, onClose, onSaved }: { row: (S
   const err = min > max ? 'الحد الأدنى لا يمكن أن يتجاوز الحد الأقصى' : null;
   const save = async () => {
     if (!f.v.companyId || !f.v.zone) return toast('اختر الشركة والمنطقة', 'red');
+    if (f.v.base === '' || !Number.isFinite(Number(f.v.base)) || Number(f.v.base) < 0) return toast('أدخل التكلفة الأساسية بشكل صحيح', 'red');
     if (err) return;
     const body: ShippingRatePayload = {
       shipping_company_id: Number(f.v.companyId), shipping_zone_id: Number(f.v.zone),
@@ -509,7 +510,7 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
   const [gform, setGform] = useState<CustomerGroup | { id?: any; name?: string; code?: string; desc?: string; disc?: number; active?: boolean } | null>(null);
   const [page, setPage] = useState(1);
   const dq = useDebounced(q);
-  useEffect(() => { setPage(1); }, [dq, ty, cus, grp, br, act]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
 
   const typeToBackend = (t: string): PriceListType | undefined => {
     if (!t) return undefined;
@@ -558,24 +559,24 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
       {tab === 'lists' && (
         <Card stg={3}>
           <div className="flex flex-wrap items-center gap-2 mb-4">
-            <SearchPill value={q} onChange={setQ} placeholder="اسم القائمة" />
+            <SearchPill value={q} onChange={setFilter(setQ)} placeholder="اسم القائمة" />
             <FSelect
               value={ty}
-              onChange={setTy}
+              onChange={setFilter(setTy)}
               placeholder="النوع"
               options={Object.entries(PL_TYPES).map(([v, l]) => ({ value: v, label: l }))}
             />
-            <FSelect value={cus} onChange={setCus} placeholder="العميل" options={(customers.data ?? []).map((c: { id: number; name: string }) => ({ value: String(c.id), label: c.name }))} />
+            <FSelect value={cus} onChange={setFilter(setCus)} placeholder="العميل" options={(customers.data ?? []).map((c: { id: number; name: string }) => ({ value: String(c.id), label: c.name }))} />
             <FSelect
               value={grp}
-              onChange={setGrp}
+              onChange={setFilter(setGrp)}
               placeholder="المجموعة"
               options={(groups.data ?? []).map((g: CustomerGroup) => ({ value: String(g.id), label: g.name }))}
             />
-            <FSelect value={br} onChange={setBr} placeholder="الفرع" options={(branchesList.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
+            <FSelect value={br} onChange={setFilter(setBr)} placeholder="الفرع" options={(branchesList.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
             <FSelect
               value={act}
-              onChange={setAct}
+              onChange={setFilter(setAct)}
               placeholder="التفعيل"
               options={[
                 { value: 'true', label: 'مفعّلة' },
@@ -959,25 +960,49 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
   const dsearch = useDebounced(search);
   const remoteItems = useRemote((s) => itemsApi.all(s), [id], { mock: () => [] });
   const [items, setItems] = useState<any[]>([]);
+  const savedRowsRef = useRef<Map<number, { min: any; price: any; from: string; to: string }>>(new Map());
+  const [savingIds, setSavingIds] = useState<Set<number>>(() => new Set());
   useEffect(() => {
-    setItems((remoteItems.data ?? []).map((it) => ({
+    const mapped = (remoteItems.data ?? []).map((it) => ({
       id: it.id, v: { name: it.variant?.product_name_ar ?? `#${it.product_variant_id}`, sku: it.variant?.sku ?? '' },
       variantId: it.product_variant_id, min: it.min_qty, price: it.price, from: it.starts_at?.slice(0, 10) ?? '', to: it.ends_at?.slice(0, 10) ?? '',
-    })));
+    }));
+    savedRowsRef.current = new Map(mapped.map((r) => [r.id, { min: r.min, price: r.price, from: r.from, to: r.to }]));
+    setItems(mapped);
   }, [remoteItems.data]);
   const [editRow, setEditRow] = useState<any>(null);
   const [form, setForm] = useState(false);
   const [pct, setPct] = useState('');
   const [imp, setImp] = useState(false);
   const upd = (rowId: number, k: string, v: any) =>
-    setItems(items.map((it) => (it.id === rowId ? { ...it, [k]: v } : it)));
+    setItems((prev) => prev.map((it) => (it.id === rowId ? { ...it, [k]: v } : it)));
   const saveRow = async (r: any) => {
-    await run(() => itemsApi.update(r.id, { product_variant_id: r.variantId, min_qty: Number(r.min), price: Number(r.price), starts_at: r.from || null, ends_at: r.to || null }),
-      { toast, success: 'تم حفظ البند' });
+    if (pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)) return;
+    const orig = savedRowsRef.current.get(r.id);
+    if (orig && String(orig.min) === String(r.min) && String(orig.price) === String(r.price) && orig.from === r.from && orig.to === r.to) {
+      return;
+    }
+    setSavingIds((prev) => new Set(prev).add(r.id));
+    try {
+      await itemsApi.update(r.id, { product_variant_id: r.variantId, min_qty: Number(r.min), price: Number(r.price), starts_at: r.from || null, ends_at: r.to || null });
+      savedRowsRef.current.set(r.id, { min: r.min, price: r.price, from: r.from, to: r.to });
+      toast('تم حفظ البند', 'green');
+    } catch (e) {
+      if (orig) {
+        setItems((prev) => prev.map((it) => (it.id === r.id ? { ...it, ...orig } : it)));
+      }
+      const { parseApiError } = await import('@alfarid/api-client');
+      toast(parseApiError(e).message, 'red');
+    } finally {
+      setSavingIds((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+    }
   };
   const deleteRow = async (r: any) => {
     const ok = await run(() => itemsApi.remove(r.id), { toast, success: 'تم حذف البند' });
-    if (ok) setItems(items.filter((x) => x.id !== r.id));
+    if (ok) {
+      savedRowsRef.current.delete(r.id);
+      setItems((prev) => prev.filter((x) => x.id !== r.id));
+    }
   };
   const applyPercent = async (pctVal: number) => {
     if (pctVal < -100) return toast('النسبة لا تقل عن -100%', 'red');
@@ -1079,6 +1104,7 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
                     type="number"
                     step="0.0001"
                     className="inp inp-sm num !w-28 text-end"
+                    disabled={pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)}
                     value={r.price}
                     onChange={(e) => upd(r.id, 'price', e.target.value)}
                     onBlur={() => saveRow(r)}
@@ -1094,6 +1120,7 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
                   <input
                     type="date"
                     className="inp inp-sm text-[11px] !py-0.5"
+                    disabled={pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)}
                     value={r.from}
                     onChange={(e) => upd(r.id, 'from', e.target.value)}
                     onBlur={() => saveRow(r)}
@@ -1102,6 +1129,7 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
                   <input
                     type="date"
                     className="inp inp-sm text-[11px] !py-0.5"
+                    disabled={pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)}
                     value={r.to}
                     onChange={(e) => upd(r.id, 'to', e.target.value)}
                     onBlur={() => saveRow(r)}
@@ -1309,7 +1337,7 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
   const [type, setType] = useState(row?.type || 'percent');
   const [scope, setScope] = useState(row?.scope || 'all');
   const [targets, setTargets] = useState<number[]>((row as PromoRow & { targetIds?: number[] } | null)?.targetIds ?? []);
-  const options = useRemote((signal) => scope === 'categories' ? commerceLookupsApi.categories(signal) : scope === 'brands' ? commerceLookupsApi.brands(signal) : commerceLookupsApi.variants(signal), [scope], { enabled: scope !== 'all' && scope !== 'brands' });
+  const options = useRemote((signal) => scope === 'categories' ? commerceLookupsApi.categories(signal) : scope === 'brands' ? commerceLookupsApi.brands(signal) : commerceLookupsApi.variants(signal), [scope], { enabled: scope !== 'all' });
   const f = useFormState({ name: row?.name ?? '', value: (row?.value ?? '') as any, min: (row?.min ?? '') as any, from: row?.from ?? '', to: (row?.to ?? '') as string, active: row?.active ?? true });
   const save = async () => {
     if (!f.v.name.trim()) return toast('اسم العرض مطلوب', 'red');

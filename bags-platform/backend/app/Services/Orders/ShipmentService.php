@@ -7,7 +7,6 @@ namespace App\Services\Orders;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\ShipmentStatus;
 use App\Exceptions\BusinessException;
-use App\Models\Coupon;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
@@ -74,12 +73,12 @@ class ShipmentService
             $netMerchandise = BigDecimal::of((string) $order->subtotal)
                 ->minus((string) $order->discount_amount)
                 ->toScale(2, RoundingMode::HalfUp);
-            $hasFreeShippingCoupon = $order->coupon_id !== null
-                && BigDecimal::of((string) $order->shipping_cost)->compareTo('0') === 0
-                && Coupon::query()->whereKey($order->coupon_id)->value('type') === 'free_shipping';
-            $shippingCost = $hasFreeShippingCoupon
-                ? 0.0
-                : ($rate !== null ? $rate->effectiveCost((string) $netMerchandise) : (float) $order->shipping_cost);
+            // orders.shipping_cost is the amount billed to the customer;
+            // shipments.shipping_cost records the carrier's tariff. A store
+            // coupon changes the former and never waives the carrier's charge.
+            $shippingCost = $rate !== null
+                ? $rate->effectiveCost((string) $netMerchandise)
+                : (float) $order->shipping_cost;
 
             $shipment = Shipment::create([
                 'order_id' => $order->id,

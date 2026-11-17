@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clientAddress, proxyCloudRunApi } from '../apps/storefront/src/lib/core/cloud-run-api.ts';
+import { clientAddress, cloudRunIdentityToken, proxyCloudRunApi } from '../apps/storefront/src/lib/core/cloud-run-api.ts';
 
 const storefront = 'https://storefront.run.app';
 const office = 'https://backoffice.pages.dev';
@@ -27,10 +27,88 @@ test('routes assistant turns to a separate worker pool and keeps other API route
     ['GET', ['admin', 'ai', 'conversations', '7', 'messages'], upstream],
     ['POST', ['pos', 'sales'], upstream],
   ] as const) {
-    const response = await proxyCloudRunApi(makeRequest(office, { method }), [...path], config);
+    const response = await proxyCloudRunApi(makeRequest(office, { method, headers: { authorization: 'Bearer staff-token' } }), [...path], config);
     assert.equal(await response.text(), expected);
   }
   assert.deepEqual(audiences, [aiUpstream, aiUpstream, upstream, upstream]);
+});
+
+test('keeps the admin namespace closed except for authenticated AI turns and rejects originless cross-site writes', async () => {
+  let sent = false;
+  const config = {
+    upstream, aiUpstream: 'https://private-ai.run.app', origins: [office], clientIpSecret,
+    allowedNamespaces: openedNamespaces,
+    identityToken: async () => 'service-token',
+    send: async () => { sent = true; return new Response('ok'); },
+  };
+  const admin = await proxyCloudRunApi(makeRequest(office), ['admin', 'users'], config);
+  assert.equal(admin.status, 404);
+  assert.equal(sent, false);
+
+  const anonymousAi = await proxyCloudRunApi(makeRequest(office, { method: 'POST' }), ['admin', 'ai', 'conversations', '7', 'stream'], config);
+  assert.equal(anonymousAi.status, 401);
+  assert.equal(sent, false);
+
+  const crossSite = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/checkout', {
+    method: 'POST', body: '{}', headers: { 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' },
+  }), ['store', 'checkout'], config);
+  assert.equal(crossSite.status, 403);
+  assert.equal(sent, false);
+});
+
+test('refreshes identity tokens before their JWT expiry and bounds the audience cache', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 1_900_000_000_000;
+  let fetches = 0;
+  Date.now = () => now;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    const exp = Math.floor(now / 1000) + (fetches === 1 ? 600 : 3600);
+    const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
+    return new Response(`header.${payload}.signature`);
+  };
+  try {
+    const prefix = `token-cache-${Math.random()}`;
+    await cloudRunIdentityToken(`${prefix}-exp`);
+    now += 541_000;
+    await cloudRunIdentityToken(`${prefix}-exp`);
+    assert.equal(fetches, 2);
+
+    for (let index = 0; index < 17; index += 1) {
+      await cloudRunIdentityToken(`${prefix}-${index}`);
+    }
+    const before = fetches;
+    await cloudRunIdentityToken(`${prefix}-0`);
+    assert.equal(fetches, before + 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
+test('evicts a cached Cloud Run identity token when the upstream rejects it', async () => {
+  const originalFetch = globalThis.fetch;
+  let metadataCalls = 0;
+  globalThis.fetch = async () => {
+    metadataCalls += 1;
+    const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
+    return new Response(`header.${payload}.signature`);
+  };
+  try {
+    const audience = `token-rejection-${Math.random()}`;
+    const config = {
+      upstream, origins: [], clientIpSecret,
+      identityToken: cloudRunIdentityToken,
+      send: async () => new Response('service rejected identity', { status: 401 }),
+    };
+    const request = new Request(storefront + '/api/v1/store/catalog');
+    await proxyCloudRunApi(request, ['store', 'catalog'], config);
+    await proxyCloudRunApi(request, ['store', 'catalog'], config);
+    assert.equal(metadataCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('forwards the user token and idempotency key separately from the service identity', async () => {
@@ -357,7 +435,7 @@ test('uses 180s upstream timeout for AI conversation turns and 60s for regular A
       identityToken: async () => 'service-token',
       send: async () => new Response('ok', { status: 200 }),
     };
-    await proxyCloudRunApi(makeRequest(office, { method: 'POST' }), ['admin', 'ai', 'conversations', '7', 'stream'], config);
+    await proxyCloudRunApi(makeRequest(office, { method: 'POST', headers: { authorization: 'Bearer staff-token' } }), ['admin', 'ai', 'conversations', '7', 'stream'], config);
     await proxyCloudRunApi(makeRequest(office, { method: 'POST' }), ['pos', 'sales'], config);
     assert.deepEqual(timeouts, [180_000, 60_000]);
   } finally {

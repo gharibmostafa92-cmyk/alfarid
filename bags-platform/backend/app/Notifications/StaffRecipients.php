@@ -15,11 +15,19 @@ use Illuminate\Database\Eloquent\Collection;
  */
 final class StaffRecipients
 {
-    /** @param list<string> $permissions */
+    /**
+     * @param list<string> $permissions
+     * @param ?list<int> $branchIds null = every branch; [] = central-only
+     * (events without branch-scoped data, e.g. unallocated store orders).
+     */
     public static function withAnyPermission(array $permissions, ?array $branchIds = null): Collection
     {
         return User::query()
             ->where('is_active', true)->where('is_system', false)
+            // Eager-load everything BranchAccess::restrictedBranch touches
+            // (roles, direct permissions, permissions via roles) so the
+            // per-user filter below cannot fan out into N+1 queries.
+            ->with(['roles.permissions', 'permissions'])
             ->where(function ($query) use ($permissions): void {
                 $query->whereHas('roles', fn ($role) => $role->where('name', 'Super Admin')->where('guard_name', 'staff'));
                 foreach ($permissions as $permission) {

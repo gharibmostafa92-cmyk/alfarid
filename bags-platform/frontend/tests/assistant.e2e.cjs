@@ -7,7 +7,8 @@ const out = path.resolve(__dirname, '../../../test-results/assistant');
 const user = { id: 1, name: 'مراجع المساعد', email: 'assistant@example.test', roles: [{ name: 'Super Admin' }], permissions: ['ai_agent.use', 'ai_agent.execute', 'ai_agent.logs.view', 'ai_agent.settings', 'branches.view', 'users.view', 'users.update', 'roles.view', 'inventory.all_branches'], branch_id: null };
 (async () => {
   fs.mkdirSync(out, { recursive: true });
-  const browser = await chromium.launch({ headless: true, channel: 'msedge' });
+  // Keep local Vite traffic off any system-configured corporate proxy.
+  const browser = await chromium.launch({ headless: true, channel: 'msedge', args: ['--no-proxy-server'] });
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     const page = await context.newPage(); page.setDefaultTimeout(15000);

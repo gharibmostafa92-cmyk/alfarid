@@ -5,7 +5,10 @@
      فتشتغل صح جوه أي layout للـ backoffice.
    - Light / Dark عبر prefers-color-scheme أو [data-theme] على .assistant
    ========================================================================== */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* Web fonts (IBM Plex Sans Arabic + Mono) load once from index.html via
+   <link> with display=swap. No @import here: this sheet is injected as
+   <style>{assistantStyles}</style>, where @import re-evaluates per mount,
+   breaks offline/CSP-restricted branches, and delays first paint. */
 
 /* ==========================================================================
    المساعد الذكي — الألوان والسمات المتطابقة بالكامل مع Vortix (Light & Dark)

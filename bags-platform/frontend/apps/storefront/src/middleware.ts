@@ -50,8 +50,8 @@ export function middleware(request: NextRequest) {
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://challenges.cloudflare.com${development ? " 'unsafe-eval'" : ''}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' https: data: blob:" + (development ? ` http://localhost:8000 http://127.0.0.1:8000${api.protocol === 'http:' ? ` ${api.origin}` : ''}` : ''),
     `connect-src 'self' ${api.origin} ${socket}${development ? ' ws: wss:' : ''}`,
     `frame-src 'self' ${office.origin} https://challenges.cloudflare.com`,

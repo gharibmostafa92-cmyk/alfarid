@@ -54,7 +54,22 @@ export function canViewOperation(page: string, can: (permission: string) => bool
     finance: ['treasuries.view', 'expenses.view', 'treasury_transfers.view'],
     shifts: ['pos_shifts.view'], wholesale: ['quotations.view', 'payment_notices.view'], reports: ['reports.view'],
   };
-  return !permissions[page] || permissions[page].some(can);
+  if (page === 'notifications') {
+    return Object.values(permissions).some((list) => list.some(can));
+  }
+  const required = permissions[page];
+  return required ? required.some(can) : false;
+}
+
+export function parseOperationsHash(hash: string): OperationsRoute | null {
+  const raw = hash.replace(/^#\/?/, '');
+  if (!raw) return null;
+  const [pathPart, queryPart] = raw.split('?');
+  const [m, id] = pathPart.split('/');
+  if (!m) return null;
+  const params = new URLSearchParams(queryPart || '');
+  const sub = params.get('sub') || undefined;
+  return { m, id: id || undefined, sub };
 }
 
 export interface OperationsMockPageProps {
@@ -72,7 +87,7 @@ export default function OperationsMockPage({
   sub: initialSub,
   darkMode,
   theme,
-  can = () => true,
+  can = () => false,
 }: OperationsMockPageProps) {
   const host = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
@@ -108,12 +123,24 @@ export default function OperationsMockPage({
     if (host.current) {
       setRoot(host.current.shadowRoot || host.current.attachShadow({ mode: 'open' }));
     }
-    const fonts = document.createElement('link');
-    fonts.rel = 'stylesheet';
-    fonts.href =
+    const fontHref =
       'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap';
-    document.head.append(fonts);
-    return () => fonts.remove();
+    if (!document.querySelector(`link[data-ops-fonts="1"], link[href="${fontHref}"]`)) {
+      const fonts = document.createElement('link');
+      fonts.rel = 'stylesheet';
+      fonts.href = fontHref;
+      fonts.setAttribute('data-ops-fonts', '1');
+      document.head.append(fonts);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const parsed = parseOperationsHash(window.location.hash);
+      if (parsed) setRoute(parsed);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
   useEffect(() => {
@@ -196,9 +223,9 @@ export default function OperationsMockPage({
       case 'finance':
         return <FinancePage sub={sub} id={route.id} can={can} />;
       case 'shifts':
-        return <ShiftsPage />;
+        return <ShiftsPage can={can} />;
       case 'wholesale':
-        return <WholesalePage sub={sub} />;
+        return <WholesalePage sub={sub} can={can} />;
       case 'reports':
         return <ReportsPage />;
       case 'notifications':

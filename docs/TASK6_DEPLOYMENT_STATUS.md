@@ -96,3 +96,142 @@ Rollback: reverse order; `000083` down restores the prior CHECK; `000082_pos_tas
 ## 5. Scope boundary (do not deploy-blindly)
 
 The working tree contains extensive unrelated uncommitted changes (storefront, catalog services, finance/AI tools, task5 tests, coupon rate-limiting) from other lanes/sessions. The task6 set is EXACTLY the files listed in §2 plus `tests/Feature/Pos/Task6BackendFixesTest.php` and the three `000082/000083` migrations (+ `000070` edit). Review/deploy only that set for task6.
+
+---
+
+# task6 — Cycle 2 Deployment Status (assistant/WhatsApp/notifications/settings)
+
+Source roadmap: `_archive_unused/tasks_execution/task6.txt` as of 2026-11-17
+(Arabic audit, 19 findings F1–F19: SettingService numbering, SendOutboundMessage,
+notification indexes/queries, SMS channel, message budgets, backoffice assistant
+frontend, POS voice count, password-reset links). This is a DIFFERENT roadmap
+document from the Cycle 1 (POS terminal) content in §§1–5 above, which it leaves
+untouched. Plan: `.superpowers/plans/2026-11-17-task6-roadmap.md`.
+Branch: `fixes/task-audit-roadmap`. Date: 2026-11-17. No commit, no deploy —
+everything below is local-only and NOT live (never verified against the server).
+
+## A. Already Deployed on Server / Cloud
+
+- Nothing from Cycle 2 is deployed. Current server revision unknown/unverified
+  from this session (no live-server access was available or used).
+- Do NOT treat the green local targeted tests below as a live revision.
+
+## B. Ready / Pending Server Deployment (NOT yet deployed)
+
+### Backend (code-only unless noted)
+
+- F1+F19 — `SettingService`: single `DOCUMENT_NUMBER_TARGETS` map (invoice/
+  pos_invoice excluded with documented reasons); `updateBatch(..., ?User $actor)`.
+  File: `bags-platform/backend/app/Services/Shared/SettingService.php`.
+  Deploy notes: code-only. Callers passing 3 args keep working (optional 4th).
+- F3+F4 — `SendOutboundMessage`: OTP destination from owned channel; atomic
+  pending→sending claim (new `sending` status); scheduled defer = delete +
+  fresh delayed dispatch (no `$tries` burn); `failed()` closes all
+  pending/sending rows; connectTimeout(5)/timeout(20).
+  File: `bags-platform/backend/app/Jobs/SendOutboundMessage.php`.
+  Deploy notes: code-only. Monitors must accept the `sending` status as
+  transient (rows stuck there are closed to `error` by `failed()`).
+- F9 — `StaffRecipients` eager loads `roles.permissions+permissions`; unallocated
+  orders stay central-only (explicit `[]` + policy comment).
+  Files: `StaffRecipients.php`, `Listeners/Orders/SendStaffOrderNotification.php`.
+  Deploy notes: code-only, no behavior change by design.
+- F16 — `NotificationController`: unread_count reuses paginate total when
+  unread_only=1; readAll scans DESC. Deploy notes: code-only. No iteration cap
+  by ruling (a cap would silently leave items unread).
+- F8 — `CustomerPasswordReset`: SMS link is `#token=` fragment, no phone; mail
+  keeps token text + fragment action link.
+  File: `bags-platform/backend/app/Notifications/Auth/CustomerPasswordReset.php`.
+  Deploy notes: code-only. Requires the storefront hash-first reader (shipped in
+  the same change set) — deploy backend + storefront build together.
+- F17 — `CustomerSmsChannel`: empty-`to` → 422 pre-network; missing toSms → 500;
+  provider 4xx → 422, 5xx/connection → 503; provider-reject → 502 (was 503:
+  update on-call alerts accordingly); `TracksEditVersion` contract documented.
+  Deploy notes: code-only. 503-alert thresholds that match the old
+  provider-reject text will no longer fire for rejects (now 502).
+- F10 — `CustomerMessageBudget`: `::ffff:` unwrap; check-then-insert ordering.
+  Deploy notes: code-only.
+- F5 — migrations: guard `2026_11_12_000020` to pgsql (fresh-run safety);
+  NEW `2026_11_17_000004_drop_duplicate_notification_retention_indexes`
+  (drops `notifications_read_retention_idx`,
+  `notifications_unread_retention_idx`, `notifications_created_at_idx` via
+  DROP INDEX CONCURRENTLY IF EXISTS; keeps the prune pair).
+  Deploy notes: **migration required**; `CONCURRENTLY` needs no long lock but
+  run `php artisan migrate` off-peak. Down is intentionally a no-op.
+
+### Frontend (rebuild required: backoffice + storefront)
+
+- F2+F12 — `AssistantBlock`: allowlisted downloads + sanitized names; guarded
+  thumb/gallery images; cancel-await; `toLowerCase` confirm; action-scoped keys;
+  mount-captured TTL denominators.
+- F7 — `stream.ts` + `assistantApi.stream`: `complete` flag + `flush()` + error
+  surfacing. `api.ts`: merged `AgentSettings` + `diffSettings` + allowlist
+  helpers; `saveSettings` now takes Partials.
+- F6 — Admin + WhatsAppPanel: single lifted settings snapshot; changed-keys-only
+  saves; numeric drafts (no `Number('')`→0); channel-tab number guards.
+- F8-front — storefront `LoginScreen`: token from `#token=` fragment first,
+  query fallback. File: `apps/storefront/src/components/auth/LoginScreen.tsx`.
+- F18 — `RichText` bold tolerates `*`; font `@import` removed (index.html
+  supplies Plex Sans Arabic + newly added Plex Mono).
+- B5 — `AssistantPage` keydown deps + busy guard + one-shot selection + modal
+  Escape/copy-error + honest token label; `AssistantComposer` 5MB/1MB caps +
+  barcode inflight guard + mention reconcile; `WhatsAppPanel` sequential polling
+  + visibility pause + search live-token + rounded seconds + QR guards;
+  `PosPage` theme restore + voice-only style skip; `StocktakeVoiceCount`
+  onerror-unlock + stop button + barcode digit normalization.
+- Deploy notes: **rebuild backoffice + storefront** after deploy. No new env
+  secrets. WhatsApp polling change reduces background API load (no ops action).
+
+### Migrations to run, in order
+
+1. `2026_11_12_000020_index_notification_retention` — guard-only edit (no-op
+   where already applied; fixes fresh sqlite/mysql runs).
+2. `2026_11_17_000004_drop_duplicate_notification_retention_indexes` — drops
+   the 3 duplicate indexes concurrently.
+
+Rollback: `000004` down is a no-op by design (duplicates must not return);
+to restore, re-run `000020` (recreates retention pair) — only if the prune
+pair is proven missing. `000020` down drops the retention pair only.
+
+### Environment / build / ops
+
+- Environment: no new server secrets; no env changes.
+- Build: rebuild `backoffice` + `storefront` (new fragment-reader + styles).
+- Queue/scheduler: unchanged (no new jobs; `sending` rows self-close via
+  `failed()`; verify `retry_after` is configured so crashed deferrals close).
+- Monitors/alerts: accept `sending` as transient; provider-reject SMS errors
+  move 503 → 502 (update alert text match if pinned to the old Arabic string).
+- Behavior changes to announce: zero-total-style numeric clears never save 0;
+  discounted-POS force-close etc. are Cycle 1, unaffected here; unread bell
+  count unchanged in value (one fewer COUNT query); unallocated store orders
+  still notify central staff only (explicit policy, unchanged routing).
+
+## C. Verification evidence (local, 2026-11-17)
+
+- Backend (targeted only, `alfarid_testing` on localhost:5432):
+  `Task6LaneASettingsTest` 4/4 · `Task6OutboundJobTest` 4/4 (1/4 pre-fix: 3 RED) ·
+  `TaskTxtWholesaleOutboxTest` 5/5 · `Task6NotificationsTest` 3/3 (2 RED pre-fix)
+  · `OrderStatsNotificationTest` 2/2 · `Task6SmsChannelTest` 5/5 (4 RED pre-fix)
+  · `Task6MessageBudgetTest` 2/2 (0/2 pre-fix) · `AuditRoundTwoVerificationTest
+  --filter=subnet_key_same_for_ipv6` 1/1 · `migrate --pretend` shows the 3
+  expected DROPs. New/changed backend test files: `tests/Feature/Staff/
+  Task6{OutboundJob,Notifications,SmsChannel,MessageBudget}Test.php` (+ lane
+  `Task6LaneASettingsTest.php`).
+- Frontend (targeted only): new `tests/task6-assistant-safety.test.cjs`
+  10/10 (0/10 against HEAD sources); neighbors `assistant.test.cjs` 3/3,
+  `sse-parser.test.cjs` + pricing 14/14; `tsc --noEmit` clean for backoffice
+  and storefront. Upload/voice paths covered by existing browser e2e
+  (`attachments.browser.cjs`); run before release.
+- NOT run (per roadmap): full `php artisan test`, monorepo builds, e2e suites.
+
+## D. Rollback plan (per change)
+
+- Code (all F except F5): revert the listed files; no data migration involved.
+  SMS fragment links already sent keep working: the storefront reads the
+  fragment first and falls back to query, so rolling back the backend alone
+  restores query links without breaking in-flight fragment links only if the
+  storefront build stays — roll both together or not at all.
+- `000004`: down is a no-op; index restore = re-run `000020` up (guarded).
+  Watch `pg_stat_user_indexes` for seq-scan regressions on `notifications`
+  after the drop; retention/prune batch windows are the canary.
+- Roll back immediately if: notification bell error rate >2x baseline, OTP
+  delivery failures spike, or `notifications` seq-scans appear in slow logs.

@@ -52,7 +52,7 @@ class ShippingQuoteTest extends TestCase
         $this->assertNull($quote['rate']);
     }
 
-    public function test_the_lowest_company_id_wins_until_it_or_its_zone_is_inactive(): void
+    public function test_the_lowest_effective_cost_wins_until_its_company_or_zone_is_inactive(): void
     {
         $city = City::factory()->create(['shipping_cost' => 30]);
         $expensive = ShippingCompany::factory()->create(['is_active' => true]);
@@ -69,11 +69,35 @@ class ShippingQuoteTest extends TestCase
             'shipping_company_id' => $cheap->id, 'shipping_zone_id' => $zoneB->id, 'base_cost' => 40,
         ]);
 
-        $this->assertSame(80.0, $this->quotes->quoteForCity($city->id, 10, false)['cost']);
+        $this->assertSame(40.0, $this->quotes->quoteForCity($city->id, 10, false)['cost']);
         $expensive->update(['is_active' => false]);
         $this->assertSame(40.0, $this->quotes->quoteForCity($city->id, 10, false)['cost']);
         $zoneB->update(['is_active' => false]);
         $this->assertSame(30.0, $this->quotes->quoteForCity($city->id, 10, false)['cost']);
+    }
+
+    public function test_free_shipping_threshold_is_included_when_comparing_overlapping_rates(): void
+    {
+        $city = City::factory()->create(['shipping_cost' => 30]);
+        $first = ShippingCompany::factory()->create(['is_active' => true]);
+        $second = ShippingCompany::factory()->create(['is_active' => true]);
+        $zoneA = ShippingZone::factory()->create(['is_active' => true]);
+        $zoneB = ShippingZone::factory()->create(['is_active' => true]);
+        $zoneA->cities()->sync([$city->id]);
+        $zoneB->cities()->sync([$city->id]);
+        ShippingRate::factory()->create([
+            'shipping_company_id' => $first->id, 'shipping_zone_id' => $zoneA->id,
+            'base_cost' => 30, 'free_shipping_threshold' => 1000,
+        ]);
+        $best = ShippingRate::factory()->create([
+            'shipping_company_id' => $second->id, 'shipping_zone_id' => $zoneB->id,
+            'base_cost' => 50, 'free_shipping_threshold' => 200,
+        ]);
+
+        $quote = $this->quotes->quoteForCity($city->id, 250, false);
+
+        $this->assertSame(0.0, $quote['cost']);
+        $this->assertSame($best->id, $quote['rate']->id);
     }
 
     public function test_an_inactive_zone_is_skipped_and_orphan_city_links_do_not_error(): void

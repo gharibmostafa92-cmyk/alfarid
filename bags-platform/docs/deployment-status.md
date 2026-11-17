@@ -20,6 +20,10 @@ Pending actions:
 - Restart PHP workers (FPM or Octane) and queue workers so they pick up the pricing catalog version key and the payment-notice lock order. The shared cache key is `pricing:catalog_version`.
 - No scheduler or queue-name change was introduced.
 
+### Storefront audit pass (2026-11-17 evening)
+
+Not pending deployment. The storefront fixes reported in that pass are not in the working tree, so there is nothing from that pass to build or ship. Live server access was not used.
+
 ### Storefront defect roadmap (task4.txt F01–F20, 2026-11-17)
 
 Local only. Live server access was not used. Do not migrate production or restart services until a deploy is explicitly authorized.

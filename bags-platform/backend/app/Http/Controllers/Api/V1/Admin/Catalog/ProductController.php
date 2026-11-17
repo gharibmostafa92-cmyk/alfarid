@@ -13,6 +13,7 @@ use App\Http\Resources\Admin\Catalog\ProductResource;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\User;
 use App\Services\Catalog\ProductService;
 use App\Services\Shared\CostAccess;
 use App\Services\Shared\SearchTerm;
@@ -55,10 +56,10 @@ class ProductController extends Controller implements HasMiddleware
             'is_featured' => ['nullable', 'boolean'],
             'include_children' => ['nullable', 'boolean'],
             'sort' => ['nullable', Rule::in(['latest', 'oldest', 'name'])],
-            'per_page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $perPage = min((int) ($filters['per_page'] ?? 15), 100);
+        $perPage = (int) ($filters['per_page'] ?? 15);
 
         $q = Product::query()
             ->with(['category.media', 'media' => fn ($media) => $media->where('collection_name', 'images')->orderBy('order_column')->orderBy('id')->limit(1)])
@@ -112,8 +113,9 @@ class ProductController extends Controller implements HasMiddleware
      */
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $data = $this->filterCostPrices($request->validated(), $request);
-        $product = $this->service->create($data, $request->user());
+        $user = $this->staffUser($request);
+        $data = $this->filterCostPrices($request->validated(), $user);
+        $product = $this->service->create($data, $user);
 
         return $this->productResource($product)->response()->setStatusCode(201);
     }
@@ -123,7 +125,9 @@ class ProductController extends Controller implements HasMiddleware
      */
     public function update(UpdateProductRequest $request, Product $product): ProductResource
     {
-        $product = $this->service->update($product, $request->validated(), $request->user());
+        $user = $this->staffUser($request);
+        $data = $this->filterCostPrices($request->validated(), $user);
+        $product = $this->service->update($product, $data, $user);
 
         return $this->productResource($product);
     }
@@ -138,7 +142,7 @@ class ProductController extends Controller implements HasMiddleware
         ]);
         $expectedVersion = isset($validated['expected_version']) ? (int) $validated['expected_version'] : null;
 
-        $this->service->delete($product, $request->user('staff') ?? $request->user(), $expectedVersion);
+        $this->service->delete($product, $this->staffUser($request), $expectedVersion);
 
         return response()->json(['message' => 'تم الحذف']);
     }
@@ -154,14 +158,24 @@ class ProductController extends Controller implements HasMiddleware
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    private function filterCostPrices(array $data, Request $request): array
+    private function filterCostPrices(array $data, User $user): array
     {
-        if (! CostAccess::canView($request->user())) {
+        if (! CostAccess::canView($user)) {
             foreach ($data['variants'] ?? [] as $index => $variant) {
                 unset($data['variants'][$index]['cost_price']);
             }
         }
 
         return $data;
+    }
+
+    private function staffUser(Request $request): User
+    {
+        $user = $request->user('staff') ?? $request->user();
+        if (! $user instanceof User) {
+            abort(403);
+        }
+
+        return $user;
     }
 }

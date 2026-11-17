@@ -7,6 +7,7 @@ namespace App\Services\Shared;
 use App\Exceptions\BusinessException;
 use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\Auth\StaffAdministration;
 use Brick\Math\BigDecimal;
 use Illuminate\Database\QueryException;
@@ -144,25 +145,6 @@ class SettingService
         'payment_notice' => 'payment_notice_next_number',
     ];
     // Tax invoices remain row-locked because continuous sequential numbering without gaps is a legal requirement.
-
-    /** @var array<string, array{0: string, 1: string}> */
-    private const NUMBERING_TARGETS = [
-        'order' => ['orders', 'order_number'],
-        'purchase_order' => ['purchase_orders', 'po_number'],
-        'quotation' => ['quotations', 'quotation_number'],
-        'transfer' => ['stock_transfers', 'transfer_number'],
-        'stocktake' => ['stocktakes', 'stocktake_number'],
-        'return' => ['return_requests', 'return_number'],
-        'purchase_request' => ['purchase_requests', 'request_number'],
-        'delivery' => ['supplier_deliveries', 'delivery_number'],
-        'supplier_invoice' => ['supplier_invoices', 'invoice_number'],
-        'supplier_payment' => ['supplier_payments', 'payment_number'],
-        'shift' => ['pos_shifts', 'shift_number'],
-        'expense' => ['expenses', 'expense_number'],
-        'treasury_transfer' => ['treasury_transfers', 'transfer_number'],
-        'payment_notice' => ['wholesale_payment_notices', 'notice_number'],
-        'movement' => ['stock_movements', 'reference_number'],
-    ];
 
     /**
      * Resets in-memory cached state (snapshots, counters, proxy counters).
@@ -309,10 +291,14 @@ class SettingService
 
     private function assertNumberingDoesNotCollide(array $settings, array $after): void
     {
-        foreach ($this->numberingDefinitions() as $type => $definition) {
+        // Single source of truth: iterate the one DOCUMENT_NUMBER_TARGETS map.
+        foreach (self::DOCUMENT_NUMBER_TARGETS as $type => $target) {
+            $definition = $this->numberingDefinitions()[$type] ?? null;
+            if ($definition === null) {
+                continue;
+            }
             $keys = [$definition['prefix'], $definition['next'], $definition['padding']];
-            $target = self::NUMBERING_TARGETS[$type] ?? null;
-            if ($target === null || array_intersect($keys, array_keys($settings)) === []) {
+            if (array_intersect($keys, array_keys($settings)) === []) {
                 continue;
             }
 
@@ -377,10 +363,10 @@ class SettingService
      *
      * @throws JsonException
      */
-    public function updateBatch(array $settings, ?array $expected = null, array $via = []): void
+    public function updateBatch(array $settings, ?array $expected = null, array $via = [], ?User $actor = null): void
     {
         $this->warnings = [];
-        DB::transaction(function () use ($settings, $expected, $via): void {
+        DB::transaction(function () use ($settings, $expected, $via, $actor): void {
             $this->uncommittedSettings = true;
             $this->resetReadSnapshot();
             $movementSequenceTarget = null;
@@ -447,7 +433,10 @@ class SettingService
             // Changing prefix or padding can collide with previously issued numbers; assert next formatted number is unused in target document table.
             $this->assertNoNumberingCollision(array_keys($settings));
 
-            StaffAdministration::audit(request()->user('staff'), 'settings.updated', 'settings', null, array_keys($settings),
+            // F19: CLI/queue/WhatsApp callers have no staff HTTP request; an explicit
+            // actor keeps the audit log accurate, otherwise fall back safely.
+            $resolvedActor = $actor ?? (app()->runningInConsole() ? null : request()->user('staff'));
+            StaffAdministration::audit($resolvedActor, 'settings.updated', 'settings', null, array_keys($settings),
                 ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
             DB::afterCommit(fn () => $this->clearCache());
 
@@ -595,8 +584,11 @@ class SettingService
     }
 
     /**
-     * Document type to [table, column] mapping for sequence collision detection.
-     * Types without dedicated tables (such as pos_invoice) are excluded.
+     * Single source of truth: document type to [table, column] mapping for
+     * both numbering-collision asserts. Types without dedicated tables are
+     * excluded: `invoice` (no invoices table exists in schema — only
+     * supplier_invoices) and `pos_invoice` (sequence-only numbering, mapped
+     * to table null in 2026_10_31_000001_move_high_volume_numbering_to_sequences).
      *
      * @var array<string, array{0: string, 1: string}>
      */

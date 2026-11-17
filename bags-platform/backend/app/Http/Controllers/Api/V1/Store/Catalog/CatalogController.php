@@ -119,6 +119,11 @@ class CatalogController extends Controller
         try {
             return Cache::lock($key.':build', 15)->block(2, $flexible);
         } catch (LockTimeoutException) {
+            $stale = Cache::get($key);
+            if (is_array($stale)) {
+                return $stale;
+            }
+
             throw new BusinessException('جاري تحديث البيانات المرجعية؛ أعد المحاولة بعد لحظات.', [], 503);
         }
     }

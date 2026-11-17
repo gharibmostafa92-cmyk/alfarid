@@ -118,7 +118,7 @@ class CheckoutController extends Controller
      */
     public function store(CheckoutRequest $request): JsonResponse
     {
-        [$customer, $cart] = $this->currentCart($request);
+        [$customer, $cart] = $this->currentCart($request, create: false, mergeGuest: true);
         $data = $request->validated();
 
         // Support Idempotency-Key header to prevent duplicate orders on network retries.
@@ -151,10 +151,14 @@ class CheckoutController extends Controller
      * @param  bool  $create  Whether to initialize a persistent cart if none exists.
      * @return array{0: ?Customer, 1: Cart}
      */
-    private function currentCart(Request $request, bool $create = true): array
+    private function currentCart(Request $request, bool $create = true, bool $mergeGuest = false): array
     {
         $customer = Customer::resolveShopper(auth('sanctum')->user());
-        $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
+        $guestToken = $request->header('X-Cart-Session');
+        if ($mergeGuest && $customer !== null) {
+            $this->carts->mergeGuestCart($customer, $guestToken);
+        }
+        $cart = $this->carts->resolveCart($customer, $guestToken, $create);
 
         return [$customer, $cart];
     }

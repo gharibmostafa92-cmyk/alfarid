@@ -24,17 +24,24 @@ class CustomerPasswordReset extends Notification
         return [$this->channel ?? ($notifiable->email ? 'mail' : CustomerSmsChannel::class)];
     }
 
-    /** Reset URL formatted in GSM-7 characters to fit single 160-char SMS segment. */
+    /**
+     * Reset link carries the raw token in the URL fragment and never in the
+     * query string: fragments never leave the browser, so the secret stays
+     * out of HTTP access logs, CDN logs, proxy logs, Referer headers, and
+     * automatic link-preview fetches. The phone number is omitted entirely —
+     * the token already identifies the reset server-side.
+     * Kept in GSM-7 characters to fit a single 160-char SMS segment.
+     */
     public function toSms(Customer $notifiable): string
     {
-        return 'Password reset: '.$this->resetUrl($notifiable);
+        return 'Password reset: '.$this->resetUrl();
     }
 
-    private function resetUrl(Customer $notifiable): string
+    private function resetUrl(): string
     {
         $base = rtrim((string) config('app.frontend_url', config('app.url')), '/');
 
-        return $base.'/reset-password?'.http_build_query(['token' => $this->token, 'phone' => $notifiable->phone]);
+        return $base.'/reset-password#token='.rawurlencode($this->token);
     }
 
     public function toMail(Customer $notifiable): MailMessage
@@ -43,6 +50,7 @@ class CustomerPasswordReset extends Notification
             ->subject('استعادة كلمة المرور')
             ->line('وصلنا طلب لاستعادة كلمة مرور حسابك.')
             ->line('رمز الاستعادة: '.$this->token)
+            ->action('استعادة كلمة المرور', $this->resetUrl())
             ->line('لو لم تطلب الاستعادة، تجاهل هذه الرسالة.');
     }
 }

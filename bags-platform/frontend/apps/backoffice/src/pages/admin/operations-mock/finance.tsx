@@ -76,7 +76,7 @@ function RemoteNote({ remote }: { remote: { loading: boolean; error: { message: 
 }
 
 /* ---------------- FINANCE PAGE ---------------- */
-export function FinancePage({ sub = 'tr', id, can = () => true }: { sub?: string; id?: string | number; can?: (permission: string) => boolean }) {
+export function FinancePage({ sub = 'tr', id, can = () => false }: { sub?: string; id?: string | number; can?: (permission: string) => boolean }) {
   const [tab, setTab] = useState(sub);
   useEffect(() => setTab(sub), [sub]);
   const tabs = [
@@ -88,6 +88,15 @@ export function FinancePage({ sub = 'tr', id, can = () => true }: { sub?: string
   const numericId = Number(id);
   const recordId = activeTab === sub && Number.isSafeInteger(numericId) && numericId > 0 ? numericId : undefined;
 
+  if (tabs.length === 0) {
+    return (
+      <div className="space-y-5">
+        <PageHead title="المالية" sub="الخزائن والمصروفات وتحويلات النقدية بين الخزائن." />
+        <Empty icon="lock" title="ليس لديك صلاحية عرض المالية." />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <PageHead title="المالية" sub="الخزائن والمصروفات وتحويلات النقدية بين الخزائن." />
@@ -97,9 +106,9 @@ export function FinancePage({ sub = 'tr', id, can = () => true }: { sub?: string
         tabs={tabs}
       />
       {recordId && <button type="button" className="btn btn-soft" onClick={() => { window.location.hash = `/finance?tab=${activeTab}`; }}>عرض كل السجلات</button>}
-      {activeTab === 'tr' && <TreasuriesTab key={recordId} recordId={recordId} />}
+      {activeTab === 'tr' && <TreasuriesTab key={recordId} recordId={recordId} can={can} />}
       {activeTab === 'exp' && <ExpensesTab key={recordId} recordId={recordId} can={can} />}
-      {activeTab === 'trf' && <TransfersTab key={recordId} recordId={recordId} />}
+      {activeTab === 'trf' && <TransfersTab key={recordId} recordId={recordId} can={can} />}
     </div>
   );
 }
@@ -114,7 +123,7 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
   const selectedTreasury = treasures.data?.find((t) => t.id === Number(f.v.treasuryId));
   const categories = ['نظافة', 'صيانة', 'نقل وتحميل', 'إيجار', 'ضيافة', 'أدوات مكتبية', 'أخرى'];
   const save = async () => {
-    if (!f.v.branchId || !f.v.treasuryId || !f.v.category || !f.v.amount) return toast('أكمل الحقول المطلوبة', 'red');
+    if (!f.v.branchId || !f.v.treasuryId || !f.v.category || !f.v.amount || !f.v.notes.trim()) return toast('أكمل جميع الحقول المطلوبة بما فيها البيان', 'red');
     const r = await run(() => expensesApi.create({
       branch_id: Number(f.v.branchId),
       treasury_id: Number(f.v.treasuryId), category: f.v.category, amount: f.v.amount,
@@ -170,6 +179,7 @@ export function TreasuryForm({ row, onClose, onSaved }: { row: any; onClose: () 
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const save = async () => {
     if (!f.v.name.trim()) return toast('اسم الخزينة مطلوب', 'red');
+    if (!f.v.code.trim()) return toast('كود الخزينة مطلوب', 'red');
     const body: any = {
       name: f.v.name, code: f.v.code, type: treasuryToBackend(f.v.type),
       branch_id: (f.v.branchId as string) ? Number(f.v.branchId) : null,
@@ -205,7 +215,7 @@ export function TreasuryForm({ row, onClose, onSaved }: { row: any; onClose: () 
   );
 }
 
-export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
+export function TreasuriesTab({ recordId, can = () => false }: { recordId?: number; can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { run } = useAction();
   const [br, setBr] = useState('');
@@ -214,7 +224,7 @@ export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
   const [form, setForm] = useState<any>(null);
   const [del, setDel] = useState<TreasuryRow | null>(null);
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [br, ty, act]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
   const list = useRemote((s) => recordId
     ? treasuriesApi.show(recordId, s).then((record) => mockPage([mapTreasury(record)]))
     : treasuriesApi.list({ page, per_page: 20, branch_id: br || undefined, type: ty ? treasuryToBackend(ty) : undefined, is_active: act ? act === 'true' : undefined }, s).then((p) => ({ ...p, data: p.data.map(mapTreasury) })), [recordId, page, br, ty, act], { mock: () => mockPage(TREASURIES.filter((row) => !recordId || row.id === recordId)) });
@@ -227,40 +237,40 @@ export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stg stg-2">
         <KPI
           hero
-          label="الحسابات البنكية"
+          label="الحسابات البنكية (الصفحة الحالية)"
           icon="bank"
           value={<span className="ltr">{fmtNum(sum('bank'), 0)}</span>}
           small
-          foot="EGP"
+          foot="EGP · في الصفحة الحالية"
         />
         <KPI
-          label="الخزائن الرئيسية"
+          label="الخزائن الرئيسية (الصفحة الحالية)"
           icon="vault"
           value={<span className="ltr">{fmtNum(sum('main'), 0)}</span>}
           small
-          foot="EGP"
+          foot="EGP · في الصفحة الحالية"
         />
         <KPI
-          label="أدراج الكاشير"
+          label="أدراج الكاشير (الصفحة الحالية)"
           icon="cash"
           value={<span className="ltr">{fmtNum(sum('drawer'), 0)}</span>}
           small
-          foot="EGP"
+          foot="EGP · في الصفحة الحالية"
         />
       </div>
       <Card stg={3}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex flex-wrap gap-2">
-            <FSelect value={br} onChange={setBr} placeholder="الفرع" options={(branches.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))} />
+            <FSelect value={br} onChange={setFilter(setBr)} placeholder="الفرع" options={(branches.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))} />
             <FSelect
               value={ty}
-              onChange={setTy}
+              onChange={setFilter(setTy)}
               placeholder="النوع"
               options={Object.entries(TREASURY_TYPES).map(([v, l]) => ({ value: v, label: l }))}
             />
             <FSelect
               value={act}
-              onChange={setAct}
+              onChange={setFilter(setAct)}
               placeholder="التفعيل"
               options={[
                 { value: 'true', label: 'مفعّلة' },
@@ -268,15 +278,17 @@ export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
               ]}
             />
           </div>
-          <button className="btn btn-dark btn-sm" onClick={() => setForm({})}>
-            <Icon name="plus" size={13} />
-            خزينة جديدة
-          </button>
+          {can('treasuries.create') && (
+            <button className="btn btn-dark btn-sm" onClick={() => setForm({})}>
+              <Icon name="plus" size={13} />
+              خزينة جديدة
+            </button>
+          )}
         </div>
         <RemoteNote remote={list} />
         <DataTable
           rows={rows}
-          onRow={list.usingMock ? undefined : setForm}
+          onRow={list.usingMock || !can('treasuries.update') ? undefined : setForm}
           cols={[
             {
               h: 'الخزينة',
@@ -338,12 +350,16 @@ export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
               h: '',
               r: (t: TreasuryRow) => (
                 <RowActions>
-                  <button className="icon-btn !w-7 !h-7" disabled={list.usingMock} onClick={() => setForm(t)}>
-                    <Icon name="edit" size={13} />
-                  </button>
-                  <button className="icon-btn !w-7 !h-7" disabled={list.usingMock} onClick={() => setDel(t)}>
-                    <Icon name="trash" size={13} />
-                  </button>
+                  {can('treasuries.update') && (
+                    <button className="icon-btn !w-7 !h-7" disabled={list.usingMock} onClick={() => setForm(t)}>
+                      <Icon name="edit" size={13} />
+                    </button>
+                  )}
+                  {can('treasuries.delete') && (
+                    <button className="icon-btn !w-7 !h-7" disabled={list.usingMock} onClick={() => setDel(t)}>
+                      <Icon name="trash" size={13} />
+                    </button>
+                  )}
                 </RowActions>
               ),
             },
@@ -372,7 +388,7 @@ export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
   );
 }
 
-export function ExpensesTab({ recordId, can = () => true }: { recordId?: number; can?: (permission: string) => boolean } = {}) {
+export function ExpensesTab({ recordId, can = () => false }: { recordId?: number; can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [br, setBr] = useState('');
@@ -384,7 +400,7 @@ export function ExpensesTab({ recordId, can = () => true }: { recordId?: number;
 
   const categories = ['نظافة', 'صيانة', 'نقل وتحميل', 'إيجار', 'ضيافة', 'أدوات مكتبية', 'أخرى'];
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [br, tr, cat]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
   const list = useRemote((s) => recordId
     ? expensesApi.show(recordId, s).then((record) => mockPage([mapExpense(record)]))
     : expensesApi.list({ page, per_page: 20, branch_id: br || undefined, treasury_id: tr || undefined, category: cat || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapExpense) })), [recordId, page, br, tr, cat], { mock: () => mockPage(EXPENSES.filter((row) => !recordId || row.id === recordId)) });
@@ -401,31 +417,33 @@ export function ExpensesTab({ recordId, can = () => true }: { recordId?: number;
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stg stg-2">
         <KPI
           hero
-          label="إجمالي المصروفات المعروضة"
+          label="إجمالي المصروفات (الصفحة الحالية)"
           icon="receipt"
           value={<span className="ltr">{fmtNum(total, 0)}</span>}
           small
-          foot="EGP"
+          foot="EGP · في الصفحة الحالية"
         />
-        <KPI label="عدد سندات الصرف" icon="file" value={rows.length} foot="سند مسجّل" />
-        <KPI label="أعلى بند صرف" icon="tag" value={largest?.cat ?? '—'} foot={largest ? fmtMoney(largest.amount) : '—'} />
+        <KPI label="عدد سندات الصرف (الصفحة الحالية)" icon="file" value={rows.length} foot="سند في الصفحة الحالية" />
+        <KPI label="أعلى بند صرف (الصفحة الحالية)" icon="tag" value={largest?.cat ?? '—'} foot={largest ? fmtMoney(largest.amount) : '—'} />
       </div>
       <Card stg={3}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex flex-wrap gap-2">
-            <FSelect value={br} onChange={setBr} placeholder="الفرع" options={(branches.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
+            <FSelect value={br} onChange={setFilter(setBr)} placeholder="الفرع" options={(branches.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
             <FSelect
               value={tr}
-              onChange={setTr}
+              onChange={setFilter(setTr)}
               placeholder="الخزينة"
               options={(treasures.data ?? []).map((t: { id: number; name: string }) => ({ value: String(t.id), label: t.name }))}
             />
-            <FSelect value={cat} onChange={setCat} placeholder="التصنيف" options={categories} />
+            <FSelect value={cat} onChange={setFilter(setCat)} placeholder="التصنيف" options={categories} />
           </div>
-          <button className="btn btn-dark btn-sm" onClick={() => setForm(true)}>
-            <Icon name="plus" size={13} />
-            سند صرف
-          </button>
+          {can('expenses.create') && (
+            <button className="btn btn-dark btn-sm" onClick={() => setForm(true)}>
+              <Icon name="plus" size={13} />
+              سند صرف
+            </button>
+          )}
         </div>
         <RemoteNote remote={list} />
         <DataTable
@@ -491,7 +509,7 @@ export function ExpensesTab({ recordId, can = () => true }: { recordId?: number;
   );
 }
 
-export function TransfersTab({ recordId }: { recordId?: number } = {}) {
+export function TransfersTab({ recordId, can = () => false }: { recordId?: number; can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [st, setSt] = useState('');
@@ -509,14 +527,11 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [st, tr]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
   const list = useRemote(async (s) => {
-    // The server supports separate source/destination filters, not an OR filter.
     const result = recordId
       ? mockPage([await treasuryTransfersApi.show(recordId, s)])
-      : tr
-      ? mockPage((await allPages((page) => treasuryTransfersApi.list({ page, per_page: 100, status: st || undefined }, s))).filter((x) => String(x.from_treasury_id) === tr || String(x.to_treasury_id) === tr), page)
-      : await treasuryTransfersApi.list({ page, per_page: 20, status: st || undefined }, s);
+      : await treasuryTransfersApi.list({ page, per_page: 20, status: st || undefined, treasury_id: tr ? Number(tr) : undefined }, s);
     return { ...result, data: result.data.map((x): TreasuryTransfer => ({
       id: x.id, from: x.from_treasury_id, to: x.to_treasury_id, amount: num(x.amount),
       status: x.status, date: (x.created_at ?? '').slice(0, 10), by: x.creator?.name ?? '', appr: x.approver?.name ?? null, notes: x.notes,
@@ -555,6 +570,16 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
     }, { toast, success: 'أُرسل طلب التحويل', onFieldErrors: setErrors });
     if (r) { setUnresolved(false); setIdemKey(newIdempotencyKey()); setForm(false); setSrc(''); setDst(''); setAmount(''); setNotes(''); list.reload(); treasures.reload(); }
   };
+  const resetUnresolvedTransfer = () => {
+    list.reload();
+    setUnresolved(false);
+    setIdemKey(newIdempotencyKey());
+    setSrc('');
+    setDst('');
+    setAmount('');
+    setNotes('');
+    setErrors({});
+  };
   const closeForm = () => {
     if (busy) return;
     setForm(false);
@@ -568,21 +593,23 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
           <div className="flex flex-wrap gap-2">
             <FSelect
               value={st}
-              onChange={setSt}
+              onChange={setFilter(setSt)}
               placeholder="الحالة"
               options={Object.entries(TRANSFER_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
             />
             <FSelect
               value={tr}
-              onChange={setTr}
+              onChange={setFilter(setTr)}
               placeholder="الخزينة (مصدر أو وجهة)"
               options={(treasures.data ?? []).map((t: { id: number; name: string }) => ({ value: String(t.id), label: t.name }))}
             />
           </div>
-          <button className="btn btn-dark btn-sm" onClick={() => setForm(true)}>
-            <Icon name="plus" size={13} />
-            طلب تحويل
-          </button>
+          {can('treasury_transfers.create') && (
+            <button className="btn btn-dark btn-sm" onClick={() => setForm(true)}>
+              <Icon name="plus" size={13} />
+              طلب تحويل
+            </button>
+          )}
         </div>
         <RemoteNote remote={list} />
         <DataTable
@@ -611,7 +638,7 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
             {
               h: '',
               r: (x: TreasuryTransfer) =>
-                x.status === 'pending' && (
+                x.status === 'pending' && can('treasury_transfers.approve') && (
                   <RowActions>
                     <button className="btn btn-danger btn-xs" disabled={busy} onClick={() => { setRejecting(x); setRejectReason(''); }}>
                       رفض
@@ -634,7 +661,7 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
           icon="swap"
           width={520}
           footer={
-            view.status === 'pending' && (
+            view.status === 'pending' && can('treasury_transfers.approve') && (
               <>
                 <button
                   className="btn btn-danger"
@@ -707,7 +734,16 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
           </>
         }
       >
-        {unresolved && <p role="status">نتيجة الطلب السابق لم تُحسم. أعد الإرسال بنفس البيانات للتحقق منه بأمان.</p>}
+        {unresolved && (
+          <div className="mb-3 space-y-2">
+            <Note tone="amber" icon="alert">
+              نتيجة الطلب السابق لم تُحسم. أعد الإرسال بنفس البيانات للتحقق منه بأمان، أو تحقق من القائمة ثم ابدأ تحويلاً جديداً.
+            </Note>
+            <button type="button" className="btn btn-soft btn-xs" disabled={busy} onClick={resetUnresolvedTransfer}>
+              تحققت من القائمة — بدء تحويل جديد بمفتاح جديد
+            </button>
+          </div>
+        )}
         <fieldset disabled={busy || unresolved} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="الخزينة المصدر" req err={errors.from_treasury_id}>
@@ -769,8 +805,8 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
 
 /* ---------------- SHIFTS PAGE ---------------- */
 export function DiffCell({ s }: { s: ShiftRow }) {
-  if (s.exp == null) return <span className="tx3">—</span>;
-  const d = (s.act ?? 0) - s.exp;
+  if (s.exp == null || s.act == null) return <span className="tx3">—</span>;
+  const d = Math.round((s.act - s.exp) * 100) / 100;
   if (d === 0) return <Badge tone="green" dot={false}>مطابق</Badge>;
   return (
     <span className={'font-semibold ' + (d < 0 ? 'c-red' : 'c-amber')}>
@@ -780,7 +816,7 @@ export function DiffCell({ s }: { s: ShiftRow }) {
   );
 }
 
-export function ShiftsPage() {
+export function ShiftsPage({ can = () => false }: { can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [br, setBr] = useState('');
@@ -791,7 +827,7 @@ export function ShiftsPage() {
   const [view, setView] = useState<ShiftRow | null>(null);
 
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [br, ca, st, from, to]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
   const list = useRemote((s) => shiftsApi.list({ page, per_page: 20, branch_id: br || undefined, user_id: ca || undefined, status: st === 'closed' ? 'closed_pending_approval' : st || undefined, from_date: from || undefined, to_date: to || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapShift) })), [page, br, ca, st, from, to], { mock: () => mockPage(SHIFTS) });
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const cashiers = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/users', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{id: number; name: string}>(r))), []);
@@ -810,31 +846,31 @@ export function ShiftsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stg stg-2">
         <KPI
           hero
-          label="بانتظار الاعتماد"
+          label="بانتظار الاعتماد (الصفحة الحالية)"
           icon="clock"
           value={rows.filter((s) => s.status === 'closed').length}
-          foot="ورديات مغلقة"
+          foot="ورديات مغلقة في الصفحة الحالية"
         />
         <KPI
-          label="ورديات بها فروق"
+          label="ورديات بها فروق (الصفحة الحالية)"
           icon="alert"
-          value={rows.filter((s) => s.exp != null && s.act !== s.exp).length}
-          foot="عجز أو زيادة"
+          value={rows.filter((s) => s.exp != null && s.act != null && Math.round((s.act - s.exp) * 100) !== 0).length}
+          foot="عجز أو زيادة في الصفحة الحالية"
         />
         <KPI label="إجمالي الورديات المسجلة" icon="calendar" value={list.data?.meta.total ?? 0} foot="وردية" />
       </div>
       <Card stg={3}>
         <div className="flex flex-wrap gap-2 mb-4">
-          <FSelect value={br} onChange={setBr} placeholder="الفرع" options={(branches.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))} />
-          <FSelect value={ca} onChange={setCa} placeholder="الكاشير" options={(cashiers.data ?? []).map((c) => ({ value: String(c.id), label: c.name }))} />
+          <FSelect value={br} onChange={setFilter(setBr)} placeholder="الفرع" options={(branches.data ?? []).map((b) => ({ value: String(b.id), label: b.name }))} />
+          <FSelect value={ca} onChange={setFilter(setCa)} placeholder="الكاشير" options={(cashiers.data ?? []).map((c) => ({ value: String(c.id), label: c.name }))} />
           <FSelect
             value={st}
-            onChange={setSt}
+            onChange={setFilter(setSt)}
             placeholder="الحالة"
             options={Object.entries(SHIFT_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
           />
-          <FDate label="من" value={from} onChange={setFrom} />
-          <FDate label="إلى" value={to} onChange={setTo} />
+          <FDate label="من" value={from} onChange={setFilter(setFrom)} />
+          <FDate label="إلى" value={to} onChange={setFilter(setTo)} />
         </div>
         <RemoteNote remote={list} />
         <DataTable
@@ -881,6 +917,7 @@ export function ShiftsPage() {
       {view && (
         <ShiftModal
           s={view}
+          canApprove={can('pos_shifts.approve')}
           onClose={() => setView(null)}
           onApprove={() => approveShift(view.id)}
         />
@@ -889,7 +926,7 @@ export function ShiftsPage() {
   );
 }
 
-export function ShiftModal({ s: initial, onClose, onApprove }: { s: ShiftRow; onClose: () => void; onApprove: () => void }) {
+export function ShiftModal({ s: initial, canApprove = false, onClose, onApprove }: { s: ShiftRow; canApprove?: boolean; onClose: () => void; onApprove: () => void }) {
   const detail = useRemote((signal) => shiftsApi.show(initial.id, signal), [initial.id]);
   const s = detail.data ? mapShift(detail.data) : initial;
   const opening = num(detail.data?.opening_cash);
@@ -897,8 +934,8 @@ export function ShiftModal({ s: initial, onClose, onApprove }: { s: ShiftRow; on
   const cardSales = num(detail.data?.card_sales_total);
   const cashRet = num(detail.data?.cash_returns_total);
   const cashExp = num(detail.data?.cash_expenses_total);
-  const exp = s.exp ?? opening + cashSales - cashRet - cashExp;
-  const d = s.act != null ? s.act - exp : null;
+  const exp = s.exp ?? (detail.data ? opening + cashSales - cashRet - cashExp : null);
+  const d = s.act != null && exp != null ? Math.round((s.act - exp) * 100) / 100 : null;
 
   return (
     <Modal
@@ -918,7 +955,7 @@ export function ShiftModal({ s: initial, onClose, onApprove }: { s: ShiftRow; on
         </>
       }
       footer={
-        detail.data?.status === 'closed_pending_approval' ? (
+        detail.data?.status === 'closed_pending_approval' && canApprove ? (
           <>
             <button className="btn btn-soft" onClick={onClose}>
               إغلاق
@@ -953,7 +990,7 @@ export function ShiftModal({ s: initial, onClose, onApprove }: { s: ShiftRow; on
             ))}
             <div className="flex items-center justify-between v-bt pt-2.5">
               <span className="font-semibold tx1">النقدية المتوقعة</span>
-              <span className="font-display font-bold">{fmtMoney(exp)}</span>
+              <span className="font-display font-bold">{exp != null ? fmtMoney(exp) : '—'}</span>
             </div>
             <div className="flex items-center justify-between text-[11.5px] tx3">
               <span>مبيعات البطاقات (خارج الدرج)</span>
@@ -1008,35 +1045,38 @@ export function ShiftModal({ s: initial, onClose, onApprove }: { s: ShiftRow; on
 }
 
 /* ---------------- WHOLESALE PAGE ---------------- */
-export function WholesalePage({ sub = 'quotes' }: { sub?: string }) {
-  const [tab, setTab] = useState(sub);
-  useEffect(() => setTab(sub), [sub]);
+export function WholesalePage({ sub = 'quotes', can = () => false }: { sub?: string; can?: (permission: string) => boolean }) {
+  const [tab, setTab] = useState<'quotes' | 'notices'>(sub === 'notices' ? 'notices' : 'quotes');
+  useEffect(() => { setTab(sub === 'notices' ? 'notices' : 'quotes'); }, [sub]);
+  const tabs = [
+    { value: 'quotes', label: 'عروض الأسعار', icon: 'quote', permission: 'quotations.view' },
+    { value: 'notices', label: 'إشعارات السداد', icon: 'bank', permission: 'payment_notices.view' },
+  ].filter((t) => can(t.permission));
+  const activeTab = tabs.some((t) => t.value === tab) ? tab : (tabs[0]?.value as 'quotes' | 'notices' | undefined);
+
+  if (!activeTab) {
+    return (
+      <div className="space-y-5">
+        <PageHead title="الجملة" sub="تسعير عروض أسعار التجار ومراجعة إشعارات السداد الواردة من بوابة الجملة." />
+        <Empty icon="lock" title="ليس لديك صلاحية عرض الجملة." />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHead title="الجملة" sub="تسعير عروض أسعار التجار ومراجعة إشعارات السداد الواردة من بوابة الجملة." />
       <TabsBar
-        value={tab}
+        value={activeTab}
         onChange={(v: any) => setTab(v)}
-        tabs={[
-          {
-            value: 'quotes',
-            label: 'عروض الأسعار',
-            icon: 'quote',
-          },
-          {
-            value: 'notices',
-            label: 'إشعارات السداد',
-            icon: 'bank',
-          },
-        ]}
+        tabs={tabs}
       />
-      {tab === 'quotes' ? <QuotesTab /> : <NoticesTab />}
+      {activeTab === 'quotes' ? <QuotesTab can={can} /> : <NoticesTab can={can} />}
     </div>
   );
 }
 
-export function QuotesTab() {
+export function QuotesTab({ can = () => false }: { can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [st, setSt] = useState('');
@@ -1049,7 +1089,7 @@ export function QuotesTab() {
   const [validUntil, setValidUntil] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  useEffect(() => setPage(1), [st, cu]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
   const status = st === 'priced' ? 'priced_by_admin' : st === 'converted' || st === 'ordered' ? 'converted_to_order' : st;
   const list = useRemote((s) => quotationsApi.list({ page, per_page: 20, status: status || undefined, customer_id: cu || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapQuote) })), [page, st, cu], { mock: () => mockPage(QUOTES) });
   const customers = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/customers', { params: { page, type: 'wholesale', per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string; company_name?: string }>(r))), []);
@@ -1062,7 +1102,7 @@ export function QuotesTab() {
     setErrors({});
   }, [detail.data]);
   const rows = list.data?.data ?? [];
-  const lines = (detail.data?.items ?? []).map((item) => ({ id: item.id, v: { name: item.variant?.product_name ?? '—', sku: item.variant?.sku ?? '', price: num(item.offered_unit_price) }, qty: item.qty, price: item.offered_unit_price === null ? null : num(item.offered_unit_price), note: null }));
+  const lines = (detail.data?.items ?? []).map((item) => ({ id: item.id, v: { name: item.variant?.product_name ?? '—', sku: item.variant?.sku ?? '', price: num(item.offered_unit_price) }, qty: item.qty, price: item.offered_unit_price === null ? null : num(item.offered_unit_price), note: (item as any).notes ?? (item as any).note ?? null }));
   const sub = lines.reduce((total, line) => total + num(prices[line.id]) * line.qty, 0);
   const savePrice = async () => {
     if (!detail.data || list.usingMock) return;
@@ -1083,11 +1123,11 @@ export function QuotesTab() {
         <div className="flex flex-wrap gap-2 mb-4">
           <FSelect
             value={st}
-            onChange={setSt}
+            onChange={setFilter(setSt)}
             placeholder="الحالة"
             options={Object.entries(QUOTE_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
           />
-          <FSelect value={cu} onChange={setCu} placeholder="العميل" options={(customers.data ?? []).map((c) => ({ value: String(c.id), label: c.company_name || c.name }))} />
+          <FSelect value={cu} onChange={setFilter(setCu)} placeholder="العميل" options={(customers.data ?? []).map((c) => ({ value: String(c.id), label: c.company_name || c.name }))} />
         </div>
         <RemoteNote remote={list} />
         <DataTable
@@ -1125,7 +1165,7 @@ export function QuotesTab() {
             {
               h: '',
               r: (q: QuoteRow) =>
-                ['requested', 'priced'].includes(q.status) && (
+                ['requested', 'priced'].includes(q.status) && can('quotations.price') && (
                   <RowActions>
                     <button
                       className="btn btn-accent btn-xs"
@@ -1162,19 +1202,21 @@ export function QuotesTab() {
             </>
           }
           footer={
-            <>
-              {['priced', 'requested'].includes((detail.data ? quoteStatus(detail.data.status) : view.status)) && (
-                <button className="btn btn-ghost me-auto" disabled={busy || detail.loading || !detail.data || list.usingMock} onClick={() => setExpire(true)}>
-                  <Icon name="clock" size={13} />
-                  إنهاء الصلاحية
-                </button>
-              )}
-              {['requested', 'priced'].includes(view.status) && (
-                <button className="btn btn-dark" disabled={detail.loading || !detail.data || list.usingMock} onClick={() => setPrice(true)}>
-                  {view.status === 'priced' ? 'إعادة التسعير' : 'تسعير العرض'}
-                </button>
-              )}
-            </>
+            (() => {
+              const effectiveStatus = detail.data ? quoteStatus(detail.data.status) : view.status;
+              if (!can('quotations.price') || !['priced', 'requested'].includes(effectiveStatus)) return null;
+              return (
+                <>
+                  <button className="btn btn-ghost me-auto" disabled={busy || detail.loading || !detail.data || list.usingMock} onClick={() => setExpire(true)}>
+                    <Icon name="clock" size={13} />
+                    إنهاء الصلاحية
+                  </button>
+                  <button className="btn btn-dark" disabled={detail.loading || !detail.data || list.usingMock} onClick={() => setPrice(true)}>
+                    {effectiveStatus === 'priced' ? 'إعادة التسعير' : 'تسعير العرض'}
+                  </button>
+                </>
+              );
+            })()
           }
         >
           <div className="space-y-4 pb-2">
@@ -1311,7 +1353,7 @@ export function QuotesTab() {
   );
 }
 
-export function NoticesTab() {
+export function NoticesTab({ can = () => false }: { can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [st, setSt] = useState('');
@@ -1322,7 +1364,7 @@ export function NoticesTab() {
   const [treasuryId, setTreasuryId] = useState('');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  useEffect(() => { setPage(1); setSelected(null); }, [st, cu]);
+  const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); setSelected(null); };
   useEffect(() => { setNotes(''); setTreasuryId(''); setErrors({}); }, [mode, selected?.id]);
   const list = useRemote((s) => paymentNoticesApi.list({ page, per_page: 20, status: st === 'pending' ? 'pending_review' : st || undefined, customer_id: cu || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapNotice) })), [page, st, cu], { mock: () => mockPage(NOTICES) });
   const detail = useRemote((s) => paymentNoticesApi.show(selected!.id, s), [selected?.id], { enabled: !!selected });
@@ -1332,9 +1374,16 @@ export function NoticesTab() {
   const rows = list.data?.data ?? [];
   const sel = detail.data && detail.data.id === selected?.id ? mapNotice(detail.data) : selected;
   const setSel = setSelected;
-  useEffect(() => { if (!selected && rows.length) setSelected(rows[0]); }, [list.data, selected]);
+  useEffect(() => {
+    if (rows.length && (!selected || !rows.some((r) => r.id === selected.id))) {
+      setSelected(rows[0]);
+    } else if (!rows.length && selected) {
+      setSelected(null);
+    }
+  }, [list.data]);
   const review = async (approve: boolean) => {
-    if (!sel || list.usingMock || !detail.data) return;
+    if (list.usingMock) return toast('البيانات المعروضة تجريبية — لم يتم الحفظ', 'red');
+    if (!sel || !detail.data) return;
     if (!approve && !notes.trim()) return toast('سبب الرفض مطلوب', 'red');
     const result = await run(() => approve ? paymentNoticesApi.approve(sel.id, { treasury_id: treasuryId ? Number(treasuryId) : null, admin_notes: notes || null }) : paymentNoticesApi.reject(sel.id, notes), { toast, success: approve ? 'تم اعتماد إشعار الدفع' : 'تم رفض الإشعار', onFieldErrors: setErrors });
     if (result) { detail.setData(result); setSelected(mapNotice(result)); setMode(null); list.reload(); treasures.reload(); }
@@ -1346,11 +1395,11 @@ export function NoticesTab() {
         <div className="flex flex-wrap gap-2">
           <FSelect
             value={st}
-            onChange={setSt}
+            onChange={setFilter(setSt)}
             placeholder="كل الحالات"
             options={Object.entries(NOTICE_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
           />
-          <FSelect value={cu} onChange={setCu} placeholder="العميل" options={(customers.data ?? []).map((c) => ({ value: String(c.id), label: c.company_name || c.name }))} />
+          <FSelect value={cu} onChange={setFilter(setCu)} placeholder="العميل" options={(customers.data ?? []).map((c) => ({ value: String(c.id), label: c.company_name || c.name }))} />
         </div>
         <RemoteNote remote={list} />
         <div className="space-y-2">
@@ -1378,7 +1427,7 @@ export function NoticesTab() {
             </button>
           ))}
         </div>
-        <Pager total={list.data?.meta.total ?? 0} page={page} per={20} onPage={setPage} />
+        <Pager total={list.data?.meta.total ?? 0} page={page} per={20} onPage={(p) => { setPage(p); setSelected(null); }} />
       </Card>
       {sel && (
         <Card stg={4} className="lg:col-span-7">
@@ -1393,15 +1442,19 @@ export function NoticesTab() {
                 {sel.company} · {sel.cust}
               </div>
             </div>
-            {sel.status === 'pending' && (
+            {sel.status === 'pending' && (can('payment_notices.approve') || can('payment_notices.reject')) && (
               <div className="flex gap-2">
-                <button className="btn btn-danger btn-sm" onClick={() => setMode('reject')}>
-                  رفض
-                </button>
-                <button className="btn btn-dark btn-sm" onClick={() => setMode('approve')}>
-                  <Icon name="check" size={13} />
-                  موافقة
-                </button>
+                {can('payment_notices.reject') && (
+                  <button className="btn btn-danger btn-sm" disabled={list.usingMock} onClick={() => setMode('reject')}>
+                    رفض
+                  </button>
+                )}
+                {can('payment_notices.approve') && (
+                  <button className="btn btn-dark btn-sm" disabled={list.usingMock} onClick={() => setMode('approve')}>
+                    <Icon name="check" size={13} />
+                    موافقة
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1445,7 +1498,7 @@ export function NoticesTab() {
                   <div className="text-[12.5px] font-medium tx1">إيصال التحويل</div>
                   <div className="text-[11px] tx3 num">{sel.no}</div>
                 </div>
-                <button className="btn btn-soft btn-xs" disabled={busy} onClick={() => run(() => paymentNoticesApi.openReceipt(sel.id), { toast })}>
+                <button className="btn btn-soft btn-xs" disabled={busy || list.usingMock} onClick={() => run(() => paymentNoticesApi.openReceipt(sel.id), { toast })}>
                   <Icon name="eye" size={12} />
                   معاينة
                 </button>

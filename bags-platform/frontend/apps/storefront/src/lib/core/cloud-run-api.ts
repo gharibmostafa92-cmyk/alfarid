@@ -38,16 +38,42 @@ function resolveAllowedNamespaces(config: ProxyConfig): Set<string> {
   return new Set(parsed.length > 0 ? parsed : DEFAULT_ALLOWED_NAMESPACES);
 }
 
+const MAX_IDENTITY_CACHE_ENTRIES = 16;
+const MAX_IDENTITY_CACHE_AGE_MS = 45 * 60 * 1000;
+const IDENTITY_REFRESH_MARGIN_MS = 60 * 1000;
 const cachedIdentities = new Map<string, { refreshAt: number; token: Promise<string> }>();
+
+function tokenExpiry(value: string): number {
+  const parts = value.split('.');
+  if (parts.length !== 3) throw new Error('Invalid Cloud Run identity');
+
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { exp?: unknown };
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+      throw new Error('Invalid Cloud Run identity expiry');
+    }
+    return payload.exp * 1000;
+  } catch {
+    throw new Error('Invalid Cloud Run identity expiry');
+  }
+}
+
+function invalidateCloudRunIdentityToken(audience: string): void {
+  cachedIdentities.delete(audience);
+}
 
 export function cloudRunIdentityToken(audience: string): Promise<string> {
   const cached = cachedIdentities.get(audience);
   if (cached && cached.refreshAt > Date.now()) {
+    cachedIdentities.delete(audience);
+    cachedIdentities.set(audience, cached);
     return cached.token;
   }
+  if (cached) cachedIdentities.delete(audience);
 
   const url = new URL('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity');
   url.searchParams.set('audience', audience);
+  let entry: { refreshAt: number; token: Promise<string> };
   const token = fetch(url, {
     headers: { 'Metadata-Flavor': 'Google' },
     cache: 'no-store',
@@ -57,12 +83,24 @@ export function cloudRunIdentityToken(audience: string): Promise<string> {
     if (!response.ok) throw new Error('Cloud Run identity is unavailable');
     const value = (await response.text()).trim();
     if (!/^[\w-]+\.[\w-]+\.[\w-]+$/.test(value)) throw new Error('Invalid Cloud Run identity');
+    const expiresAt = tokenExpiry(value);
+    const now = Date.now();
+    const refreshAt = Math.min(now + MAX_IDENTITY_CACHE_AGE_MS, expiresAt - IDENTITY_REFRESH_MARGIN_MS);
+    if (refreshAt <= now) throw new Error('Cloud Run identity is expired or near expiry');
+    if (cachedIdentities.get(audience) === entry) entry.refreshAt = refreshAt;
     return value;
   }).catch(error => {
-    if (cachedIdentities.get(audience)?.token === token) cachedIdentities.delete(audience);
+    if (cachedIdentities.get(audience) === entry) cachedIdentities.delete(audience);
     throw error;
   });
-  cachedIdentities.set(audience, { refreshAt: Date.now() + 45 * 60 * 1000, token });
+  entry = { refreshAt: Number.POSITIVE_INFINITY, token };
+  cachedIdentities.delete(audience);
+  cachedIdentities.set(audience, entry);
+  while (cachedIdentities.size > MAX_IDENTITY_CACHE_ENTRIES) {
+    const oldestAudience = cachedIdentities.keys().next().value;
+    if (oldestAudience === undefined) break;
+    cachedIdentities.delete(oldestAudience);
+  }
   return token;
 }
 
@@ -180,8 +218,31 @@ function limitRequestBody(body: ReadableStream<Uint8Array>, maxBytes: number): R
 
 function pathIsSafe(path: string[], allowed: ReadonlySet<string>): boolean {
   return path.length >= 2
+    && path[0] !== 'admin'
     && allowed.has(path[0])
     && path.every(segment => segment !== '' && segment !== '.' && segment !== '..' && !/[/\\%\u0000-\u001f\u007f]/u.test(segment));
+}
+
+function isAiTurnRequest(request: Request, path: string[], config: ProxyConfig): boolean {
+  return Boolean(config.aiUpstream)
+    && request.method === 'POST'
+    && path.length === 5
+    && path[0] === 'admin'
+    && path[1] === 'ai'
+    && path[2] === 'conversations'
+    && path[3] !== ''
+    && (path[4] === 'stream' || path[4] === 'messages');
+}
+
+function isAiMessagesReadRequest(request: Request, path: string[], config: ProxyConfig): boolean {
+  return Boolean(config.aiUpstream)
+    && request.method === 'GET'
+    && path.length === 5
+    && path[0] === 'admin'
+    && path[1] === 'ai'
+    && path[2] === 'conversations'
+    && path[3] !== ''
+    && path[4] === 'messages';
 }
 
 function catalogAcceptLanguage(value: string): string {
@@ -191,7 +252,10 @@ function catalogAcceptLanguage(value: string): string {
 
 export async function proxyCloudRunApi(request: Request, path: string[], config: ProxyConfig) {
   const allowed = resolveAllowedNamespaces(config);
-  const safe = pathIsSafe(path, allowed);
+  const isAiTurn = isAiTurnRequest(request, path, config);
+  const isAiMessagesRead = isAiMessagesReadRequest(request, path, config);
+  const isAllowedAdminAiPath = isAiTurn || isAiMessagesRead;
+  const safe = isAllowedAdminAiPath || pathIsSafe(path, allowed);
   const isWebhook = safe && path[0] === webhooksNamespace;
   const headers = new Headers({
     'cache-control': 'no-store',
@@ -206,11 +270,19 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     // Same-origin requests are always legitimate; the allow-list is only needed
     // for cross-origin clients such as the backoffice and POS apps.
     if (origin && origin !== selfOrigin && !config.origins.includes(origin)) return fail(403, 'Origin is not permitted');
+    const fetchSite = request.headers.get('sec-fetch-site')?.toLowerCase();
+    if (fetchSite === 'cross-site'
+      && (!origin || (origin !== selfOrigin && !config.origins.includes(origin)))) {
+      return fail(403, 'Cross-site request is not permitted');
+    }
     if (origin && origin === selfOrigin) headers.set('access-control-allow-origin', selfOrigin);
     else if (origin) headers.set('access-control-allow-origin', origin);
   }
   if (!safe) {
     return fail(404, 'API route is not available');
+  }
+  if (isAllowedAdminAiPath && !/^Bearer\s+\S+$/i.test(request.headers.get('authorization') ?? '')) {
+    return fail(401, 'Authentication is required');
   }
   if (isWebhook && request.method !== 'POST') return fail(405, 'Method is not permitted');
 
@@ -242,9 +314,7 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   }
 
   try {
-    const isAiTurn = request.method === 'POST' && path.length === 5 && path[0] === 'admin' && path[1] === 'ai'
-      && path[2] === 'conversations' && (path[4] === 'stream' || path[4] === 'messages');
-    const target = isAiTurn && config.aiUpstream ? config.aiUpstream : config.upstream;
+    const target = isAiTurn ? config.aiUpstream! : config.upstream;
     const upstream = new URL(target);
     if (upstream.protocol !== 'https:' || !upstream.hostname.endsWith('.run.app')
       || target !== upstream.origin) return fail(503, 'API is not configured');
@@ -277,6 +347,9 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       init.duplex = 'half';
     }
     const response = await (config.send ?? fetch)(upstream, init);
+    if ((response.status === 401 || response.status === 403) && config.identityToken === cloudRunIdentityToken) {
+      invalidateCloudRunIdentityToken(upstream.origin);
+    }
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       await response.body?.cancel();
       return fail(502, 'API redirect is not supported');

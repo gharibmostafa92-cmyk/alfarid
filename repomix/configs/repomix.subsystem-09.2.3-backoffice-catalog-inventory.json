@@ -1,0 +1,38 @@
+{
+    "output": {
+        "filePath": "repomix/outputs/repomix-subsystem-09.2.3-backoffice-catalog-inventory.xml",
+        "style": "xml",
+        "parsableStyle": true,
+        "fileSummary": true,
+        "directoryStructure": true,
+        "removeComments": false,
+        "removeEmptyLines": true,
+        "truncateBase64": true,
+        "topFilesLength": 20,
+        "showLineNumbers": true,
+        "copyToClipboard": false,
+        "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
+        "headerText": "SUBSYSTEM 9.2.3: BACKOFFICE CATALOG HIERARCHY & INVENTORY MANAGEMENT\nProduct catalog administration, category trees, manufacturing workflows, stocktake reconciliation, inventory movement references, and mock storage."
+    },
+    "include": [
+        "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog/**",
+        "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog-mock/**",
+        "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/**",
+        "bags-platform/frontend/apps/backoffice/src/pages/admin/inventory-mock/**"
+    ],
+    "ignore": {
+        "useGitignore": true,
+        "useDefaultPatterns": true,
+        "customPatterns": [
+            "**/tests/**",
+            "**/*.test.*",
+            "**/*.spec.*",
+            "**/vendor/**",
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/storage/**",
+            "**/*.log",
+            "**/dist/**"
+        ]
+    }
+}

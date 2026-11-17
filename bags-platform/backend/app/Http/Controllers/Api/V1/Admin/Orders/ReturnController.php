@@ -17,6 +17,7 @@ use App\Models\ReturnRequest;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Orders\ReturnService;
+use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\SearchTerm;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -34,7 +35,7 @@ class ReturnController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:returns.view', only: ['index', 'show']),
+            new Middleware('can:returns.view', only: ['index', 'show', 'stats']),
             new Middleware('can:returns.create', only: ['store']),
             new Middleware('can:returns.update', only: ['update']),
             new Middleware('can:returns.approve', only: ['approve']),
@@ -44,7 +45,32 @@ class ReturnController extends Controller implements HasMiddleware
         ];
     }
 
-    public function __construct(protected ReturnService $returns) {}
+    public function __construct(
+        protected ReturnService $returns,
+        private readonly OperationIdempotencyService $idempotency,
+    ) {}
+
+    public function stats(Request $request): JsonResponse
+    {
+        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $query = ReturnRequest::query()->when($branch !== null, fn ($q) => $q->where(fn ($q) => $q->where('branch_id', $branch)->orWhere(fn ($q) => $q->whereNull('branch_id')->whereHas('order', fn ($q) => $q->where('allocated_branch_id', $branch)))));
+
+        $grouped = (clone $query)
+            ->selectRaw('status, COUNT(*) as aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        $data = [];
+        $total = 0;
+        foreach (ReturnStatus::cases() as $case) {
+            $count = (int) ($grouped[$case->value] ?? 0);
+            $data[$case->value] = $count;
+            $total += $count;
+        }
+        $data['total'] = $total;
+
+        return response()->json(['data' => $data]);
+    }
 
     /**
      * Lists paginated return requests scoped by branch access and status filters.
@@ -58,6 +84,7 @@ class ReturnController extends Controller implements HasMiddleware
             'status' => ['nullable', Rule::in(array_column(ReturnStatus::cases(), 'value'))],
             'order_id' => ['nullable', 'integer', 'min:1'],
             'customer_id' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
         $search = trim((string) $request->query('search', ''));
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
@@ -72,7 +99,7 @@ class ReturnController extends Controller implements HasMiddleware
                     ->orWhereHas('order', fn ($o) => $o->where('order_number', 'ilike', $pattern));
             }))
             ->latest('id')
-            ->paginate(20);
+            ->paginate((int) ($validated['per_page'] ?? 20));
 
         return ReturnRequestResource::collection($returns);
     }
@@ -91,10 +118,26 @@ class ReturnController extends Controller implements HasMiddleware
         } else {
             app(BranchAccess::class)->assertCentralAccess($request->user());
         }
-        $return = $this->returns->createReturnRequest($order, $request->validated());
+        $payload = $request->validated();
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $isReplay = $idempotencyKey !== null && \Illuminate\Support\Facades\DB::table('operation_idempotency_keys')
+            ->where('operation', 'admin_return_create')
+            ->where('actor_type', $request->user()->getMorphClass())
+            ->where('actor_id', $request->user()->getKey())
+            ->where('key', $idempotencyKey)
+            ->exists();
+        $return = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_return_create',
+                $request->user(),
+                $idempotencyKey,
+                ['order_id' => $order->id, ...$payload],
+                fn () => $this->returns->createReturnRequest($order, $payload),
+            )
+            : $this->returns->createReturnRequest($order, $payload);
         $return->load(['items.orderItem', 'order', 'customer']);
 
-        return ReturnRequestResource::make($return)->response()->setStatusCode(201);
+        return ReturnRequestResource::make($return)->response()->setStatusCode($isReplay ? 200 : 201);
     }
 
     /**
@@ -162,7 +205,17 @@ class ReturnController extends Controller implements HasMiddleware
         app(BranchAccess::class)->assertBranch($request->user()->id, (int) $request->validated()['branch_id']);
         /** @var User $admin */
         $admin = $request->user();
-        $return = $this->returns->approve($returnRequest, $admin, $request->validated());
+        $payload = $request->validated();
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $return = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_return_approve',
+                $admin,
+                $idempotencyKey,
+                ['return_id' => $returnRequest->id, ...$payload],
+                fn () => $this->returns->approve($returnRequest, $admin, $payload),
+            )
+            : $this->returns->approve($returnRequest, $admin, $payload);
         $return->load(['items.orderItem', 'order', 'customer']);
 
         return ReturnRequestResource::make($return);
@@ -180,7 +233,17 @@ class ReturnController extends Controller implements HasMiddleware
         $this->authorizeReturn($request, $returnRequest);
         /** @var User $admin */
         $admin = $request->user();
-        $return = $this->returns->receive($returnRequest, $admin, $request->validated());
+        $payload = $request->validated();
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $return = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_return_receive',
+                $admin,
+                $idempotencyKey,
+                ['return_id' => $returnRequest->id, ...$payload],
+                fn () => $this->returns->receive($returnRequest, $admin, $payload),
+            )
+            : $this->returns->receive($returnRequest, $admin, $payload);
         $return->load(['items.orderItem', 'order', 'customer']);
 
         return ReturnRequestResource::make($return);
@@ -198,7 +261,17 @@ class ReturnController extends Controller implements HasMiddleware
         $this->authorizeReturn($request, $returnRequest);
         /** @var User $admin */
         $admin = $request->user();
-        $return = $this->returns->refund($returnRequest, $admin, $request->validated());
+        $payload = $request->validated();
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $return = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_return_refund',
+                $admin,
+                $idempotencyKey,
+                ['return_id' => $returnRequest->id, ...$payload],
+                fn () => $this->returns->refund($returnRequest, $admin, $payload),
+            )
+            : $this->returns->refund($returnRequest, $admin, $payload);
         $return->load(['items.orderItem', 'order', 'customer']);
 
         return ReturnRequestResource::make($return);

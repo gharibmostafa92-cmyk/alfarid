@@ -7,6 +7,7 @@ import { SophieBagPlaceholder } from '../product/SophieBagPlaceholder';
 import { useBranding } from '@alfarid/ui/branding';
 import { StoreImage } from '../../StoreImage';
 import { storeImageUrl } from '@/lib/catalog/store-image';
+import { safeStoreHref } from '@/lib/core/safe-href';
 
 export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[]; isLoading?: boolean }) {
   const { branding } = useBranding();
@@ -41,10 +42,10 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
   const headline = fallback ? slide.lightTitle : slide.headline;
   const bold = fallback ? slide.boldTitle : slide.headlineBold;
   const description = fallback ? slide.desc : slide.description;
-  const href = fallback ? slide.ctaHref : slide.href;
+  const href = safeStoreHref(fallback ? slide.ctaHref : slide.href);
   const label = fallback ? slide.ctaText : slide.ctaLabel || 'SHOP NOW';
   const hasText = Boolean(kicker || headline || bold || description);
-  const external = !fallback && slide.isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {};
+  const external = href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
 
   return (
     <div
@@ -116,12 +117,12 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
               {hasText && (
                 <div className="max-w-[430px] w-full z-10 text-center lg:text-left mt-3 sm:mt-6 lg:mt-0 break-words">
                   {kicker && (
-                    <p dir="auto" className="font-['Oswald'] text-[12px] sm:text-[13px] font-medium tracking-[0.8px] uppercase text-[#111] mb-2">
+                    <p dir="auto" className="font-[var(--font-oswald)] text-[12px] sm:text-[13px] font-medium tracking-[0.8px] uppercase text-[#111] mb-2">
                       {kicker}
                     </p>
                   )}
                   {(headline || bold) && (
-                    <h1 dir="auto" className="font-['Oswald'] uppercase leading-[1.04] mb-4">
+                    <h1 dir="auto" className="font-[var(--font-oswald)] uppercase leading-[1.04] mb-4">
                       {headline && (
                         <span className="block text-[clamp(2rem,8vw,2.75rem)] sm:text-[54px] font-light tracking-[1px] text-[#111]">
                           {headline}
@@ -135,7 +136,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
                     </h1>
                   )}
                   {description && (
-                    <p dir="auto" className="text-[13.5px] sm:text-[14px] leading-[1.65] text-[#222] mb-6 sm:mb-7 font-['Poppins'] max-w-[38ch] mx-auto lg:mx-0">
+                    <p dir="auto" className="text-[13.5px] sm:text-[14px] leading-[1.65] text-[#222] mb-6 sm:mb-7 font-[var(--font-poppins)] max-w-[38ch] mx-auto lg:mx-0">
                       {description}
                     </p>
                   )}
@@ -143,7 +144,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
                     <a
                       href={href}
                       {...external}
-                      className="inline-flex items-center justify-center min-h-[46px] w-full min-[380px]:w-auto bg-black text-white font-['Oswald'] text-[12px] font-medium tracking-[1px] uppercase px-9 py-3.5 hover:bg-[#2c2c2c] active: scale-[0.99] transition-all"
+                      className="inline-flex items-center justify-center min-h-[46px] w-full min-[380px]:w-auto bg-black text-white font-[var(--font-oswald)] text-[12px] font-medium tracking-[1px] uppercase px-9 py-3.5 hover:bg-[#2c2c2c] active: scale-[0.99] transition-all"
                     >
                       {label}
                     </a>

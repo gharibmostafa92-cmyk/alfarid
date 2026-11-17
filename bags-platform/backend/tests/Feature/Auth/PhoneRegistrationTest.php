@@ -68,10 +68,8 @@ class PhoneRegistrationTest extends TestCase
         Queue::assertPushed(SendCustomerPhoneVerification::class, 1);
     }
 
-    public function test_existing_phone_fails_fast_instead_of_trapping_the_user_in_otp(): void
+    public function test_existing_phone_gets_the_same_generic_response_without_an_sms(): void
     {
-        // task3 MEDIUM-02: the signup endpoint already discloses phone
-        // ownership, so hiding it here only dead-ends legitimate users.
         config(['services.turnstile.secret_key' => 'private-secret-key']);
         Queue::fake();
         Http::fake(['challenges.cloudflare.com/*' => Http::response(['success' => true])]);
@@ -79,7 +77,7 @@ class PhoneRegistrationTest extends TestCase
 
         $this->postJson('/api/v1/store/auth/phone-verification/send', [
             'phone' => '01012345678', 'turnstile_token' => 'fresh-token',
-        ])->assertUnprocessable()->assertJsonValidationErrors('phone');
+        ])->assertOk()->assertJsonPath('message', 'سيتم إرسال رمز التحقق إلى الرقم إذا كان متاحًا.');
 
         Queue::assertNothingPushed();
     }

@@ -19,6 +19,7 @@ function finance() {
     one: r => r.data.data, asPage: r => r.data,
     crud: base => ({ list: (p, signal) => api.get(base, { params: p, signal }), create: body => api.post(base, body), update: (id, body) => api.put(`${base}/${id}`, body) }),
     newIdempotencyKey: () => 'finance-key', openProtectedFile: url => { calls.push({ method: 'file', url }); },
+    idempotentPost: (url, body, key) => api.post(url, body, { headers: { 'Idempotency-Key': key ?? 'finance-auto-key' } }),
     downloadFile: (url, filename) => { calls.push({ method: 'download', url, filename }); },
   } : Module.prototype.require.call(compiled, name);
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, filename);
@@ -56,6 +57,8 @@ function viewMappers() {
   compiled.require = name => name === './api/mappers' ? { num: value => Number(value ?? 0) }
     : name === './api/source' ? { USE_MOCK: false }
     : name === '../../../components/admin/AdminLoading' ? { AdminLoading: 'AdminLoading' }
+    : name === 'react' ? { default: { createElement: (type, props, ...children) => ({ type, props: { ...props, children: children.length <= 1 ? children[0] : children } }) } }
+    : name === './ui' ? { Badge: 'Badge' }
     : name.startsWith('./') || name === '@alfarid/api-client' ? {} : Module.prototype.require.call(compiled, name);
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, filename);
   return compiled.exports;
@@ -127,7 +130,7 @@ test('shiftsApi and expensesApi support idempotency keys and shift lifecycle end
   assert.deepEqual(f.calls[5].config, { headers: { 'Idempotency-Key': 'transfer-reject-key' } });
 });
 
-function transferFormHarness(api) {
+function transferFormHarness(api, props = { can: () => true }, component = 'TransfersTab') {
   const filename = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/finance.tsx');
   const compiled = new Module(filename, module);
   const states = [];
@@ -141,7 +144,7 @@ function transferFormHarness(api) {
     },
     useEffect() {}, useMemo: fn => fn(),
   };
-  const ui = new Proxy({ useToast: () => () => {} }, { get: (target, name) => name in target ? target[name] : name });
+  const ui = new Proxy({ useToast: () => () => {}, fmtNum: String, fmtMoney: String }, { get: (target, name) => name in target ? target[name] : name });
   compiled.require = name => {
     if (name === 'react') return { ...react, default: react };
     if (name === '@alfarid/api-client') return api;
@@ -161,7 +164,7 @@ function transferFormHarness(api) {
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText, filename);
-  return () => { cursor = 0; remote = 0; return compiled.exports.TransfersTab(); };
+  return () => { cursor = 0; remote = 0; return compiled.exports[component](props); };
 }
 
 function descendants(element, predicate) {
@@ -169,6 +172,14 @@ function descendants(element, predicate) {
   if (!element || typeof element !== 'object') return [];
   return [...(predicate(element) ? [element] : []), ...descendants(element.props?.children, predicate)];
 }
+
+test('finance action tabs deny writes when no permission checker is supplied', () => {
+  const treeFor = (component) => transferFormHarness({ newIdempotencyKey: () => 'test-key' }, {}, component)();
+  const transferButtons = descendants(treeFor('TransfersTab'), node => node.type === 'button' && node.props.children?.includes('طلب تحويل'));
+  const expenseButtons = descendants(treeFor('ExpensesTab'), node => node.type === 'button' && node.props.children?.includes('سند صرف'));
+  assert.equal(transferButtons.length, 0, 'transfer creation should be hidden without an explicit permission check');
+  assert.equal(expenseButtons.length, 0, 'expense creation should be hidden without an explicit permission check');
+});
 
 test('transfer form retries reuse the same idempotency key and start a new key only after success', async () => {
   const calls = [];
@@ -207,4 +218,14 @@ test('transfer form retries reuse the same idempotency key and start a new key o
   open(); fill(); await submit();
   assert.equal(calls[2].key, 'transfer-key-2');
   assert.notEqual(calls[2].key, calls[1].key);
+});
+
+test('DiffCell does not fabricate cash shortages when actual or expected cash is null', () => {
+  const { DiffCell } = viewMappers();
+  const emptyAct = DiffCell({ s: { exp: 5000, act: null } });
+  const emptyExp = DiffCell({ s: { exp: null, act: 5000 } });
+  assert.equal(emptyAct.props.children, '—');
+  assert.equal(emptyExp.props.children, '—');
+  const exact = DiffCell({ s: { exp: 0.1 + 0.2, act: 0.3 } });
+  assert.equal(exact.props.children, 'مطابق');
 });

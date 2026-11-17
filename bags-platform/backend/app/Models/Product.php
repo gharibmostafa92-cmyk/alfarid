@@ -42,6 +42,7 @@ class Product extends Model implements HasMedia
         'status' => ProductStatus::class,
         'sales_channel' => SalesChannel::class,
         'is_featured' => 'boolean',
+        'catalog_has_retail_discount' => 'boolean',
         'is_active' => 'boolean',
         'sales_count' => 'integer',
         'published_at' => 'datetime',

@@ -95,7 +95,7 @@ export const mapPriceList = (p: PriceListApi): PriceListRow & { raw: PriceListAp
   id: p.id, name: p.name, type: p.type === 'customer_group' ? 'group' : p.type === 'customer_specific' ? 'customer' : p.type,
   target: p.customer?.name ?? p.customer_group?.name ?? null,
   branch: p.branch?.name ?? null,
-  from: p.starts_at?.slice(0, 10) ?? '', to: p.ends_at?.slice(0, 10) ?? null,
+  from: toDate(p.starts_at), to: p.ends_at ? (toDate(p.ends_at) || null) : null,
   prio: p.priority, active: p.is_active, items: p.items_count ?? 0, raw: p,
 });
 const promoToUI = (t: string): string => t === 'percentage_discount' ? 'percent' : t === 'fixed_discount' ? 'amount' : t === 'buy_x_get_y' ? 'bxgy' : 'free_ship';
@@ -104,7 +104,7 @@ export const mapPromo = (p: PromotionApi): PromoRow => ({
   id: p.id, name: p.name, type: promoToUI(p.type) as PromoRow['type'], value: p.value === null ? null : num(p.value),
   min: p.min_order_amount === null ? null : num(p.min_order_amount),
   scope: p.applies_to as PromoRow['scope'], targets: [],
-  from: p.starts_at?.slice(0, 10) ?? '', to: p.ends_at?.slice(0, 10) ?? null, active: p.is_active,
+  from: toDate(p.starts_at), to: p.ends_at ? (toDate(p.ends_at) || null) : null, active: p.is_active,
 });
 const couponToUI = (t: string): string => t === 'percentage' ? 'percent' : t === 'fixed' ? 'amount' : 'free_ship';
 export const couponToBackend = (t: string): any => t === 'percent' ? 'percentage' : t === 'amount' ? 'fixed' : 'free_shipping';
@@ -112,17 +112,5 @@ export const mapCoupon = (c: CouponApi): CouponRow => ({
   id: c.id, code: c.code, type: couponToUI(c.type) as CouponRow['type'], value: num(c.value) || null,
   maxDisc: c.max_discount_amount === null ? null : num(c.max_discount_amount), min: num(c.min_order_amount),
   total: c.usage_limit, perCust: c.usage_limit_per_customer, used: c.used_count,
-  from: c.starts_at?.slice(0, 10) ?? '', to: c.ends_at?.slice(0, 10) ?? null, active: c.is_active,
+  from: toDate(c.starts_at), to: c.ends_at ? (toDate(c.ends_at) || null) : null, active: c.is_active,
 });
-
-export async function optimisticToggle<T extends { id: number }>(
-  list: T[], setList: (l: T[]) => void, id: number, patch: Partial<T>, call: () => Promise<unknown>,
-  toast: (t: string, tone?: 'accent' | 'green' | 'red') => void,
-) {
-  const prev = list;
-  setList(list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  try { await call(); } catch (e) {
-    const { parseApiError } = await import('@alfarid/api-client');
-    setList(prev); toast(parseApiError(e).message, 'red');
-  }
-}

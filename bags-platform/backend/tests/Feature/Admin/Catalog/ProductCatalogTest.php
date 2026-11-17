@@ -137,6 +137,15 @@ class ProductCatalogTest extends TestCase
             ->assertJsonPath('data.0.id', $targetId);
     }
 
+    public function test_product_list_rejects_deprecated_brand_filter_and_oversized_page_size(): void
+    {
+        $token = $this->adminToken();
+
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/products?brand_id=1')->assertUnprocessable();
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/products?per_page=1000')->assertUnprocessable();
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/products?per_page=100')->assertOk();
+    }
+
     private function adminToken(): string
     {
         return $this->staffWithPermissions(self::ALL_PERMISSIONS)->createToken('test')->plainTextToken;

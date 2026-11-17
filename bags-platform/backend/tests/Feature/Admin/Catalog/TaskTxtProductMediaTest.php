@@ -10,6 +10,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
+use App\Services\Catalog\ProductService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -235,5 +236,22 @@ class TaskTxtProductMediaTest extends TestCase
 
         $this->assertSame(0, Media::where('collection_name', 'images_staging')->count());
         $this->assertSame(0, Media::where('collection_name', 'video_staging')->count());
+    }
+
+    public function test_force_deleting_product_removes_product_and_variant_staging_media(): void
+    {
+        $product = $this->product('PSTAGE1');
+        $variant = ProductVariant::factory()->create(['product_id' => $product->id]);
+        $productImage = $product->addMedia($this->img())->toMediaCollection('images_staging', 'r2_public');
+        $productVideo = $product->addMedia(UploadedFile::fake()->createWithContent(
+            'staged.mp4', hex2bin('00000018667479706d703432000000006d70343269736f6d'),
+        ))->toMediaCollection('video_staging', 'r2_public');
+        $variantImage = $variant->addMedia($this->img())->toMediaCollection('images_staging', 'r2_public');
+
+        app(ProductService::class)->forceDelete($product);
+
+        foreach ([$productImage, $productVideo, $variantImage] as $media) {
+            $this->assertDatabaseMissing('media', ['id' => $media->id]);
+        }
     }
 }

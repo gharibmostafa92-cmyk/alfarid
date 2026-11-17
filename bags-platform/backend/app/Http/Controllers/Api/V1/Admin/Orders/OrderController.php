@@ -18,6 +18,7 @@ use App\Models\Order;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Orders\OrderAllocationService;
 use App\Services\Orders\OrderService;
+use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\SearchTerm;
 use App\Services\Orders\ShipmentService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -52,6 +53,7 @@ class OrderController extends Controller implements HasMiddleware
         private readonly OrderAllocationService $allocation,
         private readonly ShipmentService $shipments,
         private readonly BranchAccess $branchAccess,
+        private readonly OperationIdempotencyService $idempotency,
     ) {}
 
     public static function middleware(): array
@@ -271,13 +273,24 @@ class OrderController extends Controller implements HasMiddleware
     public function createShipment(CreateShipmentRequest $request, Order $order): ShipmentResource
     {
         $this->authorizeOrder($request, $order);
+        $validated = $request->validated();
+        $idempotencyKey = $request->header('Idempotency-Key');
         try {
-            $shipment = $this->shipments->createForOrder(
+            $run = fn () => $this->shipments->createForOrder(
                 $order,
-                (int) $request->validated()['shipping_company_id'],
-                $request->validated()['awb_number'] ?? null,
+                (int) $validated['shipping_company_id'],
+                $validated['awb_number'] ?? null,
                 $request->user(),
             );
+            $shipment = $idempotencyKey !== null
+                ? $this->idempotency->run(
+                    'admin_order_shipment',
+                    $request->user(),
+                    $idempotencyKey,
+                    ['order_id' => $order->id, ...$validated],
+                    $run,
+                )
+                : $run();
         } catch (UniqueConstraintViolationException $exception) {
             if (! str_contains($exception->errorInfo[2] ?? '', '"shipments_awb_number_unique"')) {
                 throw $exception;

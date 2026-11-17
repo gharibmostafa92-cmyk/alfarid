@@ -2,6 +2,22 @@ export const guestOrdersKey = 'alfarid_guest_order_numbers';
 const GUEST_ORDER_LIMIT = 10;
 const GUEST_ORDER_MAX_AGE = 7 * 24 * 60 * 60_000;
 
+/** Calculates a calendar-date span in UTC without depending on the machine timezone. */
+export function utcDateSpanDays(from: string, to: string): number {
+  const parse = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return Number.NaN;
+    const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value
+      ? timestamp
+      : Number.NaN;
+  };
+  const fromTime = parse(from);
+  const toTime = parse(to);
+  return Number.isFinite(fromTime) && Number.isFinite(toTime)
+    ? Math.round((toTime - fromTime) / 86_400_000)
+    : Number.NaN;
+}
+
 function recentGuestOrders(): Array<{ number: string; expiresAt: number }> {
   const orders: unknown = JSON.parse(localStorage.getItem(guestOrdersKey) ?? '[]');
   if (!Array.isArray(orders)) return [];

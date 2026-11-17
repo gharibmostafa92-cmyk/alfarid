@@ -119,6 +119,8 @@ $ignorePatterns = @(
     '^scripts/',
     '/scripts/',
     'phpunit.*\.xml$',
+    '^\.claude/', '/\.claude/',
+    '^bags-platform/frontend/package\.json$',
     '^_archive_unused/', '/_archive_unused/'
 )
 
@@ -219,9 +221,12 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
         if ($p -match 'pos|cashier|shift') {
             if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         }
-        if ($p -match 'catalog|\bproduct\b|category|cart|coupon' -and $p -notmatch 'production') {
+        if ($p -match 'catalog|\bproduct\b|category|cart|coupon|storefront|search|sale' -and $p -notmatch 'production') {
             if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
             if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06.2-catalog-shipping.json') }
+        }
+        if ($p -match 'notification|setting|message_budget|widen_text') {
+            if ($configs.ContainsKey('repomix.subsystem-09.3-notifications-settings.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09.3-notifications-settings.json') }
         }
         if ($p -match 'customer|user|staff|permission|role|audit_log|token|trigram') {
             if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
@@ -276,9 +281,9 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 8. AI Trader & WhatsApp Gateway
-    if ($p -match 'ai-trader|whatsapp|baileys|gemini|agentorchestrator|toolregistry|outboundmessage|spokenquantity') {
+    if ($p -match 'ai-trader|whatsapp|baileys|gemini|agentorchestrator|toolregistry|outboundmessage|spokenquantity|aiconversation') {
         if ($configs.ContainsKey('repomix.subsystem-05-ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.subsystem-05-ai-trader-gateway.json') }
-        if ($configs.ContainsKey('repomix.subsystem-05.1-ai-gateway-core.json') -and ($p -match 'wa-gateway|webhook|gemini|orchestrator|whatsapp')) {
+        if ($configs.ContainsKey('repomix.subsystem-05.1-ai-gateway-core.json') -and ($p -match 'wa-gateway|webhook|gemini|orchestrator|whatsapp|ai|conversation|outboundmessage')) {
             [void]$matchedConfigs.Add('repomix.subsystem-05.1-ai-gateway-core.json')
         }
         if ($configs.ContainsKey('repomix.subsystem-05.2-ai-domain-tools.json') -and ($p -match 'tool|spokenquantity|order|trader')) {
@@ -288,12 +293,12 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 9. Storefront & Catalog
-    if ($p -match 'apps/storefront/|packages/ui/.*branding|/store/|requests/store/|storefront|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|phoneverification|passwordreset|normalizescustomerinput' -and $p -notmatch 'production') {
+    if ($p -match 'apps/storefront/|packages/ui/.*branding|/store/|requests/store/|requests/admin/concerns/|endpoints/store\.ts|storefront|catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|customer.*auth|phoneverification|passwordreset|normalizescustomerinput|protectstorefrontcaching' -and $p -notmatch 'production') {
         if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
-        if ($configs.ContainsKey('repomix.subsystem-06.1-storefront-client.json') -and ($p -match 'apps/storefront|packages/ui')) {
+        if ($configs.ContainsKey('repomix.subsystem-06.1-storefront-client.json') -and ($p -match 'apps/storefront|packages/ui|endpoints/store\.ts|protectstorefrontcaching')) {
             [void]$matchedConfigs.Add('repomix.subsystem-06.1-storefront-client.json')
         }
-        if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json') -and ($p -match 'catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant')) {
+        if ($configs.ContainsKey('repomix.subsystem-06.2-catalog-shipping.json') -and ($p -match 'catalog|category|cart|coupon|promotion|\bproducts?\b|productvariant|requests/admin/concerns/|requests/store/|checkout|wallet|/store/|normalizescustomerinput')) {
             [void]$matchedConfigs.Add('repomix.subsystem-06.2-catalog-shipping.json')
         }
         if ($configs.ContainsKey('repomix.storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.storefront-catalog.json') }
@@ -311,8 +316,8 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
         if ($configs.ContainsKey('repomix.finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.finance-treasury.json') }
     }
 
-    # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|accountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|wholesale') {
+    # 12. Security, Operations & Backoffice
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|accountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress|authorizesstaffrequest|endpoints/auth\.ts|endpoints/operations/|notification|setting|message|trackseditversion|treasurytransfer|wholesalepaymentnotice|returncontroller|ordercontroller' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|supplier')) -and $p -notmatch 'procurement|supplier|wholesale\.') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff|customer|admin')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json')
@@ -320,7 +325,19 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
         if ($configs.ContainsKey('repomix.subsystem-09.2-backoffice-portal.json') -and ($p -match 'apps/backoffice|operations/http')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.2-backoffice-portal.json')
         }
-        if ($configs.ContainsKey('repomix.subsystem-09.3-notifications-settings.json') -and ($p -match 'notification|setting|message_budget|customermessagebudget|outboundmessage|inboundmessage|messagetemplate|widen_text')) {
+        if ($configs.ContainsKey('repomix.subsystem-09.2.1-backoffice-admin-governance.json') -and ($p -match 'apps/backoffice/src/(app|main|index|components|hooks|stores|pages/auth|pages/admin/overview|pages/admin/admin-mock)|endpoints/auth\.ts|authorizesstaffrequest')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.2.1-backoffice-admin-governance.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-09.2.2-backoffice-operations-commerce.json') -and ($p -match 'operations-mock|pages/supplier|endpoints/operations/|treasurytransfer|wholesalepaymentnotice|returncontroller|ordercontroller')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.2.2-backoffice-operations-commerce.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-09.2.3-backoffice-catalog-inventory.json') -and ($p -match 'pages/admin/(catalog|catalog-mock|categories-mock|inventory-mock)')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.2.3-backoffice-catalog-inventory.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-09.2.4-backoffice-assistant-pos.json') -and ($p -match 'pages/admin/assistant|pages/pos')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-09.2.4-backoffice-assistant-pos.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-09.3-notifications-settings.json') -and ($p -match 'notification|setting|message_budget|customermessagebudget|outboundmessage|inboundmessage|messagetemplate|widen_text|trackseditversion')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.3-notifications-settings.json')
         }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
