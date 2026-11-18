@@ -111,6 +111,8 @@ class ResendSenderTest extends TestCase
             'rate limit' => [429, ['name' => 'rate_limit_exceeded'], 'retry', 'rate_limited'],
             'invalid key' => [401, ['name' => 'missing_api_key'], 'pause', 'resend_credentials_rejected'],
             'unverified sender domain' => [403, ['name' => 'validation_error'], 'pause', 'resend_sender_configuration'],
+            'unknown endpoint' => [404, ['name' => 'not_found'], 'pause', 'resend_endpoint_configuration'],
+            'wrong endpoint method' => [405, ['name' => 'method_not_allowed'], 'pause', 'resend_endpoint_configuration'],
         ];
     }
 
@@ -126,6 +128,19 @@ class ResendSenderTest extends TestCase
         $this->assertStringNotContainsString('private@example.test', serialize($result));
         $this->assertStringNotContainsString('re_test_fake_token', serialize($result));
         $this->assertStringNotContainsString('raw provider detail', serialize($result));
+    }
+
+    public function test_documented_invalid_api_key_validation_error_pauses_delivery(): void
+    {
+        Http::fake(fn () => Http::response([
+            'name' => 'validation_error',
+            'message' => 'API key is invalid',
+        ], 400));
+
+        $result = app(ResendSender::class)->send(self::EVENT_KEY, self::BODY);
+
+        $this->assertSame('pause', $result->kind);
+        $this->assertSame('resend_credentials_rejected', $result->safeCode);
     }
 
     public static function retryAfterValues(): array

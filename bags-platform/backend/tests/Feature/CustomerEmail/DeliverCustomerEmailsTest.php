@@ -164,6 +164,95 @@ class DeliverCustomerEmailsTest extends TestCase
         $this->assertGreaterThanOrEqual($startedAt->valueOf() + 90000, Cache::get('customer-email:cooldown-until'));
     }
 
+    public function test_rate_limit_keeps_shared_cooldown_when_the_row_reaches_its_attempt_limit(): void
+    {
+        Log::spy();
+        $first = $this->queuedEmail();
+        $this->queuedEmail();
+        DB::table('customer_email_outbox')->where('id', $first->id)->update([
+            'attempts' => 7,
+            'first_attempt_at' => now()->subHour(),
+            'available_at' => now()->subSecond(),
+        ]);
+        Http::fakeSequence()
+            ->push(['name' => 'rate_limit_exceeded'], 429, ['Retry-After' => '90'])
+            ->push(['id' => self::PROVIDER_ID], 200);
+        $startedAt = now();
+
+        $this->assertSame(0, Artisan::call('customer-email:deliver'), Artisan::output());
+
+        $rows = DB::table('customer_email_outbox')->orderBy('id')->get();
+        $this->assertSame('review', $rows[0]->status);
+        $this->assertSame('pending', $rows[1]->status);
+        $this->assertSame(0, $rows[1]->attempts);
+        $this->assertGreaterThanOrEqual($startedAt->valueOf() + 90000, Cache::get('customer-email:cooldown-until'));
+        Http::assertSentCount(1);
+        Log::shouldHaveReceived('info')->with('Customer email delivery batch completed', \Mockery::on(
+            fn (array $metrics): bool => $metrics['review'] === 1 && $metrics['retry'] === 0,
+        ))->once();
+    }
+
+    public function test_malformed_retry_after_uses_a_bounded_shared_cooldown_after_review(): void
+    {
+        $this->queuedEmail();
+        $this->queuedEmail();
+        Http::fakeSequence()
+            ->push(['name' => 'rate_limit_exceeded'], 429, ['Retry-After' => 'not-a-duration'])
+            ->push(['id' => self::PROVIDER_ID], 200);
+        $startedAt = now();
+
+        $this->assertSame(0, Artisan::call('customer-email:deliver'), Artisan::output());
+
+        $rows = DB::table('customer_email_outbox')->orderBy('id')->get();
+        $this->assertSame('review', $rows[0]->status);
+        $this->assertSame('invalid_retry_after', $rows[0]->error_code);
+        $this->assertSame('pending', $rows[1]->status);
+        $this->assertGreaterThanOrEqual($startedAt->valueOf() + 60000, Cache::get('customer-email:cooldown-until'));
+        Http::assertSentCount(1);
+    }
+
+    public function test_invalid_resend_credentials_pause_without_discarding_or_sending_later_rows(): void
+    {
+        $first = $this->queuedEmail();
+        $this->queuedEmail();
+        Http::fake(fn () => Http::response([
+            'name' => 'validation_error',
+            'message' => 'API key is invalid',
+        ], 400));
+
+        $this->assertSame(0, Artisan::call('customer-email:deliver'), Artisan::output());
+
+        $rows = DB::table('customer_email_outbox')->orderBy('id')->get();
+        $this->assertSame($first->id, $rows[0]->id);
+        $this->assertSame('pending', $rows[0]->status);
+        $this->assertSame('resend_credentials_rejected', $rows[0]->error_code);
+        $this->assertSame(1, $rows[0]->attempts);
+        $this->assertNotNull($rows[0]->payload);
+        $this->assertSame('pending', $rows[1]->status);
+        $this->assertSame(0, $rows[1]->attempts);
+        $this->assertNotNull($rows[1]->payload);
+        Http::assertSentCount(1);
+    }
+
+    public function test_pause_that_moves_a_row_to_review_is_counted_as_review(): void
+    {
+        Log::spy();
+        $this->queuedEmail();
+        DB::table('customer_email_outbox')->update([
+            'attempts' => 1,
+            'first_attempt_at' => now()->subHour(),
+            'available_at' => now()->subSecond(),
+        ]);
+        Http::fake(fn () => Http::response(['name' => 'monthly_quota_exceeded'], 429));
+
+        $this->assertSame(0, Artisan::call('customer-email:deliver'), Artisan::output());
+
+        $this->assertSame('review', DB::table('customer_email_outbox')->value('status'));
+        Log::shouldHaveReceived('info')->with('Customer email delivery batch completed', \Mockery::on(
+            fn (array $metrics): bool => $metrics['review'] === 1 && $metrics['pause'] === 0,
+        ))->once();
+    }
+
     public function test_daily_quota_pauses_globally_until_utc_day_reset(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-11-18 12:00:00', 'UTC'));

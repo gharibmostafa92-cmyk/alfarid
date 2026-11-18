@@ -78,6 +78,10 @@ final class ResendSender
 
         $providerError = $this->providerErrorCode($response);
 
+        if ($status === 400 && $providerError === 'validation_error' && $this->invalidApiKeyMessage($response)) {
+            return new ResendResult('pause', safeCode: 'resend_credentials_rejected');
+        }
+
         if ($status === 408 || $status >= 500) {
             return new ResendResult('retry', safeCode: $status === 408 ? 'upstream_timeout' : 'upstream_unavailable');
         }
@@ -113,7 +117,15 @@ final class ResendSender
         }
 
         if ($status === 403) {
+            if (in_array($providerError, ['restricted_api_key', 'suspended_api_key'], true) || $this->invalidApiKeyMessage($response)) {
+                return new ResendResult('pause', safeCode: 'resend_credentials_rejected');
+            }
+
             return new ResendResult('pause', safeCode: 'resend_sender_configuration');
+        }
+
+        if (in_array($status, [404, 405], true)) {
+            return new ResendResult('pause', safeCode: 'resend_endpoint_configuration');
         }
 
         if ($status === 400 || $status === 422) {
@@ -154,6 +166,19 @@ final class ResendSender
         }
 
         return null;
+    }
+
+    private function invalidApiKeyMessage(Response $response): bool
+    {
+        $json = $this->responseJson($response);
+        $message = is_array($json) ? ($json['message'] ?? null) : null;
+
+        return is_string($message)
+            && in_array(strtolower(trim($message)), [
+                'api key is invalid',
+                'api key is not active',
+                'this api key is suspended',
+            ], true);
     }
 
     private function responseJson(Response $response): ?array

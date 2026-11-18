@@ -32,6 +32,8 @@ final class DeliverCustomerEmails extends Command
 
     private const RETRY_WINDOW_HOURS = 23;
 
+    private const INVALID_RETRY_AFTER_COOLDOWN_SECONDS = 60;
+
     private const CACHE_COOLDOWN_KEY = 'customer-email:cooldown-until';
 
     private const CACHE_NEXT_SEND_KEY = 'customer-email:next-send-at';
@@ -108,11 +110,13 @@ final class DeliverCustomerEmails extends Command
                 }
                 $maxLatencyMs = max($maxLatencyMs, (int) round((microtime(true) - $startedRequest) * 1000));
 
-                if (! $this->persistResult($claim, $result)) {
+                $outcome = $this->persistResult($claim, $result);
+
+                if ($outcome === false) {
                     continue;
                 }
 
-                $this->counts[$result->kind]++;
+                $this->counts[$outcome]++;
             }
         } catch (Throwable $exception) {
             Log::error('Customer email delivery batch aborted', [
@@ -241,7 +245,7 @@ final class DeliverCustomerEmails extends Command
         });
     }
 
-    private function persistResult(object $claim, ResendResult $result): bool
+    private function persistResult(object $claim, ResendResult $result): string|false
     {
         $now = CarbonImmutable::instance(now());
         $changes = match ($result->kind) {
@@ -263,13 +267,7 @@ final class DeliverCustomerEmails extends Command
             ],
             'retry' => $this->retryChanges($claim, $result, $now),
             'pause' => $this->pauseChanges($claim, $result, $now),
-            'review' => [
-                'status' => 'review',
-                'provider_id' => null,
-                'error_code' => $result->safeCode,
-                'lease_token' => null,
-                'updated_at' => $now,
-            ],
+            'review' => $this->reviewChanges($result, $now),
         };
 
         if (isset($changes['cooldown_until'])) {
@@ -296,7 +294,12 @@ final class DeliverCustomerEmails extends Command
             $this->alertPause($result->safeCode ?? 'resend_paused', $now);
         }
 
-        return true;
+        return match ($changes['status']) {
+            'accepted' => 'accepted',
+            'failed' => 'permanent',
+            'review' => 'review',
+            default => $result->kind,
+        };
     }
 
     private function retryChanges(object $claim, ResendResult $result, CarbonImmutable $now): array
@@ -305,6 +308,9 @@ final class DeliverCustomerEmails extends Command
         $jitterLimit = min(30, 3600 - $baseDelay);
         $delaySeconds = max($baseDelay + ($jitterLimit > 0 ? random_int(0, $jitterLimit) : 0), $result->retryAfterSeconds ?? 0);
         $availableAt = $now->addSeconds($delaySeconds);
+        $rateLimitCooldownUntil = $result->safeCode === 'rate_limited'
+            ? max($availableAt->valueOf(), $now->addSeconds(max(1, $result->retryAfterSeconds ?? $delaySeconds))->valueOf())
+            : null;
         $review = $this->mustReviewForRetryWindow($claim, $availableAt);
 
         if ($review !== null) {
@@ -314,6 +320,7 @@ final class DeliverCustomerEmails extends Command
                 'error_code' => $review,
                 'lease_token' => null,
                 'updated_at' => $now,
+                ...($rateLimitCooldownUntil === null ? [] : ['cooldown_until' => $rateLimitCooldownUntil]),
             ];
         }
 
@@ -326,8 +333,25 @@ final class DeliverCustomerEmails extends Command
             'updated_at' => $now,
         ];
 
-        if ($result->safeCode === 'rate_limited') {
-            $changes['cooldown_until'] = max($availableAt->valueOf(), $now->addSeconds(max(1, $result->retryAfterSeconds ?? $delaySeconds))->valueOf());
+        if ($rateLimitCooldownUntil !== null) {
+            $changes['cooldown_until'] = $rateLimitCooldownUntil;
+        }
+
+        return $changes;
+    }
+
+    private function reviewChanges(ResendResult $result, CarbonImmutable $now): array
+    {
+        $changes = [
+            'status' => 'review',
+            'provider_id' => null,
+            'error_code' => $result->safeCode,
+            'lease_token' => null,
+            'updated_at' => $now,
+        ];
+
+        if ($result->safeCode === 'invalid_retry_after') {
+            $changes['cooldown_until'] = $now->addSeconds(self::INVALID_RETRY_AFTER_COOLDOWN_SECONDS)->valueOf();
         }
 
         return $changes;

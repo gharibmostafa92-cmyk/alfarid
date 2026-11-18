@@ -39,6 +39,13 @@ function Reset-Invocations {
     $global:LASTEXITCODE = 0
 }
 
+$runbook = Get-Content (Join-Path $PSScriptRoot 'README.md') -Raw
+Assert-True ($runbook.Contains("ProxyClientIpSecret = 'proxy-client-ip:3'")) 'The staging DeployApi example must include its required proxy secret reference.'
+Assert-True ($runbook.Contains('after executing the email Job')) 'Staging instructions must run the worker before checking provider acceptance.'
+Assert-True ($runbook.Contains('verify arrival in the test inbox')) 'Staging instructions must verify actual mailbox arrival.'
+Assert-True ($runbook.Contains('up to 71 hours')) 'The pilot runbook must disclose the worst-case delivery delay.'
+Assert-True ($runbook.Contains('continuous customer schedule')) 'Production must require a schedule appropriate to customer delivery latency.'
+
 Reset-Invocations
 & $scriptPath @base
 Assert-True ($global:MockGcloudInvocations.Count -eq 3) 'DeployJobs should deploy queue, general scheduler, and customer-email Jobs.'
@@ -73,6 +80,31 @@ $invalidSecretRejected = $false
 try { & $scriptPath @($base.Clone()) -ResendApiKeySecret 'resend-email-key:latest' } catch { $invalidSecretRejected = $true }
 Assert-True $invalidSecretRejected 'An unpinned Resend secret should be rejected.'
 Assert-True ($global:MockGcloudInvocations.Count -eq 0) 'Invalid Resend settings must fail before a deploy call.'
+
+Reset-Invocations
+$legacy = $base.Clone()
+foreach ($name in @('CustomerEmailServiceAccount', 'ResendApiKeySecret', 'ResendFromAddress', 'ResendEnvironment', 'CustomerEmailCaptureEnabled', 'CustomerEmailCron')) {
+    $legacy.Remove($name)
+}
+& $scriptPath @legacy
+Assert-True ($global:MockGcloudInvocations.Count -eq 2) 'DeployJobs without email settings should preserve the queue and schedule deployments.'
+Assert-True (-not (Get-InvocationText).Contains('alfarid-pilot-customer-email')) 'Email Job must remain optional when its settings are omitted.'
+
+Reset-Invocations
+$sameIdentity = $base.Clone()
+$sameIdentity.CustomerEmailServiceAccount = $sameIdentity.RuntimeServiceAccount
+$sameIdentityRejected = $false
+try { & $scriptPath @sameIdentity } catch { $sameIdentityRejected = $true }
+Assert-True $sameIdentityRejected 'The API and email worker must not share a service account.'
+Assert-True ($global:MockGcloudInvocations.Count -eq 0) 'A shared API/email identity must be rejected before any deploy call.'
+
+Reset-Invocations
+$partialEmailSettings = $base.Clone()
+$partialEmailSettings.Remove('ResendApiKeySecret')
+$partialEmailRejected = $false
+try { & $scriptPath @partialEmailSettings } catch { $partialEmailRejected = $true }
+Assert-True $partialEmailRejected 'Partial email settings must be rejected.'
+Assert-True ($global:MockGcloudInvocations.Count -eq 0) 'Partial email settings must fail before any deploy call.'
 
 Reset-Invocations
 $invalidCronRejected = $false
