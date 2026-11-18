@@ -14,6 +14,7 @@ use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Customer\CustomerPhoneVerificationService;
+use App\Services\CustomerEmail\CustomerEmailOutbox;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -31,6 +32,7 @@ class WholesaleRegistrationService
     public function __construct(
         private readonly CustomerAuthService $auth,
         private readonly CustomerPhoneVerificationService $phoneVerification,
+        private readonly CustomerEmailOutbox $customerEmails,
     ) {}
 
     /**
@@ -113,6 +115,7 @@ class WholesaleRegistrationService
                 }
 
                 CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'wholesale']);
+                $this->customerEmails->welcome($customer);
                 DB::afterCommit(static function () use ($customer): void {
                     try {
                         WholesaleApplicationSubmitted::dispatch($customer);
