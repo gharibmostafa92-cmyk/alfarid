@@ -54,6 +54,9 @@ return [
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
+        'from' => env('RESEND_FROM_ADDRESS'),
+        'environment' => env('RESEND_ENVIRONMENT', env('APP_ENV', 'production')),
+        'capture_enabled' => filter_var(env('CUSTOMER_EMAIL_CAPTURE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'ses' => [
