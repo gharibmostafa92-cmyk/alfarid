@@ -57,6 +57,7 @@ return [
         'from' => env('RESEND_FROM_ADDRESS'),
         'environment' => env('RESEND_ENVIRONMENT', env('APP_ENV', 'production')),
         'capture_enabled' => filter_var(env('CUSTOMER_EMAIL_CAPTURE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'delivery_enabled' => filter_var(env('CUSTOMER_EMAIL_DELIVERY_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'ses' => [
