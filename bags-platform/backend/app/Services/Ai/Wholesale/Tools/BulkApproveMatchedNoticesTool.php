@@ -10,17 +10,22 @@ use App\Models\AiPendingAction;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\Contracts\ExecutesSelectedItems;
+use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
+use Illuminate\Support\Facades\DB;
 
-final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, WriteTool
+final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, LocksTargets, WriteTool
 {
     public function __construct(
         private ProposalBuilder $proposals,
         private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -54,9 +59,12 @@ final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, Writ
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
+        $branchId = $this->branches->restrictedBranch($actor);
         $rows = WholesalePaymentNotice::query()
+            ->with(['order', 'treasury'])
             ->where('status', WholesalePaymentNoticeStatus::PendingReview)
             ->where('match_score', '>=', 95)
+            ->when($branchId !== null, fn ($q) => $q->whereHas('order', fn ($order) => $order->where('allocated_branch_id', $branchId)))
             ->limit(50)
             ->get();
         $items = [];
@@ -69,7 +77,7 @@ final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, Writ
             $key = 'n'.$notice->id;
             $items[] = ['key' => $key, 'label' => $notice->notice_number, 'detail' => (string) $notice->amount];
             $ids[$key] = $notice->id;
-            $expected['n:'.$notice->id] = (string) $notice->updated_at;
+            $expected['n:'.$notice->id] = WholesaleAccessGuard::noticeFingerprint($notice);
         }
         if ($ids === []) {
             return ToolOutcome::denied('مفيش إشعارات مطابقة وجاهزة.', auditable: false);
@@ -85,6 +93,15 @@ final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, Writ
             typedConfirmation: 'تنفيذ',
             extraPreview: ['block_type' => 'bulk_plan', 'items' => $items],
         );
+    }
+
+    public function lockTargets(AiPendingAction $action): void
+    {
+        $ids = array_values(array_map('intval', $action->args['notices'] ?? []));
+        sort($ids);
+        if ($ids !== []) {
+            WholesalePaymentNotice::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get();
+        }
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
@@ -108,21 +125,30 @@ final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, Writ
         $done = 0;
         foreach ($keys as $key) {
             $id = (int) ($action->args['notices'][$key] ?? 0);
-            $notice = WholesalePaymentNotice::query()->find($id);
-            if ($notice === null || (float) $notice->match_score < 95) {
-                continue;
-            }
-            if (($action->expected_versions['n:'.$notice->id] ?? null) !== (string) $notice->updated_at) {
-                continue;
-            }
-            if ($this->notices->receiptCollisions($notice) !== []) {
-                continue;
-            }
-            try {
-                $this->notices->approve($notice, $actor->id);
+            $ok = DB::transaction(function () use ($actor, $action, $id): bool {
+                $notice = WholesalePaymentNotice::query()->lockForUpdate()->find($id);
+                if ($notice === null || (float) $notice->match_score < 95) {
+                    return false;
+                }
+                if (WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice) !== null) {
+                    return false;
+                }
+                if (($action->expected_versions['n:'.$notice->id] ?? null) !== WholesaleAccessGuard::noticeFingerprint($notice)) {
+                    return false;
+                }
+                if ($this->notices->receiptCollisions($notice) !== []) {
+                    return false;
+                }
+                try {
+                    $this->notices->approve($notice, $actor->id);
+
+                    return true;
+                } catch (BusinessException) {
+                    return false;
+                }
+            });
+            if ($ok) {
                 $done++;
-            } catch (BusinessException) {
-                continue;
             }
         }
 

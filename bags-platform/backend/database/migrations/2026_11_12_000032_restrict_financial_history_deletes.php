@@ -17,6 +17,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         foreach (self::REFERENCES as [$table, $column, $parent]) {
             $this->replaceForeignKey($table, $column, $parent, 'RESTRICT', 'r');
         }
@@ -24,6 +28,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         foreach (self::REFERENCES as [$table, $column, $parent, $action, $code]) {
             $this->replaceForeignKey($table, $column, $parent, $action, $code);
         }

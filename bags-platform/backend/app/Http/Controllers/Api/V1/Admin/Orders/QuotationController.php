@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\Orders\PriceQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;
 use App\Models\Quotation;
 use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Wholesale\QuotationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class QuotationController extends Controller implements HasMiddleware
     public function __construct(
         private readonly QuotationService $service,
         private readonly BranchAccess $branchAccess,
+        private readonly OperationIdempotencyService $idempotency,
     ) {}
 
     public static function middleware(): array
@@ -75,10 +77,21 @@ class QuotationController extends Controller implements HasMiddleware
     {
         $this->branchAccess->assertCentralAccess($request->user());
         $model = Quotation::query()->findOrFail($quotation);
-        $priced = $this->service->price($model, [
+        $data = [
             ...$request->validated(),
             'priced_by' => $request->user()?->id,
-        ]);
+        ];
+        $execute = fn (): Quotation => $this->service->price($model, $data);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $priced = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'wholesale_quotation_price',
+                $request->user(),
+                $idempotencyKey,
+                ['quotation_id' => $model->id, ...$data],
+                $execute,
+            )
+            : $execute();
 
         return QuotationResource::make($priced)
             ->additional(['acceptance_warnings' => $this->service->acceptanceWarnings($priced)])

@@ -173,7 +173,7 @@ class PaymentWebhookService
         try {
             return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config, $outcome, $isPaymob, $refundAmount): array {
                 // Advisory lock serializes concurrent webhooks for the same provider and event key
-                DB::statement('SELECT pg_advisory_xact_lock(101, hashtext(?))', [$provider.':'.$eventId]);
+                DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 101))', [$provider.':'.$eventId]);
 
                 if ($this->alreadyProcessed($provider, $log)) {
                     $log->update(['status' => 'duplicate']);
@@ -306,7 +306,7 @@ class PaymentWebhookService
                     }
                     $order->update(['payment_status' => 'failed']);
                 } else { // refunded
-                    if (! $this->refundCurrencyMatches($payload, $config)) {
+                    if (! $this->refundCurrencyMatches($payload, $config, $order)) {
                         // M9: a refund in another currency must never flip the order
                         // to refunded; staff have to reconcile it manually.
                         $order->update(['needs_attention' => true]);
@@ -444,7 +444,7 @@ class PaymentWebhookService
      */
     private function amountMatches(array $payload, Order $order, array $config): bool
     {
-        $expectedCurrency = strtoupper((string) ($config['currency'] ?? 'EGP'));
+        $expectedCurrency = strtoupper((string) ($order->currency ?? $config['currency'] ?? 'EGP'));
         $currency = $this->firstValue($payload, [
             'currency', 'data.currency', 'data.object.currency', 'obj.currency', 'obj.order.currency',
         ]);
@@ -475,6 +475,11 @@ class PaymentWebhookService
             // WH-M8: الغياب التام للمبلغ لا يؤكد الدفع افتراضيًا — البوابات التي لا
             // ترسل مبالغ تحتاج ضبط require_amount=false صريحًا في config/webhooks.php.
             return ! ($config['require_amount'] ?? true);
+        }
+
+        if ($currency === null || trim((string) $currency) === ''
+            || ! is_numeric($amount) || ! is_finite((float) $amount) || $divisor <= 0) {
+            return false;
         }
 
         return $this->sameMoney(((float) $amount) / $divisor, (float) $order->grand_total);
@@ -517,14 +522,17 @@ class PaymentWebhookService
     }
 
     /** @param array<string, mixed> $config */
-    private function refundCurrencyMatches(array $payload, array $config): bool
+    private function refundCurrencyMatches(array $payload, array $config, ?Order $order = null): bool
     {
-        $expected = strtoupper((string) ($config['currency'] ?? 'EGP'));
+        $expected = strtoupper((string) ($order?->currency ?? $config['currency'] ?? 'EGP'));
         $currency = $this->firstValue($payload, [
             'currency', 'data.currency', 'data.object.currency', 'obj.currency', 'obj.order.currency',
         ]);
+        if ($currency === null) {
+            return false;
+        }
 
-        return $currency === null || strtoupper((string) $currency) === $expected;
+        return strtoupper((string) $currency) === $expected;
     }
 
     private function extractOrderNumber(array $payload): ?string
@@ -643,16 +651,19 @@ class PaymentWebhookService
             return false;
         }
 
-        $expectedCurrency = strtoupper((string) ($config['currency'] ?? 'EGP'));
+        $expectedCurrency = strtoupper((string) ($order->currency ?? $config['currency'] ?? 'EGP'));
         $currency = $obj['currency'] ?? null;
         if (! is_scalar($currency) || strtoupper((string) $currency) !== $expectedCurrency) {
             return false;
         }
 
         $cents = $obj['amount_cents'] ?? null;
-        if (! is_numeric($cents)) {
+        if ($cents === null || $cents === '') {
             // M9: default to requiring the amount, matching the generic path.
             return ! ($config['require_amount'] ?? true);
+        }
+        if (! is_numeric($cents) || ! is_finite((float) $cents)) {
+            return false;
         }
 
         return $this->sameMoney(((float) $cents) / 100, (float) $order->grand_total);
@@ -676,7 +687,7 @@ class PaymentWebhookService
     {
         foreach ($keys as $key) {
             $value = data_get($payload, $key);
-            if ($value !== null && $value !== '') {
+            if (is_scalar($value) && (string) $value !== '') {
                 return $value;
             }
         }

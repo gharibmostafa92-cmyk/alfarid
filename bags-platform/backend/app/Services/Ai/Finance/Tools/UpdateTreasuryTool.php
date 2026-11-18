@@ -167,8 +167,12 @@ final class UpdateTreasuryTool implements AgentTool, LocksTargets, UndoableTool,
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $treasury = Treasury::findOrFail($action->args['treasury_id']);
+        $treasury = Treasury::query()->lockForUpdate()->findOrFail((int) $action->args['treasury_id']);
+        $this->branches->assertTreasury($actor->id, $treasury);
         $previous = $action->inverse;
+        if (array_key_exists('branch_id', $previous) && $previous['branch_id'] != $treasury->branch_id && $this->guards->branchMoveBlockers($treasury) !== []) {
+            throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو حركات أو عمليات معلقة إلى فرع آخر.', [], 409);
+        }
         if (isset($previous['code']) && Treasury::query()->whereKeyNot($treasury->id)->where('code', $previous['code'])->exists()) {
             throw new BusinessException('الكود السابق مستخدم بالفعل.', [], 409);
         }

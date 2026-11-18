@@ -7,13 +7,20 @@ namespace App\Services\Ai\Wholesale\Tools;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
+use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 final class ExplainOutstandingTool implements AgentTool
 {
-    public function __construct(private WholesalePaymentNoticeService $notices) {}
+    public function __construct(
+        private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
+        private FinancePresenter $presenter,
+    ) {}
 
     public function name(): string
     {
@@ -50,6 +57,9 @@ final class ExplainOutstandingTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $customer = Customer::query()->find((int) ($args['customer_id'] ?? 0));
         if ($customer === null) {
             return ToolOutcome::denied('التاجر مش موجود.', auditable: false);
@@ -62,7 +72,7 @@ final class ExplainOutstandingTool implements AgentTool
             ...$breakdown,
         ];
 
-        return ToolOutcome::data($data, [
+        return $this->presenter->present($actor, $data, [
             'type' => 'money_trail',
             'title' => 'ليه الرصيد '.$breakdown['outstanding'],
             'steps' => [

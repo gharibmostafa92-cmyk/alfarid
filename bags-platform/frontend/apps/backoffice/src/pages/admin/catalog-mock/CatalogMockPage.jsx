@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CatalogReference } from './catalog-reference';
 import styles from './catalog-reference.css?inline';
+import { ensureStylesheet } from '../../../lib/font-loader';
 
 export default function CatalogMockPage({ can, page, darkMode = undefined, theme = undefined }) {
   const host = useRef(null);
@@ -20,11 +21,7 @@ export default function CatalogMockPage({ can, page, darkMode = undefined, theme
 
   useLayoutEffect(() => {
     setRoot(host.current.shadowRoot || host.current.attachShadow({ mode: 'open' }));
-    const fonts = document.createElement('link');
-    fonts.rel = 'stylesheet';
-    fonts.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap';
-    document.head.append(fonts);
-    return () => fonts.remove();
+    ensureStylesheet('vortix-catalog-fonts', 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap');
   }, []);
 
   useEffect(() => {

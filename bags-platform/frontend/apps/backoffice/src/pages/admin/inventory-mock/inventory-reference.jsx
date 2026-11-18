@@ -249,7 +249,7 @@ function LocationForm({ open, initial, branchId, branchName, onClose, onSave }) 
   const [f, setF] = useState(blank);
   const [err, setErr] = useState({});
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setF(initial ? { id: initial.id, name: initial.name || '', code: initial.code || '', type: initial.type || 'shelf', active: initial.is_active, branchId } : { ...blank, branchId }); setErr({}); setBusy(false); } }, [open]);
+  useEffect(() => { if (open) { setF(initial ? { id: initial.id, name: initial.name || '', code: initial.code || '', type: initial.type || 'shelf', active: initial.is_active, branchId } : { ...blank, branchId }); setErr({}); setBusy(false); } }, [open, initial?.id, initial?.name, initial?.code, initial?.type, initial?.is_active, branchId]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const submit = async () => {
     const e = {};
@@ -533,7 +533,11 @@ function CountCreate({ open, onClose, go, onCreated }) {
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [srvErr, setSrvErr] = useState(null);
-  useEffect(() => { if (open) { setBranchId(null); setLocId(null); setNote(''); setMode('all'); setPicked([]); setTried(false); setBusy(false); setSrvErr(null); } }, [open]);
+  const busyRef = useRef(false);
+  const continuationRef = useRef(null);
+  const [continuation, setContinuation] = useState(null);
+  const keepContinuation = next => { continuationRef.current = next; setContinuation(next); };
+  useEffect(() => { if (open && !continuationRef.current) { setBranchId(null); setLocId(null); setNote(''); setMode('all'); setPicked([]); setTried(false); setBusy(false); setSrvErr(null); } }, [open]);
   const restriction = useRestrictedBranch();
   const effBranch = restriction.locked ? restriction.branchId : branchId;
 
@@ -548,28 +552,60 @@ function CountCreate({ open, onClose, go, onCreated }) {
   const items = mode === 'all' ? scopeIds : picked;
   const valid = effBranch && items.length > 0 && (mode !== 'all' || (!scopeQuery.loading && !scopeQuery.error));
 
+  const requestClose = () => {
+    if (continuationRef.current) {
+      toast('يوجد جرد غير مكتمل. أعد المحاولة لاستكماله قبل إغلاق النافذة.', 'red');
+      return;
+    }
+    onClose();
+  };
+
   const submit = async () => {
-    setTried(true); if (!valid || busy) return;
+    setTried(true); if (busyRef.current || (!continuationRef.current && !valid)) return;
+    busyRef.current = true;
     setBusy(true); setSrvErr(null);
-    const payload = {
-      branch_id: effBranch, ...(locId ? { location_id: locId } : {}),
-      notes: note.trim() || null,
-      items: items.slice(0, 500).map(id => ({ product_variant_id: id, counted_qty: null })),
-    };
+    if (!continuationRef.current) {
+      const payload = {
+        branch_id: effBranch, ...(locId ? { location_id: locId } : {}),
+        notes: note.trim() || null,
+        items: items.slice(0, 500).map(id => ({ product_variant_id: id, counted_qty: null })),
+      };
+      keepContinuation({ payload, restIds: items.slice(500), id: null, nextOffset: 0, statusDone: false, message: null });
+    }
     try {
-      // No snapshot is taken without items: a full-scope count is built by
-      // paging every stock level, then topping up past 500 via PATCH chunks.
-      const res = await stocktakesApi.create(payload, keyFor(payload));
-      const rest = items.slice(500);
-      for (let i = 0; i < rest.length; i += 500) {
-        await stocktakesApi.updateItems(res.data.id, rest.slice(i, i + 500).map(id => ({ product_variant_id: id, counted_qty: null })));
+      let task = continuationRef.current;
+      if (!task.id) {
+        // Keep the exact payload and key after an uncertain network failure so
+        // retrying cannot create a second stocktake.
+        const res = await stocktakesApi.create(task.payload, keyFor(task.payload));
+        task = { ...task, id: res.data.id, message: res.message };
+        keepContinuation(task);
       }
-      // New counts start as draft: move straight into counting like the old flow.
-      try { await stocktakesApi.update(res.data.id, { status: 'in_progress' }); } catch { /* detail still opens as draft */ }
+      while (task.nextOffset < task.restIds.length) {
+        const nextOffset = Math.min(task.nextOffset + 500, task.restIds.length);
+        await stocktakesApi.updateItems(task.id, task.restIds.slice(task.nextOffset, nextOffset).map(id => ({ product_variant_id: id, counted_qty: null })));
+        task = { ...task, nextOffset };
+        keepContinuation(task);
+      }
+      if (!task.statusDone) {
+        await stocktakesApi.update(task.id, { status: 'in_progress' });
+        task = { ...task, statusDone: true };
+        keepContinuation(task);
+      }
       reset();
-      toast(res.message || 'تم إنشاء الجرد'); onClose(); onCreated && onCreated(); go('count', { id: res.data.id });
+      keepContinuation(null);
+      toast(task.message || 'تم إنشاء الجرد'); onClose(); onCreated && onCreated(); go('count', { id: task.id });
     } catch (e) {
       setSrvErr(normalizeError(e).message);
+      const status = e?.response?.status;
+      const permanentClientError = status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status);
+      if (permanentClientError && continuationRef.current?.id == null) {
+        // A validation rejection happens before the stocktake is committed.
+        keepContinuation(null);
+        reset();
+      }
+    } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -580,10 +616,12 @@ function CountCreate({ open, onClose, go, onCreated }) {
   const locOptions = (locsQuery.data || []).filter(l => l.is_active).map(l => ({ value: l.id, label: `${l.name} (${l.code})` }));
 
   return (
-    <Modal open={open} onClose={onClose} width="max-w-2xl" title="جرد جديد" sub="حتى 500 بند عند الإنشاء، والباقي يُستكمل تلقائيًا"
-      footer={<><button className="btn btn-dark" onClick={submit} disabled={busy}>{busy && <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />} إنشاء وبدء العدّ</button><button className="btn btn-soft" onClick={onClose}>إلغاء</button></>}>
+    <Modal open={open} onClose={requestClose} width="max-w-2xl" title="جرد جديد" sub="حتى 500 بند عند الإنشاء، والباقي يُستكمل تلقائيًا"
+      footer={<><button className="btn btn-dark" onClick={submit} disabled={busy}>{busy && <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />} {continuation ? 'استكمال الجرد' : 'إنشاء وبدء العدّ'}</button><button className="btn btn-soft" onClick={requestClose} disabled={busy || !!continuation}>إلغاء</button></>}>
       <div className="space-y-4">
         {srvErr && <InlineAlert kind="red">{srvErr}</InlineAlert>}
+        {continuation?.id && <InlineAlert kind="amber">تم إنشاء مسودة الجرد رقم {continuation.id}. سيستكمل الزر البنود المتبقية وحالة البدء؛ اترك النافذة مفتوحة حتى يكتمل.</InlineAlert>}
+        <fieldset disabled={!!continuation} className="space-y-4 min-w-0">
         <div className="grid grid-cols-2 gap-4">
           <Field label="الفرع" req error={tried && !effBranch ? 'مطلوب' : null}><Sel value={effBranch} onChange={v => { if (!restriction.locked) { setBranchId(v || null); setLocId(null); } }} placeholder="اختر…" disabled={restriction.locked} options={branchOptions} /></Field>
           <Field label="الموقع" hint="اختياري"><Sel value={locId} onChange={v => setLocId(v || null)} placeholder={effBranch ? 'كل المواقع' : '—'} disabled={!effBranch} options={locOptions} /></Field>
@@ -612,6 +650,7 @@ function CountCreate({ open, onClose, go, onCreated }) {
           <div className="text-[11px] c-muted mt-1.5 num">{items.length} / 500</div>
         </div>
         <Field label="ملاحظات"><textarea maxLength={2000} className="inp" rows={2} value={note} onChange={e => setNote(e.target.value)} /></Field>
+        </fieldset>
       </div>
     </Modal>
   );
@@ -625,6 +664,7 @@ function CountDetail({ go, params }) {
   const [confirm, setConfirm] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [err, setErr] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [stale, setStale] = useState({ itemIds: [], variantIds: [] });
@@ -678,11 +718,12 @@ function CountDetail({ go, params }) {
 
   const chunked = arr => { const out = []; for (let i = 0; i < arr.length; i += 500) out.push(arr.slice(i, i + 500)); return out; };
   const saveCounts = async (only = null) => {
-    if (busy) return;
+    if (busy || busyRef.current) return;
     if (rows.some(r => {
       const v = vals[r.product_variant_id];
       return v !== '' && v !== undefined && (!QTY_RE.test(normalizeNumericInput(v)) || Number(normalizeNumericInput(v)) > QTY_MAX);
     })) { setErr('الكمية يجب أن تكون صفرًا أو أكبر، وبحد أقصى أربع خانات عشرية.'); return; }
+    busyRef.current = true;
     setBusy(true); setErr(null);
     const targets = only ? rows.filter(r => only.includes(r.product_variant_id)) : rows.filter(r => {
       const cur = c.items.find(it => it.product_variant_id === r.product_variant_id);
@@ -700,7 +741,7 @@ function CountDetail({ go, params }) {
       setStale(s => ({ itemIds: s.itemIds.filter(x => !targets.some(r => r.id === x)), variantIds: s.variantIds.filter(x => !savedIds.has(x)) }));
       toast('تم حفظ العدّ'); query.reload();
     } catch (e) { setErr(normalizeError(e).message); }
-    setBusy(false);
+    finally { busyRef.current = false; setBusy(false); }
   };
   const startCounting = async () => {
     setBusy(true); setErr(null);
@@ -793,7 +834,7 @@ function CountDetail({ go, params }) {
                           <div className="flex items-center gap-1.5 justify-end">
                             {r.a === null && <button className="btn btn-ghost btn-sm !px-2 !py-1 text-[11px]" onClick={() => { setVals(v => ({ ...v, [r.product_variant_id]: '0' })); setDirty(true); }}>صفر</button>}
                             <div className={`rounded-[10px] w-28 ${r.a === null ? 'uncounted' : ''}`}>
-                              <NumInput small value={vals[r.product_variant_id] ?? ''} placeholder="لم يُعدّ" onChange={v => { setVals(x => ({ ...x, [r.product_variant_id]: v })); setDirty(true); }} className={r.a === null ? '!bg-transparent' : ''} />
+                            <NumInput small disabled={!editable || busy} value={vals[r.product_variant_id] ?? ''} placeholder="لم يُعدّ" onChange={v => { setVals(x => ({ ...x, [r.product_variant_id]: v })); setDirty(true); }} className={r.a === null ? '!bg-transparent' : ''} />
                             </div>
                             {r.a !== null && <button className="icon-btn !w-6 !h-6" title="مسح (لم يُعدّ)" onClick={() => { setVals(v => ({ ...v, [r.product_variant_id]: '' })); setDirty(true); }}><Icon n="x" s={11} /></button>}
                             {r.isStale && <button className="btn btn-soft btn-sm" disabled={busy} onClick={() => saveCounts([r.product_variant_id])}>إعادة العدّ</button>}
@@ -2306,11 +2347,11 @@ function VariantPicker({ value, onChange, placeholder = 'ابحث بالاسم �
 
 const Sku = ({ children }) => <span dir="ltr" className="mono text-[11.5px] font-semibold px-2 py-0.5 rounded-md c-primary" style={{ background: 'var(--icon-well-bg)' }}>{children}</span>;
 
-function NumInput({ value, onChange, decimals = 4, integer, small, placeholder = '0', className = '', err }) {
+function NumInput({ value, onChange, decimals = 4, integer, small, placeholder = '0', className = '', err, disabled = false }) {
   const ambiguous = normalizeNumericInput(value).includes(',');
   return (
     <>
-      <input dir="ltr" inputMode={integer ? 'numeric' : 'decimal'} value={value ?? ''} placeholder={placeholder}
+      <input dir="ltr" disabled={disabled} inputMode={integer ? 'numeric' : 'decimal'} value={value ?? ''} placeholder={placeholder}
         onChange={e => onChange(e.target.value)} aria-invalid={Boolean(err) || ambiguous}
         className={`inp ${small ? 'inp-sm' : ''} num text-left ${err || ambiguous ? 'err' : ''} ${className}`} />
       {ambiguous && <div className="text-[10px] mt-0.5" role="alert" style={{ color: 'var(--badge-red-text)' }}>اكتب الرقم بدون فواصل آلاف، واستخدم النقطة العشرية.</div>}

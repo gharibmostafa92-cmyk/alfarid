@@ -32,6 +32,7 @@ class WatchWhatsAppConnection extends Command
         $state = (string) ($status['state'] ?? 'unreachable');
         if ($state === 'connected') {
             Cache::forget('wa-gateway-alerted');
+            Cache::forget('wa-gateway-logged-out-alerted');
             Cache::forget('wa-gateway-disconnected-since');
 
             return self::SUCCESS;
@@ -48,7 +49,9 @@ class WatchWhatsAppConnection extends Command
         if ($state !== 'logged_out' && ! $longClose && ! $repeated) {
             return self::SUCCESS;
         }
-        $alertKey = $repeated ? 'wa-gateway-flapping-alerted' : 'wa-gateway-alerted';
+        $alertKey = $state === 'logged_out'
+            ? 'wa-gateway-logged-out-alerted'
+            : ($repeated ? 'wa-gateway-flapping-alerted' : 'wa-gateway-alerted');
         if (! Cache::add($alertKey, $state, now()->addHours(6))) {
             return self::SUCCESS;
         }

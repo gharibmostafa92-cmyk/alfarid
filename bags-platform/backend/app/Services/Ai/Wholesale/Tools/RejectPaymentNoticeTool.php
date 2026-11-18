@@ -12,7 +12,9 @@ use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 final class RejectPaymentNoticeTool implements WriteTool
@@ -23,6 +25,7 @@ final class RejectPaymentNoticeTool implements WriteTool
     public function __construct(
         private ProposalBuilder $proposals,
         private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -63,9 +66,12 @@ final class RejectPaymentNoticeTool implements WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->find((int) ($args['notice_id'] ?? 0));
+        $notice = WholesalePaymentNotice::query()->with(['order', 'treasury'])->find((int) ($args['notice_id'] ?? 0));
         if ($notice === null || $notice->status !== WholesalePaymentNoticeStatus::PendingReview) {
             return ToolOutcome::denied('إشعار السداد مش موجود أو اتعمله مراجعة.', auditable: false);
+        }
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
+            return $denied;
         }
         $reason = trim((string) ($args['reason'] ?? ''));
         if (! in_array($reason, self::REASONS, true)) {
@@ -90,6 +96,9 @@ final class RejectPaymentNoticeTool implements WriteTool
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
+            return $denied;
+        }
         if (($action->expected_versions['n:'.$notice->id] ?? null) !== (string) $notice->updated_at) {
             return ToolOutcome::denied('الإشعار اتغير بعد الاقتراح.', auditable: false);
         }

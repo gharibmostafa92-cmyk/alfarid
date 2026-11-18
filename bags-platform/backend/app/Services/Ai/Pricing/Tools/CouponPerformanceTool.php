@@ -82,12 +82,12 @@ final class CouponPerformanceTool implements AgentTool
         $cancelled = Order::query()->where('coupon_id', $coupon->id)->where('status', OrderStatus::Cancelled)
             ->when($branchId !== null, fn ($query) => $query->where('allocated_branch_id', $branchId))
             ->count();
-        $uses = (int) $usage->uses;
+        $uses = (int) ($usage?->uses ?? 0);
         $data = [
             'code' => $coupon->code,
             'uses' => $uses,
-            'discount_total' => round((float) $usage->discount_total, 2),
-            'order_average' => $usage->order_average === null ? null : round((float) $usage->order_average, 2),
+            'discount_total' => round((float) ($usage?->discount_total ?? 0), 2),
+            'order_average' => $usage?->order_average === null ? null : round((float) $usage->order_average, 2),
             'cancelled_orders' => $cancelled,
             'cancellation_percent' => $uses + $cancelled > 0 ? round(100 * $cancelled / ($uses + $cancelled), 2) : null,
         ];

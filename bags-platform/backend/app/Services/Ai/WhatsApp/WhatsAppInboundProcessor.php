@@ -33,6 +33,8 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
  */
 final class WhatsAppInboundProcessor
 {
+    private const TURN_STARTED_REASON = 'assistant_turn_started';
+
     public function __construct(
         private SettingService $settings,
         private WhatsAppGatewayClient $gateway,
@@ -53,6 +55,16 @@ final class WhatsAppInboundProcessor
     {
         // Skip messages that have already been processed or superseded.
         if ($inbound->status !== 'queued') {
+            return 'done';
+        }
+        if (AiWhatsappOutbound::query()->where('inbound_id', $inbound->id)->exists()) {
+            $this->resumeOutboundDelivery($inbound);
+
+            return 'done';
+        }
+        if ($inbound->ignore_reason === self::TURN_STARTED_REASON) {
+            $this->finish($inbound, 'failed', 'assistant_turn_outcome_unknown', $inbound->identity_id, $inbound->conversation_id);
+
             return 'done';
         }
         $text = trim((string) ($message['text'] ?? ''));
@@ -81,6 +93,9 @@ final class WhatsAppInboundProcessor
 
             return 'done';
         }
+        // Claim this inbound before any command or AI work can perform a side effect.
+        // If the process dies before its outbox is staged, a retry fails closed.
+        $inbound->forceFill(['identity_id' => $identity->id, 'ignore_reason' => self::TURN_STARTED_REASON])->save();
         $identity->forceFill(['last_inbound_at' => now()])->save();
 
         // Reject commands until session is unlocked when PIN protection is enabled.
@@ -91,8 +106,10 @@ final class WhatsAppInboundProcessor
             return 'done';
         }
 
-        $command = $this->command($user, $identity, $message, $text);
+        $command = $this->command($inbound, $user, $identity, $message, $text);
         if ($command === 'release') {
+            $this->clearTurnStartedMarker($inbound);
+
             return 'release';
         }
         if ($command !== null) {
@@ -110,13 +127,14 @@ final class WhatsAppInboundProcessor
             return 'done';
         }
 
-        $result = $this->freeText($user, $conversation, $remoteJid, $mediaReply['text'], $mediaReply['attachments'], null);
+        $result = $this->freeText($inbound, $user, $conversation, $remoteJid, $mediaReply['text'], $mediaReply['attachments'], null);
         // Clean up unconsumed transient attachments if turn was released due to concurrency locks or timeouts.
         if ($result === 'release') {
             foreach (AiAttachment::query()->whereIn('id', $mediaReply['attachments'])->whereNull('consumed_at')->get() as $attachment) {
                 Storage::disk('ai_private')->delete($attachment->path);
                 $attachment->delete();
             }
+            $this->clearTurnStartedMarker($inbound);
 
             return 'release';
         }
@@ -148,9 +166,15 @@ final class WhatsAppInboundProcessor
 
     private function consumeLink(AiWhatsappInbound $inbound, string $hash, ?string $phone, ?string $lid, ?string $pn): ?AiWhatsappIdentity
     {
+        $precheck = AiWhatsappLinkToken::query()->where('token_hash', $hash)->first();
+        if ($precheck === null || $precheck->consumed_at !== null || $precheck->expires_at->isPast()) {
+            $this->finish($inbound, 'ignored', 'invalid_link', $precheck?->identity_id, null);
+
+            return null;
+        }
         StaffAdministration::lock();
-        $token = AiWhatsappLinkToken::query()->where('token_hash', $hash)->first();
-        $identity = $token?->identity;
+        $token = AiWhatsappLinkToken::query()->where('token_hash', $hash)->lockForUpdate()->first();
+        $identity = $token ? AiWhatsappIdentity::query()->whereKey($token->identity_id)->lockForUpdate()->first() : null;
         if ($token === null || $identity?->status !== 'pending' || $token->consumed_at !== null || $token->expires_at->isPast()) {
             $this->finish($inbound, 'ignored', 'invalid_link', $identity?->id, null);
 
@@ -182,7 +206,7 @@ final class WhatsAppInboundProcessor
      * @param  array<string, mixed>  $message
      * @return int|string|null conversation id, or release
      */
-    private function command(User $user, AiWhatsappIdentity $identity, array $message, string $text): int|string|null
+    private function command(AiWhatsappInbound $inbound, User $user, AiWhatsappIdentity $identity, array $message, string $text): int|string|null
     {
         $remoteJid = (string) $message['remote_jid'];
         $quoted = isset($message['quoted_id']) ? (string) $message['quoted_id'] : null;
@@ -229,7 +253,7 @@ final class WhatsAppInboundProcessor
             }
             $identity->forceFill(['unlocked_until' => now()->addMinutes(30)])->save();
             RateLimiter::clear($limit);
-            $this->send($remoteJid, 'اتفتحت الجلسة لمدة 30 دقيقة.');
+            $this->send($remoteJid, 'اتفتحت الجلسة لمدة 30 دقيقة. (امسح رسالة الرقم السري من عندك للأمان.)');
 
             return 0;
         }
@@ -244,7 +268,7 @@ final class WhatsAppInboundProcessor
 
                 return $conversation->id;
             }
-            $this->runAction($user, $remoteJid, $conversation, $verb, $action, null);
+            $this->runAction($inbound, $user, $remoteJid, $conversation, $verb, $action, null);
 
             return $conversation->id;
         }
@@ -261,15 +285,20 @@ final class WhatsAppInboundProcessor
 
                 return $conversation->id;
             }
-            $this->runAction($user, $remoteJid, $conversation, 'تنفيذ', $action, 'تنفيذ', $selected);
+            $this->runAction($inbound, $user, $remoteJid, $conversation, 'تنفيذ', $action, 'تنفيذ', $selected);
 
             return $conversation->id;
         }
         $action = $this->quotedAction($quoted, $conversation);
         if ($text !== '' && $action?->status === 'pending' && $action->risk === 'high') {
-            $this->runAction($user, $remoteJid, $conversation, 'تأكيد', $action, $text);
+            [$expectedTyped] = \App\Services\Ai\ProposalBuilder::resolveTypedConfirmation($action->tool, $action->args ?? [], $action->preview ?? []);
+            $normText = mb_strtolower(trim($text));
+            $normExpected = $expectedTyped !== null ? mb_strtolower(trim($expectedTyped)) : null;
+            if ($normExpected !== null && $normExpected !== '' && ($normText === $normExpected || $normText === 'تأكيد '.$normExpected)) {
+                $this->runAction($inbound, $user, $remoteJid, $conversation, 'تأكيد', $action, $expectedTyped);
 
-            return $conversation->id;
+                return $conversation->id;
+            }
         }
         if (preg_match('/^\d{1,2}$/', $text)) {
             $selection = $this->selection($conversation, $quoted, (int) $text);
@@ -278,7 +307,7 @@ final class WhatsAppInboundProcessor
 
                 return $conversation->id;
             }
-            $result = $this->freeText($user, $conversation, $remoteJid, $text, [], $selection);
+            $result = $this->freeText($inbound, $user, $conversation, $remoteJid, $text, [], $selection);
             if ($result === 'release') {
                 return 'release';
             }
@@ -378,7 +407,7 @@ final class WhatsAppInboundProcessor
     }
 
     /** @param list<string>|null $selected */
-    private function runAction(User $user, string $remoteJid, AiConversation $conversation, string $verb, AiPendingAction $action, ?string $typed, ?array $selected = null): void
+    private function runAction(AiWhatsappInbound $inbound, User $user, string $remoteJid, AiConversation $conversation, string $verb, AiPendingAction $action, ?string $typed, ?array $selected = null): void
     {
         try {
             $outcome = match ($verb) {
@@ -397,14 +426,14 @@ final class WhatsAppInboundProcessor
             return;
         }
         $block = $outcome->uiBlock ?: ['type' => 'result', 'ok' => $outcome->type === 'result', 'message' => (string) ($outcome->message ?? '')];
-        $this->deliver($conversation, $remoteJid, new AgentReply((string) ($outcome->message ?? ''), [$block]));
+        $this->deliver($inbound, $conversation, $remoteJid, new AgentReply((string) ($outcome->message ?? ''), [$block]));
     }
 
     /**
      * @param  list<string>  $attachments
      * @param  array{entity:string,id:mixed,label?:string}|null  $selection
      */
-    private function freeText(User $user, AiConversation $conversation, string $remoteJid, string $text, array $attachments, ?array $selection): string
+    private function freeText(AiWhatsappInbound $inbound, User $user, AiConversation $conversation, string $remoteJid, string $text, array $attachments, ?array $selection): string
     {
         try {
             $this->gateway->presence($remoteJid, 'composing');
@@ -413,9 +442,12 @@ final class WhatsAppInboundProcessor
                 'attachments' => $attachments,
                 'selection' => $selection,
             ]);
-            $this->deliver($conversation, $remoteJid, $reply);
+            $this->deliver($inbound, $conversation, $remoteJid, $reply);
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 423) {
+                return 'release';
+            }
+            if ($e->getStatusCode() === 429 && str_contains($e->getMessage(), 'ضغط')) {
                 return 'release';
             }
             if ($e->getStatusCode() >= 500) {
@@ -431,16 +463,165 @@ final class WhatsAppInboundProcessor
         return 'done';
     }
 
-    private function deliver(AiConversation $conversation, string $remoteJid, AgentReply $reply): void
+    private function deliver(AiWhatsappInbound $inbound, AiConversation $conversation, string $remoteJid, AgentReply $reply): void
     {
-        foreach ($this->renderer->render($reply->text, $reply->blocks) as $message) {
-            $waId = $this->gateway->send($remoteJid, $message['text']);
-            AiWhatsappOutbound::query()->create([
-                'wa_message_id' => $waId,
-                'conversation_id' => $conversation->id,
-                'pending_action_id' => $message['pending_action_id'],
-                'picker' => $message['picker'],
+        $messages = $this->renderer->render($reply->text, $reply->blocks);
+        if ($messages === []) {
+            return;
+        }
+
+        // Persist the complete reply before sending its first message. If the
+        // process dies between sends, a retry can resume from these rows without
+        // rerunning the AI turn or an already executed action.
+        $outbox = DB::transaction(function () use ($inbound, $conversation, $remoteJid, $messages) {
+            AiWhatsappInbound::query()->whereKey($inbound->id)->lockForUpdate()->firstOrFail();
+            $existing = AiWhatsappOutbound::query()->where('inbound_id', $inbound->id)->orderBy('sequence')->get();
+            if ($existing->isNotEmpty()) {
+                return $existing;
+            }
+
+            foreach ($messages as $sequence => $message) {
+                AiWhatsappOutbound::query()->create([
+                    'inbound_id' => $inbound->id,
+                    'sequence' => $sequence,
+                    'wa_message_id' => null,
+                    'delivery_status' => 'pending',
+                    'recipient_jid' => $remoteJid,
+                    'body' => $message['text'],
+                    'conversation_id' => $conversation->id,
+                    'pending_action_id' => $message['pending_action_id'],
+                    'picker' => $message['picker'],
+                ]);
+            }
+
+            return AiWhatsappOutbound::query()->where('inbound_id', $inbound->id)->orderBy('sequence')->get();
+        });
+
+        $this->sendPendingOutboxMessages($inbound, $outbox);
+    }
+
+    /**
+     * Recover a previously staged reply without repeating its AI turn or action.
+     */
+    private function resumeOutboundDelivery(AiWhatsappInbound $inbound): void
+    {
+        $outbox = AiWhatsappOutbound::query()->where('inbound_id', $inbound->id)->orderBy('sequence')->get();
+        if ($outbox->isEmpty()) {
+            return;
+        }
+
+        $this->sendPendingOutboxMessages($inbound, $outbox);
+        $completed = AiWhatsappOutbound::query()->where('inbound_id', $inbound->id)->orderBy('sequence')->get();
+        if ($completed->every(fn (AiWhatsappOutbound $message): bool => $message->delivery_status === 'sent')) {
+            $this->finish($inbound, 'processed', null, $inbound->identity_id, $completed->first()->conversation_id);
+        }
+    }
+
+    /** @param \Illuminate\Support\Collection<int, AiWhatsappOutbound> $outbox */
+    private function sendPendingOutboxMessages(AiWhatsappInbound $inbound, $outbox): void
+    {
+        foreach ($outbox as $message) {
+            if ($message->delivery_status === 'sent') {
+                continue;
+            }
+            if ($message->delivery_status !== 'pending') {
+                if ($this->markOutboundDeliveryUncertain($inbound, $message)) {
+                    throw new \App\Services\Ai\WhatsApp\WhatsAppGatewayException('رسالة واتساب حالتها غير مؤكدة.');
+                }
+
+                continue;
+            }
+
+            $claimed = DB::transaction(function () use ($message): ?AiWhatsappOutbound {
+                $locked = AiWhatsappOutbound::query()->whereKey($message->id)->lockForUpdate()->firstOrFail();
+                if ($locked->delivery_status !== 'pending') {
+                    return null;
+                }
+                $locked->forceFill(['delivery_status' => 'sending'])->save();
+
+                return $locked;
+            });
+            if ($claimed === null) {
+                $current = $message->fresh();
+                if ($current?->delivery_status === 'sent') {
+                    continue;
+                }
+                if ($this->markOutboundDeliveryUncertain($inbound, $current ?? $message)) {
+                    throw new \App\Services\Ai\WhatsApp\WhatsAppGatewayException('رسالة واتساب حالتها غير مؤكدة.');
+                }
+                continue;
+            }
+
+            try {
+                $waId = $this->gateway->send((string) $claimed->recipient_jid, (string) $claimed->body);
+            } catch (\App\Services\Ai\WhatsApp\WhatsAppGatewayException $exception) {
+                $this->markOutboundDeliveryUncertain($inbound, $claimed);
+                throw $exception;
+            }
+
+            DB::transaction(function () use ($claimed, $waId): void {
+                AiWhatsappOutbound::query()->whereKey($claimed->id)->where('delivery_status', 'sending')->update([
+                    'wa_message_id' => $waId,
+                    'delivery_status' => 'sent',
+                    'recipient_jid' => null,
+                    'body' => null,
+                    'updated_at' => now(),
+                ]);
+            });
+        }
+    }
+
+    private function markOutboundDeliveryUncertain(AiWhatsappInbound $inbound, AiWhatsappOutbound $message): bool
+    {
+        return DB::transaction(function () use ($inbound, $message): bool {
+            $locked = AiWhatsappOutbound::query()->whereKey($message->id)->lockForUpdate()->first();
+            if ($locked === null || $locked->delivery_status === 'sent') {
+                return false;
+            }
+            if ($locked->delivery_status === 'sending') {
+                $locked->forceFill([
+                    'delivery_status' => 'unknown',
+                    'recipient_jid' => null,
+                    'body' => null,
+                ])->save();
+            }
+            AiWhatsappOutbound::query()
+                ->where('inbound_id', $inbound->id)
+                ->where('delivery_status', 'pending')
+                ->update([
+                    'delivery_status' => 'blocked',
+                    'recipient_jid' => null,
+                    'body' => null,
+                    'updated_at' => now(),
+                ]);
+            $this->failUndeliveredPendingActions($inbound->id);
+            AiWhatsappInbound::query()->whereKey($inbound->id)->where('status', 'queued')->update([
+                'status' => 'failed',
+                'ignore_reason' => 'outbound_delivery_uncertain',
+                'updated_at' => now(),
             ]);
+            return true;
+        });
+    }
+
+    private function failUndeliveredPendingActions(int $inboundId): void
+    {
+        $actionIds = AiWhatsappOutbound::query()
+            ->where('inbound_id', $inboundId)
+            ->whereIn('delivery_status', ['unknown', 'blocked'])
+            ->whereNotNull('pending_action_id')
+            ->pluck('pending_action_id')
+            ->unique();
+
+        foreach ($actionIds as $actionId) {
+            if (AiWhatsappOutbound::query()->where('pending_action_id', $actionId)->where('delivery_status', 'sent')->exists()) {
+                continue;
+            }
+            $action = AiPendingAction::query()->whereKey($actionId)->where('status', 'pending')->first();
+            $action?->forceFill([
+                'status' => 'failed',
+                'result' => ['delivery_error' => 'whatsapp_card_delivery_unconfirmed'],
+            ])->save();
         }
     }
 
@@ -618,5 +799,13 @@ final class WhatsAppInboundProcessor
             'identity_id' => $identityId,
             'conversation_id' => $conversationId,
         ])->save();
+    }
+
+    private function clearTurnStartedMarker(AiWhatsappInbound $inbound): void
+    {
+        AiWhatsappInbound::query()->whereKey($inbound->id)->where('status', 'queued')->where('ignore_reason', self::TURN_STARTED_REASON)->update([
+            'ignore_reason' => null,
+            'updated_at' => now(),
+        ]);
     }
 }

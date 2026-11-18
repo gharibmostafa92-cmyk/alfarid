@@ -84,19 +84,20 @@ class ReturnController extends Controller implements HasMiddleware
             'status' => ['nullable', Rule::in(array_column(ReturnStatus::cases(), 'value'))],
             'order_id' => ['nullable', 'integer', 'min:1'],
             'customer_id' => ['nullable', 'integer', 'min:1'],
+            'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
-        $search = trim((string) $request->query('search', ''));
+        $search = trim((string) ($validated['search'] ?? ''));
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
         $returns = ReturnRequest::query()->when($branch !== null, fn ($q) => $q->where(fn ($q) => $q->where('branch_id', $branch)->orWhere(fn ($q) => $q->whereNull('branch_id')->whereHas('order', fn ($q) => $q->where('allocated_branch_id', $branch)))))
             ->with(['order:id,order_number', 'customer:id,name', 'items.orderItem'])
             ->when($validated['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->when($request->query('order_id'), fn ($q, $orderId) => $q->where('order_id', (int) $orderId))
-            ->when($request->query('customer_id'), fn ($q, $customerId) => $q->where('customer_id', (int) $customerId))
+            ->when($validated['order_id'] ?? null, fn ($q, $orderId) => $q->where('order_id', (int) $orderId))
+            ->when($validated['customer_id'] ?? null, fn ($q, $customerId) => $q->where('customer_id', (int) $customerId))
             ->when($search !== '', fn ($q) => $q->where(function ($w) use ($search): void {
-                $pattern = SearchTerm::pattern($search);
-                $w->where('return_number', 'ilike', $pattern)
-                    ->orWhereHas('order', fn ($o) => $o->where('order_number', 'ilike', $pattern));
+                $prefix = SearchTerm::prefix($search);
+                $w->where('return_number', 'like', $prefix)
+                    ->orWhereIn('order_id', Order::query()->select('id')->where('order_number', 'like', $prefix));
             }))
             ->latest('id')
             ->paginate((int) ($validated['per_page'] ?? 20));
@@ -120,12 +121,7 @@ class ReturnController extends Controller implements HasMiddleware
         }
         $payload = $request->validated();
         $idempotencyKey = $request->header('Idempotency-Key');
-        $isReplay = $idempotencyKey !== null && \Illuminate\Support\Facades\DB::table('operation_idempotency_keys')
-            ->where('operation', 'admin_return_create')
-            ->where('actor_type', $request->user()->getMorphClass())
-            ->where('actor_id', $request->user()->getKey())
-            ->where('key', $idempotencyKey)
-            ->exists();
+        $isReplay = false;
         $return = $idempotencyKey !== null
             ? $this->idempotency->run(
                 'admin_return_create',
@@ -133,6 +129,7 @@ class ReturnController extends Controller implements HasMiddleware
                 $idempotencyKey,
                 ['order_id' => $order->id, ...$payload],
                 fn () => $this->returns->createReturnRequest($order, $payload),
+                $isReplay,
             )
             : $this->returns->createReturnRequest($order, $payload);
         $return->load(['items.orderItem', 'order', 'customer']);

@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\CostAccess;
 use App\Services\Pricing\PricingService;
 use App\Services\Wholesale\QuotationService;
@@ -19,6 +21,7 @@ final class GetQuotationTool implements AgentTool
     public function __construct(
         private PricingService $pricing,
         private QuotationService $quotations,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -56,12 +59,17 @@ final class GetQuotationTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $quotation = Quotation::query()->with(['customer', 'items.variant.product'])->find((int) ($args['quotation_id'] ?? 0));
         if ($quotation === null) {
             return ToolOutcome::denied('عرض السعر مش موجود.', auditable: false);
         }
 
         $showCost = CostAccess::canView($actor);
+        $variantIds = $quotation->items->pluck('product_variant_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $pricingContext = $this->pricing->contextFor($quotation->customer, $variantIds);
         $lines = [];
         foreach ($quotation->items as $item) {
             $variant = $item->variant;
@@ -69,15 +77,15 @@ final class GetQuotationTool implements AgentTool
             $tiers = [];
             if ($variant !== null) {
                 try {
-                    $resolved = $this->pricing->resolve($variant, $quotation->customer, (float) $item->qty);
+                    $resolved = $this->pricing->resolve($variant, $quotation->customer, (float) $item->qty, ctx: $pricingContext);
                     $list = $resolved['unit_price'];
-                    $tiers = $this->pricing->tiersFor($variant, $quotation->customer);
+                    $tiers = $this->pricing->tiersFor($variant, $quotation->customer, $pricingContext);
                 } catch (Throwable) {
                     $list = null;
                 }
             }
             $offered = (float) $item->offered_unit_price;
-            $cost = $showCost ? (float) ($variant?->cost_price ?? 0) : null;
+            $cost = ($showCost && $variant?->cost_price !== null) ? (float) $variant->cost_price : null;
             $margin = $showCost && $offered > 0 && $cost !== null ? round((($offered - $cost) / $offered) * 100, 2) : null;
             $lines[] = [
                 'item_id' => $item->id,

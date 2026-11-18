@@ -15,7 +15,7 @@ const { toAdminSettings, settingsPatch, toAdminUser, toAdminRole, roleIdsToNames
 const { buildPermissionGroups, permLabel } = load('permission-catalog');
 const fixture = require(path.join(base, '__fixtures__/settings.json'));
 const settings = toAdminSettings(fixture.data);
-assert.equal(Object.keys(settings.numbering).length, 12);
+assert.equal(Object.keys(settings.numbering).length, 17);
 assert.equal(typeof settings.tax.default_tax_rate, 'number');
 assert.deepEqual(settingsPatch(settings, structuredClone(settings)), {});
 const changed = structuredClone(settings);

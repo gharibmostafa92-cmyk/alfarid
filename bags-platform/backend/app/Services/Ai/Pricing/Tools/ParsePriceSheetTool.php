@@ -24,6 +24,7 @@ use App\Services\Pricing\PriceListService;
 use App\Services\Shared\SettingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 final class ParsePriceSheetTool implements AgentTool
@@ -109,6 +110,7 @@ final class ParsePriceSheetTool implements AgentTool
 
         $rows = [];
         $warnings = [];
+        $visionEvents = [];
         $disk = Storage::disk('ai_private');
         $canViewCost = CostAccess::canView($actor);
         $belowCostPolicy = (string) $this->settings->get('ai_price_below_cost_policy', 'block');
@@ -122,8 +124,13 @@ final class ParsePriceSheetTool implements AgentTool
             /** @var AiAttachment $att */
             $att = $attachments->get($attId);
             if (str_starts_with((string) $att->mime, 'image/')) {
-                $extracted = $this->extractImageRows($att, $disk, $conv->id);
+                $extracted = $this->extractImageRows($att, $disk, $visionEvents);
                 foreach ($extracted as $lineIndex => $row) {
+                    if (! is_array($row)) {
+                        $warnings[] = 'مرفق '.($fileIndex + 1).' · سطر '.($lineIndex + 1).': سطر غير مقروء — اتساب للمراجعة.';
+
+                        continue;
+                    }
                     $this->consumeRow($actor, $list, $row, $current, $rows, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, 'مرفق '.($fileIndex + 1).' · سطر '.($lineIndex + 1));
                 }
             } elseif (in_array($att->mime, ['text/csv', 'text/plain'], true) || str_ends_with((string) $att->path, '.csv') || str_ends_with((string) $att->path, '.txt')) {
@@ -145,6 +152,8 @@ final class ParsePriceSheetTool implements AgentTool
         }
 
         if ($rows === []) {
+            DB::transaction(fn () => $this->recordVisionEvents((int) $conv->id, $visionEvents));
+
             return ToolOutcome::denied('مفيش سطور واضحة في المرفقات. صوّر أوضح أو اكتب البنود يدويًا.', auditable: false);
         }
 
@@ -160,7 +169,8 @@ final class ParsePriceSheetTool implements AgentTool
         $risk = (count($rows) > 20 || ($minPct !== null && $minPct < -15)) ? 'high' : 'medium';
         $locking = PricingUpsertPrep::versionsAndInverse($list, $rows, $current);
 
-        return $this->proposals->make(
+        return DB::transaction(function () use ($actor, $conv, $list, $rows, $risk, $warnings, $locking, $visionEvents): ToolOutcome {
+            $outcome = $this->proposals->make(
             $actor,
             'upsert_price_list_items',
             ['price_list_id' => $list->id, 'rows' => array_map(fn ($r) => ['variant_id' => $r['variant_id'], 'min_qty' => $r['min_qty'], 'price' => $r['price'], 'source_row' => $r['source_row']], $rows)],
@@ -179,19 +189,44 @@ final class ParsePriceSheetTool implements AgentTool
                 'rows' => array_map(fn ($r) => ['sku' => $r['sku'], 'min_qty' => $r['min_qty'], 'old_price' => $r['old_price'], 'new_price' => $r['price'], 'delta' => $r['old_price'] !== null ? round($r['price'] - $r['old_price'], 2) : $r['price'], 'delta_pct' => null, 'source_row' => $r['source_row']], $rows),
                 'blocked' => [],
             ],
-        );
+            );
+
+            $this->recordVisionEvents((int) $conv->id, $visionEvents);
+
+            return $outcome;
+        });
+    }
+
+    /** @param list<array{model:mixed,input_tokens:int,output_tokens:int}> $events */
+    private function recordVisionEvents(int $conversationId, array $events): void
+    {
+        foreach ($events as $event) {
+            $model = is_string($event['model'] ?? null) ? mb_substr($event['model'], 0, 100) : null;
+            AiMessage::create([
+                'conversation_id' => $conversationId,
+                'role' => 'event',
+                'content' => 'قراءة شيت أسعار بـ Gemini Vision'.($model !== null && $model !== '' ? ' ('.$model.')' : ''),
+                'input_tokens' => $event['input_tokens'],
+                'output_tokens' => $event['output_tokens'],
+            ]);
+        }
     }
 
     /**
      * @return list<array<string,mixed>>
      */
-    private function extractImageRows(AiAttachment $att, mixed $disk, int $conversationId): array
+    private function extractImageRows(AiAttachment $att, mixed $disk, array &$usageEvents): array
     {
         if (! $disk->exists($att->path)) {
             abort(422, 'ملف الصورة المرفقة لم يعد متاحًا؛ ارفع الصورة من جديد.');
         }
+        $claimed = AiAttachment::query()->whereKey($att->id)->whereNull('consumed_at')->update(['consumed_at' => now()]);
+        if ($claimed === 0) {
+            abort(422, 'الصورة اتقرت قبل كده أو بتتقري دلوقتي.');
+        }
         $tmp = tempnam(sys_get_temp_dir(), 'ai-att');
         if ($tmp === false) {
+            AiAttachment::query()->whereKey($att->id)->update(['consumed_at' => null]);
             abort(422, 'تعذّر تجهيز الصورة؛ حاول مجددًا.');
         }
         try {
@@ -211,18 +246,18 @@ PROMPT,
                 ]]]],
                 $images
             );
+        } catch (\Throwable $e) {
+            AiAttachment::query()->whereKey($att->id)->update(['consumed_at' => null]);
+            throw $e;
         } finally {
             @unlink($tmp);
         }
 
-        AiMessage::create([
-            'conversation_id' => $conversationId,
-            'role' => 'event',
-            'content' => 'قراءة شيت أسعار بـ Gemini Vision',
+        $usageEvents[] = [
             'model' => $response['model'] ?? null,
             'input_tokens' => (int) ($response['usage']['input_tokens'] ?? 0),
             'output_tokens' => (int) ($response['usage']['output_tokens'] ?? 0),
-        ]);
+        ];
 
         return (array) ($response['data']['rows'] ?? []);
     }
@@ -246,38 +281,39 @@ PROMPT,
             $variant = count($options) === 1 ? \App\Models\ProductVariant::query()->find($options[0]['id']) : null;
         }
         if (! $variant) {
-            $warnings[] = $fallbackSource.": الكود {$code} مش متطابق مع صنف — راجعه يدويًا.";
+            $warnings[] = $fallbackSource.': الكود المستخرج مش متطابق مع صنف — راجعه يدويًا.';
             return;
         }
         if (! isset($row['price']) || ! is_numeric($row['price']) || (float) $row['price'] <= 0) {
-            $warnings[] = $fallbackSource.": سعر {$code} غير صالح — راجعه يدويًا.";
+            $warnings[] = $fallbackSource.": سعر {$variant->sku} غير صالح — راجعه يدويًا.";
             return;
         }
         $price = (float) $row['price'];
         $minQty = isset($row['min_qty']) && is_numeric($row['min_qty']) && (float) $row['min_qty'] > 0 ? (float) $row['min_qty'] : 1.0;
 
         if ($isWholesaleList && $variant->retail_price !== null && $price >= (float) $variant->retail_price) {
-            $warnings[] = $fallbackSource.": سعر الجملة لـ {$code} أكبر من أو يساوي القطاعي — اتساب للمراجعة.";
+            $warnings[] = $fallbackSource.": سعر الجملة لـ {$variant->sku} أكبر من أو يساوي القطاعي — اتساب للمراجعة.";
             return;
         }
         $cost = $variant->cost_price !== null ? (float) $variant->cost_price : null;
         if ($cost !== null && $cost > 0 && $price < $cost) {
             $message = $canViewCost ? "السعر ({$price}) أقل من التكلفة ({$cost})." : 'السعر أقل من التكلفة (محمي).';
             if ($belowCostPolicy === 'block') {
-                $warnings[] = $fallbackSource.": {$code} — {$message} اتساب للمراجعة.";
+                $warnings[] = $fallbackSource.": {$variant->sku} — {$message} اتساب للمراجعة.";
                 return;
             }
-            $warnings[] = $fallbackSource.": {$code} — {$message}";
+            $warnings[] = $fallbackSource.": {$variant->sku} — {$message}";
         }
         $conf = (float) ($row['confidence'] ?? 0);
         if ($conf < 0.8) {
-            $warnings[] = $fallbackSource.": السطر {$code} ثقته منخفضة (".round($conf, 2).') — اتساب للمراجعة اليدوية.';
+            $warnings[] = $fallbackSource.": السطر {$variant->sku} ثقته منخفضة (".round($conf, 2).') — اتساب للمراجعة اليدوية.';
 
             return;
         }
 
         $sender = trim((string) ($row['sender_name'] ?? ''));
-        $sourceRow = $sender !== '' ? 'واتساب: '.$sender.' · '.trim((string) ($row['message_date'] ?? '')) : $fallbackSource;
+        $rawSourceRow = $sender !== '' ? 'واتساب: '.$sender.' · '.trim((string) ($row['message_date'] ?? '')) : $fallbackSource;
+        $sourceRow = ToolOutcome::untrusted($rawSourceRow, 200)['untrusted_text'];
         $old = $current->get($variant->id.':'.number_format($minQty, 4, '.', ''));
         $rows[] = [
             'variant_id' => $variant->id,

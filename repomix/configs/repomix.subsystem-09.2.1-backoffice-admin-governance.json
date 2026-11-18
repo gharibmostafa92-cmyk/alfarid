@@ -31,7 +31,12 @@
                     "bags-platform/frontend/apps/backoffice/src/pages/admin/overview/**",
                     "bags-platform/frontend/apps/backoffice/src/pages/admin/admin-mock/**",
                     "bags-platform/frontend/packages/api-client/src/endpoints/auth.ts",
-                    "bags-platform/backend/app/Http/Requests/Admin/Concerns/AuthorizesStaffRequest.php"
+                    "bags-platform/backend/app/Http/Requests/Admin/Concerns/AuthorizesStaffRequest.php",
+                    "bags-platform/backend/app/Support/SentryTelemetry.php",
+                    "bags-platform/backend/config/sentry.php",
+                    "bags-platform/frontend/apps/backoffice/sentry-config.ts",
+                    "bags-platform/frontend/apps/backoffice/src/sentry-sanitize.ts",
+                    "bags-platform/frontend/apps/backoffice/src/sentry.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

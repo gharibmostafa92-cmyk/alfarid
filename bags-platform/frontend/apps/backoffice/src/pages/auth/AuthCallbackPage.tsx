@@ -5,6 +5,18 @@ import { toStaffUser } from '../../stores/mappers';
 
 const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
 
+export function resolveSafeRedirectPath(path: unknown): string {
+  if (
+    typeof path === 'string' &&
+    path.startsWith('/') &&
+    !path.startsWith('//') &&
+    !/[\x00-\x1f\x7f\\]/.test(path)
+  ) {
+    return path;
+  }
+  return '/dashboard';
+}
+
 export default function AuthCallbackPage() {
   const login = useAuthStore((s) => s.login);
   const ran = useRef(false); // Prevent double-execution in React StrictMode since handoff codes are single-use
@@ -43,7 +55,7 @@ export default function AuthCallbackPage() {
           }
         }
         login(res.token, toStaffUser(res.data));
-        window.location.replace(res.redirect.path);
+        window.location.replace(resolveSafeRedirectPath(res.redirect?.path));
       })
       .catch(() => window.location.replace(`${WEB_URL}/auth/login?error=handoff`));
   }, []);

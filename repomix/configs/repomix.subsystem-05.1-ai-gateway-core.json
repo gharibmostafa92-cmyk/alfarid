@@ -30,6 +30,7 @@
                     "bags-platform/backend/app/Models/Ai*.php",
                     "bags-platform/backend/app/Models/WebhookLog.php",
                     "bags-platform/backend/app/Jobs/ProcessWhatsAppMessage.php",
+                    "bags-platform/backend/app/Jobs/ProcessCustomerWhatsAppMessage.php",
                     "bags-platform/backend/app/Jobs/PruneAiConversations.php",
                     "bags-platform/backend/app/Jobs/SendOutboundMessage.php",
                     "bags-platform/backend/app/Console/Commands/EvaluateAiAgent.php",
@@ -43,7 +44,9 @@
                     "bags-platform/backend/database/migrations/*bulk_child*.php",
                     "bags-platform/backend/database/migrations/*audit_fixes*.php",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiConversationController.php",
-                    "bags-platform/frontend/apps/backoffice/src/pages/admin/assistant/WhatsAppPanel.tsx"
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/assistant/WhatsAppPanel.tsx",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiAttachmentController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiMessageController.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

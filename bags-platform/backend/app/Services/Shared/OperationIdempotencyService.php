@@ -48,15 +48,16 @@ class OperationIdempotencyService
      * @throws BusinessException If the key is missing/invalid, payload diverges, or the record was deleted.
      * @throws RetryableConflict If a concurrent request is currently holding the key lock.
      */
-    public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute): Model
+    public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute, ?bool &$replayed = null): Model
     {
+        $replayed = false;
         if ($key === null || ! preg_match('/\A[A-Za-z0-9._:-]{1,128}\z/', $key)) {
             throw new BusinessException('ترويسة Idempotency-Key مطلوبة (حتى 128 حرفًا إنجليزيًا أو رقمًا).');
         }
         $scope = ['operation' => $operation, 'actor_type' => $actor->getMorphClass(), 'actor_id' => $actor->getKey(), 'key' => $key];
         $hash = IdempotencyFingerprint::hash($payload);
 
-        return DB::transaction(function () use ($scope, $hash, $execute): Model {
+        return DB::transaction(function () use ($scope, $hash, $execute, &$replayed): Model {
             $isPgsql = DB::getDriverName() === 'pgsql';
             $previousTimeout = '0';
             if ($isPgsql) {
@@ -86,6 +87,7 @@ class OperationIdempotencyService
                 throw new BusinessException('مفتاح عدم التكرار مستخدم مع بيانات مختلفة.', [], 409);
             }
             if ($record->result_id !== null || $record->result_type !== null) {
+                $replayed = true;
                 $result = self::findResult($record->result_type, $record->result_id);
                 if ($result === null) {
                     throw new BusinessException('العملية سبق تنفيذها ثم أزيل مستندها؛ استخدم عملية جديدة.', [], 409);

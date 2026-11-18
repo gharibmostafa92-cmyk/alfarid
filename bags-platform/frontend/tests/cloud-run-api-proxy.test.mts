@@ -167,6 +167,50 @@ test('handles preflight locally and rejects foreign origins and traversal', asyn
   }
 });
 
+test('accepts Sentry trace headers in trusted preflight but never forwards caller baggage', async () => {
+  const config = {
+    upstream, origins: [office], clientIpSecret, allowedNamespaces: openedNamespaces,
+    identityToken: async () => 'service-token',
+    send: async (_url: URL | RequestInfo, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get('sentry-trace'), 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-1');
+      assert.equal(headers.get('baggage'), 'sentry-release=trusted-build');
+      return new Response('ok');
+    },
+  };
+  const preflight = await proxyCloudRunApi(makeRequest(office, {
+    method: 'OPTIONS',
+    headers: {
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'sentry-trace,baggage,authorization',
+    },
+  }), ['store', 'checkout'], config);
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /sentry-trace/);
+  assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /baggage/);
+
+  for (const sampled of ['0', '1']) {
+    const response = await proxyCloudRunApi(new Request(storefront + '/api/v1/store/checkout', {
+      method: 'POST',
+      headers: {
+        origin: office,
+        'sentry-trace': `0123456789abcdef0123456789abcdef-0123456789abcdef-${sampled}`,
+        baggage: 'SENTRY_TEST_TOKEN=caller-controlled',
+      },
+    }), ['store', 'checkout'], {
+      ...config,
+      withTraceContext: async (context, send) => {
+        assert.deepEqual(context, { traceId: '0123456789abcdef0123456789abcdef', parentSpanId: '0123456789abcdef' });
+        return send(new Headers({
+          'sentry-trace': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-1',
+          baggage: 'sentry-release=trusted-build',
+        }));
+      },
+    });
+    assert.equal(response.status, 200);
+  }
+});
+
 test('forwards provider webhooks with signature headers and the raw body', async () => {
   const request = new Request(storefront + '/api/v1/webhooks/payment/stripe', {
     method: 'POST',
@@ -177,6 +221,8 @@ test('forwards provider webhooks with signature headers and the raw body', async
       'x-paymob-signature': 'paymob-signature',
       'x-forwarded-for': '198.51.100.7',
       authorization: 'Bearer should-not-pass',
+      'sentry-trace': '0123456789abcdef0123456789abcdef-0123456789abcdef-1',
+      baggage: 'SENTRY_TEST_TOKEN=webhook',
     },
   });
   const response = await proxyCloudRunApi(request, ['webhooks', 'payment', 'stripe'], {
@@ -188,6 +234,8 @@ test('forwards provider webhooks with signature headers and the raw body', async
       assert.equal(headers.get('stripe-signature'), 't=1,v1=signature');
       assert.equal(headers.get('x-paymob-signature'), 'paymob-signature');
       assert.equal(headers.get('authorization'), null);
+      assert.equal(headers.get('sentry-trace'), null);
+      assert.equal(headers.get('baggage'), null);
       assert.equal(headers.get('x-alfarid-client-ip'), '198.51.100.7');
       assert.equal(await new Response(init?.body).text(), '{"id":"evt_1","type":"checkout.session.completed"}');
       return new Response('ok', { status: 200 });

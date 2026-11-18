@@ -10,9 +10,9 @@ trait AuthorizesStaffRequest
 {
     protected function staffRequestUser(): ?User
     {
-        $user = $this->user('staff') ?? $this->user();
+        $user = $this->user('staff');
 
-        return $user instanceof User ? $user : null;
+        return $user instanceof User && $user->is_active ? $user : null;
     }
 
     protected function authorizeStaffPermission(string $permission): bool

@@ -3,23 +3,24 @@ import { normalizeError, type ApiError } from '../catalog/errors';
 import { adminApi } from './api/endpoints';
 import { toAdminRole, toAdminSettings } from './api/mappers';
 import { buildPermissionGroups } from './api/permission-catalog';
-import { useAuthStore } from '../../../stores/auth.store';
+import { useAuthStore, isSuperAdminRole } from '../../../stores/auth.store';
 
 export const useRoles = (enabled = true) => useApi(s => enabled ? adminApi.listRoles(s).then(rs => rs.map(toAdminRole)) : Promise.resolve([]), [enabled]);
 export const usePermissionGroups = () => useApi(s => adminApi.listPermissions(s).then(buildPermissionGroups), []);
-export const useBranches = () => useApi(s => adminApi.listBranches(s).catch(e => {
+export const useBranches = (enabled = true) => useApi(s => enabled ? adminApi.listBranches(s).catch(e => {
   if (normalizeError(e).status === 403) return [];   // Return empty list if user lacks branches permission.
   throw e;
-}), []);
-export const useSettingsQuery = () => useApi(s => adminApi.getSettings(s).then(toAdminSettings), []);
+}) : Promise.resolve([]), [enabled]);
+export const useSettingsQuery = (enabled = true) => useApi(s => enabled ? adminApi.getSettings(s).then(toAdminSettings) : Promise.resolve(undefined), [enabled]);
 
 export function useMe() {
   const user = useAuthStore(s => s.user);
+  const superAdmin = isSuperAdminRole(user?.roles);
   return {
     me: user,
     meId: user?.id,
-    centralAccess: !!user?.roles?.includes('Super Admin') || !!user?.permissions?.includes('inventory.all_branches'),
-    iAmSuper: !!user?.roles?.includes('Super Admin'),
+    centralAccess: superAdmin || !!user?.permissions?.includes('inventory.all_branches'),
+    iAmSuper: superAdmin,
     myPerms: new Set(user?.permissions ?? []),
   };
 }

@@ -31,7 +31,8 @@ export const toAdminRole = (r: ApiRole): AdminRole => ({
 export const roleIdsToNames = (ids: number[], roles: AdminRole[]) =>
   ids.map(id => roles.find(r => r.id === id)?.name).filter((n): n is string => !!n);
 export const DOC_KEYS = ['invoice','order','purchase_order','quotation','movement','transfer',
-  'stocktake','return','purchase_request','delivery','supplier_invoice','supplier_payment'] as const;
+  'stocktake','return','purchase_request','delivery','supplier_invoice','supplier_payment',
+  'expense','payment_notice','pos_invoice','shift','treasury_transfer'] as const;
 
 const flatten = (g: ApiSettingsGrouped) =>
   Object.values(g).reduce<Record<string, string | number | boolean | null>>((acc, grp) => ({ ...acc, ...grp }), {});

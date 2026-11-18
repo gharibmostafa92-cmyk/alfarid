@@ -177,8 +177,15 @@ final class DeletePriceListItemsTool implements WriteTool, LocksTargets, Undoabl
     public function targetState(AiPendingAction $action): string
     {
         $state = PriceListItem::query()->where('price_list_id', (int) $action->args['price_list_id'])
-            ->orderBy('id')->get(['id', 'price', 'min_qty'])
-            ->map(fn (PriceListItem $i) => [(int) $i->id, round((float) $i->price, 2), round((float) $i->min_qty, 4)])->all();
+            ->orderBy('id')->get(['id', 'product_variant_id', 'price', 'min_qty', 'starts_at', 'ends_at'])
+            ->map(fn (PriceListItem $i) => [
+                (int) $i->getKey(),
+                (int) $i->getRawOriginal('product_variant_id'),
+                (string) $i->getRawOriginal('price'),
+                (string) $i->getRawOriginal('min_qty'),
+                $i->getRawOriginal('starts_at'),
+                $i->getRawOriginal('ends_at'),
+            ])->all();
 
         return hash('sha256', json_encode($state, JSON_THROW_ON_ERROR));
     }
@@ -186,6 +193,7 @@ final class DeletePriceListItemsTool implements WriteTool, LocksTargets, Undoabl
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $listId = (int) $action->args['price_list_id'];
+        PricingLocks::lockListAndItems($action, $listId, [], '');
         $items = (array) (($action->inverse ?? [])['items'] ?? []);
 
         app(CatalogRetailPriceObserver::class)->batch(function () use ($actor, $listId, $items): void {

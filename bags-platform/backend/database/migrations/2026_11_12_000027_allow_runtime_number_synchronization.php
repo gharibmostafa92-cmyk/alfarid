@@ -18,11 +18,19 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('GRANT UPDATE ON SEQUENCE '.self::SEQUENCES.' TO alfarid_app');
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('REVOKE UPDATE ON SEQUENCE '.self::SEQUENCES.' FROM alfarid_app');
     }
 };

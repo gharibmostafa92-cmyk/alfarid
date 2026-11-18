@@ -25,7 +25,7 @@ import { useBranding } from '@alfarid/ui/branding';
 export const SETTINGS_TABS = [
   { key: 'company', label: 'بيانات الشركة', icon: 'building', desc: 'الهوية وترويسة المستندات' },
   { key: 'tax', label: 'الضرائب والفواتير', icon: 'percent', desc: 'القيمة المضافة وطريقة الاحتساب' },
-  { key: 'numbering', label: 'ترقيم المستندات', icon: 'hash', desc: '12 نوعاً من الوثائق' },
+  { key: 'numbering', label: 'ترقيم المستندات', icon: 'hash', desc: `${DOC_TYPES.length} نوعاً من الوثائق` },
   { key: 'orders', label: 'سياسة الإرجاع', icon: 'undo', desc: 'مهلة إرجاع المنتجات' },
   { key: 'purchases', label: 'دورة المشتريات', icon: 'truck', desc: 'الاعتماد والرقابة الثنائية' },
   { key: 'store', label: 'إدارة المتجر', icon: 'storefront', desc: 'السلايدر، البانرات والنوافذ المنبثقة' },
@@ -59,23 +59,36 @@ function SectionCard({ title, subtitle, children, className = '', aside }: Secti
 
 export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (page: 'users' | 'roles' | 'settings') => void; can: (p: string) => boolean; initialTab?: string }) {
   const { refreshBranding } = useBranding();
-  const query = useSettingsQuery();
+  const canViewSettings = canAny(can, 'settings.view', 'settings.manage');
+  const canStore = can('store.manage') || canViewSettings;
+  const visibleTabs = useMemo(
+    () => SETTINGS_TABS.filter((t) => (t.key === 'store' ? canStore : canViewSettings)),
+    [canStore, canViewSettings],
+  );
+  const query = useSettingsQuery(canViewSettings);
   useQueryError(query.error);
   const [server, setServer] = useState<AdminSettings | null>(null);
   const [s, setS] = useState<AdminSettings | null>(null);
-  const [tab, setTab] = useState(() => (initialTab === 'store' || initialTab === 'banners') ? 'store' : (initialTab || 'company'));
+  const [tab, setTab] = useState(() => {
+    const requested = (initialTab === 'store' || initialTab === 'banners') ? 'store' : initialTab;
+    if (requested && visibleTabs.some((t) => t.key === requested)) return requested;
+    return visibleTabs[0]?.key ?? 'company';
+  });
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<string | false>(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string,string[]>>({});
   const { centralAccess } = useMe();
   const editable = centralAccess && canAny(can, 'settings.update', 'settings.manage');
-  const loading = query.loading && !server;
+  const loading = canViewSettings && query.loading && !server;
 
   useEffect(() => {
-    if (initialTab) {
-      setTab(initialTab === 'banners' ? 'store' : initialTab);
+    const requested = (initialTab === 'store' || initialTab === 'banners') ? 'store' : initialTab;
+    if (requested && visibleTabs.some((t) => t.key === requested)) {
+      setTab(requested);
+    } else if (!visibleTabs.some((t) => t.key === tab) && visibleTabs[0]) {
+      setTab(visibleTabs[0].key);
     }
-  }, [initialTab]);
+  }, [initialTab, visibleTabs, tab]);
   useEffect(() => { if (query.data) { setServer(clone(query.data)); setS(clone(query.data)); setFieldErrors({}); } }, [query.data]);
   const set = (group: keyof AdminSettings, key: string, val: any) =>
     setS(p => p && editable ? ({ ...p, [group]: { ...(p[group] as any), [key]: val } }) : p);
@@ -108,6 +121,28 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
   }, [isDirty]);
   const save = async () => {
     if (!s || !server || !editable || saving) return;
+    if (!s.company.company_name.trim()) {
+      toast('اسم الشركة مطلوب', 'err');
+      return;
+    }
+    const taxRate = Number(s.tax.default_tax_rate);
+    if (String(s.tax.default_tax_rate).trim() === '' || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+      toast('نسبة الضريبة يجب أن تكون بين 0 و 100', 'err');
+      return;
+    }
+    for (const [docKey, num] of Object.entries(s.numbering)) {
+      const pad = Number(num.padding);
+      if (String(num.padding).trim() === '' || !Number.isInteger(pad) || pad < 1 || pad > 20) {
+        toast(`حشو الأصفار للمستند (${docKey}) يجب أن يكون بين 1 و 20`, 'err');
+        return;
+      }
+      const nextNumber = Number(num.next_number);
+      const currentNumber = Number(server.numbering[docKey]?.next_number ?? 1);
+      if (String(num.next_number).trim() === '' || !Number.isSafeInteger(nextNumber) || nextNumber < 1 || nextNumber > 999999999 || nextNumber < currentNumber) {
+        toast(`الرقم التالي للمستند (${docKey}) يجب أن يكون صحيحًا وألا يقل عن ${currentNumber}`, 'err');
+        return;
+      }
+    }
     const patch = settingsPatch(s, server);
     if (!Object.keys(patch).length) return;
     setSaving(true); setFieldErrors({});
@@ -162,7 +197,7 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Tabs rail */}
         <nav aria-label="أقسام الإعدادات" className="settings-nav lg:col-span-3 v-card p-2 stagger-item stagger-2 lg:sticky lg:top-5">
-          {SETTINGS_TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const active = tab === t.key;
             return (
               <button type="button" key={t.key} onClick={() => setTab(t.key)} aria-current={active ? 'true' : undefined}
@@ -281,7 +316,7 @@ function TaxTab({ errors, v, set }: { errors: Record<string,string[]>; v: AdminS
   if (!on) { net = sample; tax = 0; gross = sample; }
   else if (v.prices_include_tax) { gross = sample; net = sample / (1 + rate / 100); tax = gross - net; }
   else { net = sample; tax = (sample * rate) / 100; gross = net + tax; }
-  const rateErr = rate < 0 || rate > 100;
+  const rateErr = String(v.default_tax_rate).trim() === '' || !Number.isFinite(Number(v.default_tax_rate)) || rate < 0 || rate > 100;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-5 gap-5 items-start">
@@ -397,8 +432,9 @@ function NumberingTab({ errors, v, server, setNum }: { errors: Record<string,str
           const pad = Math.min(20, Math.max(1, Number(n.padding) || 1));
           const preview = `${n.prefix}${String(n.next_number || 0).padStart(pad, '0')}`;
           const changed = JSON.stringify(n) !== JSON.stringify(s);
-          const padErr = n.padding < 1 || n.padding > 20;
-          const lower = Number(n.next_number) < s.next_number;
+          const padErr = String(n.padding).trim() === '' || !Number.isInteger(Number(n.padding)) || Number(n.padding) < 1 || Number(n.padding) > 20;
+          const nextErr = String(n.next_number).trim() === '' || !Number.isSafeInteger(Number(n.next_number)) || Number(n.next_number) < 1 || Number(n.next_number) > 999999999;
+          const lower = !nextErr && Number(n.next_number) < Number(s.next_number);
           return (
             <div key={d.key} className={`v-subcard p-4 v-doc ${changed ? 'is-changed' : ''}`}>
               <div className="flex items-center justify-between gap-2 mb-3.5">
@@ -420,17 +456,18 @@ function NumberingTab({ errors, v, server, setNum }: { errors: Record<string,str
                   <div className="text-[10.5px] font-medium mb-1" style={{ color: 'var(--text-muted)' }}>حشو الأصفار</div>
                   <div className={`v-mini-input flex items-center !px-1 ${padErr ? 'is-error' : ''}`}>
                     <button type="button" onClick={() => setNum(d.key, 'padding', Math.max(1, pad - 1))} className="w-6 h-6 rounded-md flex items-center justify-center hover:opacity-60 text-[14px] font-bold" style={{ color: 'var(--text-secondary)' }}>−</button>
-                    <input dir="ltr" type="number" min="1" max="20" value={n.padding} onChange={e => setNum(d.key, 'padding', Number(e.target.value))} className="bg-transparent outline-none w-full text-center tabular-nums" />
+                    <input dir="ltr" type="number" min="1" max="20" value={n.padding} onChange={e => setNum(d.key, 'padding', e.target.value === '' ? '' : Number(e.target.value))} className="bg-transparent outline-none w-full text-center tabular-nums" />
                     <button type="button" onClick={() => setNum(d.key, 'padding', Math.min(20, pad + 1))} className="w-6 h-6 rounded-md flex items-center justify-center hover:opacity-60 text-[14px] font-bold" style={{ color: 'var(--text-secondary)' }}>+</button>
                   </div>
                 </div>
                 <div>
                   <div className="text-[10.5px] font-medium mb-1" style={{ color: 'var(--text-muted)' }}>الرقم التالي</div>
-                  <input dir="ltr" type="number" min="1" max="999999999" value={n.next_number} onChange={e => setNum(d.key, 'next_number', Number(e.target.value))} className={`v-mini-input w-full tabular-nums ${lower ? 'is-warn' : ''}`} />
+                  <input dir="ltr" type="number" min="1" max="999999999" value={n.next_number} onChange={e => setNum(d.key, 'next_number', e.target.value === '' ? '' : Number(e.target.value))} className={`v-mini-input w-full tabular-nums ${lower ? 'is-warn' : ''}`} />
                 </div>
               </div>
               {(['prefix','padding','next_number'] as const).map(key => errors[d.key+'_'+key]?.map(message => <div role="alert" key={key+message} className="text-[11px] v-badge-red">{message}</div>))}
               {padErr && <div role="alert" className="text-[11px] v-badge-red">حشو الأصفار يجب أن يكون بين 1 و20</div>}
+              {nextErr && <div role="alert" className="text-[11px] v-badge-red">الرقم التالي يجب أن يكون عددًا صحيحًا من 1 إلى 999999999</div>}
               {lower && <div className="text-[10.5px] mt-2 flex items-center gap-1 font-medium" style={{ color: '#b45309' }}><Icon name="alert" className="w-3 h-3" />رقم أقل من الحالي ({s.next_number}) لا يمكن حفظه</div>}
             </div>
           );

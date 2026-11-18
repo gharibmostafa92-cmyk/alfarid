@@ -15,15 +15,21 @@ export interface AdminMockPageProps {
   darkMode?: boolean;
   theme?: string;
   initialTab?: string;
+  queryString?: string;
 }
 
-export default function AdminMockPage({ page, can, darkMode, theme, initialTab }: AdminMockPageProps) {
+export default function AdminMockPage({ page, can, darkMode, theme, initialTab, queryString }: AdminMockPageProps) {
   const { branding } = useBranding();
   const host = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
 
   const canFn = can ?? (() => false);
-  const visible = (key: string) => canFn(key+'.view') || canFn(key+'.manage');
+  const visible = (key: string, tab?: string) => {
+    if (key === 'settings') {
+      return canFn('settings.view') || canFn('settings.manage') || (tab === 'store' && canFn('store.manage'));
+    }
+    return canFn(key + '.view') || canFn(key + '.manage');
+  };
   const rolesQ = useRoles(visible('roles'));
   const roles = rolesQ.data ?? [];
   const [usersTick, setUsersTick] = useState(0);
@@ -32,9 +38,9 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
   useEffect(() => { ['alfarid_mock_users','alfarid_mock_roles','alfarid_mock_settings'].forEach(key => localStorage.removeItem(key)); }, []);
   // Parse URL query parameters if present (e.g. ?role=3 or ?roleId=2 or ?tab=store)
   const queryParams = useMemo(() => {
-    const raw = window.location.hash.includes('?')
+    const raw = queryString ?? (window.location.hash.includes('?')
       ? window.location.hash.split('?')[1]
-      : window.location.search.replace(/^\?/, '');
+      : window.location.search.replace(/^\?/, ''));
     const sp = new URLSearchParams(raw);
     const roleParam = sp.get('role') || sp.get('roleId');
     const roleIdParam = sp.get('roleId') || sp.get('role');
@@ -45,7 +51,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
       userId: sp.get('userId') && /^[1-9][0-9]*$/.test(sp.get('userId')!) ? Number(sp.get('userId')) : undefined,
       tab: tabParam || initialTab || undefined,
     };
-  }, [page, window.location.hash, initialTab]);
+  }, [page, queryString, initialTab]);
 
   const [detectedDark, setDetectedDark] = useState(() => {
     if (typeof darkMode === 'boolean') return darkMode;
@@ -63,11 +69,13 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
     if (host.current) {
       setRoot(host.current.shadowRoot || host.current.attachShadow({ mode: 'open' }));
     }
-    const fonts = document.createElement('link');
-    fonts.rel = 'stylesheet';
-    fonts.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap';
-    document.head.append(fonts);
-    return () => fonts.remove();
+    if (!document.getElementById('admin-google-fonts')) {
+      const fonts = document.createElement('link');
+      fonts.id = 'admin-google-fonts';
+      fonts.rel = 'stylesheet';
+      fonts.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap';
+      document.head.append(fonts);
+    }
   }, []);
 
   useEffect(() => {
@@ -124,7 +132,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
     { id: 'users', label: 'المستخدمون', icon: 'users', count: usersTotal.loading ? undefined : usersTotal.data, path: '/users' },
     { id: 'roles', label: 'الأدوار والصلاحيات', icon: 'shield', count: rolesQ.loading ? undefined : roles.length, path: '/roles' },
     { id: 'settings', label: 'الإعدادات العامة', icon: 'sliders', path: '/settings' },
-  ].filter(item => visible(item.id));
+  ].filter(item => item.id === 'settings' ? (visible('settings') || canFn('store.manage')) : visible(item.id));
 
   return (
     <div
@@ -150,7 +158,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
                         key={item.id}
                         role="tab"
                         aria-selected={active}
-                        onClick={() => handleNavigate(item.id as any)}
+                        onClick={() => handleNavigate(item.id as any, item.id === 'settings' && !visible('settings') && canFn('store.manage') ? { tab: 'store' } : undefined)}
                         className={`min-h-[44px] px-3 py-2 rounded-lg text-[13px] font-semibold flex items-center gap-2 transition-all duration-150 ${
                           active ? 'shadow-xs' : 'hover:opacity-80'
                         }`}
@@ -185,8 +193,8 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
               </div>
 
               {/* Screen Content */}
-              {!visible(page) && <EmptyState icon="lock" title="لا تملك صلاحية الوصول لهذه الصفحة" />}
-              {visible(page) && page === 'users' && (
+              {!visible(page, queryParams.tab) && <EmptyState icon="lock" title="لا تملك صلاحية الوصول لهذه الصفحة" />}
+              {visible(page, queryParams.tab) && page === 'users' && (
                 <UsersScreen
                   rolesLoading={rolesQ.loading}
                   can={canFn}
@@ -198,8 +206,8 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
                 />
               )}
 
-              {visible(page) && page === 'roles' && rolesQ.error && <EmptyState icon="lock" title={rolesQ.error.message} action={<button type="button" onClick={rolesQ.reload}>إعادة المحاولة</button>} />}
-              {visible(page) && page === 'roles' && !rolesQ.error && (
+              {visible(page, queryParams.tab) && page === 'roles' && rolesQ.error && <EmptyState icon="lock" title={rolesQ.error.message} action={<button type="button" onClick={rolesQ.reload}>إعادة المحاولة</button>} />}
+              {visible(page, queryParams.tab) && page === 'roles' && !rolesQ.error && (
                 <RolesScreen
                   roles={roles}
                   rolesLoading={rolesQ.loading}
@@ -210,7 +218,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
                 />
               )}
 
-              {visible(page) && page === 'settings' && (
+              {visible(page, queryParams.tab) && page === 'settings' && (
                 <SettingsScreen can={canFn} onNavigate={handleNavigate} initialTab={queryParams.tab} />
               )}
 

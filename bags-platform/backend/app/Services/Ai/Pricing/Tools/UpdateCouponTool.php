@@ -162,8 +162,9 @@ final class UpdateCouponTool implements WriteTool, LocksTargets, UndoableTool
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $locked = PricingLocks::lockCoupon($action, (int) $action->args['coupon_id'], (string) ($action->expected_versions['coupon:'.$action->args['coupon_id']] ?? ''));
-        $changes = (array) $action->args;
-        unset($changes['coupon_id']);
+        $changes = \Illuminate\Support\Arr::only((array) $action->args, [
+            'name', 'type', 'value', 'min_order_amount', 'max_discount', 'usage_limit', 'usage_limit_per_customer', 'starts_at', 'expires_at', 'is_active',
+        ]);
         $locked->update($changes);
         $coupon = $locked->fresh();
 

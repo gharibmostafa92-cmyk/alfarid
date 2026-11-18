@@ -26,6 +26,13 @@ interface AuthState {
 }
 
 const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
+export const SUPER_ADMIN_ROLE = 'Super Admin';
+export function isSuperAdminRole(roles?: string[] | null): boolean {
+  return (roles ?? []).some((r) => {
+    const normalized = r.trim().toLowerCase();
+    return normalized === 'super admin' || normalized === 'super_admin';
+  });
+}
 // H-2: never commit a real token. Put VITE_DEV_STAFF_TOKEN in an untracked .env.local.
 const DEV_TOKEN = (import.meta.env.VITE_DEV_STAFF_TOKEN as string | undefined) ?? '';
 
@@ -91,7 +98,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     }
     setAuthToken(null);
     set({ user: null, token: null, isAuthenticated: false });
-    if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login' && !window.location.pathname.startsWith('/auth/')) {
       window.location.href = `${WEB_URL}/auth/login`;
     }
   });
@@ -101,7 +108,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       id: 2,
       name: 'مدير النظام',
       email: 'admin@alfarid.local',
-      roles: ['super_admin'],
+      roles: [SUPER_ADMIN_ROLE],
       permissions: ALL_PERMISSIONS,
     } : null,
     token: initialToken,
@@ -143,13 +150,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
               id: 2,
               name: 'مدير النظام',
               email: 'admin@alfarid.local',
-              roles: ['super_admin'],
+              roles: [SUPER_ADMIN_ROLE],
               permissions: ALL_PERMISSIONS,
             },
             isAuthenticated: true,
           });
         } else {
-          get().logout();
+          throw new Error('Invalid staff profile payload');
         }
       } catch (err) {
         if (signal?.aborted || get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
@@ -159,14 +166,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
               id: 2,
               name: 'مدير النظام',
               email: 'admin@alfarid.local',
-              roles: ['super_admin'],
+              roles: [SUPER_ADMIN_ROLE],
               permissions: ALL_PERMISSIONS,
             },
             isAuthenticated: true,
           });
           return;
         }
-        get().logout();
         throw err;
       }
     },

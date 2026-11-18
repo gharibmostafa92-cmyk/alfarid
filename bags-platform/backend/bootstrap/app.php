@@ -14,6 +14,7 @@ use App\Http\Middleware\ManufacturingBusiness;
 use App\Http\Middleware\ThrottleApiBeforeAuthentication;
 use App\Http\Middleware\TrustProxyClientIp;
 use App\Http\Middleware\WarnUntrustedProxyHeaders;
+use App\Support\SentryTelemetry;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
@@ -26,6 +27,7 @@ use Illuminate\Support\Facades\Route;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -112,11 +114,14 @@ return Application::configure(basePath: dirname(__DIR__))
                     'sql' => mb_substr($e->getSql(), 0, 2000),
                 ]);
 
+                SentryTelemetry::captureDatabaseUnavailable($state);
+
                 return false;
             }
 
             return null;
         });
+        Integration::handles($exceptions);
         $exceptions->render(function (QueryException $e, Request $request) {
             $state = (string) ($e->errorInfo[0] ?? $e->getCode());
             // M1: carriers treat 4xx as final, so every database failure on a

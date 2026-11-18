@@ -131,7 +131,7 @@ export const variantsApi = {
 };
 
 export const productMediaApi = {
-  list: (productId: number) => apiClient.get<{ data: AdminMedia[] }>(`${PR}/${productId}/media`).then(r => r.data.data),
+  list: (productId: number, signal?: AbortSignal) => apiClient.get<{ data: AdminMedia[] }>(`${PR}/${productId}/media`, { signal }).then(r => r.data.data),
   uploadImages: (productId: number, files: File[], variantId?: number | null, onProgress?: (n: number) => void, clientUploadIds?: string[]) => {
     const fd = new FormData();
     fd.append('collection', 'images');

@@ -99,11 +99,11 @@ export const adminOrdersApi = {
   ...reader<AdminOrder, AdminOrderListParams>(O),
   updateStatus: (id: Id, body: { status: Exclude<OrderStatus, 'shipped'>; notes?: string }) =>
     api.patch(`${O}/${id}/status`, body).then((r) => one<AdminOrder>(r)),
-  updatePayment: (id: Id, body: { payment_status: PaymentStatus; notes: string; refund_reference?: string }) =>
-    api.post(`${O}/${id}/payment`, body).then((r) => one<AdminOrder>(r)),
-  allocate: (id: Id, branch_id: number | null) =>
-    api.post(`${O}/${id}/allocate`, { branch_id }).then((r) => one<AdminOrder>(r)),
-  deallocate: (id: Id) => api.post(`${O}/${id}/deallocate`).then((r) => one<AdminOrder>(r)),
+  updatePayment: (id: Id, body: { payment_status: PaymentStatus; notes: string; refund_reference?: string }, idempotencyKey?: string) =>
+    idempotentPost(`${O}/${id}/payment`, body, idempotencyKey).then((r) => one<AdminOrder>(r)),
+  allocate: (id: Id, branch_id: number | null, idempotencyKey?: string) =>
+    idempotentPost(`${O}/${id}/allocate`, { branch_id }, idempotencyKey).then((r) => one<AdminOrder>(r)),
+  deallocate: (id: Id, idempotencyKey?: string) => idempotentPost(`${O}/${id}/deallocate`, {}, idempotencyKey).then((r) => one<AdminOrder>(r)),
   createShipment: (id: Id, body: { shipping_company_id: number; awb_number?: string | null }, idempotencyKey?: string) =>
     idempotentPost(`${O}/${id}/shipment`, body, idempotencyKey).then((r) => one<ShipmentResponse>(r)),
   stats: (signal?: AbortSignal): Promise<AdminOrderStats> =>

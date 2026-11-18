@@ -32,13 +32,15 @@ class AiAttachmentController extends Controller
         // Disallow uploads if the AI agent is disabled, user is inactive, or spending limits are exceeded.
         app(AgentOrchestrator::class)->guard($user);
 
+        $cachedContents = [];
         $request->validate([
             'files' => ['required', 'array', 'min:1', 'max:4'],
-            'files.*' => Rule::forEach(static function ($file): array {
+            'files.*' => Rule::forEach(static function ($file) use (&$cachedContents): array {
                 if ($file instanceof UploadedFile && in_array(strtolower($file->getClientOriginalExtension()), ['csv', 'txt'], true)) {
                     return ['bail', 'required', 'file', 'mimes:csv,txt', 'mimetypes:text/csv,text/plain', 'max:1024',
-                        static function (string $attribute, UploadedFile $value, \Closure $fail): void {
+                        static function (string $attribute, UploadedFile $value, \Closure $fail) use (&$cachedContents): void {
                             $content = $value->getContent();
+                            $cachedContents[$value->getRealPath() ?: spl_object_id($value)] = $content;
                             if (str_contains($content, "\0") || preg_match('/^(?:\xEF\xBB\xBF)?\s*<\?(?:php\b|=)/i', $content)) {
                                 $fail('المرفق لازم يكون ملف أسعار نصي صالح.');
                             }
@@ -68,7 +70,8 @@ class AiAttachmentController extends Controller
                 $ulid = (string) Str::ulid();
                 $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'jpg');
                 $relativePath = "ai-attachments/{$conversation->id}/{$ulid}.{$ext}";
-                $content = (string) $file->getContent();
+                $cacheKey = $file->getRealPath() ?: spl_object_id($file);
+                $content = $cachedContents[$cacheKey] ?? (string) $file->getContent();
                 $paths[] = $relativePath;
 
                 if (! $disk->put($relativePath, $content)) {

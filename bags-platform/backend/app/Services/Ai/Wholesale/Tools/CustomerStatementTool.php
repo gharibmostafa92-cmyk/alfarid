@@ -8,13 +8,20 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Finance\FinanceArgs;
+use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 final class CustomerStatementTool implements AgentTool
 {
-    public function __construct(private WholesalePaymentNoticeService $notices) {}
+    public function __construct(
+        private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
+        private FinancePresenter $presenter,
+    ) {}
 
     public function name(): string
     {
@@ -56,6 +63,10 @@ final class CustomerStatementTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
+        $args = FinanceArgs::normalize($args);
         $customer = Customer::query()->find((int) ($args['customer_id'] ?? 0));
         if ($customer === null) {
             return ToolOutcome::denied('التاجر مش موجود.', auditable: false);
@@ -64,8 +75,17 @@ final class CustomerStatementTool implements AgentTool
         $from = null;
         $to = null;
         if (! empty($args['from']) || ! empty($args['to'])) {
-            $from = isset($args['from']) ? (string) $args['from'] : null;
-            $to = isset($args['to']) ? (string) $args['to'] : null;
+            try {
+                $fromDate = ! empty($args['from']) ? \Carbon\Carbon::parse((string) $args['from']) : null;
+                $toDate = ! empty($args['to']) ? \Carbon\Carbon::parse((string) $args['to']) : null;
+            } catch (\Throwable) {
+                return ToolOutcome::denied('صيغة التاريخ في from أو to غير صالحة.', auditable: false);
+            }
+            if ($fromDate !== null && $toDate !== null && $fromDate->gt($toDate)) {
+                return ToolOutcome::denied('تاريخ البداية لازم يكون قبل أو يساوي تاريخ النهاية.', auditable: false);
+            }
+            $from = $fromDate?->toDateString();
+            $to = $toDate?->toDateString();
         } elseif (! empty($args['period'])) {
             $range = FinanceArgs::parseDateRange((string) $args['period']);
             $from = $range['from'];
@@ -82,7 +102,7 @@ final class CustomerStatementTool implements AgentTool
             $entry['balance'],
         ], $statement['entries']);
 
-        return ToolOutcome::data([
+        return $this->presenter->present($actor, [
             'customer_id' => $customer->id,
             'from' => $from,
             'to' => $to,

@@ -31,15 +31,19 @@ test('approved distributors receive wholesale POS eligibility alongside wholesal
   assert.equal(isWholesaleEligible({ tier: 'distributor', status: 'pending' }), false);
   assert.equal(isWholesaleEligible({ tier: 'retail', status: 'approved' }), false);
 });
-test('variant choices traverse all product pages and fetch real nested variant IDs', async () => {
+test('commerce product and variant lookups use bounded searches and real nested IDs', async () => {
   const calls = [], ctrl = new AbortController();
   const { commerceLookupsApi } = load({ get: async (url, config) => {
     calls.push({ url, config });
-    if (url.endsWith('/products')) return { data: { data: [{ id: config.params.page, name_ar: 'Bag' }], meta: { last_page: 2 } } };
-    return { data: { data: [{ id: Number(url.split('/').at(-2)) + 100, sku: 'REAL' }] } };
+    if (url.endsWith('/products')) return { data: { data: [{ id: 9, name_ar: 'Bag' }], meta: { last_page: 1 } } };
+    return { data: { data: [{ id: 109, sku: 'REAL' }] } };
   } });
-  assert.deepEqual(await commerceLookupsApi.variants(ctrl.signal), [{ id: 101, label: 'Bag · REAL' }, { id: 102, label: 'Bag · REAL' }]);
-  assert.equal(calls.length, 4);
+  assert.deepEqual(await commerceLookupsApi.products('Bag', ctrl.signal), [{ id: 9, name_ar: 'Bag' }]);
+  assert.deepEqual(await commerceLookupsApi.variantsForProduct(9, ctrl.signal), [{ id: 109, label: 'REAL' }]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, '/api/v1/admin/products');
+  assert.equal(calls[0].config.params.search, 'Bag');
+  assert.equal(calls[1].url, '/api/v1/admin/products/9/variants');
   assert.ok(calls.every(c => c.config.signal === ctrl.signal));
 });
 test('price list item search loads every page instead of sending unsupported search filter', async () => {
@@ -86,6 +90,7 @@ function loadView(api) {
     if (name === './api/useFormState') return { useFormState: v => ({ v, errors: {}, on: () => () => {}, set() {}, setErrors() {} }) };
     if (name === './api/useRemote') return {
       useRemote: () => ({ data: [], loading: false, usingMock: false, reload() {} }),
+      useDebounced: value => value,
       useAction: () => ({ busy: false, run: async fn => { try { return await fn(); } catch { return undefined; } } }),
     };
     if (name === './api/mappers') return { promoToBackend: () => 'fixed_discount', couponToBackend: () => 'percentage' };

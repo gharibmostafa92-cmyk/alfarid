@@ -2,7 +2,7 @@
 
 import React, { cloneElement, Fragment, isValidElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { initialState } from './initial-state';
+import { initialState, resolveDarkMode } from './initial-state';
 import { dashboardStyles } from './styles';
 import { BrandLogo, useBranding } from '../components/branding-provider';
 
@@ -217,7 +217,7 @@ export function FinancialDashboard({ onLogout, categoriesPage, categoriesActive 
   }
 
   function changeTheme(targetDark, origin) {
-    const isDark = targetDark === state.darkMode ? !state.darkMode : targetDark;
+    const isDark = resolveDarkMode(targetDark);
     cancelAnimationFrame(timers.current.wipe);
     const viewport = viewportRef.current;
     const underlay = underlayRef.current;

@@ -110,48 +110,42 @@ final class WhatIfPriceChangeTool implements AgentTool
         $inversions = 0;
         $affected = [];
         $canViewCost = CostAccess::canView($actor);
-        DB::beginTransaction();
-        try {
-            $locked = $list->newQuery()->lockForUpdate()->findOrFail($list->id);
-            $this->lists->assertListAccess($actor, $locked);
-            $items = $locked->items()->whereHas('variant')->with('variant')->orderBy('id')->limit(self::MAX_ITEMS)->get();
-            $before = [];
-            foreach ($items as $item) {
-                foreach ($identities as $label => $customer) {
-                    $before[$item->id][$label] = $this->resolve($item, $customer, $branchId);
-                }
-                $price = round((float) $item->price * (1 + (float) $percent / 100), 4);
-                if ($price <= 0 || $price > 99999999.9999) {
-                    return ToolOutcome::denied('التعديل المقترح خارج نطاق الأسعار المسموح.', auditable: false);
-                }
-                if (in_array($locked->type, [PriceListType::Wholesale, PriceListType::Distributor], true)
-                    && $item->variant->retail_price !== null && $price >= (float) $item->variant->retail_price) {
-                    $inversions++;
-                }
+        $items = $list->items()->whereHas('variant')->with('variant')->orderBy('id')->limit(self::MAX_ITEMS)->get();
+        $overrides = [];
+        foreach ($items as $item) {
+            $price = round((float) $item->price * (1 + (float) $percent / 100), 4);
+            if ($price <= 0 || $price > 99999999.9999) {
+                return ToolOutcome::denied('التعديل المقترح خارج نطاق الأسعار المسموح.', auditable: false);
             }
+            if (in_array($list->type, [PriceListType::Wholesale, PriceListType::Distributor], true)
+                && $item->variant->retail_price !== null && $price >= (float) $item->variant->retail_price) {
+                $inversions++;
+            }
+            $overrides[$item->id] = $price;
+        }
 
-            foreach ($items as $item) {
-                DB::table('price_list_items')->where('id', $item->id)->update([
-                    'price' => round((float) $item->price * (1 + (float) $percent / 100), 4),
-                ]);
-            }
-            foreach ($items as $item) {
-                foreach ($identities as $label => $customer) {
-                    $old = $before[$item->id][$label];
-                    $new = $this->resolve($item, $customer, $branchId);
-                    if ($old === $new) {
-                        continue;
-                    }
-                    if ($customer?->exists) {
-                        $affected[$customer->id] = true;
-                    }
-                    $cost = $item->variant->cost_price;
-                    $rows[] = [$item->variant->sku, $item->min_qty, $label, $old, $new,
-                        $canViewCost && $new !== null && $new > 0 && $cost !== null ? round(100 * ($new - (float) $cost) / $new, 2) : null];
+        $variantIds = $items->pluck('product_variant_id')->unique()->values()->all();
+        $baseContexts = [];
+        $contexts = [];
+        foreach ($identities as $label => $customer) {
+            $baseContexts[$label] = $this->pricing->contextFor($customer, $variantIds, $branchId);
+            $contexts[$label] = $baseContexts[$label] + ['price_overrides' => $overrides];
+        }
+
+        foreach ($items as $item) {
+            foreach ($identities as $label => $customer) {
+                $old = $this->resolve($item, $customer, $branchId, $baseContexts[$label]);
+                $new = $this->resolve($item, $customer, $branchId, $contexts[$label]);
+                if ($old === $new) {
+                    continue;
                 }
+                if ($customer?->exists) {
+                    $affected[$customer->id] = true;
+                }
+                $cost = $item->variant->cost_price;
+                $rows[] = [$item->variant->sku, $item->min_qty, $label, $old, $new,
+                    $canViewCost && $new !== null && $new > 0 && $cost !== null ? round(100 * ($new - (float) $cost) / $new, 2) : null];
             }
-        } finally {
-            DB::rollBack();
         }
 
         $data = [
@@ -167,10 +161,10 @@ final class WhatIfPriceChangeTool implements AgentTool
             'النتيجة مبنية على عينة من القائمة والعملاء. لم تُحفظ تغييرات.');
     }
 
-    private function resolve(PriceListItem $item, ?Customer $customer, ?int $branchId): ?float
+    private function resolve(PriceListItem $item, ?Customer $customer, ?int $branchId, ?array $ctx = null): ?float
     {
         try {
-            return $this->pricing->resolve($item->variant, $customer, (float) $item->min_qty, $branchId)['unit_price'];
+            return $this->pricing->resolve($item->variant, $customer, (float) $item->min_qty, $branchId, $ctx)['unit_price'];
         } catch (BusinessException) {
             return null;
         }

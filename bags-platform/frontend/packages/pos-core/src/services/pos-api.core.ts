@@ -26,6 +26,9 @@ import { clearPersistedCarts } from '../stores/pos-cart.core';
 import { normAr } from '../lib/arabic';
 import { normalizeError, PosApiError } from '../lib/pos-error';
 import { toApi, toCents, spreadDiscount } from '../lib/money';
+import { runPosSaleWithTrace } from './pos-sale-tracing';
+export { configurePosSaleTracing } from './pos-sale-tracing';
+export type { PosSaleTrace } from './pos-sale-tracing';
 import {
   mapCustomer,
   mapHeld,
@@ -528,9 +531,9 @@ export class PosApiService {
       notes: payload.notes ?? null,
     };
     const key = idempotencyKey ?? this.idemKey('sale', body);
-    const r = await this.call(() =>
+    const r = await runPosSaleWithTrace(() => this.call(() =>
       this.http.post(EP.SALES, body, { headers: { 'Idempotency-Key': key }, timeout: 15000 }),
-    );
+    ));
     this.idemDrafts.delete('sale');
     const d = r.data.data;
     for (const i of payload.items) {

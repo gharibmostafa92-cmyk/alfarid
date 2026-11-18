@@ -63,8 +63,18 @@ powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain invent
 # تجارة الجملة وسداد الديون
 powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain wholesale
 
-# الذكاء الاصطناعي وبوابة واتساب
+# الذكاء الاصطناعي وبوابة واتساب (النظام الفرعي الأساسي)
 powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain ai
+
+# الحزم المقسمة للذكاء الاصطناعي (Sub-splits):
+# 5.1: AI Gateway & Core Orchestrator
+powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain 5.1
+# 5.2.1: AI Tools - الكتالوج، المخزون، الشحن والمتجر
+powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain 5.2.1
+# 5.2.2: AI Tools - التسعير، المالية، الجملة والعمليات التجارية
+powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain 5.2.2
+# 5.2: حزم الجزئين 5.2.1 و 5.2.2 معاً
+powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain 5.2
 
 # متجر العملاء والكتالوج
 powershell -ExecutionPolicy Bypass -File scripts/repomix-pack.ps1 -Domain storefront

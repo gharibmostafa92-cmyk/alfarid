@@ -121,6 +121,9 @@ $ignorePatterns = @(
     'phpunit.*\.xml$',
     '^\.claude/', '/\.claude/',
     '^bags-platform/frontend/package\.json$',
+    '\.env(\..+)?$',
+    '-lock\.json$',
+    'pnpm-lock\.yaml$',
     '^_archive_unused/', '/_archive_unused/'
 )
 
@@ -260,6 +263,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     if ($p -match 'apps/pos/|packages/pos-core/|pos-core/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt|packages/utils/' -and $p -notmatch 'productionreceipt') {
         if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         if ($configs.ContainsKey('repomix.pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.pos-terminal.json') }
+        if ($configs.ContainsKey('repomix.subsystem-09.2.4-backoffice-assistant-pos.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09.2.4-backoffice-assistant-pos.json') }
         if ($p -match 'poscustomer' -and $configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json')
         }
@@ -281,13 +285,16 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 8. AI Trader & WhatsApp Gateway
-    if ($p -match 'ai-trader|whatsapp|baileys|gemini|agentorchestrator|toolregistry|outboundmessage|spokenquantity|aiconversation') {
+    if ($p -match 'ai-trader|whatsapp|baileys|wa-gateway|gemini|agentorchestrator|toolregistry|outboundmessage|spokenquantity|aiconversation|/ai/|/ai\b|\bai_|\bai\b|aiagent|evaluateai|pendingaction|proposal|tooloutcome') {
         if ($configs.ContainsKey('repomix.subsystem-05-ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.subsystem-05-ai-trader-gateway.json') }
-        if ($configs.ContainsKey('repomix.subsystem-05.1-ai-gateway-core.json') -and ($p -match 'wa-gateway|webhook|gemini|orchestrator|whatsapp|ai|conversation|outboundmessage')) {
+        if ($configs.ContainsKey('repomix.subsystem-05.1-ai-gateway-core.json') -and ($p -match 'wa-gateway|webhook|gemini|orchestrator|whatsapp|ai_|controllers/.*/ai/|evaluateai|pendingaction|proposalbuilder|tooloutcome|toolkind|writetool|agenttool|toolregistry|e164phone|conversation')) {
             [void]$matchedConfigs.Add('repomix.subsystem-05.1-ai-gateway-core.json')
         }
-        if ($configs.ContainsKey('repomix.subsystem-05.2-ai-domain-tools.json') -and ($p -match 'tool|spokenquantity|order|trader')) {
-            [void]$matchedConfigs.Add('repomix.subsystem-05.2-ai-domain-tools.json')
+        if ($configs.ContainsKey('repomix.subsystem-05.2.1-ai-catalog-inventory-tools.json') -and ($p -match 'services/ai/(catalog|inventory)|ai.*(catalog|inventory)')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-05.2.1-ai-catalog-inventory-tools.json')
+        }
+        if ($configs.ContainsKey('repomix.subsystem-05.2.2-ai-finance-pricing-tools.json') -and ($p -match 'services/ai/(finance|pricing|wholesale)|ai.*(finance|pricing|wholesale)')) {
+            [void]$matchedConfigs.Add('repomix.subsystem-05.2.2-ai-finance-pricing-tools.json')
         }
         if ($configs.ContainsKey('repomix.ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.ai-trader-gateway.json') }
     }
@@ -311,13 +318,14 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 11. Finance & Treasury
-    if ($p -match 'treasury|doubleentry|expense|vault|financial|\bfinance\b|financeservice|wallet|budget|reportservice|statementbudget|reconcil') {
+    if (($p -match 'treasury|doubleentry|expense|vault|financial|\bfinance\b|financeservice|wallet|budget|reportservice|statementbudget|reconcil') -and $p -notmatch 'services/ai/') {
         if ($configs.ContainsKey('repomix.subsystem-07-finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.subsystem-07-finance-treasury.json') }
         if ($configs.ContainsKey('repomix.finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.finance-treasury.json') }
+        if ($configs.ContainsKey('repomix.subsystem-09.2.2-backoffice-operations-commerce.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09.2.2-backoffice-operations-commerce.json') }
     }
 
     # 12. Security, Operations & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|accountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress|authorizesstaffrequest|endpoints/auth\.ts|endpoints/operations/|notification|setting|message|trackseditversion|treasurytransfer|wholesalepaymentnotice|returncontroller|ordercontroller' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|supplier')) -and $p -notmatch 'procurement|supplier|wholesale\.') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|accountemail|normalizescustomerinput|app/rules|/rules/|operations/http|/admin/customer|commands/customer|services/customer|enums/customer|customerauditlog|customerchannel|customerdocument|customeraddress|authorizesstaffrequest|endpoints/auth\.ts|endpoints/operations/|notification|setting|message|trackseditversion|treasurytransfer|wholesalepaymentnotice|returncontroller|ordercontroller|quotationcontroller' -or ($p -match 'sentry' -and $p -notmatch 'storefront') -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|supplier')) -and $p -notmatch 'procurement|supplier|wholesale\.') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.subsystem-09.1-security-auth-rbac.json') -and ($p -match 'auth|permission|role|sanctum|staff|customer|admin')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.1-security-auth-rbac.json')
@@ -325,10 +333,10 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
         if ($configs.ContainsKey('repomix.subsystem-09.2-backoffice-portal.json') -and ($p -match 'apps/backoffice|operations/http')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.2-backoffice-portal.json')
         }
-        if ($configs.ContainsKey('repomix.subsystem-09.2.1-backoffice-admin-governance.json') -and ($p -match 'apps/backoffice/src/(app|main|index|components|hooks|stores|pages/auth|pages/admin/overview|pages/admin/admin-mock)|endpoints/auth\.ts|authorizesstaffrequest')) {
+        if ($configs.ContainsKey('repomix.subsystem-09.2.1-backoffice-admin-governance.json') -and ($p -match 'apps/backoffice/src/(app|main|index|components|hooks|stores|pages/auth|pages/admin/overview|pages/admin/admin-mock)|endpoints/auth\.ts|authorizesstaffrequest|sentry')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.2.1-backoffice-admin-governance.json')
         }
-        if ($configs.ContainsKey('repomix.subsystem-09.2.2-backoffice-operations-commerce.json') -and ($p -match 'operations-mock|pages/supplier|endpoints/operations/|treasurytransfer|wholesalepaymentnotice|returncontroller|ordercontroller')) {
+        if ($configs.ContainsKey('repomix.subsystem-09.2.2-backoffice-operations-commerce.json') -and ($p -match 'operations-mock|pages/supplier|endpoints/operations/|treasurytransfer|wholesalepaymentnotice|returncontroller|ordercontroller|quotationcontroller|operations/|reconcile')) {
             [void]$matchedConfigs.Add('repomix.subsystem-09.2.2-backoffice-operations-commerce.json')
         }
         if ($configs.ContainsKey('repomix.subsystem-09.2.3-backoffice-catalog-inventory.json') -and ($p -match 'pages/admin/(catalog|catalog-mock|categories-mock|inventory-mock)')) {

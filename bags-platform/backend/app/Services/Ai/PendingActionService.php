@@ -141,8 +141,15 @@ final class PendingActionService
             abort_unless($locked->status === 'pending' && $locked->expires_at->isFuture(), 409, 'العملية الجماعية مش متاحة للتنفيذ.');
             abort_unless(trim((string) $typed) === 'تنفيذ', 422, 'اكتب تنفيذ لتأكيد المجموعة.');
             $ids = $locked->args['action_ids'];
+            $alreadyExecutedIds = AiPendingAction::query()
+                ->whereIn('id', $ids)
+                ->where('status', 'executed')
+                ->pluck('id')
+                ->all();
             $selected = $selectedItems ?? $ids;
             abort_if(! $selected || array_diff($selected, $ids) !== [] || count(array_unique($selected)) !== count($selected), 422);
+            // Preserve items already executed in an earlier partial attempt so batch status & audit remain accurate.
+            $selected = array_values(array_unique(array_merge($alreadyExecutedIds, $selected)));
             $locked->forceFill(['status' => 'confirmed'])->save();
             // Transition selected items to pending while cancelling unselected ones in the same transaction to prevent orphans and race conditions.
             AiPendingAction::query()->whereIn('id', $selected)->where('status', 'bulk_child')->update(['status' => 'pending']);
@@ -156,6 +163,11 @@ final class PendingActionService
         $results = [];
         foreach ($claim['selected'] as $id) {
             $child = AiPendingAction::query()->where('conversation_id', $action->conversation_id)->where('user_id', $actor->id)->findOrFail($id);
+            if ($child->status === 'executed') {
+                $results[] = ['action_id' => $id, 'ok' => true, 'message' => (string) ($child->result['message'] ?? 'تم التنفيذ مسبقًا.')];
+
+                continue;
+            }
             try {
                 // Do not auto-fill typed confirmation: high-risk actions requiring typed input must fail if unconfirmed.
                 $outcome = $this->confirm($actor, $child, null);
@@ -177,7 +189,16 @@ final class PendingActionService
                     report($e);
                 }
                 AiPendingAction::whereKey($id)->where('status', 'pending')->update(['status' => 'failed']);
-                $results[] = ['action_id' => $id, 'ok' => false, 'message' => 'تعذّر تنفيذ العنصر ده ضمن الدفعة؛ راجع التفاصيل أو جرّبه لوحده.'];
+                $safeMessage = 'تعذّر تنفيذ العنصر ده ضمن الدفعة؛ راجع التفاصيل أو جرّبه لوحده.';
+                if ($e instanceof ValidationException) {
+                    $first = collect($e->errors())->flatten()->first();
+                    if (is_string($first) && $first !== '') {
+                        $safeMessage = $first;
+                    }
+                } elseif ($e instanceof HttpExceptionInterface && $e->getMessage() !== '') {
+                    $safeMessage = $e->getMessage();
+                }
+                $results[] = ['action_id' => $id, 'ok' => false, 'message' => $safeMessage];
             }
         }
         $successes = count(array_filter($results, fn ($item) => $item['ok']));
@@ -201,6 +222,7 @@ final class PendingActionService
     private function retryBulkConflict(AiPendingAction $action, array $claim, array $results): never
     {
         AiPendingAction::whereKey($action->id)->where('status', 'confirmed')->update(['status' => 'pending']);
+        AiPendingAction::whereIn('id', $claim['all'])->where('status', 'pending')->update(['status' => 'bulk_child']);
         $done = count(array_filter($results, fn ($item) => $item['ok']));
         $message = $done === 0
             ? 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب تأكيد الدفعة تاني بعد لحظة.'
@@ -264,13 +286,16 @@ final class PendingActionService
         if ($action->risk === 'high') {
             $preview = $action->preview ?? [];
             [$expectedTyped, $typedHint] = ProposalBuilder::resolveTypedConfirmation($action->tool, $action->args ?? [], $preview);
+            if ($expectedTyped === null || trim((string) $expectedTyped) === '') {
+                $expectedTyped = 'تأكيد نهائي';
+            }
             $typedInstruction = null;
-            if (in_array($action->tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true)) {
+            if ($typedHint !== null && $typedHint !== '') {
+                $typedInstruction = 'اكتب '.$typedHint.': '.$expectedTyped;
+            } elseif (in_array($action->tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true)) {
                 $typedInstruction = 'اكتب آخر 4 أرقام من موبايل التاجر.';
             } elseif ($action->tool === 'adjust_customer_wallet') {
                 $typedInstruction = 'اكتب آخر 4 أرقام من موبايل العميل.';
-            } elseif ($typedHint !== null && $typedHint !== '') {
-                $typedInstruction = 'اكتب '.$typedHint.': '.$expectedTyped;
             }
             // Tolerant comparison (trimmed, case-insensitive) for user-entered confirmation.
             $norm = fn (?string $v): ?string => $v === null ? null : mb_strtolower(trim($v));

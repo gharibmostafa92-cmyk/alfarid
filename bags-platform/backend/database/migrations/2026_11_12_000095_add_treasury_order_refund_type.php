@@ -26,7 +26,10 @@ return new class extends Migration
                   ) NOT VALID
                 SQL);
         });
-        DB::statement('ALTER TABLE treasury_transactions VALIDATE CONSTRAINT treasury_transactions_type_sign_check');
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+            DB::statement('ALTER TABLE treasury_transactions VALIDATE CONSTRAINT treasury_transactions_type_sign_check');
+        });
         DB::statement('ALTER TABLE orders ADD COLUMN IF NOT EXISTS gateway_refunded_amount numeric(14, 2)');
     }
 

@@ -87,7 +87,11 @@ final class CreateExpensesBulkTool implements AgentTool, ExecutesSelectedItems, 
         $args = FinanceArgs::normalizeDigitsInArray($args);
         $rawRows = is_array($args['rows'] ?? null) ? array_values($args['rows']) : [];
         if ($rawRows === [] && isset($args['csv'])) {
-            $rawRows = $this->parseCsv((string) $args['csv']);
+            $csv = (string) $args['csv'];
+            if (mb_strlen($csv) > 65536) {
+                return ToolOutcome::denied('نص الـ CSV أطول من الحد المسموح (65536 حرف).', auditable: false);
+            }
+            $rawRows = $this->parseCsv($csv);
         }
         $maxItems = max(1, min(100, (int) $this->settings->get('ai_bulk_max_items', 25)));
         if ($rawRows === [] || count($rawRows) > $maxItems) {
@@ -180,6 +184,7 @@ final class CreateExpensesBulkTool implements AgentTool, ExecutesSelectedItems, 
         $succeeded = 0;
         foreach ($rows as $row) {
             try {
+                $this->branches->assertBranch($actor->id, (int) $row['branch_id']);
                 $expense = $this->expenses->create([
                     'branch_id' => (int) $row['branch_id'], 'treasury_id' => (int) $row['treasury_id'],
                     'category' => (string) $row['category'], 'amount' => (string) $row['amount'],
@@ -217,6 +222,11 @@ final class CreateExpensesBulkTool implements AgentTool, ExecutesSelectedItems, 
         $branchId = isset($row['branch_id']) ? (int) $row['branch_id'] : $treasury->branch_id;
         if ($branchId === null) {
             return ToolOutcome::denied('حدد الفرع.', auditable: false);
+        }
+        try {
+            $this->branches->assertBranch($actor->id, (int) $branchId);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
         }
         $category = mb_substr(trim((string) ($row['category'] ?? '')), 0, 191);
         if ($category === '') {

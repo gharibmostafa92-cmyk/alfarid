@@ -11,13 +11,20 @@ use App\Models\Order;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\AgentTool;
+use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 final class CustomerAccount360Tool implements AgentTool
 {
-    public function __construct(private WholesalePaymentNoticeService $notices) {}
+    public function __construct(
+        private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
+        private FinancePresenter $presenter,
+    ) {}
 
     public function name(): string
     {
@@ -54,6 +61,9 @@ final class CustomerAccount360Tool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $customer = Customer::query()->find((int) ($args['customer_id'] ?? 0));
         if ($customer === null) {
             return ToolOutcome::denied('التاجر مش موجود.', auditable: false);
@@ -104,17 +114,29 @@ final class CustomerAccount360Tool implements AgentTool
             ->limit(30)
             ->get(['id', 'created_at']);
         $daySamples = [];
-        foreach ($paidOrders as $order) {
-            $paidAt = WholesalePaymentNotice::query()
+        $paidOrderIds = $paidOrders->pluck('id')->all();
+        if ($paidOrderIds !== []) {
+            $directPaidAt = WholesalePaymentNotice::query()
                 ->where('customer_id', $customer->id)
                 ->where('status', WholesalePaymentNoticeStatus::Approved)
-                ->where(function ($q) use ($order): void {
-                    $q->where('order_id', $order->id)
-                        ->orWhereHas('allocations', fn ($a) => $a->where('order_id', $order->id));
-                })
-                ->max('approved_at');
-            if ($paidAt !== null && $order->created_at !== null) {
-                $daySamples[] = max(0, (int) $order->created_at->diffInDays($paidAt));
+                ->whereIn('order_id', $paidOrderIds)
+                ->selectRaw('order_id, MAX(approved_at) AS paid_at')
+                ->groupBy('order_id')
+                ->pluck('paid_at', 'order_id');
+            $allocTable = (new \App\Models\WholesalePaymentAllocation)->getTable();
+            $allocPaidAt = \Illuminate\Support\Facades\DB::table("{$allocTable} as a")
+                ->join('wholesale_payment_notices as n', 'n.id', '=', 'a.notice_id')
+                ->where('n.customer_id', $customer->id)
+                ->where('n.status', WholesalePaymentNoticeStatus::Approved->value)
+                ->whereIn('a.order_id', $paidOrderIds)
+                ->selectRaw('a.order_id, MAX(n.approved_at) AS paid_at')
+                ->groupBy('a.order_id')
+                ->pluck('paid_at', 'order_id');
+            foreach ($paidOrders as $order) {
+                $paidAt = $directPaidAt[$order->id] ?? $allocPaidAt[$order->id] ?? null;
+                if ($paidAt !== null && $order->created_at !== null) {
+                    $daySamples[] = max(0, (int) $order->created_at->diffInDays(\Carbon\Carbon::parse($paidAt)));
+                }
             }
         }
 
@@ -131,7 +153,7 @@ final class CustomerAccount360Tool implements AgentTool
             'average_days_to_pay' => $daySamples === [] ? null : round(array_sum($daySamples) / count($daySamples), 1),
         ];
 
-        return ToolOutcome::data($data, [
+        return $this->presenter->present($actor, $data, [
             'type' => 'customer_card',
             'id' => $customer->id,
             'name' => $data['name'],

@@ -170,8 +170,9 @@ final class UpdatePromotionTool implements WriteTool, LocksTargets, UndoableTool
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $locked = PricingLocks::lockPromotion($action, (int) $action->args['promotion_id'], (string) ($action->expected_versions['promotion:'.$action->args['promotion_id']] ?? ''));
-        $changes = (array) $action->args;
-        unset($changes['promotion_id']);
+        $changes = \Illuminate\Support\Arr::only((array) $action->args, [
+            'name', 'type', 'discount_value', 'min_order_amount', 'max_discount', 'priority', 'is_stackable', 'starts_at', 'ends_at', 'is_active',
+        ]);
         $locked->update($changes);
         $promotion = $locked->fresh();
         $notice = CreatePromotionTool::autoAppliedNotice($promotion);

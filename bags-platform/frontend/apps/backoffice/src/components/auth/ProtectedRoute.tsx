@@ -34,7 +34,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         if (err?.response?.status === 403) {
           // L-7: revoke the token server-side too; logoutRemote clears locally and redirects.
           void useAuthStore.getState().logoutRemote('staff');
-        } else if (err?.response?.status !== 401) setError(true);
+        } else if (err?.response?.status === 401) {
+          if (useAuthStore.getState().token) {
+            useAuthStore.getState().logout();
+            window.location.replace(`${WEB_URL}/auth/login`);
+          }
+        } else setError(true);
       });
     return () => controller.abort();
   }, [token, attempt]);

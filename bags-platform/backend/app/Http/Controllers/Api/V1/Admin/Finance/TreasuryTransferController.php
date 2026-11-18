@@ -114,18 +114,20 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         ]);
 
         $staff = $request->user('staff');
+        $replayed = false;
         $transfer = $this->idempotency->run(
             'treasury_transfer',
             $staff,
             $request->header('Idempotency-Key'),
             $data,
-            fn () => $this->treasury->createTransfer($data, (int) $staff->id)
+            fn () => $this->treasury->createTransfer($data, (int) $staff->id),
+            $replayed,
         );
 
         return response()->json([
             'message' => 'تم إنشاء طلب التحويل بنجاح وهو في انتظار الاعتماد.',
             'data' => $transfer->load(['fromTreasury:id,name,code,branch_id,type', 'toTreasury:id,name,code,branch_id,type', 'creator:id,name']),
-        ], 201);
+        ], $replayed ? 200 : 201);
     }
 
     /**

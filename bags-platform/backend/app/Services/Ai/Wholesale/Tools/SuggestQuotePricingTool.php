@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\CostAccess;
 use App\Services\Wholesale\QuotationService;
 use App\Services\Wholesale\QuoteAdvisor;
@@ -18,6 +20,7 @@ final class SuggestQuotePricingTool implements AgentTool
     public function __construct(
         private QuoteAdvisor $advisor,
         private QuotationService $quotations,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -55,6 +58,9 @@ final class SuggestQuotePricingTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $quotation = Quotation::query()->with(['items.variant', 'customer'])->find((int) ($args['quotation_id'] ?? 0));
         if ($quotation === null) {
             return ToolOutcome::denied('عرض السعر مش موجود.', auditable: false);

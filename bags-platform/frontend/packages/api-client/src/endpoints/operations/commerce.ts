@@ -149,20 +149,19 @@ async function allRecords<T>(path: string, params: object = {}, signal?: AbortSi
   return rows;
 }
 export const commerceLookupsApi = {
-  customers: (signal?: AbortSignal) => allRecords<{ id: number; name: string }>(ADMIN + '/customers', { type: 'wholesale' }, signal),
+  customers: (search: string, signal?: AbortSignal) =>
+    api.get(ADMIN + '/customers', { params: cleanParams({ page: 1, per_page: 50, type: 'wholesale', search }), signal })
+      .then((response) => asPage<{ id: number; name: string; company_name?: string }>(response).data),
+  products: (search: string, signal?: AbortSignal) =>
+    api.get(ADMIN + '/products', { params: cleanParams({ page: 1, per_page: 50, search }), signal })
+      .then((response) => asPage<{ id: number; name_ar: string }>(response).data),
+  variantsForProduct: (productId: Id, signal?: AbortSignal) =>
+    api.get(ADMIN + '/products/' + productId + '/variants', { params: cleanParams({ page: 1, per_page: 100 }), signal })
+      .then((response) => asPage<{ id: number; sku: string }>(response).data
+        .map((variant) => ({ id: variant.id, label: variant.sku }))),
   categories: (signal?: AbortSignal) => allRecords<{ id: number; name_ar: string }>(ADMIN + '/categories', {}, signal)
     .then(rows => rows.map(row => ({ id: row.id, label: row.name_ar }))),
   brands: (signal?: AbortSignal) => allRecords<{ id: number; name_ar: string }>(ADMIN + '/brands', {}, signal)
     .then(rows => rows.map(row => ({ id: row.id, label: row.name_ar }))),
-  variants: async (signal?: AbortSignal): Promise<CommerceOption[]> => {
-    const products = await allRecords<{ id: number; name_ar: string }>(ADMIN + '/products', {}, signal);
-    const result: CommerceOption[] = [];
-    for (const product of products) {
-      const response = await api.get(ADMIN + '/products/' + product.id + '/variants', { signal });
-      const variants = asPage<{ id: number; sku: string }>(response).data;
-      result.push(...variants.map(variant => ({ id: variant.id, label: product.name_ar + ' · ' + variant.sku })));
-    }
-    return result;
-  },
 };
 export type { Id };

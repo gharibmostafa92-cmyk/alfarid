@@ -13,7 +13,9 @@ use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 /**
@@ -24,6 +26,7 @@ final class ReversePaymentNoticeApprovalTool implements LocksTargets, WriteTool
     public function __construct(
         private ProposalBuilder $proposals,
         private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -64,10 +67,13 @@ final class ReversePaymentNoticeApprovalTool implements LocksTargets, WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->find((int) ($args['notice_id'] ?? 0));
+        $notice = WholesalePaymentNotice::query()->with(['order', 'treasury'])->find((int) ($args['notice_id'] ?? 0));
         $reason = trim((string) ($args['reason'] ?? ''));
         if ($notice === null || $notice->status !== WholesalePaymentNoticeStatus::Approved || $reason === '') {
             return ToolOutcome::denied('الإشعار لازم يكون معتمد ومعاه سبب العكس.', auditable: false);
+        }
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
+            return $denied;
         }
 
         return $this->proposals->make(
@@ -91,6 +97,9 @@ final class ReversePaymentNoticeApprovalTool implements LocksTargets, WriteTool
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
+            return $denied;
+        }
         try {
             $reversed = $this->notices->reverse($notice, $actor->id, (string) $action->args['reason']);
         } catch (BusinessException $e) {

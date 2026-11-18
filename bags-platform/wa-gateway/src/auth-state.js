@@ -23,22 +23,40 @@ function decrypt(payload) {
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
 }
 
-export async function usePostgresAuthState(pool) {
+export async function usePostgresAuthState(pool, { logger = console } = {}) {
+  key();
+
   await pool.query(`CREATE TABLE IF NOT EXISTS wa_gateway_auth (
     id text PRIMARY KEY,
     payload bytea NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
   )`);
 
+  let writeChain = Promise.resolve();
+  function enqueueWrite(fn) {
+    const next = writeChain.then(fn, fn);
+    writeChain = next.catch(() => {});
+    return next;
+  }
+
+  function safeDecode(id, payload) {
+    try {
+      return JSON.parse(decrypt(payload), BufferJSON.reviver);
+    } catch (err) {
+      logger.error({ err, id }, 'failed to decrypt auth state row');
+      return null;
+    }
+  }
+
   async function read(id) {
     const result = await pool.query('SELECT payload FROM wa_gateway_auth WHERE id = $1', [id]);
     if (!result.rows[0]) return null;
-    return JSON.parse(decrypt(result.rows[0].payload), BufferJSON.reviver);
+    return safeDecode(id, result.rows[0].payload);
   }
 
-  async function write(id, value) {
+  async function writeWith(queryable, id, value) {
     const payload = encrypt(JSON.stringify(value, BufferJSON.replacer));
-    await pool.query(
+    await queryable.query(
       `INSERT INTO wa_gateway_auth (id, payload, updated_at) VALUES ($1, $2, now())
        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()`,
       [id, payload],
@@ -51,9 +69,17 @@ export async function usePostgresAuthState(pool) {
       creds,
       keys: {
         get: async (type, ids) => {
+          if (!ids || ids.length === 0) return {};
+          const prefix = `key:${type}:`;
+          const rowIds = ids.map((id) => `${prefix}${id}`);
+          const result = await pool.query(
+            'SELECT id, payload FROM wa_gateway_auth WHERE id = ANY($1::text[])',
+            [rowIds],
+          );
           const out = {};
-          for (const id of ids) {
-            let value = await read(`key:${type}:${id}`);
+          for (const row of result.rows) {
+            const id = row.id.slice(prefix.length);
+            let value = safeDecode(row.id, row.payload);
             if (type === 'app-state-sync-key' && value) {
               value = proto.Message.AppStateSyncKeyData.fromObject(value);
             }
@@ -61,18 +87,32 @@ export async function usePostgresAuthState(pool) {
           }
           return out;
         },
-        set: async (data) => {
-          for (const [type, entries] of Object.entries(data)) {
-            for (const [id, value] of Object.entries(entries || {})) {
-              const rowId = `key:${type}:${id}`;
-              if (value) await write(rowId, value);
-              else await pool.query('DELETE FROM wa_gateway_auth WHERE id = $1', [rowId]);
+        set: (data) =>
+          enqueueWrite(async () => {
+            const client = await pool.connect();
+            try {
+              await client.query('BEGIN');
+              for (const [type, entries] of Object.entries(data)) {
+                for (const [id, value] of Object.entries(entries || {})) {
+                  const rowId = `key:${type}:${id}`;
+                  if (value) {
+                    await writeWith(client, rowId, value);
+                  } else {
+                    await client.query('DELETE FROM wa_gateway_auth WHERE id = $1', [rowId]);
+                  }
+                }
+              }
+              await client.query('COMMIT');
+            } catch (err) {
+              await client.query('ROLLBACK').catch(() => {});
+              throw err;
+            } finally {
+              client.release();
             }
-          }
-        },
+          }),
       },
     },
-    saveCreds: () => write('creds', creds),
-    clear: () => pool.query('DELETE FROM wa_gateway_auth'),
+    saveCreds: () => enqueueWrite(() => writeWith(pool, 'creds', creds)),
+    clear: () => enqueueWrite(() => pool.query('DELETE FROM wa_gateway_auth')),
   };
 }

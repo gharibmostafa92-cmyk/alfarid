@@ -505,7 +505,16 @@
 .as-picker-count { font-size: .74rem; color: var(--as-faint); }
 
 /* Tables */
-.as-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--as-border); border-radius: var(--as-radius-sm); background: var(--as-surface); }
+.as-table-wrap,
+.as-tablewrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--as-border); border-radius: var(--as-radius-sm); background: var(--as-surface); }
+.as-linkbtn { background: none; border: 0; padding: 0; color: var(--as-accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.as-linkbtn:hover { opacity: .85; }
+.as-pick { display: grid; gap: .45rem; }
+.as-pickbtn { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; padding: .6rem .85rem; border: 1px solid var(--as-border); border-radius: var(--as-radius-sm); background: var(--as-surface); color: var(--as-text); text-align: start; cursor: pointer; transition: border-color .15s, background .15s; }
+.as-pickbtn:hover:not(:disabled) { border-color: var(--as-accent); background: var(--as-surface-2); }
+.as-pickmain { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+.as-list { display: grid; gap: .4rem; list-style: none; }
+.as-stepdot { width: 8px; height: 8px; border-radius: 50%; background: var(--as-accent); display: inline-block; flex-shrink: 0; }
 .as-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .as-table th { position: sticky; top: 0; padding: .55rem .8rem; text-align: start; font-size: .74rem; font-weight: 600; color: var(--as-muted); background: var(--as-surface-2); border-bottom: 1px solid var(--as-border); white-space: nowrap; }
 .as-table td { padding: .55rem .8rem; border-bottom: 1px solid var(--as-border); text-align: start; }

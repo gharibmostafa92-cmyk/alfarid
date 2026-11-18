@@ -216,7 +216,7 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 @keyframes stripe { to { background-position: 20px 0; } }
 .progress-live { background: repeating-linear-gradient(-45deg, var(--accent) 0, var(--accent) 5px, var(--accent-2) 5px, var(--accent-2) 10px); background-size: 20px 100%; animation: stripe .6s linear infinite; }
 
-@keyframes drawerIn { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes drawerIn { from { transform: translateX(100%); } to { transform: none; } }
 .drawer { animation: drawerIn .32s cubic-bezier(.22,1,.36,1) both; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }

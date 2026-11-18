@@ -15,6 +15,11 @@ final class E164Phone
             $compact = '+'.substr($compact, 2);
         }
         if (str_starts_with($compact, '0')) {
+            if (! preg_match('/^01[0125]\d{8}$/', $compact)) {
+                throw ValidationException::withMessages([
+                    'phone' => 'اكتب الرقم بصيغة دولية، مثل +201012345678.',
+                ]);
+            }
             $compact = '+20'.substr($compact, 1);
         }
         if ($compact !== '' && ! str_starts_with($compact, '+')) {

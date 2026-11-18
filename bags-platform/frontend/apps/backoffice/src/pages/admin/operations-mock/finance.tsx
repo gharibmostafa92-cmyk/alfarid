@@ -2,7 +2,7 @@ import { AdminLoading } from '../../../components/admin/AdminLoading';
 import React, { useState, useEffect } from 'react';
 import { parseApiError } from '@alfarid/api-client';
 import { treasuriesApi, expensesApi, treasuryTransfersApi, shiftsApi, quotationsApi, paymentNoticesApi, asPage, newIdempotencyKey, type TreasuryType, type Treasury, type Expense, type PosShift, type Quotation, type PaymentNotice, type Paginated } from '@alfarid/api-client';
-import { useRemote, useAction, allPages } from './api/useRemote';
+import { useRemote, useAction, allPages, useDebounced } from './api/useRemote';
 import { useFormState } from './api/useFormState';
 import { mapErrors, num, toDate } from './api/mappers';
 import { api as opsApi } from '@alfarid/api-client';
@@ -117,7 +117,6 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
   const toast = useToast();
   const { busy, run } = useAction();
   const f = useFormState({ branchId: '', treasuryId: '', category: '', amount: '', date: today(), notes: '' });
-  const [idemKey, setIdemKey] = useState(() => newIdempotencyKey());
   const treasures = useRemote((s) => allPages((page) => treasuriesApi.list({ page, per_page: 100, is_active: true }, s)), []);
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const selectedTreasury = treasures.data?.find((t) => t.id === Number(f.v.treasuryId));
@@ -128,8 +127,8 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
       branch_id: Number(f.v.branchId),
       treasury_id: Number(f.v.treasuryId), category: f.v.category, amount: f.v.amount,
       expense_date: f.v.date, notes: f.v.notes || null,
-    }, idemKey), { toast, success: 'تم تسجيل سند الصرف', onFieldErrors: (e) => f.setErrors(e as any) });
-    if (r) { setIdemKey(newIdempotencyKey()); onSaved(); onClose(); }
+    }), { toast, success: 'تم تسجيل سند الصرف', onFieldErrors: (e) => f.setErrors(e as any) });
+    if (r) { onSaved(); onClose(); }
   };
   return (
     <Modal open onClose={onClose} title="سند صرف مصروفات" icon="receipt" width={560}
@@ -1081,6 +1080,8 @@ export function QuotesTab({ can = () => false }: { can?: (permission: string) =>
   const { busy, run } = useAction();
   const [st, setSt] = useState('');
   const [cu, setCu] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const debouncedCustomerSearch = useDebounced(customerSearch);
   const [page, setPage] = useState(1);
   const [view, setView] = useState<QuoteRow | null>(null);
   const [price, setPrice] = useState(false);
@@ -1092,7 +1093,12 @@ export function QuotesTab({ can = () => false }: { can?: (permission: string) =>
   const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
   const status = st === 'priced' ? 'priced_by_admin' : st === 'converted' || st === 'ordered' ? 'converted_to_order' : st;
   const list = useRemote((s) => quotationsApi.list({ page, per_page: 20, status: status || undefined, customer_id: cu || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapQuote) })), [page, st, cu], { mock: () => mockPage(QUOTES) });
-  const customers = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/customers', { params: { page, type: 'wholesale', per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string; company_name?: string }>(r))), []);
+  const customers = useRemote(
+    (s) => opsApi.get('/api/v1/admin/customers', { params: { page: 1, type: 'wholesale', per_page: 50, search: debouncedCustomerSearch }, signal: s })
+      .then((r) => asPage<{ id: number; name: string; company_name?: string }>(r).data),
+    [debouncedCustomerSearch],
+    { enabled: debouncedCustomerSearch.trim().length >= 3 },
+  );
   const detail = useRemote((s) => quotationsApi.show(view!.id, s), [view?.id], { enabled: !!view });
   useEffect(() => {
     if (!detail.data) return;
@@ -1127,6 +1133,7 @@ export function QuotesTab({ can = () => false }: { can?: (permission: string) =>
             placeholder="الحالة"
             options={Object.entries(QUOTE_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
           />
+          <input className="inp inp-sm w-36" value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="ابحث عن عميل" aria-label="بحث عن عميل" />
           <FSelect value={cu} onChange={setFilter(setCu)} placeholder="العميل" options={(customers.data ?? []).map((c) => ({ value: String(c.id), label: c.company_name || c.name }))} />
         </div>
         <RemoteNote remote={list} />
@@ -1358,6 +1365,8 @@ export function NoticesTab({ can = () => false }: { can?: (permission: string) =
   const { busy, run } = useAction();
   const [st, setSt] = useState('');
   const [cu, setCu] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const debouncedCustomerSearch = useDebounced(customerSearch);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<PaymentNoticeRow | null>(null);
   const [mode, setMode] = useState<'approve' | 'reject' | null>(null);
@@ -1369,7 +1378,12 @@ export function NoticesTab({ can = () => false }: { can?: (permission: string) =
   const list = useRemote((s) => paymentNoticesApi.list({ page, per_page: 20, status: st === 'pending' ? 'pending_review' : st || undefined, customer_id: cu || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapNotice) })), [page, st, cu], { mock: () => mockPage(NOTICES) });
   const detail = useRemote((s) => paymentNoticesApi.show(selected!.id, s), [selected?.id], { enabled: !!selected });
   const treasures = useRemote((s) => allPages((page) => treasuriesApi.list({ page, per_page: 100, is_active: true }, s)), []);
-  const customers = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/customers', { params: { page, type: 'wholesale', per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string; company_name?: string }>(r))), []);
+  const customers = useRemote(
+    (s) => opsApi.get('/api/v1/admin/customers', { params: { page: 1, type: 'wholesale', per_page: 50, search: debouncedCustomerSearch }, signal: s })
+      .then((r) => asPage<{ id: number; name: string; company_name?: string }>(r).data),
+    [debouncedCustomerSearch],
+    { enabled: debouncedCustomerSearch.trim().length >= 3 },
+  );
   const nameOf = (id: number) => treasures.data?.find((t) => t.id === id)?.name ?? (USE_MOCK ? trName(id) : '#' + id);
   const rows = list.data?.data ?? [];
   const sel = detail.data && detail.data.id === selected?.id ? mapNotice(detail.data) : selected;
@@ -1399,6 +1413,7 @@ export function NoticesTab({ can = () => false }: { can?: (permission: string) =
             placeholder="كل الحالات"
             options={Object.entries(NOTICE_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
           />
+          <input className="inp inp-sm w-36" value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="ابحث عن عميل" aria-label="بحث عن عميل" />
           <FSelect value={cu} onChange={setFilter(setCu)} placeholder="العميل" options={(customers.data ?? []).map((c) => ({ value: String(c.id), label: c.company_name || c.name }))} />
         </div>
         <RemoteNote remote={list} />

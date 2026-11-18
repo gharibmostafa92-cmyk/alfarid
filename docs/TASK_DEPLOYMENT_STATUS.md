@@ -15,6 +15,40 @@ Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes b
 
 ## 2. Ready / Pending Server Deployment (NOT yet deployed)
 
+### 2026-11-18 AI Gateway, WhatsApp Cloud API & Webhook Hardening Roadmap (`_archive_unused/tasks_execution/task.txt`) (local only / not deployed)
+
+- Live status is unverified; no live Cloud Run revision or production database was checked for this change.
+- **Customer WhatsApp Webhook (`CRITICAL-01`, `CRITICAL-02`, `MEDIUM-05`):**
+  - Added `GET /api/v1/webhooks/whatsapp/customers` verification challenge (`CustomerWhatsAppWebhookController::verify`), `262144`-byte payload cap, `X-Hub-Signature-256` support alongside `X-WA-Signature`, and async `App\Jobs\ProcessCustomerWhatsAppMessage` dispatch (`config/services.php`, `routes/api/webhooks.php`).
+  - Hardened `downloadMedia` with strict `mediaId` regex, Meta CDN HTTPS host allowlist (`.fbsbx.com`, `.fbcdn.net`, `.whatsapp.net`), and bounded streaming reads.
+- **AI Security, Concurrency & Orchestration (`CRITICAL-03`, `CRITICAL-04`, `HIGH-04`–`HIGH-07`, `MEDIUM-04`, `MEDIUM-06`, `LOW-01`–`LOW-03`):**
+  - Fail-closed `typed_confirmation` for all `risk === 'high'` tools (`ProposalBuilder`, `PendingActionService`) and strict quote-reply matching (`WhatsAppInboundProcessor`).
+  - Branch isolation for `create_staff_user` and email masking in `getCustomerProfile` (`ToolRegistry`).
+  - `AgentOrchestrator` turn-merging (`history()`), static FPM-only shutdown lock registry, 270s user lock TTL, atomic `total_tokens` increments, narrowed catalog domain routing (`['catalog', 'inventory', 'pricing']`), and `mb_strlen` UTF-8 budgeting (`ToolOutcome`, `GeminiClient` `Retry-After` HTTP-Date parsing, `AiConversationController::index`).
+  - `PendingActionService::confirmBulk` & `retryBulkConflict` partial-retry preservation, `ProcessWhatsAppMessage` stable `WithoutOverlapping` key, and `WhatsAppInboundProcessor` (`consumeLink` pre-check, transient 429 release, PIN delete reminder).
+- **Payment Webhooks, Pruning & Maintenance (`HIGH-08`, `MEDIUM-01`–`MEDIUM-03`, `MEDIUM-07`, `MEDIUM-08`):**
+  - `PaymentWebhookService`: scalar `firstValue()`, finite numeric & order-currency validation, `hashtextextended(..., 101)` advisory lock.
+  - `PruneAiConversations`: live pinned conversation preservation and batched pruning of `ai_whatsapp_link_tokens`, `ai_whatsapp_inbound`, `ai_whatsapp_outbound.picker`, and `customer_message_budgets`.
+  - `E164Phone::normalize` strict Egyptian `01[0125]\d{8}` guard, `EvaluateAiAgent` `--force` production guard, and `WatchWhatsAppConnection` independent `wa-gateway-logged-out-alerted` key.
+- **`wa-gateway` (`HIGH-01`–`HIGH-03`, `INFO-01`):**
+  - `logged_out` recovery (`server.js`, `gateway.js`), `pg.Pool` limits & error listener, batched `keys.get` + serialized transactional `keys.set` (`auth-state.js`), bounded `media` Map (500), `stream.destroy()`, `postInbound` backoff, and 3s `fetchLatestBaileysVersion()` timeout fallback.
+- **Required deployment actions:**
+  - Set `WHATSAPP_BUSINESS_VERIFY_TOKEN` in backend environment if using Meta WhatsApp Cloud API webhook verification.
+  - Deploy updated backend PHP codebase and restart queue workers so `ProcessCustomerWhatsAppMessage` and updated `ProcessWhatsAppMessage` / `PruneAiConversations` are loaded.
+  - Rebuild/restart `wa-gateway` Node.js service (`bags-platform/wa-gateway`).
+
+### 2026-11-18 Backoffice, Assistant & Staff Guard Roadmap (`_archive_unused/tasks_execution/task.txt`) (local only / not deployed)
+
+- Live status is unverified; no live Cloud Run revision or production database was checked for this change.
+- **Backend (`F02`):** `bags-platform/backend/app/Http/Requests/Admin/Concerns/AuthorizesStaffRequest.php` now restricts `staffRequestUser()` strictly to `$this->user('staff')` (removing fallback to `$this->user()`) and requires `$user->is_active`. No database migration or environment variable change is required.
+- **Frontend (`F-01`–`F-17`, `F01`–`F17`):**
+  - Security & Auth: `AuthCallbackPage.tsx` (`resolveSafeRedirectPath` open-redirect guard), `auth.store.ts` & `ProtectedRoute.tsx` (`SUPER_ADMIN_ROLE = 'Super Admin'`, exact `/login` path check, preserving token on non-401/403 bootstrap failures), `RotateStaffPassword.tsx` (`logout('staff')`, complexity + confirmation validation), `App.tsx` / `AdminMockPage.tsx` / `settings.tsx` / `store-management.tsx` (`store.manage` RBAC isolation & fail-closed `canEdit`).
+  - Assistant & POS: `api.ts` / `AssistantPage.tsx` (`AbortController` & `activeRequestIdRef` stale-closure guards, `oncePassword` modal focus/Escape/reset, `window.history.state` preservation, invalid date guards), `stream.ts` (WHATWG SSE comments, `data:` space, trailing `\r` & `U+FFFD` handling), `RichText.tsx` (inline code inside bold), `AssistantBlock.tsx` (`coupon_batch` `DiffTable` preview, `isSafeHexColor`, `useMemo` TTL/undo, `safeFormatDate`, 60s `URL.revokeObjectURL`), `AssistantComposer.tsx` (`@` quota split & boundary pruning), `WhatsAppPanel.tsx` & `AssistantAdministration.tsx` (partial `onSaved`, numeric drafts/bounds, `loggingOut` lock, `userId` reset), `assistant.css` (missing inventory/finance classes), `StocktakeVoiceCount.tsx` & `PosPage.tsx` (speech `continuous`/`interimResults=false`, 15s timeout, `toAsciiDigits(words)`, `request.current` reset, `mountFullPos` guard).
+  - Admin Mock & Build: `vite.config.ts` (static `<meta>` CSP removed from `index.html` by default; gated behind `VITE_ENABLE_META_CSP=true` so runtime Nginx/`_headers` CSP governs `connect-src`), `banner-mappers.ts` (`Africa/Cairo` & `NaN` date guards), `ui.tsx` (`ToastHost` queue & `Modal` Escape/`aria-modal`), `data.ts` & `api/mappers.ts` (17 document numbering types), `settings.tsx` (submit validation), `users.tsx` (KPI deduplication, `useBranches` permission gate, email trim, timer cleanup), `roles.tsx` (`beforeunload`, dirty-draft switch confirm, 409 reload guard), `store-management.tsx` (`new URL()` validation, `starts_at` 422 mapping, `AbortSignal`, Escape/`role="dialog"`).
+- **Required deployment actions:**
+  - Rebuild and deploy `@alfarid/backoffice` (`pnpm --filter @alfarid/backoffice build`) and deploy the updated backend PHP codebase.
+  - Ensure Nginx / CDN serves the generated `security-headers.nginx-server.conf` / `_headers` CSP headers (since `<meta>` CSP is no longer injected into `index.html` by default).
+
 ### 2026-11-16 wholesale receivables hardening (local only / not deployed)
 
 - Live status is unverified; no live Cloud Run revision or production database was checked for this change.

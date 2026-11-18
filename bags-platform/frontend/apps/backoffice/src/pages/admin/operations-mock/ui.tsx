@@ -946,6 +946,30 @@ export function RowActions({ children }: { children: ReactNode }) {
 
 const openModalStack: symbol[] = [];
 
+export function useStackedEscape(open: boolean, onClose: () => void): void {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const layerRef = useRef<symbol | null>(null);
+  if (!layerRef.current) layerRef.current = Symbol('escape-layer');
+
+  useEffect(() => {
+    if (!open) return;
+    const layer = layerRef.current!;
+    openModalStack.push(layer);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && openModalStack[openModalStack.length - 1] === layer) {
+        closeRef.current();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      const index = openModalStack.lastIndexOf(layer);
+      if (index !== -1) openModalStack.splice(index, 1);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+}
+
 /* ---------- modal / drawer ---------- */
 export function Modal({
   open,
@@ -968,27 +992,7 @@ export function Modal({
   icon?: string;
   tone?: string;
 }) {
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const modalIdRef = useRef<symbol | null>(null);
-  if (!modalIdRef.current) modalIdRef.current = Symbol('modal');
-
-  useEffect(() => {
-    if (!open) return;
-    const id = modalIdRef.current!;
-    openModalStack.push(id);
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && openModalStack[openModalStack.length - 1] === id) {
-        onCloseRef.current();
-      }
-    };
-    window.addEventListener('keydown', h);
-    return () => {
-      const idx = openModalStack.lastIndexOf(id);
-      if (idx !== -1) openModalStack.splice(idx, 1);
-      window.removeEventListener('keydown', h);
-    };
-  }, [open]);
+  useStackedEscape(open, onClose);
 
   if (!open) return null;
 

@@ -505,25 +505,38 @@ interface ToastItem {
 }
 
 export const toastBus = { fn: null as ((t: ToastItem) => void) | null };
+let toastSeq = 0;
 
 export function toast(text: string, tone: 'ok' | 'warn' | 'err' = 'ok') {
-  toastBus.fn && toastBus.fn({ text, tone, id: Date.now() });
+  toastBus.fn && toastBus.fn({ text, tone, id: ++toastSeq });
 }
 
 export function ToastHost() {
-  const [t, setT] = useState<ToastItem | null>(null);
+  const [items, setItems] = useState<ToastItem[]>([]);
   useEffect(() => {
-    toastBus.fn = v => {
-      setT(v);
-      setTimeout(() => setT(c => (c && c.id === v.id ? null : c)), 2600);
+    const timers = new Set<number>();
+    toastBus.fn = (v) => {
+      setItems((prev) => [...prev.slice(-3), v]);
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        setItems((prev) => prev.filter((item) => item.id !== v.id));
+      }, 3200);
+      timers.add(timer);
+    };
+    return () => {
+      toastBus.fn = null;
+      timers.forEach((id) => window.clearTimeout(id));
+      timers.clear();
     };
   }, []);
   return (
-    <div className={`fixed top-6 inset-x-0 z-[70] flex justify-center pointer-events-none transition-all duration-300 ${t ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
-      <div className="px-4 py-2.5 rounded-full shadow-lg text-[12.5px] font-medium flex items-center gap-2" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
-        <span className="w-2 h-2 rounded-full" style={{ background: t?.tone === 'err' ? '#fb7185' : t?.tone === 'warn' ? '#f59e0b' : '#34d399' }} />
-        <span>{t?.text}</span>
-      </div>
+    <div className="fixed top-6 inset-x-0 z-[70] flex flex-col items-center gap-2 pointer-events-none">
+      {items.map((t) => (
+        <div key={t.id} className="px-4 py-2.5 rounded-full shadow-lg text-[12.5px] font-medium flex items-center gap-2 transition-all duration-300" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: t.tone === 'err' ? '#fb7185' : t.tone === 'warn' ? '#f59e0b' : '#34d399' }} />
+          <span>{t.text}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -548,11 +561,18 @@ export function Drawer({ open, onClose, children, width = 520 }: { open: boolean
 }
 
 export function Modal({ open, onClose, children, width = 420 }: { open: boolean; onClose: () => void; children: ReactNode; width?: number }) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div onClick={onClose} className="absolute inset-0 v-scrim v-fade" />
-      <div className="relative v-card p-5 sm:p-6 v-pop-in w-full rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] max-h-[92dvh] overflow-y-auto overscroll-contain pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]" style={{ width: `min(${width}px, 100%)` }}>
+      <div role="dialog" aria-modal="true" className="relative v-card p-5 sm:p-6 v-pop-in w-full rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] max-h-[92dvh] overflow-y-auto overscroll-contain pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]" style={{ width: `min(${width}px, 100%)` }}>
         <div className="sm:hidden w-10 h-1 bg-[var(--toggle-off-bg)] rounded-full mx-auto mb-4" aria-hidden="true" />
         {children}
       </div>

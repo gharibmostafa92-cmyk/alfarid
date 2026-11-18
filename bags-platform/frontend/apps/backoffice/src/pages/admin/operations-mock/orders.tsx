@@ -114,6 +114,7 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
     (signal) => adminOrdersApi.list(params, signal),
     [page, st, dq, br, pm, from, to, fu, rf],
     {
+      enabled: q === dq,
       mock: () => ({ data: [], meta: { current_page: 1, last_page: 1, per_page: 20, total: ORDERS.length, from: 1, to: ORDERS.length } } as any),
       onError: (e) => toast(e.message, 'red'),
     },
@@ -294,8 +295,9 @@ export function OrderDetail({
   const mayAllocate = useCan('orders.allocate');
   const { busy, run } = useAction();
   const numId = Number(id);
+  const validId = Number.isSafeInteger(numId) && numId > 0;
   const remote = useRemote(
-    (s) => adminOrdersApi.show(numId, s), [numId], { mock: () => mockOrder(numId), onError: (e) => toast(e.message, 'red') },
+    (s) => adminOrdersApi.show(numId, s), [numId], { enabled: validId, mock: () => mockOrder(numId), onError: (e) => toast(e.message, 'red') },
   );
   const { data: order, loading, setData: setOrder } = remote;
   const shipCos = useRemote((s) => shippingCompaniesApi.list({ is_active: true }, s).then((p) => p.data), []);
@@ -309,8 +311,9 @@ export function OrderDetail({
   const [allocBranch, setAllocBranch] = useState('');
   const [carrier, setCarrier] = useState('');
   const [awb, setAwb] = useState('');
-  useEffect(() => { if (order) setNewPay(mapOrder(order).payStatus); }, [order]);
+  useEffect(() => { setNewPay(''); }, [order?.id, order?.payment_status]);
 
+  if (!validId) return <Empty title="معرّف الطلب غير صالح" />;
   if (loading || !order) return <><RemoteFeedback state={remote} />{!loading && !remote.error && <Empty title="الطلب غير موجود" />}</>;
   const o = mapOrder(order);
 
@@ -382,7 +385,7 @@ export function OrderDetail({
     from: h.from_status,
     to: h.to_status,
   }));
-  const history = timeline.map(t => ({ from: t.from, to: t.to, note: t.note, by: '', at: t.date }));
+  const history = timeline.map(t => ({ from: t.from, to: t.to, note: t.note, by: t.by ?? '', at: t.date }));
 
   return (
     <div className="space-y-5">
@@ -413,7 +416,7 @@ export function OrderDetail({
               <Icon name="refresh" size={14} />
               تغيير الحالة
             </button>
-            <button className="btn btn-soft" disabled={!mayPay || remote.usingMock} onClick={() => setModal('pay')}>
+            <button className="btn btn-soft" disabled={!mayPay || remote.usingMock} onClick={() => { setNewPay(''); setModal('pay'); }}>
               <Icon name="card" size={14} />
               تحديث الدفع
             </button>
@@ -715,7 +718,7 @@ export function OrderDetail({
             </button>
             <button
               className="btn btn-dark"
-              disabled={busy}
+              disabled={busy || !newPay || newPay === order.payment_status}
               onClick={() => savePayment(newPay as PaymentStatus, payNotes)}
             >
               حفظ
@@ -857,6 +860,7 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
   const [q, setQ] = useState('');
   const [create, setCreate] = useState(false);
   const toast = useToast();
+  const mayCreate = useCan('returns.create');
   const [page, setPage] = useState(1);
   const dq = useDebounced(q);
   const { data, loading, error, reload, usingMock } = useRemote(
@@ -885,7 +889,7 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
         title="المرتجعات"
         sub="الموافقة والاستلام ورد المبلغ تتم كخطوات منفصلة لكل مرتجع."
         actions={
-          <button className="btn btn-dark" onClick={() => setCreate(true)}>
+          <button className="btn btn-dark" disabled={!mayCreate || usingMock} onClick={() => setCreate(true)}>
             <Icon name="plus" size={14} />
             إنشاء مرتجع
           </button>
@@ -1149,13 +1153,13 @@ export function ReturnDetail({
   const mayUpdate = useCan('returns.update');
   const { busy, run } = useAction();
   const numId = Number(id);
-  const remote = useRemote((s) => adminReturnsApi.show(numId, s), [numId], { mock: () => mockReturn(numId), onError: (e) => toast(e.message, 'red') });
+  const validId = Number.isSafeInteger(numId) && numId > 0;
+  const remote = useRemote((s) => adminReturnsApi.show(numId, s), [numId], { enabled: validId, mock: () => mockReturn(numId), onError: (e) => toast(e.message, 'red') });
   const { data: ret, setData: setRet, loading } = remote;
   const branches = useRemote((s) => branchesApi.list({}, s).then((r) => r.data), []);
   const branchMap = useMemo(() => new Map((branches.data ?? []).map((b: { id: number; name: string }) => [b.id, b.name] as const)), [branches.data]);
   const fb = useMemo(() => (ret ? mapReturn(ret, (bid) => (bid == null ? null : branchMap.get(bid) ?? `#${bid}`)) : null), [ret, branchMap]);
-  const base = RETURNS.find((r) => r.id === numId) || RETURNS[0];
-  const r = useMemo(() => fb ?? base, [fb, base]);
+  const r = fb;
   const [modal, setModal] = useState<string | null>(null);
   const [approveBranch, setApproveBranch] = useState('');
   const [rejectMode, setRejectMode] = useState('rejected');
@@ -1219,12 +1223,16 @@ export function ReturnDetail({
 
   const rejectOrCancel = async () => {
     if (!ret || remote.usingMock) return;
+    if (rejectMode === 'rejected' && !mayApprove) return toast('ليست لديك صلاحية رفض المرتجع', 'red');
+    if (rejectMode === 'cancelled' && !mayUpdate) return toast('ليست لديك صلاحية إلغاء المرتجع', 'red');
     const res = await run(() => adminReturnsApi.update(ret.id, { status: rejectMode as 'rejected' | 'cancelled', admin_notes: rejectNotes || undefined }), { toast, success: 'تم التحديث' });
-    if (res) { setRet(res); setModal(null); }
+    if (res) { setRet(res); setModal(null); setRejectMode('rejected'); setRejectNotes(''); }
 
   };
+  const closeReject = () => { setModal(null); setRejectMode('rejected'); setRejectNotes(''); };
 
-  if (loading || !ret) return <><RemoteFeedback state={remote} />{!loading && !remote.error && <Empty title="المرتجع غير موجود" />}</>;
+  if (!validId) return <Empty title="معرّف المرتجع غير صالح" />;
+  if (loading || !ret || !r) return <><RemoteFeedback state={remote} />{!loading && !remote.error && <Empty title="المرتجع غير موجود" />}</>;
 
   const lines = (ret?.items ?? []).map((it) => ({
     v: { name: it.product_name ?? `#${it.order_item_id}`, sku: it.sku ?? '' },
@@ -1268,7 +1276,7 @@ export function ReturnDetail({
           <>
             {r.status === 'pending' && (
               <>
-                <button className="btn btn-danger" disabled={!mayUpdate || remote.usingMock || busy} onClick={() => setModal('reject')}>
+                <button className="btn btn-danger" disabled={(!mayUpdate && !mayApprove) || remote.usingMock || busy} onClick={() => { setRejectMode(mayApprove ? 'rejected' : 'cancelled'); setModal('reject'); }}>
                   رفض / إلغاء
                 </button>
                 <button className="btn btn-dark" disabled={!mayApprove || remote.usingMock || busy} onClick={() => setModal('approve')}>
@@ -1281,6 +1289,7 @@ export function ReturnDetail({
               <>
                 <button
                   className="btn btn-soft"
+                  disabled={!mayUpdate || remote.usingMock || busy}
                   onClick={() => {
                     setRejectMode('cancelled');
                     setModal('reject');
@@ -1656,19 +1665,19 @@ export function ReturnDetail({
       {/* reject modal */}
       <Modal
         open={modal === 'reject'}
-        onClose={() => setModal(null)}
+        onClose={closeReject}
         title="رفض أو إلغاء المرتجع"
         icon="ban"
         tone="red"
         width={460}
         footer={
           <>
-            <button className="btn btn-soft" onClick={() => setModal(null)}>
+            <button className="btn btn-soft" onClick={closeReject}>
               تراجع
             </button>
             <button
               className="btn btn-danger"
-              disabled={busy}
+              disabled={busy || (rejectMode === 'rejected' ? !mayApprove : !mayUpdate)}
               onClick={rejectOrCancel}
             >
               تأكيد
@@ -1682,8 +1691,8 @@ export function ReturnDetail({
               value={rejectMode}
               onChange={setRejectMode}
               options={[
-                { value: 'rejected', label: 'مرفوض' },
-                { value: 'cancelled', label: 'ملغي' },
+                ...(mayApprove ? [{ value: 'rejected', label: 'مرفوض' }] : []),
+                ...(mayUpdate ? [{ value: 'cancelled', label: 'ملغي' }] : []),
               ]}
             />
           </Field>

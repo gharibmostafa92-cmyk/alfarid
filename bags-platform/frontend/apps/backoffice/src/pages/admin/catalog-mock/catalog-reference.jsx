@@ -5,11 +5,16 @@ import { DealersPage, ProductionPage } from '../catalog/manufacturing-pages';
 import { productFromApi, productToPayload, variantToPayload, BASIC_SERVER_KEY_TO_UI } from '../catalog/mappers';
 import { persistProduct } from '../catalog/persist';
 import { normalizeError } from '../catalog/errors';
+import { cloneProductState, productFingerprint } from '../catalog/product-state';
+import { createClientRequestId } from '../../../lib/idempotency';
+import { safeCssUrl } from '../safe-css-url';
 import React, { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react';
 function Drawer({ open, onClose, title, subtitle, children, footer, width = 520 }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const h = (e) => e.key === 'Escape' && onClose();
+    const h = (e) => e.key === 'Escape' && onCloseRef.current?.();
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
   }, [open]);
   if (!open) return null;
@@ -52,7 +57,7 @@ function ProductsPage() {
   if (!user.can('products.view')) return <Forbidden perm="products.view" />;
   const flat = flattenCats(CATEGORIES);
   const catNode = q.category && flat.find((f) => String(f.id) === String(q.category));
-  const rows=(query.data?.data||[]).map(p=>({id:p.id,ar:p.name_ar,en:p.name_en,code:p.code,cat:flat.find(c=>c.id===p.category?.id)?.path.join(' › ') || p.category?.name_ar,brand:p.brand?.name_ar,status:p.status,channel:p.sales_channel,variants:p.variants_count,min:p.min_retail_price==null?null:Number(p.min_retail_price),max:p.max_retail_price==null?null:Number(p.max_retail_price),featured:p.is_featured,img:p.main_image ? 'url("'+p.main_image+'") center / cover' : 'var(--bg-subcard)'}));
+  const rows=(query.data?.data||[]).map(p=>({id:p.id,ar:p.name_ar,en:p.name_en,code:p.code,cat:flat.find(c=>c.id===p.category?.id)?.path.join(' › ') || p.category?.name_ar,brand:p.brand?.name_ar,status:p.status,channel:p.sales_channel,variants:p.variants_count,min:p.min_retail_price==null?null:Number(p.min_retail_price),max:p.max_retail_price==null?null:Number(p.max_retail_price),featured:p.is_featured,img:p.main_image && safeCssUrl(p.main_image) ? `${safeCssUrl(p.main_image)} center / cover` : 'var(--bg-subcard)'}));
   const res={data:rows,meta:query.data?.meta || {current_page:1,last_page:1,total:0,per_page:10,from:null,to:null}};
   const activeFilters = ['category', 'status', 'channel', 'featured'].filter((k) => q[k]).length + (q.search ? 1 : 0);
   const counts = Object.fromEntries(['all','published','draft','archived'].map((k,i)=>[k,stats.data?.[i]?.meta.total||0]));
@@ -232,7 +237,9 @@ function ProductForm({ id, initial }) {
   const { user, categories: CATEGORIES } = useApp();
   const isNew = id === 'new';
   const [p, setP] = useState(() => initial || blankProduct());
-  const [saved, setSaved] = useState(JSON.stringify(p));
+  const savedRef = useRef(cloneProductState(p));
+  const savedFingerprintRef = useRef(productFingerprint(p));
+  const savingRef = useRef(false);
   const [tab, setTabQ] = useQueryState({ tab: 'basic' });
   const [errs, setErrs] = useState({ basic: {}, variants: {} });
   const [summary, setSummary] = useState(null);
@@ -242,7 +249,8 @@ function ProductForm({ id, initial }) {
   const canCost = user.can('products.view_cost');
   const canPublish = user.can('products.publish');
   const writable = isNew ? user.can('products.create') : user.can('products.update');
-  const dirty = JSON.stringify(p) !== saved;
+  const fingerprint = useMemo(() => productFingerprint(p), [p]);
+  const dirty = fingerprint !== savedFingerprintRef.current;
   useUnsavedGuard(dirty);
   const setBasic = (k, val) => setP({ ...p, basic: { ...p.basic, [k]: val } });
   const B = p.basic;
@@ -287,6 +295,7 @@ function ProductForm({ id, initial }) {
   };
 
     const run = async (publish) => {
+    if (savingRef.current) return;
     const be = validateBasic();
     const ve = validateVariants(p.rows, B.channel, p.mode, publish);
     // Drafts tolerate missing prices; only structural errors block
@@ -308,22 +317,25 @@ function ProductForm({ id, initial }) {
       { k: 'upload', label: `رفع الصور (${p.media.general.filter((f) => f.status !== 'done').length + Object.values(p.media.byVariant).flat().filter((f) => f.status !== 'done').length + (p.media.video && p.media.video.status !== 'done' ? 1 : 0)} ملف)`, state: 'wait' },
       ...(publish ? [{ k: 'publish', label: 'تحديث الحالة إلى منشور', state: 'wait' }] : []),
     ];
+    savingRef.current = true;
     setFlow({ steps: [...steps], publish });
-    const mark = (k, state, extra) => setFlow((f) => ({ ...f, steps: f.steps.map((s) => s.k === k ? { ...s, state, ...extra } : s) }));
+    const mark = (k, state, extra) => setFlow((f) => f ? ({ ...f, steps: f.steps.map((s) => s.k === k ? { ...s, state, ...extra } : s) }) : f);
     let saveCompleted=false;
     try {
-      let next = await persistProduct(p, JSON.parse(saved), canCost, value => {setP({...value});},()=>{saveCompleted=true;mark('save','done');mark('upload','run');});
+      let next = await persistProduct(p, savedRef.current, canCost, value => {setP({...value});},()=>{saveCompleted=true;mark('save','done');mark('upload','run');});
       mark('save','done');mark('upload','done');
       if(publish){mark('publish','run'); const published=await productsApi.update(next.id,{status:'published',...(next.lock_version !== undefined ? {expected_version:next.lock_version} : {})});next={...next,status:published.status,publishedAt:published.published_at,lock_version:published.lock_version,updated_at:published.updated_at};mark('publish','done'); }
-      setP(next);setSaved(JSON.stringify(next));setFlow(f=>({...f,done:'ok',code:next.code}));
+      savedRef.current=cloneProductState(next);savedFingerprintRef.current=productFingerprint(next);setP(next);setFlow(f=>f?({...f,done:'ok',code:next.code}):f);
     } catch(e) {
-      const error=normalizeError(e);if(!saveCompleted)setFlow(null);else setFlow(f=>({...f,done:error.summary.length?'blocked':'upload_fail',reasons:error.summary.length?error.summary:[error.message],steps:f.steps.map(step=>({...step,state:step.state==='run'?'fail':step.state==='wait'?'skip':step.state}))}));
-      if(e.catalogProductId){try{const [product,media]=await Promise.all([productsApi.show(e.catalogProductId),productMediaApi.list(e.catalogProductId)]);const fresh={...productFromApi(product,media,{canViewCost:canCost}),id:product.id};setP(fresh);setSaved(JSON.stringify(fresh));}catch{vtoast('تعذّر تحديث البيانات بعد الحفظ الجزئي. أعد تحميل المنتج قبل التعديل.','error');}}
+      const error=normalizeError(e);if(!saveCompleted)setFlow(null);else setFlow(f=>f?({...f,done:error.summary.length?'blocked':'upload_fail',reasons:error.summary.length?error.summary:[error.message],steps:f.steps.map(step=>({...step,state:step.state==='run'?'fail':step.state==='wait'?'skip':step.state}))}):f);
+      if(e.catalogProductId){try{const [product,media]=await Promise.all([productsApi.show(e.catalogProductId),productMediaApi.list(e.catalogProductId)]);const fresh={...productFromApi(product,media,{canViewCost:canCost}),id:product.id};savedRef.current=cloneProductState(fresh);savedFingerprintRef.current=productFingerprint(fresh);setP(fresh);}catch{vtoast('تعذّر تحديث البيانات بعد الحفظ الجزئي. أعد تحميل المنتج قبل التعديل.','error');}}
       const basic={},variants={}; const map=BASIC_SERVER_KEY_TO_UI;
       if(e.catalogRowKey)variants[e.catalogRowKey]=Object.fromEntries(Object.entries(error.fields).map(([key,messages])=>[{retail_price:'retail',wholesale_price:'wholesale',cost_price:'cost',compare_at_price:'compare',color_name_en:'color_en'}[key]||key,messages[0]]));
       for(const [key,messages] of Object.entries(error.fields)){const match=key.match(/^variants\.(\d+)\.(.+)$/);if(match){const row=p.rows[+match[1]];if(row){const k={retail_price:'retail',wholesale_price:'wholesale',cost_price:'cost',compare_at_price:'compare',color_name_en:'color_en'}[match[2]]||match[2];variants[row._id]={...(variants[row._id]||{}),[k]:messages[0]};}}else if(!e.catalogRowKey)basic[map[key]||key]=messages[0];}
       setErrs({basic,variants,variantsShown:true});setTabQ({tab:e.catalogTab || (Object.keys(variants).length?'variants':'basic')});
       setSummary({title:error.message || e.message,items:[...error.summary,...Object.values(error.fields).flat(),...(error.summary.length||Object.keys(error.fields).length?[]:[error.message])].map(text=>({text,go:e.catalogTab || (e.catalogRowKey?'variants':'basic'),tab:e.catalogTab==='media'?'الصور والفيديو':e.catalogRowKey?'المتغيرات':'البيانات الأساسية'}))});
+    } finally {
+      savingRef.current = false;
     }
   };
 
@@ -369,7 +381,7 @@ function ProductForm({ id, initial }) {
               if (p.status === 'published' && nowActive === 0) { setBlockModal('last'); return; }
               const removedPrice = p.status === 'published' && rows.some((r) => r.status === 'active' && ((needRetail && !r.retail) || (needWh && !r.wholesale))) && missingPrice.length === 0;
               if (removedPrice) { setBlockModal('price'); return; }
-              const ids=new Set(rows.map(r=>r.serverId));const byVariant=Object.fromEntries(Object.entries(p.media.byVariant).map(([color,items])=>[color,items.filter(file=>!file.variantId||ids.has(file.variantId))]));
+              const retainedColors=new Set(rows.map(r=>(r.color?.en||'').trim().toLowerCase()).filter(Boolean));const byVariant=Object.fromEntries(Object.entries(p.media.byVariant).filter(([color])=>retainedColors.has(color.trim().toLowerCase())));
               setP({ ...p, rows,media:{...p.media,byVariant} });
             }}
             errs={errs.variantsShown ? {...vErrs,...errs.variants} : {}} />
@@ -381,7 +393,7 @@ function ProductForm({ id, initial }) {
       {writable && <StickyBar dirty={dirty} note={p.status ? null : 'الصور هتترفع بعد حفظ المسودة'}>
         {tab.tab !== 'review' && <button className="btn btn-ghost" onClick={() => setTabQ({ tab: tabs[Math.min(3, tabs.findIndex((t) => t.value === tab.tab) + 1)].value })}>التالي<Icon name="chevLeft" size={14} /></button>}
         <button className="btn btn-outline" onClick={() => run(false)} disabled={!writable || (!!flow && !flow.done)}><Icon name="edit" size={14} />{p.status === 'published'||p.status==='archived' ? 'حفظ التعديلات' : 'حفظ كمسودة'}</button>
-        {canPublish && p.id && (p.status==='published'?[['draft','إلغاء النشر'],['archived','أرشفة']]:p.status==='archived'?[['draft','استرجاع كمسودة']]:[]).map(([status,label])=><button key={status} disabled={!!flow&&!flow.done} className="btn btn-soft" onClick={async()=>{if(dirty&&!window.confirm('تغيير الحالة سيحفظ حالة المنتج فقط. ستبقى تعديلاتك غير المحفوظة؛ متابعة؟'))return;try{await productsApi.update(p.id,{status});setP({...p,status});setSaved(JSON.stringify({...JSON.parse(saved),status}));}catch(e){vtoast(normalizeError(e).message,'error');}}}>{label}</button>)}
+        {canPublish && p.id && (p.status==='published'?[['draft','إلغاء النشر'],['archived','أرشفة']]:p.status==='archived'?[['draft','استرجاع كمسودة']]:[]).map(([status,label])=><button key={status} disabled={!!flow&&!flow.done} className="btn btn-soft" onClick={async()=>{if(dirty&&!window.confirm('تغيير الحالة سيحفظ حالة المنتج فقط. ستبقى تعديلاتك غير المحفوظة؛ متابعة؟'))return;try{const updated=await productsApi.update(p.id,{status,expected_version:p.lock_version});const next={...p,status:updated.status,lock_version:updated.lock_version,updated_at:updated.updated_at};const baseline={...savedRef.current,status:updated.status,lock_version:updated.lock_version,updated_at:updated.updated_at};savedRef.current=cloneProductState(baseline);savedFingerprintRef.current=productFingerprint(baseline);setP(next);}catch(e){vtoast(normalizeError(e).message,'error');}}}>{label}</button>)}
         {canPublish ? (
           p.status !== 'published' && writable && <button className="btn btn-acc" onClick={() => {
             if (readyCount < ready.length) { setSummary({ title: 'المنتج غير جاهز للنشر', subtitle: 'أكمل البنود التالية، أو احفظه كمسودة لحين الانتهاء.', items: ready.filter((r) => !r.ok && r.tab).map((r) => ({ text: `${r.label} — ${r.detail}`, tab: tabs.find((t) => t.value === r.tab).label, go: r.tab })) }); return; }
@@ -400,7 +412,7 @@ function ProductForm({ id, initial }) {
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <button className="btn btn-soft" onClick={() => setBlockModal(null)}>تراجع عن التغيير</button>
-          {canPublish && <button className="btn btn-ink" onClick={() => { productsApi.update(p.id,{status:'draft'}).then(()=>{setP({...p,status:'draft'});setBlockModal(null);}).catch(e=>vtoast(normalizeError(e).message,'error')); }}>تحويل لمسودة</button>}
+          {canPublish && <button className="btn btn-ink" onClick={() => { productsApi.update(p.id,{status:'draft',expected_version:p.lock_version}).then(updated=>{const next={...p,status:updated.status,lock_version:updated.lock_version,updated_at:updated.updated_at};const baseline={...savedRef.current,status:updated.status,lock_version:updated.lock_version,updated_at:updated.updated_at};savedRef.current=cloneProductState(baseline);savedFingerprintRef.current=productFingerprint(baseline);setP(next);setBlockModal(null);}).catch(e=>vtoast(normalizeError(e).message,'error')); }}>تحويل لمسودة</button>}
         </div>
       </Modal>
       <LeaveDialog open={leave} onStay={() => setLeave(false)} onLeave={() => { setLeave(false); nav('/products'); }} />
@@ -568,12 +580,12 @@ function MediaTab({media,setMedia,axes,mode,saved,onRetry}) {
       <div className="v-card p-5 lg:sticky lg:top-5">
         <div className="text-[13px] font-semibold t-1 mb-1">معاينة ترتيب العرض</div>
         <div className="text-[11.5px] t-3 mb-4">كده هتظهر في صفحة المنتج.</div>
-        <div className="rounded-[18px] aspect-square relative overflow-hidden" style={{ background: (media.general[0]?.url ? 'url("'+media.general[0].url+'") center / cover' : media.general[0]?.bg) || 'var(--bg-subcard)' }}>
+        <div className="rounded-[18px] aspect-square relative overflow-hidden" style={{ background: (safeCssUrl(media.general[0]?.url) ? `${safeCssUrl(media.general[0]?.url)} center / cover` : media.general[0]?.bg) || 'var(--bg-subcard)' }}>
           {!media.general[0] && <div className="absolute inset-0 flex items-center justify-center t-3"><Icon name="image" size={30} /></div>}
           {media.video && <span className="absolute bottom-3 end-3 h-7 px-2.5 rounded-full bg-black/55 text-white text-[11px] font-semibold flex items-center gap-1"><Icon name="video" size={12} />فيديو</span>}
         </div>
         <div className="grid grid-cols-5 gap-1.5 mt-2">
-          {media.general.slice(0, 5).map((f, i) => <div key={f.id} className={cx('aspect-square rounded-[10px] relative', i === 0 && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-card)]')} style={{ background: f.url ? 'url("'+f.url+'") center / cover' : f.bg, opacity: f.status === 'failed' ? .35 : 1 }} />)}
+          {media.general.slice(0, 5).map((f, i) => {const image=safeCssUrl(f.url);return <div key={f.id} className={cx('aspect-square rounded-[10px] relative', i === 0 && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-card)]')} style={{ background: image ? `${image} center / cover` : f.bg, opacity: f.status === 'failed' ? .35 : 1 }} />;})}
           {Array.from({ length: Math.max(0, 5 - media.general.length) }).map((_, i) => <div key={i} className="aspect-square rounded-[10px] v-subcard" />)}
         </div>
       </div>
@@ -709,10 +721,11 @@ function useQueryState(defaults) {
   useEffect(()=>{const changed=()=>setR(parseHash());window.addEventListener('hashchange',changed);return()=>window.removeEventListener('hashchange',changed);},[]);
   const state = { ...defaults, ...r.q };
   const set = (patch) => {
-    const next = { ...state, ...patch };
+    const current = parseHash();
+    const next = { ...defaults, ...current.q, ...patch };
     Object.keys(defaults).forEach((k) => { if (String(next[k]) === String(defaults[k])) delete next[k]; });
     const qs = new URLSearchParams(Object.entries(next).filter(([, v]) => v !== null && v !== undefined && v !== '')).toString();
-    history.replaceState(null, '', '#' + parseHash().path + (qs ? '?' + qs : ''));
+    history.replaceState(window.history.state, '', '#' + current.path + (qs ? '?' + qs : ''));
     setR(parseHash());
   };
   return [state, set];
@@ -943,9 +956,11 @@ function SearchSelect({ value, onChange, options = [], placeholder = 'اختر�
 
 /* ---------------- Modal / Confirm ---------------- */
 function Modal({ open, onClose, children, width = 460, title, subtitle, icon, iconTone = 'acc', footer }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const h = (e) => e.key === 'Escape' && onClose && onClose();
+    const h = (e) => e.key === 'Escape' && onCloseRef.current?.();
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
   }, [open]);
   if (!open) return null;
@@ -1246,7 +1261,7 @@ function FileTile({ file, onRemove, onRetry, draggable, onDragStart, onDragOver,
       className={cx('group relative rounded-[16px] overflow-hidden transition', draggable && 'cursor-grab active:cursor-grabbing', st === 'failed' && 'ring-2 ring-[var(--badge-red-text)]')}
       style={{ background: 'var(--bg-subcard)' }}>
       <div className={cx('relative', compact ? 'aspect-square' : 'aspect-[4/3]')}>
-        <div className="absolute inset-0" style={{ background: (file.url || preview) ? 'url("'+(file.url || preview)+'") center / cover' : (file.bg || 'var(--bg-subcard)') }} />
+        <div className="absolute inset-0" style={{ background: safeCssUrl(file.url || preview) ? `${safeCssUrl(file.url || preview)} center / cover` : (file.bg || 'var(--bg-subcard)') }} />
         <div className="absolute inset-0 flex items-center justify-center" style={{ color: 'rgba(24,21,28,.28)' }}><Icon name={file.kind === 'video' ? 'video' : 'image'} size={compact ? 20 : 26} /></div>
         {st === 'uploading' && <div className="absolute inset-0 bg-black/25 flex items-center justify-center"><span className="text-white text-[13px] font-bold num">{file.progress}%</span></div>}
         {st === 'failed' && <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(225,29,72,.18)' }}><Icon name="alertCircle" size={24} style={{ color: '#e11d48' }} /></div>}
@@ -1632,13 +1647,16 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
 
 
 function LoadedProduct({id,can}) {
- const query=useApi(sig=>Promise.all([productsApi.show(Number(id),sig),productMediaApi.list(Number(id))]),[id]);
+ const numericId=Number(id);
+ const validId=Number.isSafeInteger(numericId)&&numericId>0;
+ const query=useApi(sig=>validId?Promise.all([productsApi.show(numericId,sig),productMediaApi.list(numericId,sig)]):Promise.reject(new Error('معرّف المنتج غير صالح')),[numericId],{keepPreviousData:false});
+ if(!validId)return <EmptyState title="معرّف المنتج غير صالح" action={<button className="btn btn-ink" onClick={()=>nav('/products')}>العودة للمنتجات</button>}/>;
  if(query.loading) return <Spinner />;
  if(query.error?.status===404)return <EmptyState title="المنتج غير موجود" action={<button className="btn btn-ink" onClick={()=>nav('/products')}>العودة للمنتجات</button>}/>;
  if(query.error?.status===403)return <Forbidden perm="products.view"/>;
  if(query.error) return <ErrorState title={query.error.message} onRetry={query.reload} />;
  const initial={...productFromApi(query.data[0],query.data[1],{canViewCost:can('products.view_cost')}),id:Number(id)};
- return <ProductForm id={id} initial={initial}/>;
+ return <ProductForm key={numericId} id={numericId} initial={initial}/>;
 }
 export function CatalogReference({can,page,isDark = false}) {
  const route=useRoute();

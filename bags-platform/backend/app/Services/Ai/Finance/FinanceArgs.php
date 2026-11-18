@@ -158,7 +158,7 @@ final class FinanceArgs
                 } elseif (in_array($key, $intKeys, true) && is_numeric($converted)) {
                     $args[$key] = (int) $converted;
                 } else {
-                    $args[$key] = $value;
+                    $args[$key] = $converted;
                 }
             } elseif (is_array($value)) {
                 $args[$key] = self::normalizeDigitsInArray($value);

@@ -12,6 +12,8 @@ use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Ai\WriteTool;
 use App\Services\Wholesale\QuotationService;
 use App\Services\Shared\SpokenQuantity;
@@ -22,6 +24,7 @@ final class CreateQuotationForCustomerTool implements WriteTool
         private EntityResolver $resolver,
         private ProposalBuilder $proposals,
         private QuotationService $quotations,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -62,6 +65,9 @@ final class CreateQuotationForCustomerTool implements WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $customer = Customer::query()->find((int) ($args['customer_id'] ?? 0));
         if (! $customer?->isWholesaleApproved()) {
             return ToolOutcome::denied('التاجر لازم يكون جملة أو موزع ومعتمد.', auditable: false);
@@ -82,6 +88,9 @@ final class CreateQuotationForCustomerTool implements WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $customer = Customer::query()->findOrFail((int) $action->args['customer_id']);
         try {
             $draft = $this->quotations->create($customer, [
@@ -108,8 +117,21 @@ final class CreateQuotationForCustomerTool implements WriteTool
             if ($part === '') {
                 continue;
             }
-            $qty = SpokenQuantity::parse($part) ?? 1.0;
-            $query = trim((string) preg_replace('/\d+(\.\d+)?/u', '', $part));
+            if (preg_match('/^\s*(\d+(?:\.\d+)?)\s*[x×*]?\s+(.+)$/u', $part, $m) === 1) {
+                $qty = (float) $m[1];
+                $query = trim($m[2]);
+            } elseif (preg_match('/^(.+?)\s+[x×*]?\s*(\d+(?:\.\d+)?)\s*$/u', $part, $m) === 1) {
+                $query = trim($m[1]);
+                $qty = (float) $m[2];
+            } else {
+                $qty = SpokenQuantity::parse($part) ?? 1.0;
+                $query = $qty !== 1.0
+                    ? trim((string) preg_replace('/^\s*\d+(?:\.\d+)?\s*/u', '', $part))
+                    : $part;
+                if ($query === '') {
+                    $query = $part;
+                }
+            }
             $matches = $this->resolver->variants($actor, $query);
             if (count($matches) !== 1) {
                 return ToolOutcome::picker([

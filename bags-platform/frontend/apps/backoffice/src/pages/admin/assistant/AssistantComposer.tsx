@@ -50,6 +50,7 @@ function Highlight({ text, q }: { text: string; q: string }) {
 export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false, enableCatalog = false, enableInventory = false, enablePricing = false }: Props) {
   const canAttach = enableCatalog || enableInventory || enablePricing;
   const [text, setText] = useState('');
+  const [caret, setCaret] = useState(0);
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [options, setOptions] = useState<Option[]>([]);
@@ -63,10 +64,12 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   const listId = 'as-mention-list';
 
   const canDollar = enableCustomers || enableCatalog;
-  const match = text.match(/(?:^|\s)([@#!$&])([^\s@#!$&]*)$/);
-  const rawMarker = match?.[1];
+  const prefix = text.slice(0, Math.min(caret, text.length));
+  const match = /(^|\s)([@#!$&])([^\s@#!$&]*)$/.exec(prefix);
+  const rawMarker = match?.[2];
   const marker = rawMarker && ((rawMarker !== '$' || canDollar) && (rawMarker !== '&' || enableCatalog)) ? rawMarker : undefined;
-  const query = marker ? match?.[2] : undefined;
+  const query = marker ? match?.[3] : undefined;
+  const mentionStart = marker && match ? caret - (match[3]?.length ?? 0) - marker.length : -1;
   const slash = text.startsWith('/') && !text.includes('\n');
   const commands = slash ? quickCommands.filter(c => c.includes(text.slice(1).trim())) : [];
   const popKey = slash ? `/${text}` : marker ? `${marker}${query}` : '';
@@ -93,7 +96,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
         } else if (marker === '@' && enableInventory) {
           const variants: Option[] = (result.variants ?? []).map(o => ({ entity: 'variant', id: o.id, label: o.label, meta: o.meta }));
           const users: Option[] = (result.users ?? []).map(o => ({ entity: 'user', id: o.id, label: o.label, meta: o.meta }));
-          setOptions([...variants, ...users].slice(0, 10));
+          setOptions([...variants.slice(0, 6), ...users.slice(0, 6)]);
         } else {
           const { key, entity } = markerMeta[marker];
           setOptions((result[key] ?? []).slice(0, 10).map(o => ({ entity, id: o.id, label: o.label, meta: o.meta })));
@@ -115,6 +118,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   useEffect(() => {
     if (!seed) return;
     setText(seed.text);
+    setCaret(seed.text.length);
     setMentions(seed.mentions ?? []);
     requestAnimationFrame(() => { const el = input.current; if (el) { el.focus(); el.setSelectionRange(seed.text.length, seed.text.length); } });
   }, [seed?.n]);
@@ -138,9 +142,13 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   };
 
   // Drop mention chips the user deleted by hand: a mention only survives
-  // while its label is still in the message sent to the server.
+  // while its label still appears on a token boundary in the message.
   useEffect(() => {
-    setMentions(items => (items.length && items.some(m => !text.includes(m.label)) ? items.filter(m => text.includes(m.label)) : items));
+    const hasMentionLabel = (label: string) => {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, 'u').test(text);
+    };
+    setMentions(items => (items.length && items.some(m => !hasMentionLabel(m.label)) ? items.filter(m => hasMentionLabel(m.label)) : items));
   }, [text]);
 
   const submit = async () => {
@@ -148,27 +156,34 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
     const draft = text.trim() || (files.some(f => /\.(csv|txt)$/i.test(f.name)) ? 'عاين ملف استيراد أسعار المرفق' : 'حلّل الصور المرفقة');
     const refs = mentions;
     const attached = files;
-    setText(''); setMentions([]); setFiles([]); setOptions([]);
+    setText(''); setCaret(0); setMentions([]); setFiles([]); setOptions([]);
     if (!await onSend(draft, undefined, refs, attached.length ? attached : undefined)) {
-      setText(draft); setMentions(refs); setFiles(attached);
+      setText(draft); setCaret(draft.length); setMentions(refs); setFiles(attached);
     }
     input.current?.focus();
   };
 
   const pickMention = (o: Option) => {
-    setText(t => t.replace(/([@#!$&])([^\s@#!$&]*)$/, () => `${o.label} `));
+    if (mentionStart < 0 || !marker) return;
+    const next = `${text.slice(0, mentionStart)}${o.label} ${text.slice(caret)}`;
+    const nextCaret = mentionStart + o.label.length + 1;
+    setText(next);
+    setCaret(nextCaret);
     setMentions(items => [...items.filter(m => m.id !== o.id || m.entity !== o.entity), { entity: o.entity, id: o.id, label: o.label }]);
-    input.current?.focus();
+    requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(nextCaret, nextCaret); });
   };
   const pickCommand = (c: string) => {
     const expanded = COMMAND_PROMPTS[c] ?? `${c} `;
     setText(expanded);
+    setCaret(expanded.length);
     setDismissed(`//${expanded}`);
     input.current?.focus();
   };
   const insertMarker = (m: string) => {
     setDismissed('');
-    setText(t => (t === '' || /\s$/.test(t) ? `${t}${m}` : `${t} ${m}`));
+    const next = text === '' || /\s$/.test(text) ? `${text}${m}` : `${text} ${m}`;
+    setText(next);
+    setCaret(next.length);
     input.current?.focus();
   };
 
@@ -225,7 +240,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
         <div className="as-pop" role="dialog" aria-label={slash ? 'الأوامر السريعة' : 'اقتراحات المنشن'}>
           <div className="as-pop-head">
             <Icon name={slash ? 'command' : entityIcon[meta!.entity]} size={14} />
-            <strong>{slash ? 'الأوامر السريعة' : meta!.title}</strong>
+            <strong>{slash ? 'الأوامر السريعة' : (marker === '@' && enableInventory ? 'الأصناف والموظفين' : meta!.title)}</strong>
             {!slash && query ? <span>· «{query}»</span> : null}
             <span className="as-kbdrow as-only-desktop"><span className="as-kbd">↑</span><span className="as-kbd">↓</span> تنقّل <span className="as-kbd">↵</span> اختيار <span className="as-kbd">Esc</span></span>
           </div>
@@ -307,7 +322,8 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
           maxLength={MAX}
           disabled={busy}
           rows={1}
-          onChange={e => { setText(e.target.value); if (dismissed && !e.target.value) setDismissed(''); }}
+          onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart); if (dismissed && !e.target.value) setDismissed(''); }}
+          onSelect={e => setCaret(e.currentTarget.selectionStart)}
           placeholder={busy ? 'المساعد بيجهّز الرد…' : `اكتب طلبك… استخدم @ للموظفين، # للفروع، ! للأدوار،${canDollar ? ' $ للمنتجات والعملاء،' : ''}${enableCatalog ? ' & للأقسام،' : ''} / للأوامر`}
           onKeyDown={onKeyDown}
         />

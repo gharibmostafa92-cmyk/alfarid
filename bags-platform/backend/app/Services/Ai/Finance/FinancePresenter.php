@@ -15,6 +15,15 @@ final class FinancePresenter
         'current_balance', 'balance_after', 'balance_before', 'projected_balance', 'total_in', 'total_out', 'net',
         'from_balance', 'to_balance', 'opening_balance', 'ending_balance', 'difference', 'wallet_balance',
         'current', 'projected', 'cash', 'bank', 'coverage_days',
+        'reserved', 'shortfall', 'excess', 'available', 'cash_sales', 'shortage', 'surplus',
+        'balance', 'amount', 'total', 'previous_total', 'discount_total', 'grand_total',
+        'debt', 'linked_open_notices', 'free_pool', 'allocated', 'allocated_open', 'floating_credit',
+        '0_30', '31_60', '61_90', 'over_90',
+        'credit_limit', 'used_credit', 'available_credit', 'outstanding', 'aging',
+        'expenses', 'daily_expense_avg', 'pending_in', 'pending_out', 'expected_in', 'expected_out',
+        'paid_amount', 'amount_due', 'total_amount', 'order_total', 'subtotal', 'discount_amount',
+        'tax_amount', 'unit_price', 'list_price', 'offered_unit_price', 'requested_target_price',
+        'line_total', 'debit', 'credit', 'income', 'revenue', 'sales', 'sales_total',
     ];
 
     public function __construct(private SettingService $settings) {}
@@ -60,7 +69,24 @@ final class FinancePresenter
 
                 continue;
             }
-            $out[$key] = is_array($value) ? $this->maskBalances($value) : $value;
+            if ($key === 'prompt' && is_string($value) && str_starts_with($value, 'حوّل ')) {
+                $out[$key] = (string) preg_replace('/^حوّل\s+[0-9.,]+\s+/', 'حوّل المبلغ المطلوب ', $value);
+
+                continue;
+            }
+            if (is_array($value)) {
+                $out[$key] = $this->maskBalances($value);
+
+                continue;
+            }
+            if (is_string($value)) {
+                $value = (string) preg_replace('/(?<![\p{L}\p{N}])[0-9][0-9,]*(?:\.[0-9]{1,2})?\s*ج\.م/u', 'المبلغ مخفي', $value);
+                $value = (string) preg_replace('/((?:مبلغ|متوسط|الرصيد|رصيد|عجز|زيادة|إجمالي|المبيعات|مصروفات?|فيها|حوّل)\s*)[0-9][0-9,]*(?:\.[0-9]+)?/u', '$1المبلغ مخفي', $value);
+                if ($key === 'label') {
+                    $value = (string) preg_replace('/(راجع تحويل فائض الأدراج\s*)\([^)]*\)/u', '$1(المبلغ مخفي)', $value);
+                }
+            }
+            $out[$key] = $value;
         }
 
         return $out;

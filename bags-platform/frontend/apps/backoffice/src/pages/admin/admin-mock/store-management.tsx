@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon, Toggle, toast } from './ui';
 import { adminApi } from './api/endpoints';
-import { fromApi, toFormData } from './banner-mappers';
+import { fromApi, localInputToDate, toFormData } from './banner-mappers';
 import { normalizeError } from '../catalog/errors';
 
 // ============ Store management · Banners & Slider ============
@@ -47,8 +47,10 @@ export function bnStatus(b: BannerItem): 'disabled' | 'scheduled' | 'expired' | 
   if (b.status) return b.status;
   const now = new Date();
   if (!b.active) return 'disabled';
-  if (b.start && new Date(b.start) > now) return 'scheduled';
-  if (b.end && new Date(b.end) < now) return 'expired';
+  const start = localInputToDate(b.start);
+  const end = localInputToDate(b.end);
+  if (start && start > now) return 'scheduled';
+  if (end && end < now) return 'expired';
   return 'live';
 }
 
@@ -61,10 +63,11 @@ export const BN_STATUS: Record<string, { label: string; cls: string }> = {
 
 export const bnDate = (s?: string) => {
   if (!s) return null;
-  const d = new Date(s);
+  const d = localInputToDate(s) ?? new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
   return {
-    d: d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-    t: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    d: d.toLocaleDateString('en-GB', { timeZone: 'Africa/Cairo', day: '2-digit', month: '2-digit', year: 'numeric' }),
+    t: d.toLocaleTimeString('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' }),
   };
 };
 
@@ -342,8 +345,18 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
     if (f.linkType === 'category' && !f.linkId) e.linkId = 'اختر القسم';
     if (f.linkType === 'brand' && !f.linkId) e.linkId = 'اختر البراند';
     if (f.linkType === 'external') {
-      if (!f.url?.trim()) e.url = 'أدخل الرابط';
-      else if (!/^https:\/\/\S+\.\S+/.test(f.url.trim())) e.url = 'الرابط يجب أن يبدأ بـ https:// ويكون صالحًا';
+      const trimmedUrl = f.url?.trim() ?? '';
+      if (!trimmedUrl) e.url = 'أدخل الرابط';
+      else {
+        try {
+          const parsed = new URL(trimmedUrl);
+          if (parsed.protocol !== 'https:' || !parsed.hostname.includes('.')) {
+            e.url = 'الرابط يجب أن يبدأ بـ https:// ويكون صالحًا';
+          }
+        } catch {
+          e.url = 'الرابط يجب أن يبدأ بـ https:// ويكون صالحًا';
+        }
+      }
     }
     if (sortStr === '') e.sort = 'أدخل ترتيب الظهور';
     else if (!Number.isInteger(Number(sortStr)) || Number(sortStr) < 0 || Number(sortStr) > 9999) e.sort = 'الترتيب يجب أن يكون رقمًا من 0 إلى 9999';
@@ -440,6 +453,13 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
     );
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) closeForm(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, busy]);
+
   if (!open) return null;
 
   return (
@@ -449,6 +469,8 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
       onMouseDown={e => e.target === e.currentTarget && !busy && closeForm()}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         className="v-card w-full shadow-2xl flex flex-col max-h-[92vh] rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] v-pop-in pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         style={{ maxWidth: 760 }}
       >
@@ -709,10 +731,11 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
               <div className="flex items-center gap-1.5">
                 <input
                   type="datetime-local"
-                  className="inp num text-start text-[12px]"
+                  className={`inp num text-start text-[12px] ${err.start ? 'err' : ''}`}
                   value={f.start || ''}
-                  onChange={e => { set('start', e.target.value); setErr(x => ({ ...x, end: null })); }}
+                  onChange={e => { set('start', e.target.value); setErr(x => ({ ...x, start: null, end: null })); }}
                 />
+                {err.start && <div className="text-[11px] mt-1 font-medium" style={{ color: 'var(--badge-red-text)' }}>{err.start}</div>}
                 {f.start && (
                   <button type="button" className="icon-btn shrink-0" title="مسح" onClick={() => set('start', '')}>
                     <Icon name="close" className="w-3.5 h-3.5" />
@@ -788,7 +811,7 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
 // ============ Main Store Management Screen Component ============
 export function StoreManagementTab({ can }: { can?: (perm: string) => boolean }) {
   const toggleInFlight = useRef(new Set<string>());
-  const canEdit = can ? (can('store.manage') || can('*')) : true;
+  const canEdit = can ? can('store.manage') : false;
 
   const [tab, setTab] = useState<'slider' | 'middle' | 'popup'>(() => {
     try {
@@ -805,14 +828,18 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [items, setItems] = useState<BannerItem[]>([]);
 
-  const loadBanners = React.useCallback(() => {
+  const loadBanners = React.useCallback((signal?: AbortSignal) => {
     setPhase('loading');
-    adminApi.listBanners()
-      .then((list) => { setItems(list.map(fromApi)); setPhase('ready'); })
-      .catch(() => setPhase('error'));
+    adminApi.listBanners(signal)
+      .then((list) => { if (!signal?.aborted) { setItems(list.map(fromApi)); setPhase('ready'); } })
+      .catch(() => { if (!signal?.aborted) setPhase('error'); });
   }, []);
 
-  useEffect(() => { loadBanners(); }, [loadBanners]);
+  useEffect(() => {
+    const controller = new AbortController();
+    loadBanners(controller.signal);
+    return () => controller.abort();
+  }, [loadBanners]);
 
   const [q, setQ] = useState('');
   const [sf, setSf] = useState<string>('all');
@@ -851,6 +878,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
           else if (k === 'image') out.image = msgs[0];
           else if (k === 'link_value') out[f.linkType === 'external' ? 'url' : 'linkId'] = msgs[0];
           else if (k === 'sort_order') out.sort = msgs[0];
+          else if (k === 'starts_at') out.start = msgs[0];
           else if (k === 'ends_at') out.end = msgs[0];
           else generalError ??= msgs[0];
         });
@@ -1030,7 +1058,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
             <div className="v-subcard py-14 px-6 flex flex-col items-center text-center rounded-2xl fade-in">
               <Icon name="info" className="w-6 h-6 c-muted mb-2" />
               <div className="font-display text-[15px] font-semibold c-primary">تعذّر تحميل البانرات</div>
-              <button type="button" className="btn btn-dark btn-sm mt-4" onClick={loadBanners}>إعادة المحاولة</button>
+              <button type="button" className="btn btn-dark btn-sm mt-4" onClick={() => loadBanners()}>إعادة المحاولة</button>
             </div>
           )}
 
@@ -1221,7 +1249,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
           style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(4px)' }}
           onMouseDown={e => e.target === e.currentTarget && !delBusy && setDel(null)}
         >
-          <div className="v-card p-6 w-full max-w-md shadow-2xl v-pop-in space-y-4 rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div role="dialog" aria-modal="true" className="v-card p-6 w-full max-w-md shadow-2xl v-pop-in space-y-4 rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex items-start justify-between gap-4">
               <h3 className="font-display text-[18px] font-semibold c-primary">حذف البانر؟</h3>
               <button

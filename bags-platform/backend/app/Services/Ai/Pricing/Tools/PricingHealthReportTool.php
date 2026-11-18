@@ -171,7 +171,7 @@ final class PricingHealthReportTool implements AgentTool
         ];
 
         // 6. Wholesale >= retail.
-        $priceInversions = $this->findPriceInversions($allItems);
+        $priceInversions = $this->findPriceInversions($allItems, $lists);
         $checks[] = [
             'key' => 'wholesale_gte_retail',
             'label' => 'جملة ≥ قطاعي لنفس المتغير',
@@ -354,13 +354,26 @@ final class PricingHealthReportTool implements AgentTool
         $candidates = $items->filter(fn ($item) => $item->variant?->cost_price > 0
             && in_array($lists->get($item->price_list_id)?->type, [PriceListType::Retail, PriceListType::Wholesale, PriceListType::Distributor], true))
             ->take(30);
+        $candidateVariantIds = $candidates->pluck('product_variant_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
         foreach ($groups as $group) {
+            $contexts = [];
             foreach ($candidates as $item) {
                 $type = CustomerType::from($lists->get($item->price_list_id)->type->value);
+                if (isset($contexts[$type->value])) {
+                    continue;
+                }
                 $customer = new Customer(['type' => $type, 'status' => CustomerStatus::Approved]);
                 $customer->setRelation('customerGroup', $group);
+                $contexts[$type->value] = [
+                    'customer' => $customer,
+                    'pricing' => $this->pricing->contextFor($customer, $candidateVariantIds, $branchId),
+                ];
+            }
+            foreach ($candidates as $item) {
+                $type = CustomerType::from($lists->get($item->price_list_id)->type->value);
+                $context = $contexts[$type->value];
                 try {
-                    $resolved = $this->pricing->resolve($item->variant, $customer, (float) $item->min_qty, $branchId);
+                    $resolved = $this->pricing->resolve($item->variant, $context['customer'], (float) $item->min_qty, $branchId, $context['pricing']);
                 } catch (BusinessException) {
                     continue;
                 }
@@ -385,10 +398,14 @@ final class PricingHealthReportTool implements AgentTool
      * @param  \Illuminate\Support\Collection<int, PriceListItem>  $items
      * @return list<string>
      */
-    private function findPriceInversions($items): array
+    private function findPriceInversions($items, $lists = null): array
     {
         $flagged = [];
         foreach ($items as $item) {
+            $list = $lists->get($item->price_list_id);
+            if (! in_array($list?->type, [PriceListType::Wholesale, PriceListType::Distributor], true)) {
+                continue;
+            }
             $retail = $item->variant?->retail_price !== null ? (float) $item->variant->retail_price : null;
             if ($retail === null) {
                 continue;
@@ -434,7 +451,7 @@ final class PricingHealthReportTool implements AgentTool
             foreach ($variants as $variant) {
                 $variantId = $variant->id;
                 try {
-                    $resolved = $this->pricing->resolve($variant, $customer)['unit_price'];
+                    $resolved = round((float) $this->pricing->resolve($variant, $customer)['unit_price'], 2);
                 } catch (BusinessException) {
                     $resolved = null;
                 }

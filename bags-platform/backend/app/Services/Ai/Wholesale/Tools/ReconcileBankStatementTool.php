@@ -8,11 +8,13 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\BankStatementMatcher;
 
 final class ReconcileBankStatementTool implements AgentTool
 {
-    public function __construct(private BankStatementMatcher $matcher) {}
+    public function __construct(private BankStatementMatcher $matcher, private BranchAccess $branches) {}
 
     public function name(): string
     {
@@ -49,6 +51,9 @@ final class ReconcileBankStatementTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $rows = $args['rows'] ?? [];
         if (! is_array($rows) || $rows === []) {
             return ToolOutcome::denied('ارفع صفوف الكشف: مبلغ ومرجع وتاريخ ووصف.', auditable: false);
@@ -59,7 +64,25 @@ final class ReconcileBankStatementTool implements AgentTool
                 $row['draft'] = 'وصلنا '.($row['amount'] ?? '').'، نسجله على الحساب؟';
             }
         }
+        unset($row);
 
-        return ToolOutcome::present($matched, ['type' => 'table', 'rows' => $matched], 'نتيجة مطابقة الكشف');
+        $tableRows = [];
+        foreach (['matched' => 'مطابق', 'possible' => 'محتمل', 'unmatched' => 'بدون إشعار'] as $bucket => $label) {
+            foreach ((array) ($matched[$bucket] ?? []) as $entry) {
+                $tableRows[] = [
+                    $label,
+                    (string) ($entry['amount'] ?? ''),
+                    (string) ($entry['reference'] ?? ''),
+                    (string) ($entry['date'] ?? ''),
+                    (string) ($entry['notice_number'] ?? ($entry['suggestion']['name'] ?? '')),
+                ];
+            }
+        }
+
+        return ToolOutcome::present($matched, [
+            'type' => 'table',
+            'columns' => ['الحالة', 'المبلغ', 'المرجع', 'التاريخ', 'الإشعار / المقترح'],
+            'rows' => $tableRows,
+        ], 'نتيجة مطابقة الكشف');
     }
 }

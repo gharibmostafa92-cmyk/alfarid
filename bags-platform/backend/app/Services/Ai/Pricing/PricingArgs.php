@@ -34,7 +34,7 @@ final class PricingArgs
                 } elseif (in_array($key, ['sku', 'barcode', 'code'], true)) {
                     $args[$key] = strtoupper(trim($converted));
                 } else {
-                    $args[$key] = $value;
+                    $args[$key] = $converted;
                 }
             } elseif (is_array($value)) {
                 $args[$key] = self::normalize($value);

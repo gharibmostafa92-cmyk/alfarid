@@ -201,7 +201,20 @@ export default function AssistantAdministration({ can }: { can: (permission: str
 
           {settings && original ? (
             <form className="as-card" onSubmit={async e => {
-              e.preventDefault(); setSaving(true); setNotice(null);
+              e.preventDefault(); setNotice(null);
+              for (const [k, raw] of Object.entries(drafts)) {
+                if (raw.trim() === '') {
+                  setNotice({ tone: 'danger', text: `يرجى إدخال قيمة رقمية صالحة للحقل (${k}).` });
+                  return;
+                }
+                const n = Number(raw);
+                const numericField = NUMERIC_FIELDS.find(([field]) => field === k);
+                if (!Number.isInteger(n) || !numericField || n < numericField[3] || n > numericField[4]) {
+                  setNotice({ tone: 'danger', text: `القيمة المدخلة للحقل (${k}) يجب أن تكون عددًا صحيحًا بين ${numericField?.[3] ?? 0} و ${numericField?.[4] ?? 0}.` });
+                  return;
+                }
+              }
+              setSaving(true);
               // Changed-keys-only delta: the backend 422s unless data and
               // expected share identical key sets, and a full-object save
               // would clobber the other tab's edits with stale values.

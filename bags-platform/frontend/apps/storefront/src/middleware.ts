@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { parseSentryDsnOrigin } from './lib/core/sentry-telemetry';
 
 function blockedStoreMediaSegment(segment: string): boolean {
   if (!segment || segment.includes('\\') || /[\u0000-\u001f\u007f]/.test(segment)) return true;
@@ -47,13 +48,14 @@ export function middleware(request: NextRequest) {
   const reverbHost = process.env.NEXT_PUBLIC_REVERB_HOST || 'localhost';
   const reverbPort = process.env.NEXT_PUBLIC_REVERB_PORT || '8080';
   const socket = `${process.env.NEXT_PUBLIC_REVERB_SCHEME === 'https' ? 'wss' : 'ws'}://${reverbHost}:${reverbPort}`;
+  const sentryIngest = parseSentryDsnOrigin(process.env.NEXT_PUBLIC_SENTRY_DSN);
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://challenges.cloudflare.com${development ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' https: data: blob:" + (development ? ` http://localhost:8000 http://127.0.0.1:8000${api.protocol === 'http:' ? ` ${api.origin}` : ''}` : ''),
-    `connect-src 'self' ${api.origin} ${socket}${development ? ' ws: wss:' : ''}`,
+    `connect-src 'self' ${api.origin} ${socket}${sentryIngest ? ` ${sentryIngest}` : ''}${development ? ' ws: wss:' : ''}`,
     `frame-src 'self' ${office.origin} https://challenges.cloudflare.com`,
     "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; ');

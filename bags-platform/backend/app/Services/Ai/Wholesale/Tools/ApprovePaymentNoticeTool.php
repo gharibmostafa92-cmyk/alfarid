@@ -13,7 +13,9 @@ use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
@@ -23,6 +25,7 @@ final class ApprovePaymentNoticeTool implements LocksTargets, WriteTool
         private ProposalBuilder $proposals,
         private SettingService $settings,
         private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -63,9 +66,13 @@ final class ApprovePaymentNoticeTool implements LocksTargets, WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->with('customer')->find((int) ($args['notice_id'] ?? 0));
+        $notice = WholesalePaymentNotice::query()->with(['customer', 'order', 'treasury'])->find((int) ($args['notice_id'] ?? 0));
         if ($notice === null || $notice->status !== WholesalePaymentNoticeStatus::PendingReview) {
             return ToolOutcome::denied('إشعار السداد مش موجود أو اتعمله مراجعة.', auditable: false);
+        }
+        $treasuryId = isset($args['treasury_id']) ? (int) $args['treasury_id'] : null;
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice, $treasuryId)) {
+            return $denied;
         }
         $amount = number_format((float) $notice->amount, 2, '.', '');
         $collisions = $this->notices->receiptCollisions($notice);
@@ -108,6 +115,10 @@ final class ApprovePaymentNoticeTool implements LocksTargets, WriteTool
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        $treasuryId = isset($action->args['treasury_id']) ? (int) $action->args['treasury_id'] : null;
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice, $treasuryId)) {
+            return $denied;
+        }
         if (($action->expected_versions['n:'.$notice->id] ?? null) !== (string) $notice->updated_at) {
             return ToolOutcome::denied('الإشعار اتغير بعد الاقتراح.', auditable: false);
         }

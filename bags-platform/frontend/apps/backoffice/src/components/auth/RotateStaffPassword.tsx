@@ -11,22 +11,40 @@ type RotationError = {
   };
 };
 
+export function validateNewStaffPassword(password: string, confirmation: string): string | null {
+  if (password.length < 12) return 'يجب أن تتكون كلمة المرور من ١٢ خانة على الأقل.';
+  if (!/[A-Za-z\p{L}]/u.test(password) || !/\d/.test(password)) {
+    return 'يجب أن تتضمن كلمة المرور حروفًا وأرقامًا.';
+  }
+  if (password !== confirmation) return 'كلمتا المرور غير متطابقتين.';
+  return null;
+}
+
 export function RotateStaffPassword({ token, version }: { token: string; version?: number }) {
   const logout = useAuthStore((state) => state.logoutRemote);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [requiresReload, setRequiresReload] = useState(version == null);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending || version == null || requiresReload) return;
     const form = new FormData(event.currentTarget);
+    const currentPassword = String(form.get('current_password') ?? '');
+    const nextPassword = String(form.get('password') ?? '');
+    const confirmation = String(form.get('password_confirmation') ?? '');
+    const clientError = validateNewStaffPassword(nextPassword, confirmation);
+    if (clientError) {
+      setError(clientError);
+      return;
+    }
     setPending(true);
     setError('');
     try {
       const profile = await authEndpoints.staffRotatePassword({
-        current_password: String(form.get('current_password')),
-        password: String(form.get('password')),
+        current_password: currentPassword,
+        password: nextPassword,
         expected_version: version,
       }, token);
       const session = useAuthStore.getState();
@@ -51,11 +69,17 @@ export function RotateStaffPassword({ token, version }: { token: string; version
         <h1 id="staff-rotation-title">تغيير كلمة المرور</h1>
         <p>استبدل كلمة المرور المؤقتة للمتابعة.</p>
         <label htmlFor="staff-current-password">كلمة المرور الحالية</label>
-        <input id="staff-current-password" name="current_password" type="password" autoComplete="current-password"
+        <input id="staff-current-password" name="current_password" type={showPasswords ? 'text' : 'password'} autoComplete="current-password"
           dir="ltr" autoFocus required maxLength={255} disabled={pending || requiresReload} />
         <label htmlFor="staff-new-password">كلمة المرور الجديدة</label>
-        <input id="staff-new-password" name="password" type="password" autoComplete="new-password" dir="ltr"
+        <input id="staff-new-password" name="password" type={showPasswords ? 'text' : 'password'} autoComplete="new-password" dir="ltr"
           aria-describedby="staff-password-hint" required minLength={12} maxLength={255} disabled={pending || requiresReload} />
+        <label htmlFor="staff-confirm-password">تأكيد كلمة المرور الجديدة</label>
+        <input id="staff-confirm-password" name="password_confirmation" type={showPasswords ? 'text' : 'password'} autoComplete="new-password" dir="ltr"
+          required minLength={12} maxLength={255} disabled={pending || requiresReload} />
+        <button type="button" className="staff-rotation__logout" onClick={() => setShowPasswords((v) => !v)} disabled={pending}>
+          {showPasswords ? 'إخفاء كلمات المرور' : 'إظهار كلمات المرور'}
+        </button>
         <p id="staff-password-hint" className="staff-rotation__hint">استخدم ١٢ خانة على الأقل تتضمن حروفًا وأرقامًا.</p>
         {(error || requiresReload) && (
           <p role="alert" className="staff-rotation__error">{error || 'أعد تحميل الصفحة لتحديث بيانات حسابك.'}</p>
@@ -67,7 +91,7 @@ export function RotateStaffPassword({ token, version }: { token: string; version
             {pending ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}
           </button>
         )}
-        <button type="button" className="staff-rotation__logout" onClick={() => void logout('unified')} disabled={pending}>تسجيل الخروج</button>
+        <button type="button" className="staff-rotation__logout" onClick={() => void logout('staff')} disabled={pending}>تسجيل الخروج</button>
       </form>
     </main>
   );

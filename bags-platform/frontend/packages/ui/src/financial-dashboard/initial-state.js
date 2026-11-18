@@ -1,3 +1,7 @@
+// Resolve the requested theme explicitly. Toggling whenever the target equals
+// the current mode inverted the requested state for external callers.
+export const resolveDarkMode = targetDark => targetDark === true;
+
 // Original sample values and labels, intentionally preserved.
 export const initialState = {
   currentView: 'overview',

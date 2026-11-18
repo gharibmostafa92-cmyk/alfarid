@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement("SET LOCAL lock_timeout = '3s'");
         DB::unprepared(<<<'SQL'
             CREATE OR REPLACE FUNCTION mark_changed_stock_level_for_reconciliation() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -45,6 +49,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::unprepared(<<<'SQL'
             DROP TRIGGER stock_levels_reconciliation_update ON stock_levels;
             CREATE OR REPLACE TRIGGER stock_levels_reconciliation_work

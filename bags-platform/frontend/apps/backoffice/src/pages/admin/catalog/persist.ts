@@ -1,5 +1,6 @@
 import { productsApi, variantsApi, productMediaApi } from "@alfarid/api-client";
 import { productToPayload, variantToPayload } from "./mappers";
+import { createClientRequestId } from "../../../lib/idempotency";
 
 // Save each successful identity immediately, so a retry cannot create duplicate rows/files.
 export async function persistProduct(
@@ -50,7 +51,7 @@ export async function persistProduct(
     }
   };
   if (!next.id) {
-    next.createKey ??= crypto.randomUUID();
+    next.createKey ??= createClientRequestId();
     onState(next);
     let created;
     try {
@@ -329,7 +330,7 @@ export async function persistProduct(
       while (pending.length) {
         const file = pending.shift();
         try {
-          file.clientUploadId ??= crypto.randomUUID();
+          file.clientUploadId ??= createClientRequestId();
           file.status = "uploading";
           onState({ ...next });
           const saved = await productMediaApi.uploadImages(

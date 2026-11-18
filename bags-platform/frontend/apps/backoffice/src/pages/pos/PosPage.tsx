@@ -14,15 +14,18 @@ export function PosPage() {
   const canCount = useCan('stocktakes.update');
   const canCreateSales = useCan('pos.sales.create');
 
+  const branchId = user?.branch_id ?? user?.branch?.id;
+  const mountFullPos = Boolean(branchId && canPos && canCreateSales);
+
   useEffect(() => {
+    if (!mountFullPos) return;
     pos.syncActor(user);
-  }, [user]);
+  }, [user, mountFullPos]);
 
   useEffect(() => {
     // The voice-count view below renders its own inline styles: only inject
     // the heavy POS bundle when the full POS app actually mounts.
-    if (!canCreateSales) return;
-    const hadDark = document.documentElement.classList.contains('theme-dark');
+    if (!mountFullPos) return;
     const styleEl = document.createElement('style');
     styleEl.setAttribute('data-pos-styles', '');
     styleEl.textContent = `${tokensCss}\n${posCss}`;
@@ -30,13 +33,16 @@ export function PosPage() {
 
     return () => {
       styleEl.remove();
-      // Restore the host theme instead of wiping it: the POS shell may add
-      // theme-dark, but a dark-mode backoffice must stay dark afterwards.
-      document.documentElement.classList.toggle('theme-dark', hadDark);
+      // Read the host theme at cleanup time because the dashboard may switch
+      // themes while POS is mounted. A render-time snapshot can go stale.
+      const root = document.documentElement;
+      const currentTheme = root.getAttribute('data-theme');
+      const viewportIsDark = document.getElementById('app-viewport')?.classList.contains('theme-dark') ?? false;
+      const shouldBeDark = currentTheme === 'dark' || (currentTheme !== 'light' && viewportIsDark);
+      root.classList.toggle('theme-dark', shouldBeDark);
     };
-  }, [canCreateSales]);
+  }, [mountFullPos]);
 
-  const branchId = user?.branch_id ?? user?.branch?.id;
   if (!branchId) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">

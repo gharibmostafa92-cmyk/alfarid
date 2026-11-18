@@ -92,5 +92,10 @@ export const DOC_TYPES: DocType[] = [
   { key: 'delivery', label: 'أذون التسليم والشحن' },
   { key: 'supplier_invoice', label: 'فواتير الموردين' },
   { key: 'supplier_payment', label: 'سندات صرف الموردين' },
+  { key: 'expense', label: 'المصروفات' },
+  { key: 'payment_notice', label: 'إشعارات الدفع' },
+  { key: 'pos_invoice', label: 'فواتير نقطة البيع' },
+  { key: 'shift', label: 'الورديات' },
+  { key: 'treasury_transfer', label: 'تحويلات الخزينة' },
 ];
 

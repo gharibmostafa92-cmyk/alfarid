@@ -51,12 +51,13 @@ test('protected files isolate the new tab and use the fetched bytes for blocked 
   const previous = { window: global.window, document: global.document, setTimeout: global.setTimeout,
     createObjectURL: URL.createObjectURL, revokeObjectURL: URL.revokeObjectURL };
   let requests = 0, clicks = 0, closes = 0, opened, fetched;
-  const tab = { opener: { location: 'admin' }, location: { href: '' }, close() { closes++; } };
-  global.window = { open() { opened = tab; return tab; } };
+  const tab = { opener: { location: 'admin' }, location: { href: '' }, close() { closes++; }, addEventListener(name, callback) { this[name] = callback; } };
+  global.window = { open() { opened = tab; return tab; }, setTimeout() { return 1; } };
   global.document = { body: { appendChild() {} }, createElement: () => ({ click() { clicks++; }, remove() {} }) };
   global.setTimeout = () => 1;
   URL.createObjectURL = blob => { fetched = blob; return 'blob:safe'; };
-  URL.revokeObjectURL = () => {};
+  let revocations = 0;
+  URL.revokeObjectURL = () => { revocations++; };
   let type = 'application/pdf';
   const files = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: { get: async () => {
     requests++; return { data: new Blob(['contents'], { type }), headers: { 'content-type': type } };
@@ -66,6 +67,10 @@ test('protected files isolate the new tab and use the fetched bytes for blocked 
     assert.equal(opened.opener, null);
     assert.equal(opened.location.href, 'blob:safe');
     assert.equal(fetched.type, 'application/pdf');
+    assert.equal(typeof opened.pagehide, 'function', 'the blob URL should be released when its tab closes');
+    opened.pagehide();
+    opened.pagehide();
+    assert.equal(revocations, 1, 'the release handler must be idempotent');
     type = 'text/html';
     await files.openProtectedFile('/unsafe');
     assert.equal(requests, 2, 'unsafe files must download the existing response without another fetch');
@@ -187,6 +192,25 @@ test('idempotent posts reuse a retry key, rotate for changed input, and clear af
   await requests.idempotentPost('/payments/1/approve', { amount: '13.00' });
   await requests.idempotentPost('/payments/1/approve', { amount: '13.00' });
   assert.notEqual(keys[3], keys[4], 'a completed action must not reuse its key');
+});
+
+test('idempotent posts isolate payloads on one URL and discard keys after permanent validation errors', async () => {
+  const keys = [];
+  let status = 500;
+  const client = { post: async (_url, body, config) => {
+    keys.push({ body, key: config.headers['Idempotency-Key'] });
+    throw { response: { status } };
+  } };
+  const requests = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: client } });
+  await assert.rejects(requests.idempotentPost('/returns', { order_id: 101 }));
+  await assert.rejects(requests.idempotentPost('/returns', { order_id: 102 }));
+  await assert.rejects(requests.idempotentPost('/returns', { order_id: 101 }));
+  assert.equal(keys[0].key, keys[2].key, 'a retry must recover its matching URL and payload key');
+  assert.notEqual(keys[0].key, keys[1].key, 'different payloads on the same URL are independent');
+  status = 422;
+  await assert.rejects(requests.idempotentPost('/returns', { order_id: 101 }));
+  await assert.rejects(requests.idempotentPost('/returns', { order_id: 101 }));
+  assert.notEqual(keys[3].key, keys[4].key, 'a permanent 4xx must release its key');
 });
 
 test('signedAttachmentUrl rejects insecure http:// and untrusted external hosts', async () => {

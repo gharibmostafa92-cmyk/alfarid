@@ -24,7 +24,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class EvaluateAiAgent extends Command
 {
-    protected $signature = 'ai:evaluate {--finance : Evaluate the finance benchmark} {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--toolsets : Route declarations by domain to compare with the full tool list} {--min-accuracy=}';
+    protected $signature = 'ai:evaluate {--finance : Evaluate the finance benchmark} {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--toolsets : Route declarations by domain to compare with the full tool list} {--min-accuracy=} {--force : Allow running live AI evaluation in production}';
 
     private float $lastRequestAt = 0;
 
@@ -62,6 +62,11 @@ final class EvaluateAiAgent extends Command
             $this->info(count($ids).' evaluation cases validated; no provider calls made.');
 
             return self::SUCCESS;
+        }
+        if (app()->isProduction() && ! $this->option('force')) {
+            $this->error('Refusing to run live AI evaluation in production without --force.');
+
+            return self::FAILURE;
         }
         $cases = $dataset['cases'];
         if ($selected = $this->option('case')) {

@@ -13,6 +13,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Sentry\Laravel\Facade as Sentry;
+use Sentry\Tracing\SpanContext;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -28,7 +30,28 @@ class AiMessageController extends Controller
         $orchestrator->guard($request->user('staff'));
 
         return response()->stream(function () use ($request, $conversation, $orchestrator, $data): void {
-            $emit = static function (string $event, array $payload): void {
+            $startedAt = microtime(true);
+            $streamSpan = Sentry::getSpan()?->startChild(
+                SpanContext::make()
+                    ->setOp('ai.stream')
+                    ->setDescription('ai.stream')
+                    ->setStartTimestamp($startedAt),
+            );
+            $firstOutputRecorded = false;
+            $emit = static function (string $event, array $payload) use ($streamSpan, $startedAt, &$firstOutputRecorded): void {
+                if ($event === 'reply'
+                    && ! $firstOutputRecorded
+                    && is_string($payload['text'] ?? null)
+                    && $payload['text'] !== '') {
+                    $firstOutputRecorded = true;
+                    $streamSpan?->startChild(
+                        SpanContext::make()
+                            ->setOp('ai.stream.first_output')
+                            ->setDescription('ai.stream.first_output')
+                            ->setStartTimestamp($startedAt),
+                    )->finish();
+                }
+
                 echo 'event: '.$event."\n".'data: '.json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n\n";
                 if (ob_get_level() > 0) {
                     ob_flush();
@@ -50,6 +73,8 @@ class AiMessageController extends Controller
                     report($e);
                 }
                 $emit('error', ['message' => $status < 500 ? $e->getMessage() : 'تعذر إتمام طلب المساعد. حاول مرة تانية.', 'status' => $status]);
+            } finally {
+                $streamSpan?->finish();
             }
         }, 200, ['Content-Type' => 'text/event-stream', 'Cache-Control' => 'no-cache, no-store', 'X-Accel-Buffering' => 'no']);
     }
@@ -74,8 +99,8 @@ class AiMessageController extends Controller
     {
         return $request->validate([
             'text' => ['nullable', 'string', 'max:8000'],
-            'selection' => ['nullable', 'array:entity,id,label'], 'selection.entity' => ['required_with:selection', 'in:branch,user,role,permission,location,customer,customer_group,category,product,variant,transfer,stocktake,production_receipt'], 'selection.id' => ['required_with:selection', Rule::when($request->input('selection.entity') !== 'permission', ['integer', 'min:1'], ['string', 'max:255'])], 'selection.label' => ['nullable', 'string', 'max:255'],
-            'mentions' => ['nullable', 'array', 'max:25'], 'mentions.*.entity' => ['required', 'in:branch,user,role,location,customer,category,product,variant,transfer,stocktake,production_receipt'], 'mentions.*.id' => ['required', 'integer', 'min:1'],
+            'selection' => ['nullable', 'array:entity,id,label'], 'selection.entity' => ['required_with:selection', 'in:branch,user,role,permission,location,customer,customer_group,category,product,variant,transfer,stocktake,production_receipt,treasury,treasury_transfer,expense,price_list,coupon,promotion,quotation,payment_notice'], 'selection.id' => ['required_with:selection', Rule::when($request->input('selection.entity') !== 'permission', ['integer', 'min:1'], ['string', 'max:255'])], 'selection.label' => ['nullable', 'string', 'max:255'],
+            'mentions' => ['nullable', 'array', 'max:25'], 'mentions.*.entity' => ['required', 'in:branch,user,role,location,customer,category,product,variant,transfer,stocktake,production_receipt,treasury,treasury_transfer,expense,price_list,coupon,promotion,quotation,payment_notice'], 'mentions.*.id' => ['required', 'integer', 'min:1'],
             'attachments' => ['nullable', 'array', 'max:4'], 'attachments.*' => ['required', 'string', 'ulid', 'distinct'],
         ]);
     }

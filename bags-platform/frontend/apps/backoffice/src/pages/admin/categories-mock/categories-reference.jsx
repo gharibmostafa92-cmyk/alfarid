@@ -7,11 +7,12 @@ import { useCategoriesContext as useApp } from './categories-context';
 import { toUiTree, toPayload, buildReorderItems } from './categories-adapter';
 import { parseApiError } from './api-errors';
 import { normalizeSearch, displayName, autoSlug, toLatinDigits } from './i18n-utils';
+import { safeCssUrl } from '../safe-css-url';
 
 const cx = (...a) => a.filter(Boolean).join(' ');
 
 function vtoast(text, kind = 'success') {
-  window.dispatchEvent(new CustomEvent('vtoast', { detail: { text, kind, id: Math.random() } }));
+  window.dispatchEvent(new CustomEvent('categories:vtoast', { detail: { text, kind, id: Math.random() } }));
 }
 
 export function ToastHost() {
@@ -22,8 +23,8 @@ export function ToastHost() {
       setItems((x) => [...x, t]);
       setTimeout(() => setItems((x) => x.filter((i) => i.id !== t.id)), 2800);
     };
-    window.addEventListener('vtoast', h);
-    return () => window.removeEventListener('vtoast', h);
+    window.addEventListener('categories:vtoast', h);
+    return () => window.removeEventListener('categories:vtoast', h);
   }, []);
   return (
     <div className="fixed bottom-6 left-6 z-[80] flex flex-col gap-2 items-start pointer-events-none">
@@ -456,6 +457,24 @@ function insertInto(nodes, parentId, node) {
   return nodes.map((n) => n.id === parentId ? { ...n, children: [...(n.children || []), node] } : { ...n, children: insertInto(n.children || [], parentId, node) });
 }
 
+function updateChildrenAt(nodes, parentId, update) {
+  if (parentId == null) return update(nodes);
+  return nodes.map((node) => node.id === parentId
+    ? { ...node, children: update(node.children || []) }
+    : { ...node, children: updateChildrenAt(node.children || [], parentId, update) });
+}
+
+function insertSibling(nodes, parentId, targetId, position, node) {
+  return updateChildrenAt(nodes, parentId, (siblings) => {
+    if (targetId == null) return [...siblings, node];
+    const index = siblings.findIndex((sibling) => sibling.id === targetId);
+    if (index < 0) return siblings;
+    const next = [...siblings];
+    next.splice(index + (position === 'after' ? 1 : 0), 0, node);
+    return next;
+  });
+}
+
 function sumProducts(n) { return (n.products || 0) + (n.children || []).reduce((a, c) => a + sumProducts(c), 0); }
 
 export function CategoriesReferencePage() {
@@ -466,6 +485,7 @@ export function CategoriesReferencePage() {
   const [sel, setSel] = useState(null);
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null);
+  const [overPosition, setOverPosition] = useState('inside');
   const [invalid, setInvalid] = useState(null);
   const [form, setForm] = useState(null);
   const [del, setDel] = useState(null);
@@ -502,15 +522,31 @@ export function CategoriesReferencePage() {
     }
     return { ok: true };
   };
-  const doMove = (dragId, targetId) => {
+  const canDropAt = (dragId, targetId, position) => {
+    if (position === 'inside' || targetId == null) return canDropInto(dragId, targetId);
+    if (dragId === targetId) return { ok: false, why: 'لا يمكن ترتيب القسم قبل نفسه أو بعده' };
+    const d = findNode(tree, dragId);
+    const t = findNode(tree, targetId);
+    if (!d || !t) return { ok: false };
+    if (isDescendant(d.node, targetId)) return { ok: false, why: 'لا يمكن نقل القسم بجوار أحد أقسامه الفرعية' };
+    const parentDepth = t.parent ? findNode(tree, t.parent.id).depth : 0;
+    if (parentDepth + treeDepth(d.node) > MAX_DEPTH) return { ok: false, why: `النقل هنا يتجاوز الحد الأقصى (${MAX_DEPTH} مستويات)` };
+    return { ok: true };
+  };
+  const doMove = (dragId, targetId, position = 'inside') => {
     if (!perms.update || savingOrder) return;
     const current = findNode(tree, dragId);
-    if (!current || (current.parent?.id ?? null) === targetId) return;
-    const chk = canDropInto(dragId, targetId);
+    if (!current || (position === 'inside' && (current.parent?.id ?? null) === targetId)) return;
+    const chk = canDropAt(dragId, targetId, position);
     if (!chk.ok) { vtoast(chk.why, 'error'); return; }
-    const d = findNode(tree, dragId);
-    setTree(insertInto(removeNode(tree, dragId), targetId, d.node));
-    if (targetId) setOpen({ ...open, [targetId]: true });
+    const without = removeNode(tree, dragId);
+    const moved = current.node;
+    const next = position === 'inside'
+      ? insertInto(without, targetId, moved)
+      : insertSibling(without, targetId == null ? null : findNode(without, targetId)?.parent?.id ?? null, targetId, position, moved);
+    setTree(next);
+    const openParent = position === 'inside' ? targetId : (targetId == null ? null : findNode(without, targetId)?.parent?.id);
+    if (openParent) setOpen((previous) => ({ ...previous, [openParent]: true }));
   };
 
   const selected = sel && findNode(tree, sel);
@@ -540,13 +576,13 @@ export function CategoriesReferencePage() {
   const renderNode = (n, depth) => {
     const has = (n.children || []).length > 0;
     const isOpen = open[n.id] || !!search;
-    const chk = drag != null && over === n.id ? canDropInto(drag, n.id) : null;
+    const chk = drag != null && over === n.id ? canDropAt(drag, n.id, overPosition) : null;
     if (!matches(n)) return null;
     return (
       <div key={n.id}>
-        <div data-category-id={n.id} draggable={perms.update && !savingOrder} onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n.id)); setDrag(n.id); }} onDragEnd={() => { setDrag(null); setOver(null); setInvalid(null); }}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (over !== n.id) { setOver(n.id); const c = canDropInto(drag, n.id); setInvalid(c.ok ? null : c.why); } }}
-          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); doMove(drag, n.id); setDrag(null); setOver(null); setInvalid(null); }}
+        <div data-category-id={n.id} draggable={perms.update && !savingOrder} onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n.id)); setDrag(n.id); }} onDragEnd={() => { setDrag(null); setOver(null); setOverPosition('inside'); setInvalid(null); }}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const bounds = e.currentTarget.getBoundingClientRect(); const ratio = (e.clientY - bounds.top) / Math.max(bounds.height, 1); const position = ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside'; setOver(n.id); setOverPosition(position); const c = canDropAt(drag, n.id, position); setInvalid(c.ok ? null : c.why); }}
+          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); doMove(drag, n.id, overPosition); setDrag(null); setOver(null); setOverPosition('inside'); setInvalid(null); }}
           onClick={() => setSel(n.id)}
           className={cx('group flex items-center gap-2 h-12 pe-2 rounded-[14px] cursor-pointer transition relative',
             sel === n.id ? 'bg-[var(--bg-subcard)]' : 'hover:bg-[var(--bg-subcard)]',
@@ -577,6 +613,7 @@ export function CategoriesReferencePage() {
             </div>
           )}
         </div>
+        {chk && chk.ok && overPosition !== 'inside' && <div className="pop text-[10px] font-semibold my-0.5" style={{ color: 'var(--accent)', paddingInlineStart: 40 + (depth - 1) * 26 }}>إفلات {overPosition === 'before' ? 'قبل' : 'بعد'} هذا القسم</div>}
         {chk && !chk.ok && <div className="pop text-[11px] font-semibold flex items-center gap-1 my-1" style={{ color: 'var(--badge-red-text)', paddingInlineStart: 40 + (depth - 1) * 26 }}><Icon name="ban" size={12} />{chk.why}</div>}
         {has && isOpen && <div className="mt-0.5 space-y-0.5">{n.children.map((c) => renderNode(c, depth + 1))}</div>}
       </div>
@@ -603,7 +640,7 @@ export function CategoriesReferencePage() {
               <div className="space-y-0.5" onDragOver={(e) => e.preventDefault()}>
                 {tree.map((n) => renderNode(n, 1))}
                 {drag != null && (
-                  <div onDragOver={(e) => { e.preventDefault(); setOver('root'); }} onDrop={(e) => { e.preventDefault(); doMove(drag, null); setDrag(null); setOver(null); }}
+                  <div onDragOver={(e) => { e.preventDefault(); setOver('root'); setOverPosition('end'); }} onDrop={(e) => { e.preventDefault(); doMove(drag, null, 'end'); setDrag(null); setOver(null); setOverPosition('inside'); }}
                     className={cx('pop mt-2 h-12 rounded-[14px] border-2 border-dashed flex items-center justify-center text-[12px] font-semibold', over === 'root' ? 'border-[var(--accent)] t-acc bg-[var(--accent-soft)]' : 'border-[var(--border-field)] t-3')}>
                     أفلت هنا لجعله قسمًا رئيسيًا
                   </div>
@@ -681,6 +718,7 @@ export function CategoriesReferencePage() {
           try {
             await categoriesApi.update(disable.id, { is_active: disable.status !== 'active' });
             vtoast(disable.status === 'active' ? 'تم تعطيل القسم' : 'تم تفعيل القسم');
+            setDisable(null);
             await reload({ silent: true });
           } catch (e) {
             const p = parseApiError(e);
@@ -751,9 +789,10 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
   const flat = flattenCats(tree);
   const height = isEdit ? treeDepth(value) : 1;
   const parentName = v.parentId != null ? flat.find((f) => f.id === v.parentId)?.ar : null;
-  const preview = v.previewUrl
-    ? `url("${v.previewUrl}") center / cover no-repeat`
-    : (v.imageRemoved ? null : (v.imageUrl ? `url("${v.imageUrl}") center / cover no-repeat` : v.img));
+  const previewUrl = safeCssUrl(v.previewUrl || v.imageUrl);
+  const preview = previewUrl
+    ? `${previewUrl} center / cover no-repeat`
+    : (v.imageRemoved ? null : v.img);
   const save = async () => {
     const e = {};
     if (!(v.ar || '').trim()) e.ar = 'الاسم العربي مطلوب';
@@ -763,7 +802,7 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
     const order = toLatinDigits(v.order ?? 0).trim();
     if (!/^\d+$/.test(order) || Number(order) > 2147483647) e.order = 'الترتيب يجب أن يكون عددًا صحيحًا من 0 إلى 2147483647';
     const slugVal = slugTouched ? v.slug : generatedSlug;
-    if (v.slug && !/^[a-z0-9_-]+$/i.test(v.slug)) e.slug = 'حروف إنجليزي وأرقام و - فقط';
+    if (slugVal && !/^[a-z0-9_-]+$/i.test(slugVal)) e.slug = 'حروف إنجليزي وأرقام و - فقط';
     setErrs(e);
     if (Object.keys(e).length) return;
 

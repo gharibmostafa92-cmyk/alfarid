@@ -115,21 +115,39 @@ function SupplierPicker({
     </div>
   );
 }
-function useVariants() {
-  return useRemote(signal => commerceLookupsApi.variants(signal).then(rows => rows.map(v => ({ id: v.id, name: v.label, sku: '' }))), [], { mock: () => VARIANTS.map((v, id) => ({ id: id + 1, name: v.name, sku: v.sku })) });
+function VSel({ value, onChange, selectedLabel, disabled }: { value?: string | number; onChange: (v: string, fromMock: boolean) => void; selectedLabel?: string; disabled?: boolean }) {
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounced(search);
+  const [productId, setProductId] = useState('');
+  const products = useRemote(
+    signal => commerceLookupsApi.products(debouncedSearch, signal),
+    [debouncedSearch],
+    { enabled: debouncedSearch.trim().length >= 3, mock: () => [{ id: -1, name_ar: 'بيانات تجريبية' }] },
+  );
+  const variants = useRemote(
+    signal => productId && Number(productId) > 0 ? commerceLookupsApi.variantsForProduct(Number(productId), signal) : Promise.resolve([]),
+    [productId],
+    { enabled: !!productId, mock: () => VARIANTS.map((variant, index) => ({ id: index + 1, label: `${variant.name} · ${variant.sku}` })) },
+  );
+  const selectedValue = value == null ? '' : String(value);
+  return (
+    <div className="space-y-1.5">
+      <input className="inp inp-sm" value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث عن المنتج (3 أحرف)" disabled={disabled} />
+      <select className="inp inp-sm" value={productId} onChange={e => { setProductId(e.target.value); if (selectedValue) onChange('', false); }} disabled={disabled}>
+        <option value="">اختر المنتج</option>
+        {(products.data ?? []).map(product => <option key={product.id} value={String(product.id)}>{product.name_ar}</option>)}
+      </select>
+      <select className="inp inp-sm !bg-[var(--bg-card)]" value={selectedValue} onChange={e => onChange(e.target.value, variants.usingMock)} disabled={disabled || !productId}>
+        <option value="">اختر المتغير</option>
+        {selectedValue && !(variants.data ?? []).some(variant => String(variant.id) === selectedValue) && <option value={selectedValue}>{selectedLabel ?? `#${selectedValue}`}</option>}
+        {(variants.data ?? []).map(variant => <option key={variant.id} value={variant.id}>{variant.label}</option>)}
+      </select>
+      {products.error && <div className="text-xs text-red-600" role="alert">{products.error.message}</div>}
+      {variants.error && <div className="text-xs text-red-600" role="alert">{variants.error.message}</div>}
+    </div>
+  );
 }
 const blankItem = () => ({ product_variant_id: '', qty: 1, cost: 0, tax: 0, notes: '' });
-export const VSel = ({ value, onChange, variants }: { value?: string | number; onChange: (v: string) => void; variants: any[] }) => (
-  <select className="inp inp-sm !bg-[var(--bg-card)]" value={value ?? ''} onChange={e => onChange(e.target.value)}>
-    <option value="">اختر المتغير</option>
-    {variants.map((v) => (
-      <option key={v.id} value={v.id}>
-        {v.name} · {v.sku}
-      </option>
-    ))}
-  </select>
-);
-
 export const NInp = ({ value, onChange, step = '1', min = '1', ph }: { value?: any; onChange: (v: string) => void; step?: string; min?: string; ph?: string }) => (
   <input
     type="number"
@@ -803,11 +821,10 @@ export function PRModule() {
   useEffect(() => setPage(1), [st, br]);
   const list = useRemote(signal => purchaseRequestsApi.list({ page, status: st ? st as any : undefined, branch_id: br ? Number(br) : undefined }, signal), [page, st, br], { mock: () => pageOf(mockPRs.filter(p => !st || p.status === st)) });
   const branches = useRemote((signal) => branchesApi.list({}, signal).then(r => r.data), []);
-  const variants = useVariants();
   const rows = (list.data?.data ?? []).map(mapPR);
   const detail = useRemote(signal => purchaseRequestsApi.show(view.id, signal), [view?.id], { enabled: !!view, mock: () => mockPRs.find(p => p.id === view.id)! });
-  const openForm = (pr?: any) => { setErrors({}); setForm({ demo: list.usingMock || pr?.demo, id: pr?.id, no: pr?.no, branchId: pr?.raw?.branch_id ?? '', notes: pr?.raw?.notes ?? '', items: pr?.raw?.items?.map((it: any) => ({ product_variant_id: it.product_variant_id, qty: it.requested_qty, notes: it.notes ?? '' })) ?? [blankItem()] }); };
-  const setItem = (index: number, key: string, value: string) => setForm({ ...form, items: form.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) });
+  const openForm = (pr?: any) => { setErrors({}); setForm({ demo: list.usingMock || pr?.demo, id: pr?.id, no: pr?.no, branchId: pr?.raw?.branch_id ?? '', notes: pr?.raw?.notes ?? '', items: pr?.raw?.items?.map((it: any) => ({ product_variant_id: it.product_variant_id, variant_label: it.variant?.sku ?? `#${it.product_variant_id}`, qty: it.requested_qty, notes: it.notes ?? '' })) ?? [blankItem()] }); };
+  const setItem = (index: number, key: string, value: any) => setForm((current: any) => ({ ...current, items: current.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) }));
   const doAction = async (id: number, fn: (id: number) => Promise<unknown>, msg: string) => {
     if ((fn === purchaseRequestsApi.approve || fn === purchaseRequestsApi.reject) && !canApprove) return toast('ليست لديك صلاحية اعتماد طلبات الشراء', 'red');
     if (fn === purchaseRequestsApi.submit && !canUpdate) return toast('ليست لديك صلاحية تعديل طلبات الشراء', 'red');
@@ -817,7 +834,7 @@ export function PRModule() {
     if (r) { list.reload(); setView(null); }
   };
   const save = async (submit = false) => {
-    if (form.demo || list.usingMock || variants.usingMock || branches.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    if (form.demo || list.usingMock || branches.usingMock || form.items.some((it: any) => it.variant_mock)) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (!form.branchId || !form.items.length || form.items.some((it: any) => !it.product_variant_id || !Number.isInteger(Number(it.qty)) || Number(it.qty) <= 0)) return toast('اختر الفرع وأدخل متغيرات وكميات صحيحة', 'red');
     const body = { branch_id: Number(form.branchId), notes: form.notes || null, items: form.items.map((it: any) => ({ product_variant_id: Number(it.product_variant_id), requested_qty: Number(it.qty), notes: it.notes || null })) };
     const r = await run(() => form.id ? purchaseRequestsApi.update(form.id, body) : purchaseRequestsApi.create(body), { toast, onFieldErrors: setErrors, success: 'تم حفظ المسودة' });
@@ -937,11 +954,10 @@ export function PRModule() {
                 ))}
               </select>
             </Field>
-            <RemoteFeedback state={variants} />
             <ItemsEditor
               items={form.items} onItemsChange={items => setForm({ ...form, items })}
               cols={[
-                { h: 'متغير المنتج', fr: '2.2fr', el: (i) => <VSel variants={variants.data ?? []} value={form.items[i].product_variant_id} onChange={v => setItem(i, 'product_variant_id', v)} /> },
+                { h: 'متغير المنتج', fr: '2.2fr', el: (i) => <VSel value={form.items[i].product_variant_id} selectedLabel={form.items[i].variant_label} onChange={(v, fromMock) => { setItem(i, 'product_variant_id', v); setItem(i, 'variant_mock', fromMock); }} /> },
                 { h: 'الكمية', fr: '.8fr', el: (i) => <NInp value={form.items[i].qty} onChange={v => setItem(i, 'qty', v)} /> },
                 {
                   h: 'ملاحظات البند (255)',
@@ -1140,7 +1156,6 @@ export function POModule() {
   const list = useRemote(signal => purchaseOrdersApi.list({ page, search: dq || undefined, status: st ? toPOStatus(st) as any : undefined, supplier_id: sp ? Number(sp) : undefined, branch_id: br ? Number(br) : undefined }, signal), [page, dq, st, sp, br], { mock: () => pageOf(mockPOs.filter(p => (!st || p.status === toPOStatus(st)) && (!sp || p.supplier_id === Number(sp)))) });
   const branches = useRemote((signal) => branchesApi.list({}, signal).then(r => r.data), []);
   const approvedPRs = useRemote(signal => purchaseRequestsApi.list({ page: 1, status: 'approved', branch_id: form?.branch ? Number(form.branch) : undefined }, signal).then(r => r.data), [form?.branch], { enabled: !!form });
-  const variants = useVariants();
   const rows = (list.data?.data ?? []).map(mapPO);
   const detail = useRemote(signal => purchaseOrdersApi.show(view.id, signal), [view?.id], { enabled: !!view, mock: () => mockPOs.find(p => p.id === view.id)! });
   const openForm = async (po?: any) => {
@@ -1164,13 +1179,14 @@ export function POModule() {
       discount: num(raw?.discount_amount),
       items: raw?.items?.map((it: any) => ({
         product_variant_id: it.product_variant_id,
+        variant_label: it.variant?.sku ?? `#${it.product_variant_id}`,
         qty: Number(it.ordered_qty),
         cost: num(it.unit_cost),
         tax: num(it.tax_rate),
       })) ?? [blankItem()],
     });
   };
-  const setItem = (index: number, key: string, value: string) => setForm({ ...form, items: form.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) });
+  const setItem = (index: number, key: string, value: any) => setForm((current: any) => ({ ...current, items: current.items.map((it: any, i: number) => i === index ? { ...it, [key]: value } : it) }));
   const act = async (id: number, fn: (id: number) => Promise<unknown>, msg: string) => { if (list.usingMock || view?.demo) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red'); const result = await run(() => fn(id), { toast, success: msg }); if (result) { setView(null); list.reload(); return true; } return false; };
   const actionsFor = (p: any): string[] => {
     const isCreatorOrModifier = (p.raw?.created_by && p.raw.created_by === currentUser?.id) ||
@@ -1197,7 +1213,7 @@ export function POModule() {
     if (r) { detail.reload(); list.reload(); }
   };
   const save = async () => {
-    if (form.demo || list.usingMock || variants.usingMock) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
+    if (form.demo || list.usingMock || form.items.some((it: any) => it.variant_mock)) return toast('البيانات المعروضة تجريبية؛ الحفظ غير متاح', 'red');
     if (!form.sup || !form.branch || form.items.some((it: any) => !it.product_variant_id || !Number.isInteger(Number(it.qty)) || Number(it.qty) <= 0)) return toast('أكمل المورد والفرع والبنود بكميات صحيحة', 'red');
     const body = { supplier_id: Number(form.sup), ...(form.id ? {} : { purchase_request_id: fromPR ? Number(fromPR) : null }), branch_id: Number(form.branch), items: form.items.map((it: any) => ({ product_variant_id: Number(it.product_variant_id), ordered_qty: Number(it.qty), unit_cost: Number(it.cost), tax_rate: Number(it.tax) })), expected_delivery_date: form.eta || null, discount_amount: Number(form.discount || 0) };
     const result = await run(() => form.id ? purchaseOrdersApi.update(form.id, body) : purchaseOrdersApi.create(body), { toast, success: 'تم حفظ الأمر كمسودة', onFieldErrors: setErrors });
@@ -1468,11 +1484,10 @@ export function POModule() {
                 <input type="date" className="inp" value={form.eta} onChange={e => setForm({ ...form, eta: e.target.value })} />
               </Field>
             </div>
-            <RemoteFeedback state={variants} />
             <ItemsEditor
               items={form.items} onItemsChange={items => setForm({ ...form, items })}
               cols={[
-                { h: 'المتغير', fr: '2.4fr', el: (i) => <VSel variants={variants.data ?? []} value={form.items[i].product_variant_id} onChange={v => setItem(i, 'product_variant_id', v)} /> },
+                { h: 'المتغير', fr: '2.4fr', el: (i) => <VSel value={form.items[i].product_variant_id} selectedLabel={form.items[i].variant_label} onChange={(v, fromMock) => { setItem(i, 'product_variant_id', v); setItem(i, 'variant_mock', fromMock); }} /> },
                 { h: 'الكمية', fr: '.8fr', el: (i) => <NInp value={form.items[i].qty} onChange={v => setItem(i, 'qty', v)} /> },
                 { h: 'تكلفة الوحدة', fr: '1fr', el: (i) => <NInp value={form.items[i].cost} onChange={v => setItem(i, 'cost', v)} step="0.01" min="0" /> },
                 { h: 'الضريبة %', fr: '.8fr', el: (i) => <NInp value={form.items[i].tax} onChange={v => setItem(i, 'tax', v)} step="0.01" min="0" /> },

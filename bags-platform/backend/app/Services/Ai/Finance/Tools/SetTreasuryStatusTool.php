@@ -140,7 +140,10 @@ final class SetTreasuryStatusTool implements AgentTool, LocksTargets, UndoableTo
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        return $this->changeStatus($actor, Treasury::findOrFail($action->args['treasury_id']), (bool) $action->inverse['is_active']);
+        $treasury = Treasury::query()->lockForUpdate()->findOrFail((int) $action->args['treasury_id']);
+        $this->branches->assertTreasury($actor->id, $treasury);
+
+        return $this->changeStatus($actor, $treasury, (bool) $action->inverse['is_active']);
     }
 
     private function changeStatus(User $actor, Treasury $treasury, bool $wantsActive): ToolOutcome

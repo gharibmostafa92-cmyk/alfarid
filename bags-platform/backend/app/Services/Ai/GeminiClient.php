@@ -143,7 +143,7 @@ class GeminiClient
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'http_'.$response->status()]);
                 // Respect upstream Retry-After header with a 1-to-5 second backoff window.
-                usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
+                usleep($this->retryAfterSeconds($response->header('Retry-After')) * 1_000_000);
 
                 continue;
             }
@@ -240,7 +240,7 @@ class GeminiClient
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'http_'.$response->status()]);
-                usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
+                usleep($this->retryAfterSeconds($response->header('Retry-After')) * 1_000_000);
 
                 continue;
             }
@@ -370,7 +370,7 @@ class GeminiClient
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'http_'.$response->status()]);
                 // Respect upstream Retry-After header with a 1-to-5 second backoff window.
-                usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
+                usleep($this->retryAfterSeconds($response->header('Retry-After')) * 1_000_000);
 
                 continue;
             }
@@ -431,5 +431,26 @@ class GeminiClient
         }
 
         throw new GeminiException('تعذّر إكمال الطلب بخدمة Gemini.');
+    }
+
+    private function retryAfterSeconds(?string $header): int
+    {
+        if ($header === null) {
+            return 1;
+        }
+        $trimmed = trim($header);
+        if ($trimmed === '') {
+            return 1;
+        }
+        if (ctype_digit($trimmed)) {
+            $seconds = (int) $trimmed;
+        } elseif (is_numeric($trimmed)) {
+            $seconds = (int) ceil((float) $trimmed);
+        } else {
+            $ts = strtotime($trimmed);
+            $seconds = $ts !== false ? ($ts - time()) : 1;
+        }
+
+        return min(5, max(1, $seconds));
     }
 }

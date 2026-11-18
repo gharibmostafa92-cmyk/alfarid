@@ -64,7 +64,9 @@ const INVENTORY_COMMANDS = ['/رصيد', '/تحويل', '/جرد', '/استلا�
 
 const dayKey = (iso: string | null) => {
   if (!iso) return 'older';
-  const d = new Date(iso); const t = new Date();
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'older';
+  const t = new Date();
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((start(t) - start(d)) / 86400000);
   return diff <= 0 ? 'today' : diff === 1 ? 'yesterday' : diff < 7 ? 'week' : 'older';
@@ -73,6 +75,7 @@ const groupTitles: Record<string, string> = { pinned: 'المثبّتة', today:
 const relTime = (iso: string | null) => {
   if (!iso) return '';
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
   return dayKey(iso) === 'today' ? d.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) : d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
 };
 
@@ -173,14 +176,34 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     if (!initialPrompt || consumedPrompt.current) return;
     consumedPrompt.current = true;
     setSeed({ text: initialPrompt.text, mentions: initialPrompt.mentions, n: Date.now() });
-    history.replaceState(null, '', '#/assistant');
+    const cleanHash = window.location.hash ? window.location.hash.split('?')[0] : '';
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${cleanHash}`);
   }, [initialPrompt]);
   const [atBottom, setAtBottom] = useState(true);
   const [, tick] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef(0);
+  const copyBtnRef = useRef<HTMLButtonElement>(null);
+  const passwordDialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
   const execute = can('ai_agent.execute') && !showLogs;
   const current = conversations.find(c => c.id === currentId);
+
+  const openAdministration = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+      activeRequestIdRef.current += 1;
+      setBusy(false);
+      setStreaming(false);
+      setPendingText(null);
+      setStatus('جاهز');
+    }
+    setTab('admin');
+    setDrawer(false);
+  }, []);
 
   useEffect(() => { const t = setTimeout(() => setDebouncedQuery(searchQuery), 250); return () => clearTimeout(t); }, [searchQuery]);
 
@@ -248,6 +271,8 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   useEffect(() => { if (atBottom) scrollToBottom(); }, [messages, steps, pendingText, streaming, atBottom, scrollToBottom]);
 
   const openConversation = useCallback(async (id: number) => {
+    abortRef.current?.abort();
+    const openSeq = ++activeRequestIdRef.current;
     setBusy(true);
     setError(null);
     setDrawer(false);
@@ -255,6 +280,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     consumedSelection.current = true;
     try {
       const conv = await assistantApi.show(id);
+      if (activeRequestIdRef.current !== openSeq) return;
       setCurrentId(conv.id);
       setMessages(conv.messages ?? []);
       const pending: Record<string, string> = {};
@@ -263,9 +289,10 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       setConversations(prev => prev.map(c => (c.id === conv.id ? { ...c, ...conv, messages: undefined } : c)));
       setAtBottom(true);
     } catch {
+      if (activeRequestIdRef.current !== openSeq) return;
       setError({ message: 'تعذر فتح المحادثة.', kind: 'transient', retry: () => void openConversation(id) });
     } finally {
-      setBusy(false);
+      if (activeRequestIdRef.current === openSeq) setBusy(false);
     }
   }, []);
 
@@ -299,11 +326,38 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setTab('chat'); setCollapsed(false); setDrawer(true); setTimeout(() => searchRef.current?.focus(), 50); }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); void createConversation(); }
-      if (e.key === 'Escape') setDrawer(false);
+      if (e.key === 'Escape' && oncePassword === '') setDrawer(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [createConversation]);
+  }, [createConversation, oncePassword]);
+
+  useEffect(() => {
+    if (!oncePassword) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const first = passwordDialogRef.current?.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    first?.focus();
+    return () => { if (previouslyFocused?.isConnected) previouslyFocused.focus(); };
+  }, [oncePassword]);
+
+  const handlePasswordDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation();
+      setOncePassword(''); setRevealed(false); setCopied(false); setCopyFailed(false);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(passwordDialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []);
+    if (!focusable.length) { event.preventDefault(); return; }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !passwordDialogRef.current?.contains(active))) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && (active === last || !passwordDialogRef.current?.contains(active))) {
+      event.preventDefault(); first.focus();
+    }
+  };
 
   const deleteConversation = useCallback(async (id: number) => {
     setConfirmDelete(null);
@@ -330,16 +384,24 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
 
   const send = useCallback(
     async (text: string, _selection?: undefined, mentions?: Mention[], files?: File[]): Promise<boolean> => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const reqId = ++activeRequestIdRef.current;
+
       let id = currentId;
       if (!id) {
         try {
           const conv = await assistantApi.create();
+          if (activeRequestIdRef.current !== reqId || controller.signal.aborted) return false;
           id = conv.id;
           setConversations(prev => [conv, ...prev]);
           setConversationTotal(prev => prev + 1);
           setCurrentId(id);
         } catch {
-          setError({ message: 'تعذر إنشاء محادثة.', kind: 'transient' });
+          if (activeRequestIdRef.current === reqId) {
+            setError({ message: 'تعذر إنشاء محادثة.', kind: 'transient' });
+          }
           return false;
         }
       }
@@ -354,7 +416,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       try {
         let attachmentIds: string[] | undefined;
         if (files && files.length > 0) {
-          const uploaded = await assistantApi.uploadAttachments(id, files);
+          const uploaded = await assistantApi.uploadAttachments(id, files, controller.signal);
           attachmentIds = uploaded.map(u => u.id);
           setStatus('ببعت الطلب…');
         }
@@ -364,19 +426,31 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
           id,
           { text, selection, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })), attachments: attachmentIds },
           message => {
+            if (activeRequestIdRef.current !== reqId) return;
             setStatus(prev => {
               if (prev !== message && prev !== 'جاهز') setSteps(s => (s.at(-1) === prev ? s : [...s, prev].slice(-4)));
               return message;
             });
           },
+          controller.signal,
         );
+        if (activeRequestIdRef.current !== reqId || controller.signal.aborted) return false;
         setStreaming(false);
         setPendingText(null);
         await openConversation(id);
         await refreshList();
         return true;
       } catch (e) {
+        const err = e as { name?: string; code?: string; message?: string };
+        if (controller.signal.aborted || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') {
+          return false;
+        }
+        if (activeRequestIdRef.current !== reqId) return false;
         const convId = id;
+        if (err instanceof Error && err.message === 'المحادثة انقطعت قبل اكتمال الرد.') {
+          void openConversation(convId);
+          return false;
+        }
         setError({
           message: apiErrorMessage(e, 'تعذر إتمام طلب المساعد. حاول مرة تانية.'),
           kind: apiErrorKind(e),
@@ -384,10 +458,13 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         });
         return false;
       } finally {
-        setBusy(false);
-        setStreaming(false);
-        setPendingText(null);
-        setStatus('جاهز');
+        if (abortRef.current === controller) abortRef.current = null;
+        if (activeRequestIdRef.current === reqId) {
+          setBusy(false);
+          setStreaming(false);
+          setPendingText(null);
+          setStatus('جاهز');
+        }
       }
     },
     [currentId, openConversation, initialSelection, refreshList],
@@ -535,7 +612,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       <div className="as-sidebar-foot">
         <Icon name="chart" size={14} />
         <span className="as-num">{totalTokens.toLocaleString('ar-EG')} توكن · {conversationTotal.toLocaleString('ar-EG')} محادثة</span>
-        <button type="button" className="as-btn as-btn--ghost as-btn--sm" style={{ marginInlineStart: 'auto' }} onClick={() => { setTab('admin'); setDrawer(false); }}>التفاصيل</button>
+        <button type="button" className="as-btn as-btn--ghost as-btn--sm" style={{ marginInlineStart: 'auto' }} onClick={openAdministration}>التفاصيل</button>
       </div>
     </aside>
   );
@@ -581,7 +658,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       </div>
       <div className="as-alert-actions">
         {error.retry && <button type="button" className="as-btn as-btn--sm" onClick={() => { const r = error.retry!; setError(null); r(); }}><Icon name="refresh" size={14} />إعادة المحاولة</button>}
-        {error.kind === 'budget' && <button type="button" className="as-btn as-btn--sm" onClick={() => { setError(null); setTab('admin'); }}>الاستهلاك</button>}
+        {error.kind === 'budget' && <button type="button" className="as-btn as-btn--sm" onClick={() => { setError(null); openAdministration(); }}>الاستهلاك</button>}
         <button type="button" className="as-iconbtn as-iconbtn--sm" aria-label="إخفاء التنبيه" onClick={() => setError(null)}><Icon name="x" size={14} /></button>
       </div>
     </div>
@@ -624,7 +701,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
                         <RichText text={m.content} />
                         {(m.ui_blocks ?? []).map((block: UiBlock, i: number) => (
                           <AssistantBlock
-                            key={`${m.id}-${String(block.action_id ?? block.undo_action_id ?? i)}`}
+                            key={`${m.id}-${block.type}-${String(block.action_id ?? block.undo_action_id ?? i)}`}
                             block={{
                               ...block,
                               created_at: block.created_at ?? current?.pending_actions?.find(action => action.id === String(block.action_id))?.created_at,
@@ -710,7 +787,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
             {tab === 'chat' && <span className="as-status-chip" data-busy={busy} role="status"><span className="as-status-txt">{busy ? (streaming ? 'بيفكر…' : 'جارٍ التحميل…') : 'جاهز'}</span></span>}
             <div className="as-tabs" role="tablist" aria-label="أقسام المساعد">
               <button type="button" role="tab" className="as-tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}><Icon name="chat" size={15} /><span className="as-tab-txt">المحادثة</span></button>
-              <button type="button" role="tab" className="as-tab" aria-selected={tab === 'admin'} onClick={() => setTab('admin')}><Icon name="chart" size={15} /><span className="as-tab-txt">الإدارة</span></button>
+              <button type="button" role="tab" className="as-tab" aria-selected={tab === 'admin'} onClick={openAdministration}><Icon name="chart" size={15} /><span className="as-tab-txt">الإدارة</span></button>
             </div>
             {tab === 'chat' && <button type="button" className="as-iconbtn as-only-mobile" onClick={() => void createConversation()} disabled={busy} aria-label="محادثة جديدة"><Icon name="plus" /></button>}
           </header>
@@ -719,8 +796,8 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       </div>
 
       {oncePassword !== '' && (
-        <div className="as-scrim" onKeyDown={e => { if (e.key === 'Escape') { setOncePassword(''); setRevealed(false); setCopyFailed(false); } }}>
-          <div role="dialog" aria-modal="true" aria-labelledby="as-pw-title" className="as-modal">
+        <div className="as-scrim" tabIndex={-1} onKeyDown={e => { if (e.key === 'Escape') { setOncePassword(''); setRevealed(false); setCopied(false); setCopyFailed(false); } }}>
+          <div ref={passwordDialogRef} role="dialog" aria-modal="true" aria-labelledby="as-pw-title" className="as-modal" onKeyDown={handlePasswordDialogKeyDown}>
             <span className="as-modal-ic"><Icon name="key" size={22} /></span>
             <div style={{ display: 'grid', gap: '.35rem' }}>
               <h3 id="as-pw-title">تم إنشاء الموظف</h3>
@@ -730,7 +807,9 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
               <code>{revealed ? oncePassword : '•'.repeat(Math.min(oncePassword.length, 16))}</code>
               <button type="button" className="as-iconbtn" onClick={() => setRevealed(r => !r)} aria-label={revealed ? 'إخفاء' : 'إظهار'}><Icon name={revealed ? 'eyeOff' : 'eye'} /></button>
               <button
+                ref={copyBtnRef}
                 type="button"
+                autoFocus={!copied}
                 className={`as-btn as-btn--sm ${copied ? '' : 'as-btn--primary'}`}
                 onClick={() => {
                   if (!navigator.clipboard) { setCopyFailed(true); return; }
@@ -747,7 +826,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
               <div className="as-alert as-alert--warning"><Icon name="alert" size={16} /><div className="as-alert-body"><span>لو قفلت النافذة من غير ما تنسخ، هتحتاج تعمل إعادة تعيين لكلمة المرور.</span></div></div>
             )}
             <div className="as-modal-actions">
-              <button type="button" className={`as-btn ${copied ? 'as-btn--primary' : ''}`} onClick={() => { setOncePassword(''); setRevealed(false); }} autoFocus={copied}>
+              <button type="button" className={`as-btn ${copied ? 'as-btn--primary' : ''}`} onClick={() => { setOncePassword(''); setRevealed(false); setCopied(false); setCopyFailed(false); }} autoFocus={copied}>
                 {copied ? 'تمام، إغلاق' : 'إغلاق'}
               </button>
             </div>

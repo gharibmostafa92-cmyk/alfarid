@@ -20,6 +20,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 use App\Services\Finance\WalletAdjustmentService;
 
@@ -32,6 +33,7 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
         private ProposalBuilder $proposals,
         private WalletAdjustmentService $adjustments,
         private SettingService $settings,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -73,6 +75,9 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
+        if ($denied = $this->denyIfNoCentralAccess($actor)) {
+            return $denied;
+        }
         $args = FinanceArgs::normalizeDigitsInArray($args);
         if (! $this->settings->getBool('ai_finance_wallet_tools_enabled', false)) {
             return ToolOutcome::denied('أدوات المحفظة مقفولة من الإعدادات.', auditable: false);
@@ -111,15 +116,26 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
 
     public function lockTargets(AiPendingAction $action): void
     {
-        WalletAdjustment::query()->whereKey((int) ($action->args['adjustment_id'] ?? 0))->lockForUpdate()->first();
+        $actor = User::query()->findOrFail((int) $action->user_id);
+        $this->branches->assertCentralAccess($actor);
+        $targetId = $action->status === 'executed'
+            ? $this->createdReversalId($action)
+            : (int) ($action->args['adjustment_id'] ?? 0);
+        $adjustment = WalletAdjustment::query()->whereKey($targetId)->lockForUpdate()->first();
+        if ($adjustment !== null) {
+            Customer::query()->whereKey($adjustment->customer_id)->lockForUpdate()->first();
+        }
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
+        if ($denied = $this->denyIfNoCentralAccess($actor)) {
+            return $denied;
+        }
         $a = $action->args;
         $adjustment = WalletAdjustment::query()->lockForUpdate()->findOrFail((int) $a['adjustment_id']);
-        Customer::query()->lockForUpdate()->findOrFail($adjustment->customer_id);
-        if (($action->expected_versions['wallet:'.$adjustment->customer_id] ?? null) !== $this->walletVersion($adjustment->customer_id)) {
+        $customer = Customer::query()->lockForUpdate()->findOrFail($adjustment->customer_id);
+        if (($action->expected_versions['wallet:'.$adjustment->customer_id] ?? null) !== $this->walletVersion($adjustment->customer_id, (string) ($customer->wallet_balance ?? '0.00'))) {
             throw new BusinessException('البيانات اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
         }
         if ($adjustment->reversals()->exists()) {
@@ -152,13 +168,25 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
     public function targetState(AiPendingAction $action): string
     {
         $reversal = WalletAdjustment::findOrFail($this->createdReversalId($action));
+        $customer = Customer::query()->findOrFail($reversal->customer_id);
 
-        return hash('sha256', json_encode([$reversal->id, (string) $reversal->created_at], JSON_THROW_ON_ERROR));
+        return hash('sha256', json_encode([
+            $reversal->id,
+            (string) $reversal->amount,
+            $reversal->direction,
+            $reversal->reverses_id,
+            (string) $reversal->created_at,
+            $this->walletVersion($customer->id, (string) ($customer->wallet_balance ?? '0.00')),
+        ], JSON_THROW_ON_ERROR));
     }
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $reversal = WalletAdjustment::findOrFail($this->createdReversalId($action));
+        if ($denied = $this->denyIfNoCentralAccess($actor)) {
+            return $denied;
+        }
+        $reversal = WalletAdjustment::query()->lockForUpdate()->findOrFail($this->createdReversalId($action));
+        Customer::query()->whereKey($reversal->customer_id)->lockForUpdate()->firstOrFail();
         if ($reversal->reversals()->exists()) {
             throw new BusinessException('العكس ملغي بالفعل.', [], 409);
         }
@@ -176,9 +204,12 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
             || (method_exists($actor, 'hasRole') && $actor->hasRole(StaffRole::SuperAdmin->value, 'staff'));
     }
 
-    private function walletVersion(int $customerId): int
+    private function walletVersion(int $customerId, ?string $balance = null): string
     {
-        return (int) (CustomerWalletTransaction::query()->where('customer_id', $customerId)->max('id') ?? 0);
+        $maxId = (int) (CustomerWalletTransaction::query()->where('customer_id', $customerId)->max('id') ?? 0);
+        $bal = $balance ?? (string) (Customer::query()->whereKey($customerId)->value('wallet_balance') ?? '0.00');
+
+        return $maxId.':'.number_format((float) $bal, 2, '.', '');
     }
 
     private function createdReversalId(AiPendingAction $action): ?int
@@ -190,5 +221,16 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
         }
 
         return isset($action->result['reversal_id']) ? (int) $action->result['reversal_id'] : null;
+    }
+
+    private function denyIfNoCentralAccess(User $actor): ?ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
+        }
+
+        return null;
     }
 }

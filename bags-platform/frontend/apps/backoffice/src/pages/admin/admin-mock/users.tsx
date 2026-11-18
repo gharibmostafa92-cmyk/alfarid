@@ -76,7 +76,7 @@ export interface UsersScreenProps {
 
 export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNavigate, initialRoleFilter = 'all', initialUserId }: UsersScreenProps) {
   const { meId, iAmSuper, myPerms } = useMe();
-  const branchesQ = useBranches();
+  const branchesQ = useBranches(canAny(can, 'branches.view', 'branches.manage'));
   const branches = branchesQ.data ?? [];
   const [kpiTick, setKpiTick] = useState(0);
   const [mutating, setMutating] = useState(false);
@@ -100,9 +100,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
   }, [linkedUser.data, meId, mayEditLinkedUser, iAmSuper]);
 
   useEffect(() => {
-    if (initialRoleFilter !== 'all') {
-      setRole(initialRoleFilter);
-    }
+    setRole(initialRoleFilter);
   }, [initialRoleFilter]);
 
   const qDebounced = useDebounced(q);
@@ -114,8 +112,8 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
       is_active: status === 'all' ? undefined : status === 'active'}, signal);
   }, [page, qDebounced, roleName, role, branch, status, rolesLoading]);
   const kpi = useApi(async signal => {
-    const [all, active, inactive] = await Promise.all([adminApi.countUsers({}, signal), adminApi.countUsers({is_active:true}, signal), adminApi.countUsers({is_active:false}, signal)]);
-    return {all, active, inactive};
+    const [all, active] = await Promise.all([adminApi.countUsers({}, signal), adminApi.countUsers({is_active:true}, signal)]);
+    return { all, active, inactive: Math.max(0, all - active) };
   }, [kpiTick]);
   useQueryError(list.error); useQueryError(kpi.error); useQueryError(branchesQ.error);
   const rows = (list.data?.data ?? []).map(u => toAdminUser(u, meId));
@@ -442,7 +440,8 @@ function UserDrawer({ state, onClose, onSave, roles, branches, meId, myPerms, se
       setF(blank);
     }
     if ('focusPwd' in state && state.focusPwd) {
-      setTimeout(() => pwdRef.current?.querySelector('input')?.focus(), 450);
+      const timer = setTimeout(() => pwdRef.current?.querySelector('input')?.focus(), 450);
+      return () => clearTimeout(timer);
     }
   }, [state]);
 
@@ -459,7 +458,7 @@ function UserDrawer({ state, onClose, onSave, roles, branches, meId, myPerms, se
     if (!f.name.trim()) e.name = 'الاسم مطلوب';
     else if (f.name.length > 255) e.name = 'الحد الأقصى 255 حرفاً';
     if (!f.email.trim()) e.email = 'البريد الإلكتروني مطلوب';
-    else if (!/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'صيغة البريد غير صحيحة';
+    else if (!/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = 'صيغة البريد غير صحيحة';
     if (mode === 'create' && !f.password) e.password = 'كلمة المرور مطلوبة عند الإنشاء';
     else if (f.password && (f.password.length < 12 || !/[A-Za-z\p{L}]/u.test(f.password) || !/\d/.test(f.password))) e.password = 'يجب ألا تقل عن 12 حرفًا وتحتوي على حروف وأرقام';
     if (needsCurrentPassword && !f.current_password) e.current_password = grantsRoles

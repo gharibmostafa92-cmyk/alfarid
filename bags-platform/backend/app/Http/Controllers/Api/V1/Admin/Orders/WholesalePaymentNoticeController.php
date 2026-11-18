@@ -133,7 +133,18 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
         $notice = WholesalePaymentNotice::query()->with('order')->findOrFail($paymentNotice);
         $this->assertNoticeAccess($request->user(), $notice);
 
-        $rejected = $this->service->reject($notice, (int) $request->user()->id, $request->validated('admin_notes'));
+        $notes = $request->validated('admin_notes');
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $execute = fn (): WholesalePaymentNotice => $this->service->reject($notice, (int) $request->user()->id, $notes);
+        $rejected = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'payment_notice_reject',
+                $request->user(),
+                $idempotencyKey,
+                ['notice_id' => $notice->id, 'admin_notes' => $notes],
+                $execute,
+            )
+            : $execute();
 
         return WholesalePaymentNoticeResource::make($rejected)->response();
     }
@@ -160,7 +171,17 @@ class WholesalePaymentNoticeController extends Controller implements HasMiddlewa
             $this->branchAccess->assertCentralAccess($request->user());
         }
 
-        $reversed = $this->service->reverse($notice, (int) $request->user()->id, $data['reason']);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $execute = fn (): WholesalePaymentNotice => $this->service->reverse($notice, (int) $request->user()->id, $data['reason']);
+        $reversed = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'payment_notice_reverse',
+                $request->user(),
+                $idempotencyKey,
+                ['notice_id' => $notice->id, ...$data],
+                $execute,
+            )
+            : $execute();
 
         return WholesalePaymentNoticeResource::make($reversed)->response();
     }

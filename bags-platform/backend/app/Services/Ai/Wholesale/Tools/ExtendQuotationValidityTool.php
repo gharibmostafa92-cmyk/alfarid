@@ -8,18 +8,22 @@ use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Quotation;
 use App\Models\User;
+use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Ai\WriteTool;
 use App\Services\Wholesale\QuotationService;
 use App\Services\Wholesale\QuotationVersion;
 
-final class ExtendQuotationValidityTool implements WriteTool
+final class ExtendQuotationValidityTool implements LocksTargets, WriteTool
 {
     public function __construct(
         private ProposalBuilder $proposals,
         private QuotationService $quotations,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -60,6 +64,9 @@ final class ExtendQuotationValidityTool implements WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $quotation = Quotation::query()->find((int) ($args['quotation_id'] ?? 0));
         $until = trim((string) ($args['valid_until'] ?? ''));
         if ($quotation === null || $until === '') {
@@ -77,9 +84,17 @@ final class ExtendQuotationValidityTool implements WriteTool
         );
     }
 
+    public function lockTargets(AiPendingAction $action): void
+    {
+        Quotation::query()->lockForUpdate()->findOrFail((int) $action->args['quotation_id']);
+    }
+
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $quotation = Quotation::query()->findOrFail((int) $action->args['quotation_id']);
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
+        $quotation = Quotation::query()->lockForUpdate()->findOrFail((int) $action->args['quotation_id']);
         if (($action->expected_versions['q:'.$quotation->id] ?? null) !== QuotationVersion::hash($quotation)) {
             return ToolOutcome::denied('عرض السعر اتغير بعد الاقتراح.', auditable: false);
         }

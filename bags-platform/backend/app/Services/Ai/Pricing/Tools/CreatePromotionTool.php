@@ -91,7 +91,13 @@ final class CreatePromotionTool implements WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $promotion = Promotion::query()->create((array) $action->args);
+        $data = \Illuminate\Support\Arr::only((array) $action->args, [
+            'name', 'type', 'discount_value', 'min_order_amount', 'max_discount', 'priority', 'is_stackable', 'starts_at', 'ends_at', 'is_active',
+        ]);
+        if (($data['type'] ?? null) === 'buy_x_get_y') {
+            return ToolOutcome::denied('نوع buy_x_get_y غير مدعوم حاليًا.', auditable: false);
+        }
+        $promotion = Promotion::query()->create($data);
         $notice = self::autoAppliedNotice($promotion);
 
         StaffAdministration::audit(

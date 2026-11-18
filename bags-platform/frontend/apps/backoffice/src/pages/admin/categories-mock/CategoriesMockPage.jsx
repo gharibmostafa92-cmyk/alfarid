@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { CategoriesReferencePage, ToastHost } from './categories-reference';
 import styles from './categories-reference.css?inline';
 import { CategoriesContext } from './categories-context';
+import { ensureStylesheet } from '../../../lib/font-loader';
 
 // Keep the reference's tokens, Tailwind reset and component styles inside this page.
 // Vortix owns navigation; only the supplied categories design is rendered here.
@@ -35,11 +36,7 @@ export default function CategoriesMockPage({ can, forceState = null, embedded = 
 
   useLayoutEffect(() => {
     setRoot(host.current.shadowRoot || host.current.attachShadow({ mode: 'open' }));
-    const fonts = document.createElement('link');
-    fonts.rel = 'stylesheet';
-    fonts.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap';
-    document.head.append(fonts);
-    return () => fonts.remove();
+    ensureStylesheet('vortix-catalog-fonts', 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Readex+Pro:wght@400;500;600;700&display=swap');
   }, []);
 
   useEffect(() => {

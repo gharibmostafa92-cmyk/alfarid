@@ -9,11 +9,16 @@ use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 final class GetPaymentNoticeTool implements AgentTool
 {
-    public function __construct(private WholesalePaymentNoticeService $notices) {}
+    public function __construct(
+        private WholesalePaymentNoticeService $notices,
+        private BranchAccess $branches,
+    ) {}
 
     public function name(): string
     {
@@ -50,9 +55,12 @@ final class GetPaymentNoticeTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->with(['customer', 'order'])->find((int) ($args['notice_id'] ?? 0));
+        $notice = WholesalePaymentNotice::query()->with(['customer', 'order', 'treasury'])->find((int) ($args['notice_id'] ?? 0));
         if ($notice === null) {
             return ToolOutcome::denied('إشعار السداد مش موجود.', auditable: false);
+        }
+        if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
+            return $denied;
         }
 
         $collisions = $this->notices->receiptCollisions($notice);

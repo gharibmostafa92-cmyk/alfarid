@@ -74,11 +74,8 @@ export const expensesApi = {
     api.put(`${ADMIN}/expenses/${id}`, body).then((r) => one<Expense>(r)),
   openAttachment: (id: Id) =>
     openProtectedFile(`${ADMIN}/expenses/${id}/attachment`),
-  create: (body: ExpensePayload, idempotencyKey: string) =>
-    api
-      .post(`${ADMIN}/expenses`, body, {
-        headers: { "Idempotency-Key": idempotencyKey },
-      })
+  create: (body: ExpensePayload, idempotencyKey?: string) =>
+    idempotentPost(`${ADMIN}/expenses`, body, idempotencyKey)
       .then((r) => one<Expense>(r)),
   void: (id: Id, void_reason: string, idempotencyKey?: string) =>
     idempotentPost(`${ADMIN}/expenses/${id}/void`, { void_reason }, idempotencyKey)
@@ -249,8 +246,8 @@ export const quotationsApi = {
       .then((r) => asPage<Quotation>(r)),
   show: (id: Id, signal?: AbortSignal) =>
     api.get(`${Q}/${id}`, { signal }).then((r) => one<Quotation>(r)),
-  price: (id: Id, body: PriceQuotationPayload) =>
-    api.post(`${Q}/${id}/price`, body).then((r) => one<Quotation>(r)),
+  price: (id: Id, body: PriceQuotationPayload, idempotencyKey?: string) =>
+    idempotentPost(`${Q}/${id}/price`, body, idempotencyKey).then((r) => one<Quotation>(r)),
   expire: (id: Id) =>
     api.post(`${Q}/${id}/expire`).then((r) => one<Quotation>(r)),
 };
@@ -288,9 +285,11 @@ export const paymentNoticesApi = {
   ) =>
     idempotentPost(`${PN}/${id}/approve`, body, idempotencyKey)
       .then((r) => one<PaymentNotice>(r)),
-  reject: (id: Id, admin_notes: string) =>
-    api
-      .post(`${PN}/${id}/reject`, { admin_notes })
+  reject: (id: Id, admin_notes: string, idempotencyKey?: string) =>
+    idempotentPost(`${PN}/${id}/reject`, { admin_notes }, idempotencyKey)
+      .then((r) => one<PaymentNotice>(r)),
+  reverse: (id: Id, reason: string, idempotencyKey?: string) =>
+    idempotentPost(`${PN}/${id}/reverse`, { reason }, idempotencyKey)
       .then((r) => one<PaymentNotice>(r)),
   openReceipt: (id: Id) => openProtectedFile(`${PN}/${id}/receipt`),
   downloadReceipt: (id: Id) =>

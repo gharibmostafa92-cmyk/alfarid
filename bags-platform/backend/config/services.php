@@ -24,6 +24,7 @@ return [
         'token' => env('WHATSAPP_BUSINESS_TOKEN'),
         'phone_number_id' => env('WHATSAPP_BUSINESS_PHONE_NUMBER_ID'),
         'webhook_secret' => env('WHATSAPP_BUSINESS_WEBHOOK_SECRET'),
+        'verify_token' => env('WHATSAPP_BUSINESS_VERIFY_TOKEN'),
     ],
     'customer_sms' => [
         'url' => env('CUSTOMER_SMS_URL'),
@@ -65,6 +66,10 @@ return [
         'url' => env('WA_GATEWAY_URL'),
         'secret' => env('WA_GATEWAY_SECRET'),
         'timeout_seconds' => (int) env('WA_GATEWAY_TIMEOUT', 10),
+    ],
+
+    'sentry' => [
+        'service' => env('SENTRY_SERVICE', 'api'),
     ],
 
     'slack' => [

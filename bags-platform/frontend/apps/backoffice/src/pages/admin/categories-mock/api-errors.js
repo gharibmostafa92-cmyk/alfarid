@@ -17,7 +17,7 @@ const FALLBACK = {
 export function parseApiError(err) {
   const status = err?.response?.status ?? 0;
   const data = err?.response?.data ?? {};
-  const fieldErrors = {};
+  const fieldErrors = Object.create(null);
   Object.entries(data.errors ?? {}).forEach(([k, msgs]) => {
     const key = FIELD_MAP[k] ?? (k.startsWith('items') ? 'items' : k);
     fieldErrors[key] = Array.isArray(msgs) ? msgs[0] : String(msgs);

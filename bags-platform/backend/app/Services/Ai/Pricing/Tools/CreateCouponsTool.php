@@ -200,6 +200,18 @@ final class CreateCouponsTool implements WriteTool
             'ends_at' => $endsAt?->format('Y-m-d H:i:s'),
             'is_active' => array_key_exists('is_active', $args) ? (bool) $args['is_active'] : true,
         ];
+        $previewAfter = [
+            'count' => count($codes),
+            'type' => $payload['type'],
+            'value' => $payload['value'],
+            'min_order_amount' => $payload['min_order_amount'],
+            'max_discount_amount' => $payload['max_discount_amount'],
+            'usage_limit' => $payload['usage_limit'],
+            'usage_limit_per_customer' => $payload['usage_limit_per_customer'],
+            'starts_at' => $payload['starts_at'],
+            'ends_at' => $payload['ends_at'],
+            'is_active' => $payload['is_active'],
+        ];
 
         return $this->proposals->make(
             $actor,
@@ -208,13 +220,13 @@ final class CreateCouponsTool implements WriteTool
             risk: $risk,
             title: $count === 1 ? 'إنشاء كوبون: '.$codes[0] : "إنشاء {$count} كوبون",
             before: ['coupons_count' => 0],
-            after: ['codes' => $codes, 'type' => $type, 'value' => $value],
+            after: $previewAfter,
             warnings: $warnings,
             typedConfirmation: $risk === 'high' ? $codes[0] : null,
             typedConfirmationHint: $count === 1 ? 'اكتب الكود' : 'اكتب أول كود في الدفعة',
             extraPreview: [
                 'block_type' => 'coupon_batch',
-                'summary' => ['count' => count($codes), 'type' => $type, 'value' => $value],
+                'summary' => $previewAfter,
                 'rows' => array_map(fn (string $code) => ['code' => $code], $codes),
             ],
         );

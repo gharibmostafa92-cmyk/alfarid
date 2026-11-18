@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { defaultApiClient } from "@alfarid/api-client";
+import { createClientRequestId } from "../../lib/idempotency";
 
 interface Recognition {
   lang: string;
+  continuous?: boolean;
+  interimResults?: boolean;
   onresult: ((event: { results: { transcript: string }[][] }) => void) | null;
   onerror: (() => void) | null;
   onend: (() => void) | null;
@@ -13,16 +16,6 @@ type SpeechWindow = Window & {
   SpeechRecognition?: new () => Recognition;
   webkitSpeechRecognition?: new () => Recognition;
 };
-
-function scanId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 15) | 64;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
-    "",
-  );
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 export default function StocktakeVoiceCount() {
   const [session, setSession] = useState("");
@@ -35,13 +28,27 @@ export default function StocktakeVoiceCount() {
   const request = useRef<{ payload: string; id: string } | null>(null);
   const submitting = useRef(false);
   const recognition = useRef<Recognition | null>(null);
+  const receivedSpeech = useRef(false);
+  const speechFailed = useRef(false);
+  const manuallyStopped = useRef(false);
+  const listenTimeout = useRef<number | null>(null);
   const barcodeInput = useRef<HTMLInputElement>(null);
   const Speech =
     (window as SpeechWindow).SpeechRecognition ??
     (window as SpeechWindow).webkitSpeechRecognition;
+  const clearListenTimeout = () => {
+    if (listenTimeout.current !== null) {
+      window.clearTimeout(listenTimeout.current);
+      listenTimeout.current = null;
+    }
+  };
   useEffect(
     () => () => {
-      recognition.current?.abort();
+      clearListenTimeout();
+      manuallyStopped.current = true;
+      const active = recognition.current;
+      recognition.current = null;
+      active?.abort();
     },
     [],
   );
@@ -49,8 +56,11 @@ export default function StocktakeVoiceCount() {
   // Manual escape hatch: aborting ends the session even on engines that
   // never fire onend/onerror after start.
   const stopListening = () => {
-    recognition.current?.abort();
+    clearListenTimeout();
+    manuallyStopped.current = true;
+    const active = recognition.current;
     recognition.current = null;
+    active?.abort();
     setListening(false);
   };
 
@@ -59,20 +69,52 @@ export default function StocktakeVoiceCount() {
     setError("");
     const listener = new Speech();
     recognition.current = listener;
+    receivedSpeech.current = false;
+    speechFailed.current = false;
+    manuallyStopped.current = false;
     listener.lang = "ar-EG";
-    listener.onresult = (event) =>
-      setWords(event.results[0]?.[0]?.transcript ?? "");
+    listener.continuous = false;
+    listener.interimResults = false;
+    listener.onresult = (event) => {
+      if (recognition.current !== listener) return;
+      clearListenTimeout();
+      request.current = null;
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      receivedSpeech.current = transcript.trim() !== "";
+      setWords(transcript);
+      if (!receivedSpeech.current) setError("ماسمعناش العدد؛ جرّب تاني أو اكتبه.");
+    };
     // Some embedded WebViews never fire onend after certain onerror kinds;
     // without this the form locks in listening=true with no way out.
     listener.onerror = () => {
+      if (recognition.current !== listener) return;
+      recognition.current = null;
+      clearListenTimeout();
+      speechFailed.current = true;
       setListening(false);
       setError("تعذّر سماع العدد؛ جرّب تاني أو اكتبه.");
     };
-    listener.onend = () => setListening(false);
+    listener.onend = () => {
+      if (recognition.current !== listener) return;
+      recognition.current = null;
+      clearListenTimeout();
+      setListening(false);
+      if (!receivedSpeech.current && !speechFailed.current && !manuallyStopped.current) {
+        setError("ماوصلش صوت قبل انتهاء الاستماع؛ جرّب تاني أو اكتب العدد.");
+      }
+    };
     try {
       setListening(true);
+      clearListenTimeout();
+      listenTimeout.current = window.setTimeout(() => {
+        const stillActive = recognition.current === listener;
+        stopListening();
+        if (stillActive && !receivedSpeech.current && !speechFailed.current) setError("انتهت مهلة الاستماع بعد 15 ثانية؛ جرّب تاني أو اكتب العدد.");
+      }, 15_000);
       listener.start();
     } catch {
+      clearListenTimeout();
+      recognition.current = null;
       setListening(false);
       setError("تعذّر تشغيل الميكروفون؛ اكتب العدد.");
     }
@@ -113,21 +155,22 @@ export default function StocktakeVoiceCount() {
               });
             const normalized = toAsciiDigits(session);
             const cleanBarcode = toAsciiDigits(barcode).trim();
+            const cleanWords = toAsciiDigits(words).trim();
             if (!/^[1-9]\d*$/.test(normalized))
               throw new Error("اكتب معرّف جلسة الجرد كرقم صحيح.");
             const payload = JSON.stringify({
               session: normalized,
               barcode: cleanBarcode,
-              words: words.trim(),
+              words: cleanWords,
             });
             if (!request.current || request.current.payload !== payload)
-              request.current = { payload, id: scanId() };
+              request.current = { payload, id: createClientRequestId() };
             const response = await defaultApiClient.post<{
               sku: string;
               counted_qty: string | number;
             }>(`/api/v1/pos/stocktakes/${normalized}/scan`, {
               barcode: cleanBarcode,
-              qty_words: words.trim(),
+              qty_words: cleanWords,
               scan_id: request.current.id,
             });
             setMessage(
@@ -158,7 +201,7 @@ export default function StocktakeVoiceCount() {
           <input
             aria-label="معرّف جلسة الجرد"
             value={session}
-            onChange={(e) => setSession(e.target.value)}
+            onChange={(e) => { request.current = null; setSession(e.target.value); }}
             required
             inputMode="numeric"
             disabled={busy || listening}
@@ -170,7 +213,7 @@ export default function StocktakeVoiceCount() {
             ref={barcodeInput}
             aria-label="باركود الجرد"
             value={barcode}
-            onChange={(e) => setBarcode(e.target.value)}
+            onChange={(e) => { request.current = null; setBarcode(e.target.value); }}
             required
             maxLength={100}
             disabled={busy || listening}
@@ -181,7 +224,7 @@ export default function StocktakeVoiceCount() {
           <input
             aria-label="العدد المنطوق"
             value={words}
-            onChange={(e) => setWords(e.target.value)}
+            onChange={(e) => { request.current = null; setWords(e.target.value); }}
             required
             maxLength={50}
             placeholder="اتنين وعشرين أو ٢٢"

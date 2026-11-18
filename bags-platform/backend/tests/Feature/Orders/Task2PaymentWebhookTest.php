@@ -214,6 +214,42 @@ class Task2PaymentWebhookTest extends TestCase
         $this->assertSame('unpaid', $order->fresh()->payment_status);
     }
 
+    public function test_optional_amount_configuration_still_requires_currency_when_amount_is_present(): void
+    {
+        config(['webhooks.payment.testpay.require_amount' => false]);
+        $order = $this->freshCardOrder(1);
+
+        $this->postWebhook([
+            'event_id' => 'evt_missing_currency_optional_amount',
+            'order_number' => $order->order_number,
+            'status' => 'paid',
+            'amount' => (float) $order->grand_total,
+            'currency' => null,
+        ])->assertOk()->assertJsonPath('received', false)->assertJsonPath('message', 'amount mismatch');
+
+        $order = $order->fresh();
+        $this->assertSame('unpaid', $order->payment_status);
+        $this->assertTrue($order->needs_attention);
+    }
+
+    public function test_optional_amount_configuration_does_not_allow_refund_without_currency(): void
+    {
+        $order = $this->paidCardOrder(1);
+        config(['webhooks.payment.testpay.require_amount' => false]);
+
+        $this->postWebhook([
+            'event_id' => 'evt_refund_missing_currency',
+            'order_number' => $order->order_number,
+            'status' => 'refunded',
+            'amount_refunded' => (float) $order->grand_total,
+            'currency' => null,
+        ])->assertOk();
+
+        $order = $order->fresh();
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertTrue($order->needs_attention);
+    }
+
     public function test_refund_with_mismatched_currency_is_not_applied(): void
     {
         $order = $this->paidCardOrder(2);
@@ -280,6 +316,33 @@ class Task2PaymentWebhookTest extends TestCase
         $obj = $this->paymobObj($order, ['success' => true]);
         unset($obj['amount_cents']);
         $this->postPaymob($obj)->assertOk()->assertJsonPath('received', false);
+
+        $order = $order->fresh();
+        $this->assertSame('unpaid', $order->payment_status);
+        $this->assertTrue($order->needs_attention);
+    }
+
+    public function test_paymob_rejects_non_finite_amount_for_zero_total_order(): void
+    {
+        $order = $this->freshCardOrder(1);
+        $order->forceFill([
+            'gateway_order_id' => 'pm-overflow',
+            'subtotal' => 0,
+            'discount_amount' => 0,
+            'shipping_cost' => 0,
+            'tax_amount' => 0,
+            'cod_fee' => 0,
+            'grand_total' => 0,
+        ])->save();
+        config(['webhooks.payment.paymob' => [
+            'driver' => 'paymob',
+            'secret' => 'paymob-secret',
+            'currency' => 'EGP',
+            'amount_divisor' => 100,
+        ]]);
+
+        $this->postPaymob($this->paymobObj($order, ['amount_cents' => '1e309']))
+            ->assertOk()->assertJsonPath('received', false)->assertJsonPath('message', 'amount mismatch');
 
         $order = $order->fresh();
         $this->assertSame('unpaid', $order->payment_status);

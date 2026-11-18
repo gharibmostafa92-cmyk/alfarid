@@ -113,10 +113,11 @@ final class QuotePriceTool implements AgentTool
             return ToolOutcome::denied($e->getMessage(), auditable: false);
         }
 
-        $base = collect($tiers)->firstWhere('min_qty', 1.0)['unit_price'];
+        $firstTier = collect($tiers)->firstWhere('min_qty', 1.0) ?? ($tiers[0] ?? null);
+        $base = is_array($firstTier) && isset($firstTier['unit_price']) ? (float) $firstTier['unit_price'] : null;
         $rows = [];
         foreach ($tiers as $tier) {
-            $saving = $base > 0 ? round((($base - $tier['unit_price']) / $base) * 100, 2) : 0.0;
+            $saving = ($base !== null && $base > 0) ? round((($base - $tier['unit_price']) / $base) * 100, 2) : 0.0;
             $rows[] = [
                 'min_qty' => $tier['min_qty'],
                 'unit_price' => $tier['unit_price'],

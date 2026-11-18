@@ -96,18 +96,8 @@ export function crud<T, P extends object, Q extends object = Record<string, unkn
 const SAFE_INLINE = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
 export const DEFAULT_MAX_PAGES = 20;
 
-const TRUSTED_STORAGE_SUFFIXES = [
-  '.r2.cloudflarestorage.com',
-  '.r2.dev',
-  '.amazonaws.com',
-  '.digitaloceanspaces.com',
-];
-
 function isTrustedAttachmentHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  if (TRUSTED_STORAGE_SUFFIXES.some((suffix) => host === suffix.slice(1) || host.endsWith(suffix))) {
-    return true;
-  }
   const baseUrl = (api as { defaults?: { baseURL?: string } })?.defaults?.baseURL;
   if (baseUrl) {
     try {
@@ -221,7 +211,14 @@ export async function openProtectedFile(url: string): Promise<void> {
     const blob = new Blob([r.data], { type });
     const blobUrl = URL.createObjectURL(blob);
     w.location.href = blobUrl;
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      URL.revokeObjectURL(blobUrl);
+    };
+    w.addEventListener('pagehide', release, { once: true });
+    window.setTimeout(release, 30 * 60_000);
   } catch (e) {
     if (w) w.close();
     await decodeBlobError(e);
@@ -257,10 +254,32 @@ function saveBlob(blob: Blob, filename: string): void {
 }
 
 /** Generates unique idempotency key for transactional operations. */
-export const newIdempotencyKey = (): string =>
-  (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+export const newIdempotencyKey = (): string => {
+  const crypto = globalThis.crypto;
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  newIdempotencyKeyCounter += 1;
+  return `fallback-${Date.now().toString(36)}-${newIdempotencyKeyCounter.toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
-const pendingPostKeys = new Map<string, { payload: string; key: string }>();
+let newIdempotencyKeyCounter = 0;
+const MAX_PENDING_POST_KEYS = 100;
+const pendingPostKeys = new Map<string, { key: string; inFlight: number }>();
+
+function trimPendingPostKeys(): void {
+  while (pendingPostKeys.size > MAX_PENDING_POST_KEYS) {
+    const removable = [...pendingPostKeys].find(([, value]) => value.inFlight === 0)?.[0];
+    if (removable === undefined) return;
+    pendingPostKeys.delete(removable);
+  }
+}
 
 /**
  * Sends an idempotent POST. When the caller does not own a longer-lived key,
@@ -273,13 +292,35 @@ export async function idempotentPost<T = unknown>(
   idempotencyKey?: string,
 ): Promise<AxiosResponse<T>> {
   const payload = JSON.stringify(body) ?? 'undefined';
-  const pending = pendingPostKeys.get(url);
-  const key = idempotencyKey ?? (pending?.payload === payload ? pending.key : newIdempotencyKey());
-  if (!idempotencyKey) pendingPostKeys.set(url, { payload, key });
+  const scope = `${url}\u0000${payload}`;
+  let pending: { key: string; inFlight: number } | undefined;
+  let key = idempotencyKey;
+  if (!key) {
+    pending = pendingPostKeys.get(scope);
+    if (!pending) pending = { key: newIdempotencyKey(), inFlight: 0 };
+    pending.inFlight += 1;
+    pendingPostKeys.delete(scope);
+    pendingPostKeys.set(scope, pending); // LRU touch
+    trimPendingPostKeys();
+    key = pending.key;
+  }
 
-  const response = await api.post<T>(url, body, { headers: { 'Idempotency-Key': key } });
-  if (!idempotencyKey && pendingPostKeys.get(url)?.key === key) pendingPostKeys.delete(url);
-  return response;
+  try {
+    const response = await api.post<T>(url, body, { headers: { 'Idempotency-Key': key } });
+    if (!idempotencyKey && pendingPostKeys.get(scope)?.key === key) pendingPostKeys.delete(scope);
+    return response;
+  } catch (error) {
+    if (!idempotencyKey && pendingPostKeys.get(scope)?.key === key) {
+      const current = pendingPostKeys.get(scope)!;
+      current.inFlight = Math.max(0, current.inFlight - 1);
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      const retryableClientStatus = status !== undefined && [408, 409, 425, 429].includes(status);
+      const permanentClientError = status !== undefined && status >= 400 && status < 500 && !retryableClientStatus;
+      if (permanentClientError) pendingPostKeys.delete(scope);
+      trimPendingPostKeys();
+    }
+    throw error;
+  }
 }
 
 /** API Error Handling and Mapping */

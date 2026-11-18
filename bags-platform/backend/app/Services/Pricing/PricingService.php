@@ -557,7 +557,7 @@ class PricingService
         array $ctx,
     ): ?PriceListItem {
         if (isset($ctx['items']) && ($ctx['branch_id'] ?? null) === $branchId) {
-            return ($ctx['items'][$variant->id] ?? collect())
+            $winner = ($ctx['items'][$variant->id] ?? collect())
                 ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
                 ->sort(function ($a, $b): int {
                     return (($a->pricing_branch_id === null) <=> ($b->pricing_branch_id === null))
@@ -566,12 +566,24 @@ class PricingService
                         ?: BigDecimal::of($a->price)->compareTo(BigDecimal::of($b->price))
                         ?: ((int) $a->id <=> (int) $b->id);
                 })->first();
+            if ($winner !== null && isset($ctx['price_overrides'][$winner->id])) {
+                $winner = clone $winner;
+                $winner->price = $ctx['price_overrides'][$winner->id];
+            }
+
+            return $winner;
         }
 
         $query = $baseQuery instanceof \Closure ? $baseQuery() : $baseQuery;
 
-        return $this->ordered((clone $query)->where('price_lists.type', $type)
+        $winner = $this->ordered((clone $query)->where('price_lists.type', $type)
             ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
+
+        if ($winner !== null && isset($ctx['price_overrides'][$winner->id])) {
+            $winner->price = $ctx['price_overrides'][$winner->id];
+        }
+
+        return $winner;
     }
 
     /**

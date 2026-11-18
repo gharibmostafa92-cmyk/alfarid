@@ -503,6 +503,8 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
   const [q, setQ] = useState('');
   const [ty, setTy] = useState('');
   const [cus, setCus] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const debouncedCustomerSearch = useDebounced(customerSearch);
   const [grp, setGrp] = useState('');
   const [br, setBr] = useState('');
   const [act, setAct] = useState('');
@@ -522,12 +524,16 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
     page, per_page: 20, search: dq || undefined, type: typeToBackend(ty),
     customer_id: cus ? Number(cus) : undefined, customer_group_id: grp ? Number(grp) : undefined,
     branch_id: br ? Number(br) : undefined, is_active: act === '' ? undefined : act === 'true',
-  }, s), [page, dq, ty, cus, grp, br, act], { mock: () => ({ data: [], meta: { current_page: 1, last_page: 1, total: PRICE_LISTS.length, per_page: 20, from: 1, to: PRICE_LISTS.length } }), onError: (e) => toast(e.message, 'red') });
+  }, s), [page, dq, ty, cus, grp, br, act], { enabled: q === dq, mock: () => ({ data: [], meta: { current_page: 1, last_page: 1, total: PRICE_LISTS.length, per_page: 20, from: 1, to: PRICE_LISTS.length } }), onError: (e) => toast(e.message, 'red') });
   const rows = lists.usingMock ? PRICE_LISTS : (lists.data?.data ?? []).map((p: any) => mapPriceList(p));
 
   const groups = useRemote((s) => customerGroupsApi.all(s).then((rows) => rows.map(mapCustomerGroup)), [], { mock: () => CUSTOMER_GROUPS });
   const branchesList = useRemote((s) => branchesApi.list({}, s).then((r) => r.data), []);
-  const customers = useRemote((s) => commerceLookupsApi.customers(s), []);
+  const customers = useRemote(
+    (s) => commerceLookupsApi.customers(debouncedCustomerSearch, s),
+    [debouncedCustomerSearch],
+    { enabled: debouncedCustomerSearch.trim().length >= 3 },
+  );
 
   return (
     <div className="space-y-5">
@@ -566,7 +572,8 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
               placeholder="النوع"
               options={Object.entries(PL_TYPES).map(([v, l]) => ({ value: v, label: l }))}
             />
-            <FSelect value={cus} onChange={setFilter(setCus)} placeholder="العميل" options={(customers.data ?? []).map((c: { id: number; name: string }) => ({ value: String(c.id), label: c.name }))} />
+            <input className="inp inp-sm w-40" value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="ابحث عن عميل" aria-label="بحث عن عميل" />
+            <FSelect value={cus} onChange={setFilter(setCus)} placeholder="العميل" options={(customers.data ?? []).map((c: { id: number; name: string; company_name?: string }) => ({ value: String(c.id), label: c.company_name || c.name }))} />
             <FSelect
               value={grp}
               onChange={setFilter(setGrp)}
@@ -799,7 +806,13 @@ export function PriceListForm({ row, onClose, onSaved }: { row: (PriceListRow & 
   const prErr = prio < -10000 || prio > 10000 ? 'الأولوية من ‎-10000 إلى 10000' : null;
   const groups = useRemote((s) => customerGroupsApi.all(s).then((rows) => rows.map(mapCustomerGroup)), [], { mock: () => CUSTOMER_GROUPS });
   const branchesList = useRemote((s) => branchesApi.list({}, s).then((r) => r.data), []);
-  const customers = useRemote((s) => commerceLookupsApi.customers(s), []);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const debouncedCustomerSearch = useDebounced(customerSearch);
+  const customers = useRemote(
+    (s) => commerceLookupsApi.customers(debouncedCustomerSearch, s),
+    [debouncedCustomerSearch],
+    { enabled: debouncedCustomerSearch.trim().length >= 3 },
+  );
   const toBackendType = (t: string): PriceListType => (t === 'group' ? 'customer_group' : t === 'customer' ? 'customer_specific' : t) as PriceListType;
   const save = async () => {
     if (!f.v.name.trim()) return toast('اسم القائمة مطلوب', 'red');
@@ -860,10 +873,14 @@ export function PriceListForm({ row, onClose, onSaved }: { row: (PriceListRow & 
         </Field>
         {type === 'customer' && (
           <Field label="العميل" req err={f.errors.customerId}>
+            <input className="inp mb-2" value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="ابحث عن العميل" />
             <select className="inp" value={f.v.customerId} onChange={f.on('customerId' as any)}>
               <option value="">اختر العميل</option>
-              {(customers.data ?? []).map((w: { id: number; name: string }) => (
-                <option key={w.id} value={String(w.id)}>{w.name}</option>
+              {row?.raw?.customer?.id && !(customers.data ?? []).some((w) => String(w.id) === String(row.raw.customer.id)) && (
+                <option value={String(row.raw.customer.id)}>{row.raw.customer.name}</option>
+              )}
+              {(customers.data ?? []).map((w: { id: number; name: string; company_name?: string }) => (
+                <option key={w.id} value={String(w.id)}>{w.company_name || w.name}</option>
               ))}
             </select>
           </Field>
@@ -915,7 +932,19 @@ export function AddPriceItemModal({ priceListId, onClose, onSaved }: { priceList
   const toast = useToast();
   const { busy, run } = useAction();
   const f = useFormState({ variantId: '', min: 1, price: '' as any, from: '', to: '' });
-  const variants = useRemote((signal) => commerceLookupsApi.variants(signal), []);
+  const [productSearch, setProductSearch] = useState('');
+  const debouncedProductSearch = useDebounced(productSearch);
+  const [productId, setProductId] = useState('');
+  const products = useRemote(
+    (signal) => commerceLookupsApi.products(debouncedProductSearch, signal),
+    [debouncedProductSearch],
+    { enabled: debouncedProductSearch.trim().length >= 2 },
+  );
+  const variants = useRemote(
+    (signal) => productId ? commerceLookupsApi.variantsForProduct(Number(productId), signal) : Promise.resolve([]),
+    [productId],
+    { enabled: !!productId },
+  );
   const variantOptions = variants.data ?? [];
   const save = async () => {
     if (!f.v.variantId) return toast('اختر متغير المنتج', 'red');
@@ -931,8 +960,16 @@ export function AddPriceItemModal({ priceListId, onClose, onSaved }: { priceList
       footer={<><button className="btn btn-soft" onClick={onClose}>إلغاء</button><button className="btn btn-dark" disabled={busy} onClick={save}>إضافة</button></>}>
       <div className="space-y-4">
         <RemoteFeedback state={variants} />
+        <RemoteFeedback state={products} />
+        <Field label="ابحث عن المنتج" req>
+          <input className="inp" value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="اكتب حرفين على الأقل" />
+          <select className="inp mt-2" value={productId} onChange={(e) => { setProductId(e.target.value); f.set('variantId', ''); }}>
+            <option value="">اختر المنتج</option>
+            {(products.data ?? []).map((product) => <option key={product.id} value={String(product.id)}>{product.name_ar}</option>)}
+          </select>
+        </Field>
         <Field label="متغير المنتج" req err={f.errors.product_variant_id}>
-          <select className="inp" value={f.v.variantId} onChange={f.on('variantId' as any)}>
+          <select className="inp" value={f.v.variantId} disabled={!productId || variants.loading} onChange={f.on('variantId' as any)}>
             <option value="">اختر المتغير</option>
             {variantOptions.map((v) => (<option key={v.id} value={String(v.id)}>{v.label}</option>))}
           </select>
@@ -958,44 +995,69 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
   const itemsApi = useMemo(() => priceListItemsApi(id), [id]);
   const [search, setSearch] = useState('');
   const dsearch = useDebounced(search);
-  const remoteItems = useRemote((s) => itemsApi.all(s), [id], { mock: () => [] });
+  const [itemPage, setItemPage] = useState(1);
+  const remoteItems = useRemote<Paginated<import('@alfarid/api-client').PriceListItemApi>>(
+    (s) => itemsApi.list({ page: itemPage, per_page: 20 }, s),
+    [id, itemPage],
+    { mock: () => ({ data: [], meta: { current_page: 1, last_page: 1, per_page: 20, total: 0, from: null, to: null } }) },
+  );
   const [items, setItems] = useState<any[]>([]);
+  const itemsRef = useRef<any[]>([]);
   const savedRowsRef = useRef<Map<number, { min: any; price: any; from: string; to: string }>>(new Map());
   const [savingIds, setSavingIds] = useState<Set<number>>(() => new Set());
+  const saveQueuesRef = useRef<Map<number, Promise<void>>>(new Map());
   useEffect(() => {
-    const mapped = (remoteItems.data ?? []).map((it) => ({
+    const mapped = (remoteItems.data?.data ?? []).map((it) => ({
       id: it.id, v: { name: it.variant?.product_name_ar ?? `#${it.product_variant_id}`, sku: it.variant?.sku ?? '' },
       variantId: it.product_variant_id, min: it.min_qty, price: it.price, from: it.starts_at?.slice(0, 10) ?? '', to: it.ends_at?.slice(0, 10) ?? '',
     }));
     savedRowsRef.current = new Map(mapped.map((r) => [r.id, { min: r.min, price: r.price, from: r.from, to: r.to }]));
+    itemsRef.current = mapped;
     setItems(mapped);
   }, [remoteItems.data]);
   const [editRow, setEditRow] = useState<any>(null);
   const [form, setForm] = useState(false);
   const [pct, setPct] = useState('');
   const [imp, setImp] = useState(false);
-  const upd = (rowId: number, k: string, v: any) =>
-    setItems((prev) => prev.map((it) => (it.id === rowId ? { ...it, [k]: v } : it)));
-  const saveRow = async (r: any) => {
-    if (pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)) return;
-    const orig = savedRowsRef.current.get(r.id);
-    if (orig && String(orig.min) === String(r.min) && String(orig.price) === String(r.price) && orig.from === r.from && orig.to === r.to) {
-      return;
-    }
-    setSavingIds((prev) => new Set(prev).add(r.id));
-    try {
-      await itemsApi.update(r.id, { product_variant_id: r.variantId, min_qty: Number(r.min), price: Number(r.price), starts_at: r.from || null, ends_at: r.to || null });
-      savedRowsRef.current.set(r.id, { min: r.min, price: r.price, from: r.from, to: r.to });
-      toast('تم حفظ البند', 'green');
-    } catch (e) {
-      if (orig) {
-        setItems((prev) => prev.map((it) => (it.id === r.id ? { ...it, ...orig } : it)));
+  const upd = (rowId: number, k: string, v: any) => {
+    const next = itemsRef.current.map((it) => (it.id === rowId ? { ...it, [k]: v } : it));
+    itemsRef.current = next;
+    setItems(next);
+  };
+  const saveRow = (rowId: number) => {
+    if (pl.usingMock || remoteItems.usingMock) return;
+    const previous = saveQueuesRef.current.get(rowId) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(async () => {
+      const row = itemsRef.current.find((item) => item.id === rowId);
+      if (!row) return;
+      const min = Number(row.min);
+      const price = Number(row.price);
+      if (String(row.min).trim() === '' || !Number.isInteger(min) || min < 1
+        || String(row.price).trim() === '' || !Number.isFinite(price) || price < 0) {
+        toast('أدخل كمية صحيحة وسعرًا غير سالب قبل الحفظ', 'red');
+        return;
       }
-      const { parseApiError } = await import('@alfarid/api-client');
-      toast(parseApiError(e).message, 'red');
-    } finally {
-      setSavingIds((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
-    }
+      const snapshot = { min: row.min, price: row.price, from: row.from, to: row.to };
+      const orig = savedRowsRef.current.get(rowId);
+      if (orig && String(orig.min) === String(snapshot.min) && String(orig.price) === String(snapshot.price) && orig.from === snapshot.from && orig.to === snapshot.to) return;
+      setSavingIds((prev) => new Set(prev).add(rowId));
+      try {
+        await itemsApi.update(rowId, { product_variant_id: row.variantId, min_qty: min, price, starts_at: row.from || null, ends_at: row.to || null });
+        savedRowsRef.current.set(rowId, snapshot);
+        toast('تم حفظ البند', 'green');
+      } catch (e) {
+        toast(parseApiError(e).message, 'red');
+      }
+    });
+    saveQueuesRef.current.set(rowId, task);
+    const cleanup = () => {
+      if (saveQueuesRef.current.get(rowId) === task) {
+        saveQueuesRef.current.delete(rowId);
+        setSavingIds((prev) => { const next = new Set(prev); next.delete(rowId); return next; });
+      }
+    };
+    void task.then(cleanup, cleanup);
+    return task;
   };
   const deleteRow = async (r: any) => {
     const ok = await run(() => itemsApi.remove(r.id), { toast, success: 'تم حذف البند' });
@@ -1056,9 +1118,9 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
       <Card stg={2}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <SearchPill value={search} onChange={setSearch} placeholder="بحث بالاسم أو SKU" />
+          <SearchPill value={search} onChange={setSearch} placeholder="بحث في الصفحة الحالية" />
             <span className="text-[11.5px] tx3">
-              <Num>{items.length}</Num> بند مسجّل
+              <Num>{remoteItems.data?.meta.total ?? 0}</Num> بند مسجّل
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -1092,7 +1154,7 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
                   disabled={pl.usingMock || remoteItems.usingMock}
                   value={r.min}
                   onChange={(e) => upd(r.id, 'min', e.target.value)}
-                  onBlur={() => saveRow(r)}
+                  onBlur={() => { void saveRow(r.id); }}
                 />
               ),
             },
@@ -1104,10 +1166,10 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
                     type="number"
                     step="0.0001"
                     className="inp inp-sm num !w-28 text-end"
-                    disabled={pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)}
+                    disabled={pl.usingMock || remoteItems.usingMock}
                     value={r.price}
                     onChange={(e) => upd(r.id, 'price', e.target.value)}
-                    onBlur={() => saveRow(r)}
+                    onBlur={() => { void saveRow(r.id); }}
                   />
                   <span className="text-[11px] tx3">EGP</span>
                 </div>
@@ -1120,19 +1182,19 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
                   <input
                     type="date"
                     className="inp inp-sm text-[11px] !py-0.5"
-                    disabled={pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)}
+                    disabled={pl.usingMock || remoteItems.usingMock}
                     value={r.from}
                     onChange={(e) => upd(r.id, 'from', e.target.value)}
-                    onBlur={() => saveRow(r)}
+                    onBlur={() => { void saveRow(r.id); }}
                   />
                   <span className="tx3">→</span>
                   <input
                     type="date"
                     className="inp inp-sm text-[11px] !py-0.5"
-                    disabled={pl.usingMock || remoteItems.usingMock || savingIds.has(r.id)}
+                    disabled={pl.usingMock || remoteItems.usingMock}
                     value={r.to}
                     onChange={(e) => upd(r.id, 'to', e.target.value)}
-                    onBlur={() => saveRow(r)}
+                    onBlur={() => { void saveRow(r.id); }}
                   />
                 </div>
               ),
@@ -1141,13 +1203,19 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
               h: '',
               r: (r: any) => (
                 <RowActions>
-                  <button className="icon-btn !w-7 !h-7" disabled={busy} onClick={() => deleteRow(r)}>
+                  <button className="icon-btn !w-7 !h-7" disabled={busy || savingIds.has(r.id)} onClick={() => deleteRow(r)}>
                     <Icon name="trash" size={13} />
                   </button>
                 </RowActions>
               ),
             },
           ]}
+        />
+        <Pager
+          total={remoteItems.data?.meta.total ?? 0}
+          page={itemPage}
+          per={remoteItems.data?.meta.per_page ?? 20}
+          onPage={setItemPage}
         />
       </Card>
       {imp && <PriceImportModal key={id} open priceListId={id} onClose={() => setImp(false)} onSaved={() => { remoteItems.reload(); pl.reload(); }} />}
@@ -1337,7 +1405,24 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
   const [type, setType] = useState(row?.type || 'percent');
   const [scope, setScope] = useState(row?.scope || 'all');
   const [targets, setTargets] = useState<number[]>((row as PromoRow & { targetIds?: number[] } | null)?.targetIds ?? []);
-  const options = useRemote((signal) => scope === 'categories' ? commerceLookupsApi.categories(signal) : scope === 'brands' ? commerceLookupsApi.brands(signal) : commerceLookupsApi.variants(signal), [scope], { enabled: scope !== 'all' });
+  const [targetLabels, setTargetLabels] = useState<Map<number, string>>(() => new Map());
+  const [variantProductSearch, setVariantProductSearch] = useState('');
+  const debouncedVariantProductSearch = useDebounced(variantProductSearch);
+  const [variantProductId, setVariantProductId] = useState('');
+  const options = useRemote((signal) => scope === 'categories'
+    ? commerceLookupsApi.categories(signal)
+    : scope === 'brands' ? commerceLookupsApi.brands(signal) : Promise.resolve([] as { id: number; label: string }[]),
+  [scope], { enabled: scope === 'categories' || scope === 'brands' });
+  const variantProducts = useRemote(
+    (signal) => commerceLookupsApi.products(debouncedVariantProductSearch, signal),
+    [debouncedVariantProductSearch],
+    { enabled: scope === 'variants' && debouncedVariantProductSearch.trim().length >= 3 },
+  );
+  const variantChoices = useRemote(
+    (signal) => variantProductId ? commerceLookupsApi.variantsForProduct(Number(variantProductId), signal) : Promise.resolve([]),
+    [variantProductId],
+    { enabled: scope === 'variants' && !!variantProductId },
+  );
   const f = useFormState({ name: row?.name ?? '', value: (row?.value ?? '') as any, min: (row?.min ?? '') as any, from: row?.from ?? '', to: (row?.to ?? '') as string, active: row?.active ?? true });
   const save = async () => {
     if (!f.v.name.trim()) return toast('اسم العرض مطلوب', 'red');
@@ -1354,7 +1439,7 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
   };
 
   const opts = options.data ?? [];
-  const on = (id: number) => setTargets(targets.includes(id) ? targets.filter((target) => target !== id) : [...targets, id]);
+  const on = (id: number) => setTargets((current) => current.includes(id) ? current.filter((target) => target !== id) : [...current, id]);
 
   return (
     <Modal
@@ -1380,7 +1465,7 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
       }
     >
       <div className="space-y-4">
-        {scope !== 'all' && <RemoteFeedback state={options} />}
+        {(scope === 'categories' || scope === 'brands') && <RemoteFeedback state={options} />}
         <Field label="اسم العرض" req err={f.errors.name}>
           <input className="inp" value={f.v.name} onChange={f.on('name')} />
         </Field>
@@ -1444,18 +1529,42 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
                 <Num>{targets.length}</Num> مختارة
               </span>
             </div>
-            <div className="flex flex-wrap gap-1.5 p-3 rounded-[14px] v-sub max-h-[140px] overflow-y-auto">
-              {opts.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => on(o.id)}
-                  className={'pill-inp text-[12px] ' + (targets.includes(o.id) ? 'on' : '')}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            {scope === 'variants' ? (
+              <div className="space-y-2">
+                <RemoteFeedback state={variantProducts} />
+                <RemoteFeedback state={variantChoices} />
+                <Field label="ابحث عن المنتج">
+                  <input className="inp" value={variantProductSearch} onChange={(e) => setVariantProductSearch(e.target.value)} placeholder="اكتب 3 أحرف على الأقل" />
+                  <select className="inp mt-2" value={variantProductId} onChange={(e) => setVariantProductId(e.target.value)}>
+                    <option value="">اختر المنتج</option>
+                    {(variantProducts.data ?? []).map((product) => <option key={product.id} value={String(product.id)}>{product.name_ar}</option>)}
+                  </select>
+                </Field>
+                <div className="flex flex-wrap gap-1.5 p-3 rounded-[14px] v-sub max-h-[140px] overflow-y-auto">
+                  {(variantChoices.data ?? []).map((choice) => (
+                    <button key={choice.id} type="button" onClick={() => {
+                      setTargetLabels((current) => new Map(current).set(choice.id, choice.label));
+                      on(choice.id);
+                    }} className={'pill-inp text-[12px] ' + (targets.includes(choice.id) ? 'on' : '')}>
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
+                {targets.length > 0 && <div className="flex flex-wrap gap-1.5" aria-label="المتغيرات المختارة">
+                  {targets.map((targetId) => <button key={targetId} type="button" className="pill-inp on" aria-label={`إزالة المتغير ${targetLabels.get(targetId) ?? targetId}`} onClick={() => setTargets((current) => current.filter((id) => id !== targetId))}>
+                    {targetLabels.get(targetId) ?? `#${targetId}`} <span aria-hidden="true">×</span>
+                  </button>)}
+                </div>}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 p-3 rounded-[14px] v-sub max-h-[140px] overflow-y-auto">
+                {opts.map((o) => (
+                  <button key={o.id} type="button" onClick={() => on(o.id)} className={'pill-inp text-[12px] ' + (targets.includes(o.id) ? 'on' : '')}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1498,7 +1607,7 @@ export function CouponForm({ row, onClose, onSaved }: { row: CouponRow | null; o
       min_order_amount: Number(f.v.min || 0),
       usage_limit: (f.v.total as string) === '' ? null : Number(f.v.total),
       usage_limit_per_customer: (f.v.perCust as string) === '' ? 0 : Number(f.v.perCust),
-      starts_at: f.v.from, ends_at: (f.v.to as string) || null, is_active: !!f.v.active,
+      starts_at: (f.v.from as string) || null, ends_at: (f.v.to as string) || null, is_active: !!f.v.active,
     };
     const r = await run(() => (row ? couponsApi.update(row.id, body) : couponsApi.create(body)),
       { toast, success: 'تم الحفظ', onFieldErrors: (e) => f.setErrors(mapErrors(e, { max_discount_amount: 'maxDisc', min_order_amount: 'min', usage_limit: 'total', usage_limit_per_customer: 'perCust', starts_at: 'from', ends_at: 'to' })) });

@@ -74,12 +74,7 @@ final class GetPriceListTool implements AgentTool
 
         $perPage = min(50, max(1, (int) ($args['per_page'] ?? 15)));
         $page = max(1, (int) ($args['page'] ?? 1));
-        Paginator::currentPageResolver(fn () => $page);
-        try {
-            $items = $this->lists->paginateItems($list, ['per_page' => $perPage], $actor);
-        } finally {
-            Paginator::currentPageResolver(fn ($pageName = 'page') => (int) (request()->query($pageName, 1) ?? 1));
-        }
+        $items = $this->lists->paginateItems($list, ['per_page' => $perPage, 'page' => $page], $actor);
 
         $type = $list->type instanceof PriceListType ? $list->type->value : (string) $list->type;
         $rows = [];

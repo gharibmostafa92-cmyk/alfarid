@@ -13,6 +13,8 @@ param (
         'ai', 'trader', 'whatsapp', 'ai-trader-gateway',
         '5.1', 'ai-gateway', 'ai-gateway-core',
         '5.2', 'ai-tools', 'ai-domain-tools',
+        '5.2.1', 'ai-tools-catalog', 'ai-tools-cat-inv',
+        '5.2.2', 'ai-tools-finance', 'ai-tools-fin-price',
         'storefront', 'catalog', 'storefront-catalog',
         '6.1', 'storefront-client',
         '6.2', 'catalog-shipping',
@@ -65,7 +67,8 @@ $SubsystemConfigs = [ordered]@{
 
 $SplitConfigs = [ordered]@{
     'ai-gateway-core'          = 'repomix.subsystem-05.1-ai-gateway-core.json'
-    'ai-domain-tools'          = 'repomix.subsystem-05.2-ai-domain-tools.json'
+    'ai-tools-cat-inv'         = 'repomix.subsystem-05.2.1-ai-catalog-inventory-tools.json'
+    'ai-tools-fin-price'       = 'repomix.subsystem-05.2.2-ai-finance-pricing-tools.json'
     'storefront-client'        = 'repomix.subsystem-06.1-storefront-client.json'
     'catalog-shipping'         = 'repomix.subsystem-06.2-catalog-shipping.json'
     'backoffice-portal'        = 'repomix.subsystem-09.2-backoffice-portal.json'
@@ -83,7 +86,8 @@ foreach ($k in $SplitConfigs.Keys) { $AllConfigs[$k] = $SplitConfigs[$k] }
 function Resolve-DomainKey([string]$key) {
     switch -Regex ($key) {
         '^(5\.1|ai-gateway|ai-gateway-core)$'               { return 'ai-gateway-core' }
-        '^(5\.2|ai-tools|ai-domain-tools)$'                 { return 'ai-domain-tools' }
+        '^(5\.2\.1|ai-tools-catalog|ai-tools-cat-inv)$'     { return 'ai-tools-cat-inv' }
+        '^(5\.2\.2|ai-tools-finance|ai-tools-fin-price)$'   { return 'ai-tools-fin-price' }
         '^(6\.1|storefront-client)$'                        { return 'storefront-client' }
         '^(6\.2|catalog-shipping)$'                         { return 'catalog-shipping' }
         '^(9\.1|security-auth|security-auth-rbac)$'         { return 'security-auth-rbac' }
@@ -221,6 +225,11 @@ if ($All) {
     $stopwatch.Stop()
     Write-Host "`nAll split subsystem bundles successfully packed in $($stopwatch.Elapsed.TotalSeconds.ToString('F1')) seconds!" -ForegroundColor Green
 } elseif ($Domain) {
+    if ($Domain -match '^(5\.2|ai-tools|ai-domain-tools)$') {
+        Invoke-RepomixDomain -key 'ai-tools-cat-inv' -configFile $SplitConfigs['ai-tools-cat-inv']
+        Invoke-RepomixDomain -key 'ai-tools-fin-price' -configFile $SplitConfigs['ai-tools-fin-price']
+        return
+    }
     $resolvedKey = Resolve-DomainKey $Domain
     if ($AllConfigs.Contains($resolvedKey)) {
         Invoke-RepomixDomain -key $resolvedKey -configFile $AllConfigs[$resolvedKey]
@@ -240,6 +249,8 @@ if ($All) {
     Write-Host "`nExamples:"
     Write-Host '  .\scripts\repomix-pack.ps1 -Domain 5.1'
     Write-Host '  .\scripts\repomix-pack.ps1 -Domain 5.2'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 5.2.1'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Domain 5.2.2'
     Write-Host '  .\scripts\repomix-pack.ps1 -Domain 6.1'
     Write-Host '  .\scripts\repomix-pack.ps1 -Domain 6.2'
     Write-Host '  .\scripts\repomix-pack.ps1 -Domain 9.1'

@@ -3,34 +3,65 @@ import { defaultApiClient as api } from '@alfarid/api-client';
 import { formatCurrency, formatDate, CustomerStatusLabelsAr as statuses, CustomerTypeLabelsAr as types } from '@alfarid/utils';
 import { useApi } from './useApi';
 import { normalizeError } from './errors';
+import { createClientRequestId } from '../../../lib/idempotency';
 import { useApp, useQueryState, PageHeader, DataTable, SearchBox, FilterMenu, EmptyState, Drawer, Field, Input, SectionCard, Banner, SearchSelect, ErrorState, Spinner, Badge, vtoast, ConfirmDialog } from '../catalog-mock/catalog-reference';
 
 const base = '/api/v1/admin';
 const get = (path, params, signal) => api.get(base + path, { params, signal }).then(r => r.data);
+const scaledMoney = value => {
+  const match = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(String(value ?? '').trim());
+  if (!match) return 0n;
+  const fraction = match[3] || '';
+  const units = BigInt(match[2]) * 10000n + BigInt((fraction.slice(0, 4).padEnd(4, '0')) || '0');
+  const rounded = fraction.length > 4 && fraction[4] >= '5' ? units + 1n : units;
+  return match[1] === '-' ? -rounded : rounded;
+};
+const productionCostTotal = items => items.reduce((sum, item) => {
+  const quantity = Number.parseInt(String(item.quantity ?? 0), 10);
+  return sum + scaledMoney(item.unit_cost) * BigInt(Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 0);
+}, 0n);
+const formatProductionCost = scaled => formatCurrency((Number(scaled) / 10000).toFixed(4));
+function useDebouncedValue(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
 export function DealersPage() {
   const { user: { can } } = useApp();
+  const canView = can('customers.view');
   const [q, setQ] = useQueryState({ search: '', type: '', status: '', page: 1, per_page: 15 });
   // Deep link from assistant (#/dealers?customer={id}) opens the drawer without appending to API filter parameters.
   const { customer: deepLinkId, tab: deepLinkTab, ...listQuery } = q;
-  const query = useApi(signal => get('/customers', { ...listQuery, business_only: 1 }, signal), [JSON.stringify(listQuery)]);
+  const query = useApi(signal => canView ? get('/customers', { ...listQuery, business_only: 1 }, signal) : Promise.resolve({ data: [], meta: {} }), [canView, JSON.stringify(listQuery)]);
   const [draft, setDraft] = useState(null);
   const [tab, setTab] = useState('details');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [action, setAction] = useState(null);
   const [reason, setReason] = useState('');
-  const detail = useApi(signal => draft?.id ? get('/customers/' + draft.id, {}, signal) : Promise.resolve(null), [draft?.id]);
+  const detail = useApi(signal => draft?.id && canView ? get('/customers/' + draft.id, {}, signal) : Promise.resolve(null), [draft?.id, canView]);
+  const fileTransfer = useRef({ controller: null, url: null, timer: null });
+  useEffect(() => () => {
+    fileTransfer.current.controller?.abort();
+    if (fileTransfer.current.timer) clearTimeout(fileTransfer.current.timer);
+    if (fileTransfer.current.url) URL.revokeObjectURL(fileTransfer.current.url);
+  }, [draft?.id]);
   const set = (key, value) => setDraft(d => ({ ...d, [key]: value }));
   useEffect(() => {
+    if (!canView) return;
     const id = Number(deepLinkId);
-    if (!Number.isInteger(id) || id <= 0) return;
+    if (!Number.isSafeInteger(id) || id <= 0) return;
     let live = true;
-    get('/customers/' + id).then(res => { if (live && res?.data) { setError(null); setTab(deepLinkTab === 'wallet' ? 'wallet' : 'details'); setDraft({ ...res.data, password: '' }); } }).catch(() => { if (live) vtoast('تعذّر فتح حساب التاجر'); }).finally(() => { if (live) setQ({ customer: '', tab: '' }); });
-    return () => { live = false; };
-  }, [deepLinkId, deepLinkTab]);
+    const controller = new AbortController();
+    get('/customers/' + id, {}, controller.signal).then(res => { if (live && res?.data) { setError(null); setTab(deepLinkTab === 'wallet' ? 'wallet' : 'details'); setDraft({ ...res.data, password: '' }); } }).catch(() => { if (live && !controller.signal.aborted) vtoast('تعذّر فتح حساب التاجر'); }).finally(() => { if (live) setQ({ customer: '', tab: '' }); });
+    return () => { live = false; controller.abort(); };
+  }, [canView, deepLinkId, deepLinkTab]);
   const open = row => { setError(null); setTab('details'); setDraft(row ? { ...row, password: '' } : { name: '', phone: '', email: '', password: '', type: 'wholesale', company_name: '', tax_number: '', commercial_register: '', credit_limit: '0' }); };
-  const canUseWallet = draft?.id && (can('customers.wallet.view') || can('customers.wallet.adjust'));
+  const canUseWallet = canView && draft?.id && (can('customers.wallet.view') || can('customers.wallet.adjust'));
   const walletOpen = canUseWallet && tab === 'wallet';
   const save = async () => {
     if (busy) return;
@@ -49,6 +80,7 @@ export function DealersPage() {
     } catch (e) { setError(normalizeError(e)); } finally { setBusy(false); }
   };
   const field = (key, label, options = {}) => <Field key={key} label={label} error={error?.fields?.[key]?.[0]} required={options.required}><Input aria-label={label} value={draft[key] ?? ''} onChange={e => set(key, e.target.value)} {...options} /></Field>;
+  if (!canView) return <div className="space-y-5"><PageHeader title="التجار والموزعون" subtitle="عملاء بيشتروا منتجات تصنيعنا بالجملة، مع متابعة بياناتهم واعتماد حساباتهم." /><Banner tone="amber">ليس لديك صلاحية عرض حسابات التجار.</Banner></div>;
   return <div className="space-y-5">
     <PageHeader title="التجار والموزعون" subtitle="عملاء بيشتروا منتجات تصنيعنا بالجملة، مع متابعة بياناتهم واعتماد حساباتهم." crumbs={[{ label: 'المبيعات' }, { label: 'التجار والموزعون' }]} actions={can('customers.create') && <button className="btn btn-ink" onClick={() => open(null)}>إضافة تاجر</button>} />
     <DataTable rows={query.data?.data || []} meta={query.data?.meta} state={query.loading ? 'loading' : query.error ? 'error' : 'ready'} error={query.error} onRetry={query.reload} onPage={page => setQ({ page })} onPerPage={per_page => setQ({ per_page, page: 1 })}
@@ -93,11 +125,26 @@ export function DealersPage() {
             {can('customers.update') && <label className="btn btn-outline cursor-pointer">رفع مستند<input type="file" className="sr-only" accept="application/pdf,image/jpeg,image/png" disabled={busy || (detail.data.data.documents || []).length >= 5} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; setBusy(true); setError(null); try { const data = new FormData(); data.append('document', file); await api.post(base + `/customers/${draft.id}/documents`, data, { headers: { 'Content-Type': 'multipart/form-data' } }); detail.reload(); } catch (e) { setError(normalizeError(e)); } finally { setBusy(false); } }} /></label>}
             {(detail.data.data.documents || []).length === 0 ? <p className="t-2 text-sm">ارفع سجل التاجر أو بطاقته الضريبية لمراجعتهما. PDF أو صورة، حتى 5 ميجابايت للمستند.</p> : detail.data.data.documents.map(doc => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="t-1 text-sm">{doc.original_name} — {doc.status === 'verified' ? 'موثّق' : 'بانتظار المراجعة'}</span>
-              <button className="btn btn-soft" disabled={busy} onClick={async () => { setBusy(true); try { const r = await api.get(base + `/customers/${draft.id}/documents/${doc.id}/download`, { responseType: 'blob' }); const url = URL.createObjectURL(r.data); const link = document.createElement('a'); link.href = url; link.download = doc.original_name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (e) { setError(normalizeError(e)); } finally { setBusy(false); } }}>تنزيل</button>
+              <button className="btn btn-soft" disabled={busy} onClick={async () => {
+                fileTransfer.current.controller?.abort();
+                const controller = new AbortController();
+                fileTransfer.current.controller = controller;
+                setBusy(true);
+                try {
+                  const r = await api.get(base + `/customers/${draft.id}/documents/${doc.id}/download`, { responseType: 'blob', signal: controller.signal });
+                  if (controller.signal.aborted) return;
+                  const url = URL.createObjectURL(r.data);
+                  fileTransfer.current.url = url;
+                  const link = document.createElement('a'); link.href = url; link.download = doc.original_name; link.click();
+                  if (fileTransfer.current.timer) clearTimeout(fileTransfer.current.timer);
+                  fileTransfer.current.timer = setTimeout(() => { URL.revokeObjectURL(url); if (fileTransfer.current.url === url) fileTransfer.current.url = null; fileTransfer.current.timer = null; }, 30000);
+                } catch (e) { if (!controller.signal.aborted) setError(normalizeError(e)); }
+                finally { if (fileTransfer.current.controller === controller) { fileTransfer.current.controller = null; setBusy(false); } }
+              }}>تنزيل</button>
               {can('customers.approve') && doc.status !== 'verified' && <button className="btn btn-outline" disabled={busy} onClick={async () => { setBusy(true); try { await api.patch(base + `/customers/${draft.id}/documents/${doc.id}`, { status: 'verified' }); detail.reload(); } catch (e) { setError(normalizeError(e)); } finally { setBusy(false); } }}>توثيق المستند</button>}
             </div>)}
           </SectionCard>}
-          {can('customers.approve') && <div className="flex flex-wrap gap-2">{Object.entries({ approve: 'اعتماد الحساب', reject: 'رفض الحساب', suspend: 'إيقاف الحساب' }).filter(([kind]) => kind !== 'approve' || draft.status !== 'approved').map(([kind, label]) => <button key={kind} className="btn btn-outline" disabled={busy} onClick={() => { setAction({ kind, label }); setReason(''); }}>{label}</button>)}</div>}
+          {can('customers.approve') && <div className="flex flex-wrap gap-2">{Object.entries({ approve: 'اعتماد الحساب', reject: 'رفض الحساب', suspend: 'إيقاف الحساب' }).filter(([kind]) => kind !== 'approve' || (detail.data?.data?.status ?? draft.status) !== 'approved').map(([kind, label]) => <button key={kind} className="btn btn-outline" disabled={busy || detail.loading} onClick={() => { setAction({ kind, label }); setReason(''); }}>{label}</button>)}</div>}
         </>}
       </div>}
     </Drawer>
@@ -124,7 +171,7 @@ function DealerWallet({ customerId, canView, canAdjust, busy, setBusy }) {
     const payload = { ...form, kind: 'adjustment', reason: form.reason.trim() };
     const hash = JSON.stringify(payload);
     try {
-      if (request.current?.hash !== hash) request.current = { hash, key: crypto.randomUUID() };
+      if (request.current?.hash !== hash) request.current = { hash, key: createClientRequestId() };
       await api.post(base + path + '/adjustments', payload, { headers: { 'Idempotency-Key': request.current.key } });
       request.current = null;
       setForm({ direction: 'credit', amount: '', reason: '' });
@@ -176,7 +223,8 @@ export function ProductionPage() {
   const [q, setQ] = useQueryState({ page: 1, per_page: 15 });
   const history = useApi(signal => get('/production-receipts', q, signal), [JSON.stringify(q)]);
   const [search, setSearch] = useState('');
-  const options = useApi(signal => get('/production-receipts/options', { search }, signal), [search]);
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const options = useApi(signal => get('/production-receipts/options', { search: debouncedSearch }, signal), [debouncedSearch]);
   const [form, setForm] = useState({ batch_number: '', branch_id: null, location_id: null, notes: '' });
   const [items, setItems] = useState([]);
   const [variantId, setVariantId] = useState(null);
@@ -195,7 +243,7 @@ export function ProductionPage() {
       if (!items.length) throw new Error('أضف صنفًا واحدًا على الأقل.');
       const payload = { ...form, items: items.map(({ product_variant_id, quantity, unit_cost }) => ({ product_variant_id, quantity: Number(quantity), unit_cost })) };
       const hash = JSON.stringify(payload);
-      if (!request.current || request.current.hash !== hash) request.current = { hash, key: crypto.randomUUID() };
+      if (!request.current || request.current.hash !== hash) request.current = { hash, key: createClientRequestId() };
       await api.post(base + '/production-receipts', payload, { headers: { 'Idempotency-Key': request.current.key } });
       setForm(f => ({ ...f, batch_number: '', notes: '' })); setItems([]); request.current = null; history.reload(); vtoast('تم استلام الإنتاج وإضافته للمخزون');
     } catch (e) { setError(normalizeError(e)); } finally { setBusy(false); }
@@ -223,7 +271,7 @@ export function ProductionPage() {
             <button type="button" className="btn btn-soft" aria-label={'إزالة ' + item.label} onClick={() => setItems(items.filter(i => i !== item))}>إزالة</button>
           </div>)}
           <Field label="ملاحظات الاستلام"><Input aria-label="ملاحظات الاستلام" maxLength={1000} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></Field>
-          <div className="flex flex-wrap gap-4 items-center justify-between"><span className="t-2 text-sm">إجمالي تكلفة الدفعة: {formatCurrency(items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unit_cost) || 0), 0))}</span><button className="btn btn-ink" type="submit" disabled={!form.branch_id || !items.length || busy}>{busy ? 'جارٍ الاستلام…' : 'تأكيد استلام الإنتاج'}</button></div>
+        <div className="flex flex-wrap gap-4 items-center justify-between"><span className="t-2 text-sm">إجمالي تكلفة الدفعة: {formatProductionCost(productionCostTotal(items))}</span><button className="btn btn-ink" type="submit" disabled={!form.branch_id || !items.length || busy}>{busy ? 'جارٍ الاستلام…' : 'تأكيد استلام الإنتاج'}</button></div>
         </fieldset>
       </form>
     </SectionCard>}
@@ -233,7 +281,7 @@ export function ProductionPage() {
         { key: 'batch', label: 'دفعة الإنتاج', render: r => r.batch_number },
         { key: 'branch', label: 'الفرع', render: r => branches.find(b => b.id === r.branch_id)?.name || r.branch_id },
         { key: 'quantity', label: 'إجمالي القطع', render: r => r.items.reduce((sum, i) => sum + Number(i.quantity), 0) },
-        ...(can('products.view_cost') ? [{ key: 'cost', label: 'تكلفة التصنيع', render: r => formatCurrency(r.items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_cost), 0)) }] : []),
+        ...(can('products.view_cost') ? [{ key: 'cost', label: 'تكلفة التصنيع', render: r => formatProductionCost(productionCostTotal(r.items)) }] : []),
         { key: 'date', label: 'تاريخ الاستلام', render: r => formatDate(r.created_at, { includeTime: true }) },
         { key: 'notes', label: 'ملاحظات', render: r => r.notes || '—' },
         { key: 'details', label: '', render: r => <button className="btn btn-soft" onClick={() => setSelectedReceipt(r)}>تفاصيل الدفعة</button> },

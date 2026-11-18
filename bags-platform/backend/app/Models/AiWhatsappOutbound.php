@@ -8,14 +8,19 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Outbox record for messages queued for transmission via WhatsApp business gateways.
+ * Durable per-message delivery record for WhatsApp replies.
  */
 class AiWhatsappOutbound extends Model
 {
     protected $table = 'ai_whatsapp_outbound';
 
     protected $fillable = [
+        'inbound_id',
+        'sequence',
         'wa_message_id',
+        'delivery_status',
+        'recipient_jid',
+        'body',
         'conversation_id',
         'pending_action_id',
         'picker',

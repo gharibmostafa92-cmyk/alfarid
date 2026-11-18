@@ -89,12 +89,13 @@ test('admin banner round trip preserves placement, optional copy, target and upl
   assert.equal(toFormData({ ...banner, linkType: 'external', url: ' https://example.com ' }).get('link_value'), 'https://example.com');
 });
 
-test('banner schedule inputs round trip Cairo local time without shifting the instant', () => {
+test('banner schedule inputs use Cairo wall time regardless of browser timezone', () => {
   const previousTimezone = process.env.TZ;
-  process.env.TZ = 'Africa/Cairo';
+  process.env.TZ = 'America/Los_Angeles';
   try {
     assert.equal(isoToLocalInput('2026-01-10T08:30:00Z'), '2026-01-10T10:30');
     assert.equal(localInputToIso('2026-01-10T10:30'), '2026-01-10T08:30:00.000Z');
+    assert.equal(localInputToIso('2026-07-10T10:30'), '2026-07-10T07:30:00.000Z');
     assert.equal(isoToLocalInput(null), '');
     assert.equal(localInputToIso(''), '');
   } finally {

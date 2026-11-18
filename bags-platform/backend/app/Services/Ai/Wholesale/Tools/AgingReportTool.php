@@ -8,6 +8,7 @@ use App\Enums\Orders\OrderStatus;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
+use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Inventory\BranchAccess;
@@ -16,7 +17,7 @@ use Throwable;
 
 final class AgingReportTool implements AgentTool
 {
-    public function __construct(private BranchAccess $branches) {}
+    public function __construct(private BranchAccess $branches, private FinancePresenter $presenter) {}
 
     public function name(): string
     {
@@ -55,44 +56,47 @@ final class AgingReportTool implements AgentTool
             return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
         }
 
-        $orders = Order::query()
-            ->with('customer:id,name,company_name')
-            ->where('payment_method', 'credit')
-            ->where('payment_status', 'unpaid')
-            ->where('status', '!=', OrderStatus::Cancelled->value)
-            ->when($branchId !== null, fn ($q) => $q->where('allocated_branch_id', $branchId))
-            ->get(['id', 'customer_id', 'grand_total', 'due_at', 'created_at', 'order_number']);
+        $today = now()->startOfDay()->toDateString();
+        $rows = Order::query()
+            ->join('customers', 'customers.id', '=', 'orders.customer_id')
+            ->where('orders.payment_method', 'credit')
+            ->where('orders.payment_status', 'unpaid')
+            ->where('orders.status', '!=', OrderStatus::Cancelled->value)
+            ->when($branchId !== null, fn ($q) => $q->where('orders.allocated_branch_id', $branchId))
+            ->selectRaw("
+                orders.customer_id,
+                COALESCE(NULLIF(customers.company_name, ''), customers.name) AS customer_name,
+                MAX(GREATEST(0, (?::date - COALESCE(orders.due_at, orders.created_at)::date))) AS max_days,
+                SUM(CASE WHEN (?::date - COALESCE(orders.due_at, orders.created_at)::date) <= 30 THEN orders.grand_total ELSE 0 END) AS bucket_0_30,
+                SUM(CASE WHEN (?::date - COALESCE(orders.due_at, orders.created_at)::date) BETWEEN 31 AND 60 THEN orders.grand_total ELSE 0 END) AS bucket_31_60,
+                SUM(CASE WHEN (?::date - COALESCE(orders.due_at, orders.created_at)::date) BETWEEN 61 AND 90 THEN orders.grand_total ELSE 0 END) AS bucket_61_90,
+                SUM(CASE WHEN (?::date - COALESCE(orders.due_at, orders.created_at)::date) > 90 THEN orders.grand_total ELSE 0 END) AS bucket_over_90,
+                SUM(orders.grand_total) AS total_amount
+            ", [$today, $today, $today, $today, $today])
+            ->groupBy('orders.customer_id', 'customers.company_name', 'customers.name')
+            ->orderByDesc('max_days')
+            ->orderByDesc('total_amount')
+            ->limit(50)
+            ->get();
 
-        $grouped = $orders->groupBy('customer_id')->map(function (Collection $rows) {
-            $buckets = ['0_30' => 0.0, '31_60' => 0.0, '61_90' => 0.0, 'over_90' => 0.0];
-            $maxDays = 0;
-            foreach ($rows as $order) {
-                $basis = $order->due_at ?? $order->created_at;
-                $days = $basis === null ? 0 : max(0, (int) $basis->copy()->startOfDay()->diffInDays(now()->startOfDay(), false));
-                $maxDays = max($maxDays, $days);
-                $amount = (float) $order->grand_total;
-                if ($days <= 30) {
-                    $buckets['0_30'] += $amount;
-                } elseif ($days <= 60) {
-                    $buckets['31_60'] += $amount;
-                } elseif ($days <= 90) {
-                    $buckets['61_90'] += $amount;
-                } else {
-                    $buckets['over_90'] += $amount;
-                }
-            }
-            $customer = $rows->first()?->customer;
+        $grouped = $rows->map(function ($row): array {
+            $buckets = [
+                '0_30' => round((float) $row->bucket_0_30, 2),
+                '31_60' => round((float) $row->bucket_31_60, 2),
+                '61_90' => round((float) $row->bucket_61_90, 2),
+                'over_90' => round((float) $row->bucket_over_90, 2),
+            ];
 
             return [
-                'customer_id' => (int) $rows->first()->customer_id,
-                'customer' => $customer?->company_name ?: $customer?->name,
-                'max_days' => $maxDays,
-                'total' => round(array_sum($buckets), 2),
-                'buckets' => array_map(fn ($v) => round($v, 2), $buckets),
+                'customer_id' => (int) $row->customer_id,
+                'customer' => $row->customer_name,
+                'max_days' => (int) $row->max_days,
+                'total' => round((float) $row->total_amount, 2),
+                'buckets' => $buckets,
             ];
-        })->sort(fn (array $a, array $b): int => [$b['max_days'], $b['total']] <=> [$a['max_days'], $a['total']])->values()->all();
+        })->values()->all();
 
-        return ToolOutcome::data(['rows' => $grouped], [
+        return $this->presenter->present($actor, ['rows' => $grouped], [
             'type' => 'table',
             'columns' => ['التاجر', '0–30', '31–60', '61–90', '+90', 'الإجمالي'],
             'rows' => array_map(fn (array $row) => [

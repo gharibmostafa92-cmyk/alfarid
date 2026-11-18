@@ -11,6 +11,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '3s'");
             if (! DB::scalar("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'inventory_reconcile_runs'::regclass AND conname = 'inventory_reconcile_runs_branch_id_foreign')")) {
@@ -24,6 +28,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '3s'");
             DB::statement('ALTER TABLE inventory_reconcile_runs DROP CONSTRAINT IF EXISTS inventory_reconcile_runs_branch_id_foreign');

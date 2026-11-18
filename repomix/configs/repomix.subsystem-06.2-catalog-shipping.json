@@ -89,7 +89,21 @@
                     "bags-platform/frontend/apps/storefront/src/components/sophie/product/SophieProductsSection.tsx",
                     "bags-platform/frontend/apps/storefront/src/styles/product-experience.css",
                     "bags-platform/backend/app/Observers/PromotionObserver.php",
-                    "bags-platform/backend/database/migrations/2026_11_17_000007_optimize_storefront_search_and_sale_filter.php"
+                    "bags-platform/backend/database/migrations/2026_11_17_000007_optimize_storefront_search_and_sale_filter.php",
+                    "bags-platform/backend/app/Services/Ai/Pricing/Tools/CouponPerformanceTool.php",
+                    "bags-platform/backend/app/Services/Ai/Pricing/Tools/CreateCouponsTool.php",
+                    "bags-platform/backend/app/Services/Ai/Pricing/Tools/CreatePromotionTool.php",
+                    "bags-platform/backend/app/Services/Ai/Pricing/Tools/SimulateCartTool.php",
+                    "bags-platform/backend/app/Services/Ai/Pricing/Tools/UpdateCouponTool.php",
+                    "bags-platform/backend/app/Services/Ai/Pricing/Tools/UpdatePromotionTool.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog-mock/CatalogMockPage.jsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog-mock/catalog-reference.css",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog-mock/catalog-reference.jsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog/errors.ts",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog/manufacturing-pages.jsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog/persist.ts",
+                    "bags-platform/backend/database/migrations/2026_11_18_000002_add_durable_whatsapp_outbound_delivery.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/catalog/product-state.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

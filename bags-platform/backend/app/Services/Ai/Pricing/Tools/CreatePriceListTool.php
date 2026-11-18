@@ -144,7 +144,10 @@ final class CreatePriceListTool implements WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $list = $this->lists->create((array) $action->args, $actor);
+        $data = \Illuminate\Support\Arr::only((array) $action->args, [
+            'name', 'type', 'priority', 'customer_group_id', 'customer_id', 'branch_id', 'starts_at', 'ends_at', 'is_active', 'notes',
+        ]);
+        $list = $this->lists->create($data, $actor);
 
         StaffAdministration::audit(
             $actor,

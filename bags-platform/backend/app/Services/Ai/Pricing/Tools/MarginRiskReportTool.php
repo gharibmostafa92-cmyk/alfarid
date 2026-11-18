@@ -25,6 +25,8 @@ use App\Services\Pricing\PricingService;
 
 final class MarginRiskReportTool implements AgentTool
 {
+    private const MAX_COUPONS_PER_TYPE = 200;
+
     public function __construct(
         private PricingService $pricing,
         private CouponService $coupons,
@@ -74,59 +76,84 @@ final class MarginRiskReportTool implements AgentTool
             return $scope;
         }
         $branchId = $scope['branchId'];
-        $variants = ProductVariant::query()->where('is_active', true)->where('cost_price', '>', 0)
-            ->whereHas('product', fn ($query) => $query->where('status', ProductStatus::Published))
-            ->orderByDesc('cost_price')->orderBy('id')->limit(100)->get();
-        $variantIds = $variants->modelKeys();
-        $now = now();
-        $coupons = Coupon::query()->where('is_active', true)->where('type', '!=', 'free_shipping')
-            ->where(fn ($query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', $now))
-            ->where(fn ($query) => $query->whereNull('ends_at')->orWhere('ends_at', '>=', $now))
-            ->where(fn ($query) => $query->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
-            ->get();
-        $groups = CustomerGroup::query()->where('is_active', true)->orderByDesc('discount_percentage')
-            ->orderBy('id')->limit(10)->get();
+        $cached = \Illuminate\Support\Facades\Cache::remember('ai:margin_risk_report:'.($branchId ?? 'all'), 120, function () use ($branchId): array {
+            $variants = ProductVariant::query()->where('is_active', true)->where('cost_price', '>', 0)
+                ->whereHas('product', fn ($query) => $query->where('status', ProductStatus::Published))
+                ->orderByDesc('cost_price')->orderBy('id')->limit(100)->get();
+            $variantIds = $variants->modelKeys();
+            $now = now();
+            $couponBase = fn () => Coupon::query()->where('is_active', true)
+                ->where(fn ($query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', $now))
+                ->where(fn ($query) => $query->whereNull('ends_at')->orWhere('ends_at', '>=', $now))
+                ->where(fn ($query) => $query->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'));
+            $rawPctCoupons = $couponBase()->where('type', 'percentage')->orderByDesc('value')->orderBy('id')
+                ->limit(self::MAX_COUPONS_PER_TYPE + 1)->get();
+            $rawFixedCoupons = $couponBase()->where('type', 'fixed')->orderByDesc('value')->orderBy('id')
+                ->limit(self::MAX_COUPONS_PER_TYPE + 1)->get();
+            $couponSampleTruncated = $rawPctCoupons->count() > self::MAX_COUPONS_PER_TYPE
+                || $rawFixedCoupons->count() > self::MAX_COUPONS_PER_TYPE;
+            $pctCoupons = $rawPctCoupons->take(self::MAX_COUPONS_PER_TYPE)->values();
+            $fixedCoupons = $rawFixedCoupons->take(self::MAX_COUPONS_PER_TYPE)->values();
+            $groups = CustomerGroup::query()->where('is_active', true)->orderByDesc('discount_percentage')
+                ->orderBy('id')->limit(10)->get();
 
-        $worst = [];
-        foreach (CustomerType::cases() as $channel) {
-            foreach ([null, ...$groups] as $group) {
-                $customer = new Customer(['type' => $channel, 'status' => CustomerStatus::Approved]);
-                $customer->setRelation('customerGroup', $group);
-                $context = $this->pricing->contextFor($customer, $branchId === null ? $variantIds : null);
-                foreach ($variants as $variant) {
-                    try {
-                        $price = $this->pricing->resolve($variant, $customer, 1, $branchId, $context)['unit_price'];
-                    } catch (BusinessException) {
-                        continue;
-                    }
-                    $discount = 0.0;
-                    foreach ($coupons as $coupon) {
-                        if ($price >= (float) $coupon->min_order_amount) {
-                            $discount = max($discount, $this->coupons->discountFor($coupon, $price));
+            $worst = [];
+            foreach (CustomerType::cases() as $channel) {
+                foreach ([null, ...$groups] as $group) {
+                    $customer = new Customer(['type' => $channel, 'status' => CustomerStatus::Approved]);
+                    $customer->setRelation('customerGroup', $group);
+                    $context = $this->pricing->contextFor($customer, $variantIds, $branchId);
+                    foreach ($variants as $variant) {
+                        try {
+                            $price = $this->pricing->resolve($variant, $customer, 1, $branchId, $context)['unit_price'];
+                        } catch (BusinessException) {
+                            continue;
                         }
-                    }
-                    $net = round($price - $discount, 2);
-                    $margin = $net - (float) $variant->cost_price;
-                    if (! isset($worst[$variant->id]) || $margin < $worst[$variant->id]['margin']) {
-                        $worst[$variant->id] = [
-                            'sku' => $variant->sku,
-                            'channel' => $channel->value,
-                            'group_id' => $group?->id,
-                            'unit_price' => $price,
-                            'coupon_discount' => $discount,
-                            'net_price' => $net,
-                            'margin' => round($margin, 2),
-                        ];
+                        $discount = 0.0;
+                        foreach ($pctCoupons as $coupon) {
+                            if ($price >= (float) $coupon->min_order_amount) {
+                                $discount = max($discount, $this->coupons->discountFor($coupon, $price));
+                                break;
+                            }
+                        }
+                        foreach ($fixedCoupons as $coupon) {
+                            if ($price >= (float) $coupon->min_order_amount) {
+                                $discount = max($discount, $this->coupons->discountFor($coupon, $price));
+                                break;
+                            }
+                        }
+                        $net = round($price - $discount, 2);
+                        $margin = $net - (float) $variant->cost_price;
+                        if (! isset($worst[$variant->id]) || $margin < $worst[$variant->id]['margin']) {
+                            $worst[$variant->id] = [
+                                'sku' => $variant->sku,
+                                'channel' => $channel->value,
+                                'group_id' => $group?->id,
+                                'unit_price' => $price,
+                                'coupon_discount' => $discount,
+                                'net_price' => $net,
+                                'margin' => round($margin, 2),
+                            ];
+                        }
                     }
                 }
             }
-        }
 
-        $rows = collect($worst)->sortBy('margin')->take(20)->values()->all();
+            return [
+                'sampled_variants' => $variants->count(),
+                'sampled_groups' => $groups->count(),
+                'sampled_coupons' => $pctCoupons->count() + $fixedCoupons->count(),
+                'coupon_sample_truncated' => $couponSampleTruncated,
+                'rows' => collect($worst)->sortBy('margin')->take(20)->values()->all(),
+            ];
+        });
+        $rows = $cached['rows'];
 
         return $this->presenter->present($actor, [
-            'sampled_variants' => $variants->count(),
-            'sampled_groups' => $groups->count(),
+            'sampled_variants' => $cached['sampled_variants'],
+            'sampled_groups' => $cached['sampled_groups'],
+            'sampled_coupons' => $cached['sampled_coupons'],
+            'coupon_sample_truncated' => $cached['coupon_sample_truncated'],
             'rows' => $rows,
         ], $this->presenter->table(['SKU', 'القناة', 'المجموعة', 'السعر', 'خصم الكوبون', 'الصافي', 'الهامش ج.م'], array_map('array_values', $rows)),
             'عينة من المنتجات الأعلى تكلفة والمجموعات الأعلى خصمًا، عند شراء وحدة واحدة.');

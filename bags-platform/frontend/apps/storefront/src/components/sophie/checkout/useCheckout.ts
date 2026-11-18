@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import * as Sentry from '@sentry/nextjs';
 import {
   accountEndpoints,
   checkoutEndpoints,
@@ -636,10 +637,13 @@ export function useCheckout() {
           ...pending.current,
         }),
       );
-      const res = await checkoutEndpoints.place(
-        pending.current.body,
-        pending.current.session,
-        keyRef.current,
+      const res = await Sentry.startSpan(
+        { name: 'checkout.submit', op: 'ui.action' },
+        () => checkoutEndpoints.place(
+          pending.current!.body,
+          pending.current!.session,
+          keyRef.current,
+        ),
       );
       if (attemptOwner === 'guest') rememberGuestOrder(res.data.order_number);
       try {

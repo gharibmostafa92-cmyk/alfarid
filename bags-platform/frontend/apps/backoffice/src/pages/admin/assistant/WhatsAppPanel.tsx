@@ -28,6 +28,8 @@ export default function WhatsAppPanel({ settings, original, onSettingsChange, on
   const [query, setQuery] = useState('');
   const [link, setLink] = useState<LinkQr | null>(null);
   const [monitor, setMonitor] = useState<Awaited<ReturnType<typeof assistantApi.whatsappMonitor>>>();
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [channelDrafts, setChannelDrafts] = useState<Record<string, string>>({});
 
   // Sequential chained polling: the next tick is scheduled only after the
   // previous request settles, so a slow gateway can never pile overlapping
@@ -71,7 +73,11 @@ export default function WhatsAppPanel({ settings, original, onSettingsChange, on
   useEffect(() => {
     let live = true;
     const timer = window.setTimeout(() => {
-      assistantApi.whatsappStaff(query).then(rows => { if (live) setStaff(rows); }).catch(() => { if (live) setStaff([]); });
+      assistantApi.whatsappStaff(query).then(rows => {
+        if (!live) return;
+        setStaff(rows);
+        setUserId(prev => (prev !== '' && !rows.some(r => r.id === prev) ? '' : prev));
+      }).catch(() => { if (live) setStaff([]); });
     }, 250);
     return () => { live = false; window.clearTimeout(timer); };
   }, [query]);
@@ -81,6 +87,7 @@ export default function WhatsAppPanel({ settings, original, onSettingsChange, on
     setNotice(null);
     try {
       await assistantApi.whatsappSaveIdentity({ user_id: Number(userId), phone, ...(pin ? { pin } : {}) });
+      setUserId('');
       setPhone('');
       setPin('');
       setIdentities(await assistantApi.whatsappIdentities());
@@ -93,21 +100,35 @@ export default function WhatsAppPanel({ settings, original, onSettingsChange, on
   // untouched keys whose snapshot drifted.
   const saveChannel = async () => {
     if (!settings || !original) return;
+    const idleDraft = channelDrafts.ai_whatsapp_idle_rotate_hours;
+    const ttlDraft = channelDrafts.ai_whatsapp_link_token_ttl_minutes;
+    const idleHours = idleDraft !== undefined ? Number(idleDraft) : (settings.ai_whatsapp_idle_rotate_hours ?? 12);
+    const ttlMinutes = ttlDraft !== undefined ? Number(ttlDraft) : (settings.ai_whatsapp_link_token_ttl_minutes ?? 10);
+    if (!Number.isInteger(idleHours) || idleHours < 1 || idleHours > 168) {
+      setNotice('ساعات تدوير المحادثة لازم تكون رقم صحيح بين 1 و 168.');
+      return;
+    }
+    if (!Number.isInteger(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 60) {
+      setNotice('صلاحية رابط الموظف لازم تكون رقم صحيح بين 1 و 60 دقيقة.');
+      return;
+    }
     const { data, expected } = diffSettings(settings, original, [...CHANNEL_KEYS]);
     if (Object.keys(data).length === 0) { setNotice('مفيش تعديلات للحفظ.'); return; }
     try {
       await assistantApi.saveSettings(data, expected);
-      onSaved({ ...settings });
+      onSaved({ ...original, ...data });
+      setChannelDrafts({});
       setNotice('اتحفظت إعدادات واتساب.');
     } catch (error) { setNotice(messageOf(error)); }
   };
 
   // Never commit an empty numeric field: Number('') is 0, and 0 means
-  // "unlimited" for the daily budget. Empty/invalid keystrokes are ignored.
+  // "unlimited" for the daily budget. Keep draft text while editing.
   const setChannelNumber = (key: 'ai_whatsapp_idle_rotate_hours' | 'ai_whatsapp_link_token_ttl_minutes', raw: string) => {
-    if (!settings || raw === '') return;
+    setChannelDrafts(current => ({ ...current, [key]: raw }));
+    if (!settings || raw.trim() === '') return;
     const n = Number(raw);
-    if (Number.isFinite(n)) onSettingsChange({ ...settings, [key]: n });
+    if (Number.isInteger(n)) onSettingsChange({ ...settings, [key]: n });
   };
 
   return (
@@ -119,7 +140,21 @@ export default function WhatsAppPanel({ settings, original, onSettingsChange, on
           <p>الرقم المربوط: <b dir="ltr">{status?.phone || '—'}</b></p>
           <p>الباركود ده للجهاز مرة واحدة. رقم البوت يكون رقم مخصص، مش رقم شخصي.</p>
           {qr && <img alt="باركود ربط جهاز واتساب" src={qr} width={280} height={280} />}
-          <button type="button" className="as-btn" disabled={status?.state !== 'connected'} onClick={() => void assistantApi.whatsappLogout().then(() => setNotice('اتفك الربط.')).catch(error => setNotice(messageOf(error)))}>فك الربط</button>
+          <button
+            type="button"
+            className="as-btn"
+            disabled={status?.state !== 'connected' || loggingOut}
+            onClick={() => {
+              if (loggingOut) return;
+              setLoggingOut(true);
+              void assistantApi.whatsappLogout()
+                .then(() => { setStatus({ state: 'disconnected', phone: null }); setNotice('اتفك الربط.'); })
+                .catch(error => setNotice(messageOf(error)))
+                .finally(() => setLoggingOut(false));
+            }}
+          >
+            {loggingOut ? 'جارٍ فك الربط…' : 'فك الربط'}
+          </button>
         </div>
       </section>
 
@@ -138,9 +173,9 @@ export default function WhatsAppPanel({ settings, original, onSettingsChange, on
                 <option value="low">منخفضة</option><option value="medium">متوسطة</option><option value="high">عالية</option>
               </select></label>
             <label className="as-field"><span className="as-field-label"><strong>تدوير المحادثة بعد الخمول (ساعات)</strong></span>
-              <input className="as-input" type="number" min={1} max={168} value={settings.ai_whatsapp_idle_rotate_hours ?? 12} onChange={e => setChannelNumber('ai_whatsapp_idle_rotate_hours', e.target.value)} /></label>
+              <input className="as-input" type="number" min={1} max={168} value={channelDrafts.ai_whatsapp_idle_rotate_hours ?? String(settings.ai_whatsapp_idle_rotate_hours ?? 12)} onChange={e => setChannelNumber('ai_whatsapp_idle_rotate_hours', e.target.value)} /></label>
             <label className="as-field"><span className="as-field-label"><strong>صلاحية رابط الموظف (دقائق)</strong></span>
-              <input className="as-input" type="number" min={1} max={60} value={settings.ai_whatsapp_link_token_ttl_minutes ?? 10} onChange={e => setChannelNumber('ai_whatsapp_link_token_ttl_minutes', e.target.value)} /></label>
+              <input className="as-input" type="number" min={1} max={60} value={channelDrafts.ai_whatsapp_link_token_ttl_minutes ?? String(settings.ai_whatsapp_link_token_ttl_minutes ?? 10)} onChange={e => setChannelNumber('ai_whatsapp_link_token_ttl_minutes', e.target.value)} /></label>
             <button type="button" className="as-btn as-btn--primary" onClick={() => void saveChannel()}>حفظ إعدادات واتساب</button>
           </div>
         </section>

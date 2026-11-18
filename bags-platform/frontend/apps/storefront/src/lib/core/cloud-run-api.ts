@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { proxyTraceContext, traceableApiPath, type ProxyTraceContext } from './sentry-telemetry.ts';
 
 const DEFAULT_ALLOWED_NAMESPACES = ['auth', 'store', 'wholesale', 'supplier'] as const;
 const webhooksNamespace = 'webhooks';
@@ -8,6 +9,7 @@ const requestHeaders = [
   'idempotency-key', 'if-match', 'if-modified-since', 'if-none-match', 'last-event-id',
   'pragma', 'range', 'user-agent', 'x-cart-session', 'x-requested-with',
 ];
+const traceHeaders = ['sentry-trace', 'baggage'];
 // Provider callbacks authenticate with their own signatures. Forward exactly the
 // headers their verifiers need, and never a browser/user credential.
 const webhookHeaders = [
@@ -27,6 +29,10 @@ type ProxyConfig = {
   clientIpSecret?: string;
   trustedProxyHops?: number;
   allowedNamespaces?: readonly string[];
+  withTraceContext?: (
+    context: ProxyTraceContext | null,
+    send: (traceHeaders: Headers) => Promise<Response>,
+  ) => Promise<Response>;
   send?: typeof fetch;
 };
 
@@ -290,12 +296,13 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     const method = request.headers.get('access-control-request-method');
     const requested = (request.headers.get('access-control-request-headers') ?? '')
       .split(',').map(name => name.trim().toLowerCase()).filter(Boolean);
-    if (!origin || !method || !methods.includes(method) || requested.some(name => !requestHeaders.includes(name))) {
+    if (!origin || !method || !methods.includes(method)
+      || requested.some(name => !requestHeaders.includes(name) && !traceHeaders.includes(name))) {
       return fail(403, 'Preflight is not permitted');
     }
     headers.set('vary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
     headers.set('access-control-allow-methods', methods.join(', '));
-    headers.set('access-control-allow-headers', requestHeaders.join(', '));
+    headers.set('access-control-allow-headers', [...requestHeaders, ...traceHeaders].join(', '));
     return new Response(null, { status: 204, headers });
   }
   if (!methods.includes(request.method)) return fail(405, 'Method is not permitted');
@@ -346,7 +353,23 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       init.body = limitRequestBody(request.body, maxPayloadBytes);
       init.duplex = 'half';
     }
-    const response = await (config.send ?? fetch)(upstream, init);
+    const send = config.send ?? fetch;
+    const sendWithSafeTrace = (traceHeaders: Headers) => {
+      const outgoingHeaders = new Headers(forwarded);
+      const safeTrace = traceHeaders.get('sentry-trace');
+      const safeBaggage = traceHeaders.get('baggage');
+      if (safeTrace && /^([a-f0-9]{32})-([a-f0-9]{16})-[01]$/i.test(safeTrace)) {
+        outgoingHeaders.set('sentry-trace', safeTrace);
+        if (safeBaggage && safeBaggage.length <= 4096 && !/[\r\n]/.test(safeBaggage)) {
+          outgoingHeaders.set('baggage', safeBaggage);
+        }
+      }
+      init.headers = outgoingHeaders;
+      return send(upstream, init);
+    };
+    const response = !isWebhook && traceableApiPath(path) && config.withTraceContext
+      ? await config.withTraceContext(proxyTraceContext(request.headers), sendWithSafeTrace)
+      : await send(upstream, init);
     if ((response.status === 401 || response.status === 403) && config.identityToken === cloudRunIdentityToken) {
       invalidateCloudRunIdentityToken(upstream.origin);
     }

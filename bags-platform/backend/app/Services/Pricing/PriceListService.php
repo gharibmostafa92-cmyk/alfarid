@@ -52,7 +52,12 @@ class PriceListService
             ->when($filters['search'] ?? null, fn ($q, $v) => $q->whereLike('name', SearchTerm::pattern($v), caseSensitive: false))
             ->orderByDesc('priority')
             ->orderByDesc('id')
-            ->paginate(max(1, min(100, (int) ($filters['per_page'] ?? 15))));
+            ->paginate(
+                max(1, min(100, (int) ($filters['per_page'] ?? 15))),
+                ['*'],
+                'page',
+                isset($filters['page']) ? max(1, (int) $filters['page']) : null,
+            );
     }
 
     /**
@@ -252,7 +257,12 @@ class PriceListService
             ->orderBy('product_variant_id')
             ->orderBy('min_qty')
             ->orderBy('id')
-            ->paginate(max(1, min(100, (int) ($filters['per_page'] ?? 15))));
+            ->paginate(
+                max(1, min(100, (int) ($filters['per_page'] ?? 15))),
+                ['*'],
+                'page',
+                isset($filters['page']) ? max(1, (int) $filters['page']) : null,
+            );
     }
 
     /**

@@ -206,12 +206,6 @@ final class UpsertPriceListItemsTool implements WriteTool, LocksTargets, Undoabl
                 $expectedVersions['pli:'.$current->id] = PricingFingerprint::item($current);
             }
 
-            // Pre-shadow warning: would another list win this item?
-            $shadowWarning = $this->shadowWarning($variant->id, $minQty, $list);
-            if ($shadowWarning !== null) {
-                $warnings[] = "{$sku}: {$shadowWarning}";
-            }
-
             $toApply[] = [
                 'variant_id' => $variant->id,
                 'min_qty' => $minQty,
@@ -228,6 +222,15 @@ final class UpsertPriceListItemsTool implements WriteTool, LocksTargets, Undoabl
                 'delta' => $delta,
                 'delta_pct' => $pct,
             ];
+        }
+
+        // Resolve all competing price-list rows in one query instead of one query per imported line.
+        $shadowWarnings = $this->shadowWarnings($toApply, $list);
+        foreach ($toApply as $row) {
+            $key = (int) $row['variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '');
+            if (isset($shadowWarnings[$key])) {
+                $warnings[] = '#'.$row['variant_id'].': '.$shadowWarnings[$key];
+            }
         }
 
         if ($toApply === []) {
@@ -285,6 +288,14 @@ final class UpsertPriceListItemsTool implements WriteTool, LocksTargets, Undoabl
     {
         $listId = (int) $action->args['price_list_id'];
         $itemIds = collect((array) ($action->args['rows'] ?? []))->map(fn ($r) => $r['existing_item_id'] ?? null)->filter()->map('intval')->values()->all();
+        if ($action->status === 'executed') {
+            $inverse = (array) ($action->inverse ?? []);
+            $itemIds = array_values(array_unique(array_merge(
+                $itemIds,
+                array_map('intval', array_keys((array) ($inverse['updated'] ?? []))),
+                array_map('intval', (array) ($inverse['created'] ?? [])),
+            )));
+        }
         $expectedPlis = [];
         foreach ((array) ($action->expected_versions ?? []) as $key => $version) {
             if (is_string($key) && str_starts_with($key, 'pli:')) {
@@ -314,7 +325,7 @@ final class UpsertPriceListItemsTool implements WriteTool, LocksTargets, Undoabl
                     $item = PriceListItem::query()->findOrFail((int) $row['existing_item_id']);
                     $this->lists->updateItem($item, $data, $actor);
                 } else {
-                    $created = $this->lists->createItem($list->fresh(), $data, $actor);
+                    $created = $this->lists->createItem($list, $data, $actor);
                     $createdIds[] = (int) $created->id;
                 }
             }
@@ -367,15 +378,29 @@ final class UpsertPriceListItemsTool implements WriteTool, LocksTargets, Undoabl
         }
         $ids = array_values(array_unique($ids));
         sort($ids);
-        $state = PriceListItem::query()->whereIn('id', $ids)->orderBy('id')->get(['id', 'price', 'min_qty'])
-            ->map(fn (PriceListItem $i) => [(int) $i->id, round((float) $i->price, 2), round((float) $i->min_qty, 4)])->all();
+        $state = PriceListItem::query()->whereIn('id', $ids)->orderBy('id')
+            ->get(['id', 'product_variant_id', 'price', 'min_qty', 'starts_at', 'ends_at'])
+            ->map(fn (PriceListItem $i) => [
+                (int) $i->getKey(),
+                (int) $i->getRawOriginal('product_variant_id'),
+                (string) $i->getRawOriginal('price'),
+                (string) $i->getRawOriginal('min_qty'),
+                $i->getRawOriginal('starts_at'),
+                $i->getRawOriginal('ends_at'),
+            ])->all();
 
         return hash('sha256', json_encode($state, JSON_THROW_ON_ERROR));
     }
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
+        $listId = (int) $action->args['price_list_id'];
         $inverse = (array) ($action->inverse ?? []);
+        $lockIds = array_values(array_unique(array_merge(
+            array_map('intval', array_keys((array) ($inverse['updated'] ?? []))),
+            array_map('intval', (array) ($inverse['created'] ?? [])),
+        )));
+        PricingLocks::lockListAndItems($action, $listId, $lockIds, '');
         app(CatalogRetailPriceObserver::class)->batch(function () use ($actor, $inverse): void {
             foreach ((array) ($inverse['updated'] ?? []) as $id => $old) {
                 $item = PriceListItem::query()->findOrFail((int) $id);
@@ -455,28 +480,53 @@ final class UpsertPriceListItemsTool implements WriteTool, LocksTargets, Undoabl
         }
     }
 
-    private function shadowWarning(int $variantId, float $minQty, PriceList $target): ?string
+    private function shadowWarnings(array $rows, PriceList $target): array
     {
+        if ($rows === []) {
+            return [];
+        }
         $now = Carbon::now();
-        $winner = PriceListItem::query()
+        $variantIds = array_values(array_unique(array_map('intval', array_column($rows, 'variant_id'))));
+        $maxQty = max(array_map('floatval', array_column($rows, 'min_qty')));
+        $targetType = $target->type instanceof PriceListType ? $target->type->value : (string) $target->type;
+        $candidates = PriceListItem::query()
             ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
             ->where('price_lists.is_active', true)
-            ->where('price_list_items.product_variant_id', $variantId)
-            ->where('price_list_items.min_qty', '<=', $minQty)
+            ->where('price_lists.type', $targetType)
+            ->when($targetType === PriceListType::CustomerSpecific->value,
+                fn ($q) => $q->where('price_lists.customer_id', $target->customer_id))
+            ->when($targetType === PriceListType::CustomerGroup->value,
+                fn ($q) => $q->where('price_lists.customer_group_id', $target->customer_group_id))
+            ->whereIn('price_list_items.product_variant_id', $variantIds)
+            ->where('price_list_items.min_qty', '<=', $maxQty)
+            ->where(fn ($q) => $q->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', $now))
             ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
             ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))
             ->where(fn ($q) => $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $target->branch_id))
+            ->orderBy('price_list_items.product_variant_id')
             ->orderByRaw('price_lists.branch_id IS NULL ASC')
             ->orderByDesc('price_list_items.min_qty')
             ->orderByDesc('price_lists.priority')
             ->orderBy('price_list_items.price')
             ->orderBy('price_list_items.id')
-            ->select('price_list_items.price_list_id', 'price_lists.name', 'price_lists.priority')
-            ->first();
-        if ($winner && (int) $winner->price_list_id !== (int) $target->id) {
-            return "البند ده مش هيظهر لحد لأن قائمة '{$winner->name}' أولويتها أعلى.";
+            ->get([
+                'price_list_items.product_variant_id', 'price_list_items.min_qty', 'price_list_items.price_list_id',
+                'price_list_items.id', 'price_lists.name', 'price_lists.branch_id', 'price_lists.priority',
+            ])->groupBy('product_variant_id');
+
+        $warnings = [];
+        foreach ($rows as $row) {
+            $variantId = (int) $row['variant_id'];
+            $minQty = (float) $row['min_qty'];
+            $winner = $candidates->get($variantId, collect())
+                ->first(fn (PriceListItem $item) => (float) $item->min_qty <= $minQty);
+            if ($winner !== null && (int) $winner->price_list_id !== (int) $target->id) {
+                $key = $variantId.':'.number_format($minQty, 4, '.', '');
+                $warnings[$key] = "البند ده مش هيظهر لحد لأن قائمة '{$winner->name}' أولويتها أعلى.";
+            }
         }
 
-        return null;
+        return $warnings;
     }
 }

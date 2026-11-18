@@ -21,11 +21,19 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         $this->setPrecision(14);
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         foreach (self::AMOUNTS as $table => $columns) {
             foreach ($columns as $column) {
                 if (DB::table($table)->whereRaw("abs({$column}) >= 10000000000 AND {$column} <> 'NaN'::numeric")->exists()) {

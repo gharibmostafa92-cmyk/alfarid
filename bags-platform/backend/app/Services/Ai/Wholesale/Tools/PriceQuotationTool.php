@@ -13,7 +13,9 @@ use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\CostAccess;
 use App\Services\Wholesale\QuotationService;
 use App\Services\Shared\SettingService;
@@ -27,6 +29,7 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
         private QuotationService $quotations,
         private QuoteAdvisor $advisor,
         private SettingService $settings,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -69,6 +72,9 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $quotation = Quotation::query()->with(['items.variant', 'customer'])->find((int) ($args['quotation_id'] ?? 0));
         if ($quotation === null) {
             return ToolOutcome::denied('عرض السعر مش موجود.', auditable: false);
@@ -155,6 +161,9 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $quotation = Quotation::query()->findOrFail((int) $action->args['quotation_id']);
         $expected = $action->expected_versions['q:'.$quotation->id] ?? null;
         if ($expected !== QuotationVersion::hash($quotation)) {
@@ -192,7 +201,10 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $quotation = Quotation::query()->findOrFail((int) $action->args['quotation_id']);
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
+        $quotation = Quotation::query()->lockForUpdate()->findOrFail((int) $action->args['quotation_id']);
         $inverse = $action->inverse;
         if (! is_array($inverse)) {
             return ToolOutcome::denied('مفيش نسخة ترجع لها.', auditable: false);

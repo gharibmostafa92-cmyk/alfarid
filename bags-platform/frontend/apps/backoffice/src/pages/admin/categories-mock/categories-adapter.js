@@ -1,5 +1,6 @@
 import { IMG } from './categories.mock';
 import { toLatinDigits } from './i18n-utils';
+import { safeCssUrl } from '../safe-css-url';
 
 // Maps API category resource to UI presentation schema
 export function toUiNode(c, rootIndex = 0) {
@@ -16,8 +17,8 @@ export function toUiNode(c, rootIndex = 0) {
     products: c.products_count ?? 0,
     imageUrl: c.image_url,
     // Preserve image URL mapping for CSS background display
-    img: c.image_url
-      ? `url("${c.image_url}") center / cover no-repeat`
+    img: safeCssUrl(c.image_url)
+      ? `${safeCssUrl(c.image_url)} center / cover no-repeat`
       : (c.parent_id === null ? IMG[rootIndex % IMG.length] : undefined),
     createdAt: c.created_at,
     children: (c.children ?? []).map((ch) => toUiNode(ch)),

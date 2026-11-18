@@ -18,6 +18,12 @@ param(
     [string]$GeminiApiKeySecret,
     [string]$GeminiModel,
     [string]$ProxyClientIpSecret,
+    [string]$SentryDsnSecret,
+    [ValidateSet('staging', 'production')]
+    [string]$SentryEnvironment = 'staging',
+    [string]$SentryRelease,
+    [ValidateRange(0.0, 1.0)]
+    [double]$SentryTraceSampleRate = 0.05,
     [ValidateNotNullOrEmpty()]
     [ValidatePattern('^(?!log$|failover$|array$).+$')]
     [string]$MailMailer = 'smtp',
@@ -117,9 +123,22 @@ switch ($Action) {
             if ($ProxyClientIpSecret -cnotmatch $secretPattern) {
                 throw 'DeployApi requires a pinned ProxyClientIpSecret.'
             }
-            $apiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8'))
+        if ($SentryDsnSecret -and ($SentryDsnSecret -cnotmatch $secretPattern -or $SentryRelease -cnotmatch '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$')) {
+            throw 'SentryDsnSecret must be pinned and SentryRelease must be a full 40 or 64 character commit SHA.'
+        }
+        $sentryRuntimeEntries = @()
+        if ($SentryDsnSecret) {
+            $sentryRuntimeEntries = @(
+                "SENTRY_ENVIRONMENT=$SentryEnvironment",
+                "SENTRY_RELEASE=$SentryRelease",
+                "SENTRY_TRACES_SAMPLE_RATE=$($SentryTraceSampleRate.ToString([System.Globalization.CultureInfo]::InvariantCulture))"
+            )
+        }
+        $apiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8') + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=api') } else { @() }))
             $apiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
-            $apiRuntime += "--set-secrets=$secrets,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
+        $apiSecrets = "$secrets,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
+        if ($SentryDsnSecret) { $apiSecrets += ",SENTRY_LARAVEL_DSN=$SentryDsnSecret" }
+        $apiRuntime += "--set-secrets=$apiSecrets"
             Invoke-Gcloud -Arguments (@(
                 'run', 'deploy', 'alfarid-api', '--no-allow-unauthenticated', '--invoker-iam-check',
                 '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=10', '--concurrency=8',
@@ -131,9 +150,22 @@ switch ($Action) {
             if ($GeminiApiKeySecret -cnotmatch $secretPattern -or $ProxyClientIpSecret -cnotmatch $secretPattern -or $GeminiModel -cnotmatch '^[a-zA-Z0-9_-]+$') {
                 throw 'DeployAi requires pinned Gemini and proxy signing secrets and a model name.'
             }
-            $aiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=2', "GEMINI_MODEL=$GeminiModel"))
+            if ($SentryDsnSecret -and ($SentryDsnSecret -cnotmatch $secretPattern -or $SentryRelease -cnotmatch '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$')) {
+                throw 'SentryDsnSecret must be pinned and SentryRelease must be a full 40 or 64 character commit SHA.'
+            }
+            $sentryRuntimeEntries = @()
+            if ($SentryDsnSecret) {
+                $sentryRuntimeEntries = @(
+                    "SENTRY_ENVIRONMENT=$SentryEnvironment",
+                    "SENTRY_RELEASE=$SentryRelease",
+                    "SENTRY_TRACES_SAMPLE_RATE=$($SentryTraceSampleRate.ToString([System.Globalization.CultureInfo]::InvariantCulture))"
+                )
+            }
+            $aiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=2', "GEMINI_MODEL=$GeminiModel") + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=ai') } else { @() }))
             $aiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
-            $aiRuntime += "--set-secrets=$secrets,GEMINI_API_KEY=$GeminiApiKeySecret,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
+            $aiSecrets = "$secrets,GEMINI_API_KEY=$GeminiApiKeySecret,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
+            if ($SentryDsnSecret) { $aiSecrets += ",SENTRY_LARAVEL_DSN=$SentryDsnSecret" }
+            $aiRuntime += "--set-secrets=$aiSecrets"
             Invoke-Gcloud -Arguments (@(
                 'run', 'deploy', 'alfarid-ai', '--no-allow-unauthenticated', '--invoker-iam-check',
                 '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=4', '--concurrency=2',
@@ -142,18 +174,32 @@ switch ($Action) {
             return
         }
 
-        $jobSettings = $scope + $runtime + @(
-            '--tasks=1', '--parallelism=1', '--max-retries=0',
-            '--command=php', "--set-env-vars=$(Join-GcloudEnvVars $environment)"
-        )
+        if ($SentryDsnSecret -and ($SentryDsnSecret -cnotmatch $secretPattern -or $SentryRelease -cnotmatch '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$')) {
+            throw 'SentryDsnSecret must be pinned and SentryRelease must be a full 40 or 64 character commit SHA.'
+        }
+        $sentryRuntimeEntries = @()
+        if ($SentryDsnSecret) {
+            $sentryRuntimeEntries = @(
+                "SENTRY_ENVIRONMENT=$SentryEnvironment",
+                "SENTRY_RELEASE=$SentryRelease",
+                "SENTRY_TRACES_SAMPLE_RATE=$($SentryTraceSampleRate.ToString([System.Globalization.CultureInfo]::InvariantCulture))"
+            )
+        }
+        $jobRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
+        $jobSecrets = $secrets
+        if ($SentryDsnSecret) { $jobSecrets += ",SENTRY_LARAVEL_DSN=$SentryDsnSecret" }
+        $jobRuntime += "--set-secrets=$jobSecrets"
+        $jobCommonSettings = $scope + $jobRuntime + @('--tasks=1', '--parallelism=1', '--max-retries=0', '--command=php')
         Invoke-Gcloud -Arguments (@(
             'run', 'jobs', 'deploy', $queueJob, "--task-timeout=$($queueTimeout)s",
-            '--args=artisan,queue:work,database,--queue=default,--tries=3,--timeout=60,--max-time=50,--max-jobs=10,--stop-when-empty'
-        ) + $jobSettings)
+            '--args=artisan,queue:work,database,--queue=default,--tries=3,--timeout=60,--max-time=50,--max-jobs=10,--stop-when-empty',
+            "--set-env-vars=$(Join-GcloudEnvVars ($environment + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=queue') } else { @() })))"
+        ) + $jobCommonSettings)
         Invoke-Gcloud -Arguments (@(
             'run', 'jobs', 'deploy', $laravelJob, "--task-timeout=$($laravelTimeout)s",
-            '--args=artisan,schedule:run'
-        ) + $jobSettings)
+            '--args=artisan,schedule:run',
+            "--set-env-vars=$(Join-GcloudEnvVars ($environment + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=scheduler') } else { @() })))"
+        ) + $jobCommonSettings)
     }
     { $_ -in 'EnableQueue', 'EnableLaravelSchedule' } {
         if ($SchedulerServiceAccount -cnotmatch "^[a-z][a-z0-9-]+@$ProjectId\.iam\.gserviceaccount\.com$") {

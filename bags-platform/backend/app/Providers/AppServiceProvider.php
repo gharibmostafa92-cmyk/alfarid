@@ -48,6 +48,7 @@ use App\Services\Catalog\StoreCatalogService;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pricing\PricingService;
 use App\Services\Shared\SettingService;
+use App\Support\SentryTelemetry;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\TransactionBeginning;
@@ -56,6 +57,8 @@ use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\QueueBusy;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -151,9 +154,16 @@ class AppServiceProvider extends ServiceProvider
             app(SettingService::class)->resetReadSnapshot($event->connection->transactionLevel() === 0);
         });
         Event::listen(JobProcessing::class, function (): void {
+            SentryTelemetry::beginQueueJob();
             app(PermissionRegistrar::class)->clearPermissionsCollection();
             // Clear memoized settings and document numbering sequences between queue jobs to prevent state pollution in long-running workers.
             app(SettingService::class)->forgetMemoryState();
+        });
+        Event::listen(JobProcessed::class, function (): void {
+            SentryTelemetry::clearQueueJob();
+        });
+        Event::listen(JobFailed::class, function (JobFailed $event): void {
+            SentryTelemetry::recordTerminalFailure($event);
         });
         Event::listen(QueueBusy::class,
             fn ($event) => logger()->error('Queue backlog exceeded its configured threshold.', ['connection' => $event->connectionName, 'queue' => $event->queue, 'size' => $event->size]));

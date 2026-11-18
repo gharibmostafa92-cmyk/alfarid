@@ -42,7 +42,7 @@ export function normalizeError(e: unknown): ApiError {
   const data = (err?.response?.data ?? {}) as RawErrorBody;
   const raw: Record<string, unknown> = data.errors && typeof data.errors === 'object' ? data.errors : {};
 
-  const fields: Record<string, string[]> = {};
+  const fields: Record<string, string[]> = Object.create(null);
   Object.entries(raw).forEach(([k, v]) => {
     if (k === 'status') return;
     fields[k] = toStringList(v);

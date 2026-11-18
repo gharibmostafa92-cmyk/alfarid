@@ -455,6 +455,8 @@ final class ToolRegistry
             report($e);
 
             return ToolOutcome::denied('حصل خطأ أثناء تنفيذ الأداة.', auditable: false);
+        } finally {
+            $this->proposals->setConversation(null);
         }
     }
 
@@ -1003,7 +1005,9 @@ final class ToolRegistry
         // Bill document vision analysis tokens against the user's daily budget.
         $in = (int) ($res['usage']['input_tokens'] ?? 0);
         $out = (int) ($res['usage']['output_tokens'] ?? 0);
-        $conv->forceFill(['total_tokens' => $conv->total_tokens + $in + $out])->save();
+        if ($in + $out > 0) {
+            $conv->increment('total_tokens', $in + $out);
+        }
         AiMessage::create(['conversation_id' => $conv->id, 'role' => 'event', 'content' => 'تحليل مستند #'.$doc->id.' بالذكاء الاصطناعي.', 'input_tokens' => $in, 'output_tokens' => $out]);
 
         $text = preg_replace('/^```(?:json)?|```$/m', '', (string) ($res['text'] ?? ''));
@@ -1068,7 +1072,7 @@ final class ToolRegistry
             'id' => $customer->id,
             'name' => $this->untrusted($customer->name),
             'company_name' => $this->untrusted($customer->company_name),
-            'email' => $this->untrusted($customer->email),
+            'email' => $customer->email ? $this->resolver->maskEmail($customer->email) : null,
             'phone_masked' => EntityResolver::maskPhone($customer->phone),
             'tax_number_masked' => EntityResolver::maskLegal($customer->tax_number),
             'commercial_register_masked' => EntityResolver::maskLegal($customer->commercial_register),
@@ -1549,6 +1553,13 @@ final class ToolRegistry
         if (empty($args['name']) || empty($args['email'])) {
             return ToolOutcome::denied('الاسم والإيميل مطلوبين.');
         }
+        $restricted = $this->branches->restrictedBranch($actor);
+        if ($restricted !== null) {
+            if (isset($args['branch_id']) && (int) $args['branch_id'] !== $restricted) {
+                return ToolOutcome::denied('لا يمكنك إنشاء موظف في فرع آخر.');
+            }
+            $args['branch_id'] = $restricted;
+        }
         $roles = array_values(array_unique($args['roles'] ?? []));
         if (! StaffAdministration::mayManageUser($actor, roles: $roles)) {
             return ToolOutcome::denied('لا يمكنك إسناد أدوار بصلاحيات لا تملكها.');
@@ -1986,6 +1997,17 @@ final class ToolRegistry
         if (in_array($action->tool, ['assign_roles', 'create_staff_user'], true)) {
             abort_if(in_array(StaffRole::SuperAdmin->value, $roles, true), 403);
         }
+        if ($action->tool === 'create_staff_user') {
+            $branch = $this->branches->restrictedBranch($actor);
+            if ($branch !== null) {
+                $targetBranch = $args['branch_id'] ?? null;
+                abort_if(
+                    $action->exists ? ((int) $targetBranch !== $branch) : ($targetBranch !== null && (int) $targetBranch !== $branch),
+                    403,
+                    'لا يمكنك إنشاء موظف في فرع آخر.'
+                );
+            }
+        }
     }
 
     /** Check whether unpersisted proposal touches sensitive customer legal/contact fields requiring elevated rights. */
@@ -2027,7 +2049,7 @@ final class ToolRegistry
         } elseif (str_starts_with($key, 'customer:')) {
             abort_if($this->customerVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         } else {
-            abort_if((int) $model->lock_version !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
+            abort_if(! is_numeric($expected) || (int) $model->lock_version !== (int) $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         }
     }
 
@@ -2089,7 +2111,7 @@ final class ToolRegistry
                 ? Customer::withTrashed()->lockForUpdate()->find($id)
                 : $model::query()->lockForUpdate()->find($id);
             abort_unless($record, 409, 'السجل اتحذف.');
-            if ($action->status === 'pending') {
+            if (in_array($action->status, ['pending', 'bulk_child'], true)) {
                 $this->checkVersion($key, $version, $record);
             }
         }
@@ -2163,9 +2185,10 @@ final class ToolRegistry
 
     private function execUpdateRolePerms(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $role = Role::findOrFail($args['role_id']);
+        $role = Role::query()->lockForUpdate()->findOrFail($args['role_id']);
         $current = $role->permissions()->pluck('name')->all();
         $next = array_values(array_unique(array_merge(array_diff($current, $args['remove'] ?? []), $args['add'] ?? [])));
+        abort_unless(StaffAdministration::mayGrantPermissions($actor, $next), 403, 'مش مسموح بمنح صلاحية مش معاك.');
         $failure = app(UpdateRole::class)($actor, $role, ['permissions' => $next, 'expected_version' => (int) ($action->expected_versions['role:'.$role->id] ?? $role->lock_version)], $via);
         if ($failure) {
             return ToolOutcome::result(false, 'الدور محمي من التعديل.');
@@ -2196,7 +2219,10 @@ final class ToolRegistry
 
     private function execSetUserStatus(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $user = User::findOrFail($args['user_id']);
+        $user = User::query()->lockForUpdate()->findOrFail($args['user_id']);
+        if ($user->hasRole(StaffRole::SuperAdmin->value, 'staff') && ! ($args['active'] ?? true) && ! StaffAdministration::hasOtherActiveSuperAdmin($user)) {
+            return ToolOutcome::result(false, 'لا يمكن تعطيل آخر Super Admin نشط.');
+        }
         $failure = app(UpdateStaffUser::class)($actor, $user, ['is_active' => (bool) $args['active'], 'expected_version' => (int) ($action->expected_versions['user:'.$user->id] ?? $user->lock_version)], $via);
         if ($failure) {
             return ToolOutcome::result(false, 'مش مسموح بالتعديل ده.');
@@ -2207,7 +2233,7 @@ final class ToolRegistry
 
     private function execAssignRoles(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $user = User::findOrFail($args['user_id']);
+        $user = User::query()->lockForUpdate()->findOrFail($args['user_id']);
         $current = $user->roles()->pluck('name')->all();
         $next = array_values(array_unique(array_merge(array_diff($current, $args['remove'] ?? []), $args['add'] ?? [])));
         $failure = app(UpdateStaffUser::class)($actor, $user, ['roles' => $next, 'expected_version' => (int) ($action->expected_versions['user:'.$user->id] ?? $user->lock_version)], $via);

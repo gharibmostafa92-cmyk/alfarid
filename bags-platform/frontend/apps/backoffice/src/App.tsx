@@ -52,7 +52,7 @@ function AuthenticatedApp() {
   );
   const hasAdminPermissions = canAny(can,
     'orders.view', 'treasuries.view', 'expenses.view', 'treasury_transfers.view', 'reports.view',
-    'products.view', 'inventory.view', 'users.view', 'customers.view', 'roles.view', 'settings.view',
+    'products.view', 'inventory.view', 'users.view', 'customers.view', 'roles.view', 'settings.view', 'store.manage',
     'returns.view', 'shipping.view', 'price_lists.view', 'promotions.view', 'pos_shifts.view',
     'quotations.view', 'payment_notices.view',
   );
@@ -166,6 +166,7 @@ function AuthenticatedApp() {
           page={adminActive}
           can={can}
           initialTab={isStoreRoute ? 'store' : undefined}
+          queryString={routeWithQuery.split('?')[1] ?? ''}
         />
       ) : (
         catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />
@@ -181,7 +182,7 @@ function AuthenticatedApp() {
       ...(can('reports.view') ? [{ id: 'reports', label: 'التقارير', onOpen: () => { window.location.hash = '/reports'; } }] : []),
       ...(canAny(can, 'users.view', 'users.manage') ? [{ id: 'users', label: 'المستخدمون', onOpen: () => { window.location.hash = '/users'; } }] : []),
       ...(canAny(can, 'roles.view', 'roles.manage') ? [{ id: 'roles', label: 'الأدوار', onOpen: () => { window.location.hash = '/roles'; } }] : []),
-      ...(canAny(can, 'settings.view', 'settings.manage') ? [{ id: 'settings', label: 'الإعدادات', onOpen: () => { window.location.hash = '/settings'; } }] : []),
+      ...(canAny(can, 'settings.view', 'settings.manage', 'store.manage') ? [{ id: 'settings', label: canAny(can, 'settings.view', 'settings.manage') ? 'الإعدادات' : 'إدارة المتجر', onOpen: () => { window.location.hash = canAny(can, 'settings.view', 'settings.manage') ? '/settings' : '/store'; } }] : []),
       ...assistantNav,
     ] : assistantNav}
     onCloseCatalog={() => { window.location.hash = '/dashboard'; }}

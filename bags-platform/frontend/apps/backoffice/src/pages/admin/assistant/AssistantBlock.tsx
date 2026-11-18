@@ -166,6 +166,13 @@ function DiffTable({ before, after }: { before: unknown; after: unknown }) {
 
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const inventoryBucketLabels: Record<string, string> = { on_hand: 'الرصيد الفعلي', reserved: 'المحجوز', damaged: 'التالف', in_transit: 'في الطريق', available: 'المتاح' };
+const isSafeHexColor = (v: unknown): v is string => typeof v === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v.trim());
+const safeFormatDate = (raw: unknown, mode: 'datetime' | 'date' = 'datetime'): string => {
+  if (typeof raw !== 'string' || !raw.trim()) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '—';
+  return mode === 'date' ? d.toLocaleDateString('ar-EG') : d.toLocaleString('ar-EG');
+};
 
 async function downloadDocument(url: string, name: string) {
   // Never pass model-supplied URLs to the authenticated client unchecked:
@@ -177,7 +184,7 @@ async function downloadDocument(url: string, name: string) {
   const href = URL.createObjectURL(r.data as Blob);
   const a = document.createElement('a');
   a.href = href; a.download = sanitizeDownloadName(name, 'document'); a.click();
-  setTimeout(() => URL.revokeObjectURL(href), 1000);
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
 }
 
 function normalizeDeepLink(raw: unknown): string | undefined {
@@ -203,22 +210,32 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   const [countEdits, setCountEdits] = useState<Record<number, string>>({});
   const [countsReviewed, setCountsReviewed] = useState(false);
   const items = (block.items ?? []) as { key: string; label: string; change: string; before?: unknown; after?: unknown; ok?: boolean; message?: string }[];
-  const selectableItems = items.filter(item => item.ok !== false);
+  const selectableItems = useMemo(() => items.filter(item => item.ok !== false), [block.items]);
   const [selected, setSelected] = useState(() => selectableItems.map(item => item.key));
+  useEffect(() => {
+    setSelected(selectableItems.map(item => item.key));
+  }, [block.action_id, block.items]);
+  useEffect(() => {
+    setTyped('');
+    setCountEdits({});
+    setCountsReviewed(false);
+    setOpen({});
+    setShowAllPrices(false);
+  }, [block.type, block.action_id, block.undo_action_id, block.items, block.rows, block.typed_confirmation]);
   // Derive the proposal's full TTL from server timestamps, so reopening a
   // conversation does not make an almost-expired action look brand new.
-  const [ttlTotal] = useState<number | null>(() => {
+  const ttlTotal = useMemo<number | null>(() => {
     const created = Date.parse(String(block.created_at));
     const expires = Date.parse(String(block.expires_at));
     if (!Number.isFinite(created) || !Number.isFinite(expires) || expires <= created) return null;
     return Math.ceil((expires - created) / 1000);
-  });
-  const [undoTotal] = useState<number | null>(() => {
+  }, [block.created_at, block.expires_at]);
+  const undoTotal = useMemo<number | null>(() => {
     const until = Date.parse(String(block.undo_available_until));
     if (!Number.isFinite(until)) return null;
     const s = Math.max(0, Math.ceil((until - Date.now()) / 1000));
     return s > 0 ? s : null;
-  });
+  }, [block.undo_available_until]);
 
   useEffect(() => {
     if (!block.expires_at && !block.undo_available_until) return;
@@ -335,7 +352,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
                       <td><code dir="ltr">{v.sku}</code></td>
                       <td>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
-                          {v.color_hex && <i style={{ width: 12, height: 12, borderRadius: '50%', background: v.color_hex, display: 'inline-block', border: '1px solid var(--as-border)' }} />}
+                          {isSafeHexColor(v.color_hex) && <i style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: v.color_hex.trim(), display: 'inline-block', border: '1px solid var(--as-border)' }} />}
                           {[v.color_name_ar, v.size].filter(Boolean).join(' · ') || '—'}
                         </span>
                       </td>
@@ -755,7 +772,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
                         <tr key={i} style={{ opacity: isSkipped ? 0.55 : 1 }}>
                           <td>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
-                              {r.color_hex && <i style={{ width: 13, height: 13, borderRadius: '50%', background: r.color_hex, display: 'inline-block', border: '1px solid var(--as-border)' }} />}
+                              {isSafeHexColor(r.color_hex) && <i style={{ width: 13, height: 13, borderRadius: '50%', backgroundColor: r.color_hex.trim(), display: 'inline-block', border: '1px solid var(--as-border)' }} />}
                               <span>{r.color ?? r.color_ar ?? '—'}</span>
                             </span>
                           </td>
@@ -862,6 +879,30 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
             </fieldset>
           )}
 
+          {block.type === 'coupon_batch' && (() => {
+            const summary = asRecord(block.summary) ?? asRecord(block.after) ?? {};
+            const type = String(summary.type ?? '');
+            const value = summary.value;
+            const discount = type === 'free_shipping' ? 'شحن مجاني' : value == null ? '—' : type === 'percentage' ? `${money(value)}٪` : `${money(value)} ج.م`;
+            const codes = ((block.rows ?? []) as { code?: unknown }[]).map(row => String(row.code ?? '')).filter(Boolean);
+            const valueOf = (raw: unknown, empty: string) => raw === null || raw === undefined || raw === '' ? empty : String(raw);
+            return (
+              <div className="as-coupon-preview" aria-label="معاينة شروط دفعة الكوبونات">
+                <dl className="as-diff">
+                  <div className="as-diff-row"><dt>عدد الأكواد</dt><dd className="as-num"><strong>0 → {String(summary.count ?? codes.length)}</strong></dd></div>
+                  <div className="as-diff-row"><dt>نوع الخصم وقيمته</dt><dd>{discount}</dd></div>
+                  <div className="as-diff-row"><dt>الحد الأدنى للطلب</dt><dd className="as-num">{summary.min_order_amount == null ? 'بدون حد' : `${money(summary.min_order_amount)} ج.م`}</dd></div>
+                  <div className="as-diff-row"><dt>أقصى قيمة للخصم</dt><dd className="as-num">{summary.max_discount_amount == null ? 'بدون سقف' : `${money(summary.max_discount_amount)} ج.م`}</dd></div>
+                  <div className="as-diff-row"><dt>إجمالي مرات الاستخدام</dt><dd>{valueOf(summary.usage_limit, 'غير محدود')}</dd></div>
+                  <div className="as-diff-row"><dt>لكل عميل</dt><dd>{valueOf(summary.usage_limit_per_customer, '١')}</dd></div>
+                  <div className="as-diff-row"><dt>بداية الصلاحية</dt><dd>{valueOf(summary.starts_at, 'فوريًا')}</dd></div>
+                  <div className="as-diff-row"><dt>نهاية الصلاحية</dt><dd>{valueOf(summary.ends_at, 'بدون انتهاء')}</dd></div>
+                  <div className="as-diff-row"><dt>الحالة عند الإنشاء</dt><dd>{summary.is_active === false ? 'غير مفعّل' : 'مفعّل'}</dd></div>
+                </dl>
+                {codes.length > 0 && <div className="as-coupon-code-preview"><strong>عينة الأكواد ({Math.min(codes.length, 8)} من {codes.length})</strong><ul>{codes.slice(0, 8).map(code => <li key={code}><code dir="ltr">{code}</code></li>)}</ul></div>}
+              </div>
+            );
+          })()}
           {block.type === 'confirm_action' && Boolean(block.before || block.after) && <DiffTable before={stripSections(block.before)} after={stripSections(block.after)} />}
           {block.type === 'confirm_action' && (() => {
             const after = asRecord(block.after); const before = asRecord(block.before);
@@ -1074,7 +1115,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
               <tbody>
                 {timeline.map(t => (
                   <tr key={t.id}>
-                    <td>{t.id}</td><td>{t.created_at ? new Date(t.created_at).toLocaleString('ar-EG') : '—'}</td>
+                    <td>{t.id}</td><td>{safeFormatDate(t.created_at)}</td>
                     <td>{t.type}</td><td>{t.quantity}</td><td>{t.balance_after}</td>
                     <td>{t.reference_link && normalizeDeepLink(t.reference_link) ? <a className="as-linkbtn" href={normalizeDeepLink(t.reference_link)!}>{t.reference_number ?? 'فتح'}</a> : (t.reference_number ?? '—')}</td>
                   </tr>
@@ -1107,7 +1148,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
                 <span className="as-stepdot" aria-hidden="true" />
                 <span>{stageLabel[s.stage] ?? s.stage}</span>
                 {s.actor ? <span>{s.actor}</span> : null}
-                {s.at ? <time className="as-num">{new Date(s.at).toLocaleString('ar-EG')}</time> : null}
+                {s.at ? <time className="as-num">{safeFormatDate(s.at)}</time> : null}
               </li>
             ))}
           </ol>
@@ -1262,7 +1303,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
           <ul className="as-list">
             <li><span>وارد اليوم</span><span className="as-num" style={{ color: "var(--as-success)" }}>{typeof block.today_in === "number" ? block.today_in.toLocaleString("ar-EG") : "—"}</span></li>
             <li><span>صادر اليوم</span><span className="as-num" style={{ color: "var(--as-danger)" }}>{typeof block.today_out === "number" ? block.today_out.toLocaleString("ar-EG") : "—"}</span></li>
-            {openShift ? <li><span>وردية مفتوحة</span><span>{openShift.shift_number}{openShift.opened_at ? ` · ${new Date(openShift.opened_at).toLocaleString("ar-EG")}` : ""}</span></li> : null}
+            {openShift ? <li><span>وردية مفتوحة</span><span>{openShift.shift_number}{openShift.opened_at ? ` · ${safeFormatDate(openShift.opened_at)}` : ""}</span></li> : null}
             <li><span>الحذف</span><span>{block.can_delete ? "متاح" : `ممنوع: ${blockers.join("، ")}`}</span></li>
           </ul>
           {pending.length > 0 ? (
@@ -1274,7 +1315,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
               <thead><tr><th scope="col">التاريخ</th><th scope="col">النوع</th><th scope="col">المبلغ</th><th scope="col">الرصيد بعد</th><th scope="col">المرجع</th></tr></thead>
               <tbody>{txs.map((x, i) => {
                 const rl = normalizeDeepLink(x.reference_link);
-                return <tr key={i}><td>{x.at ? new Date(x.at).toLocaleString("ar-EG") : "—"}</td><td>{x.type_label ?? "—"}</td>
+                return <tr key={i}><td>{safeFormatDate(x.at)}</td><td>{x.type_label ?? "—"}</td>
                   <td style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}><strong>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</strong></td>
                   <td>{typeof x.balance_after === "number" ? x.balance_after.toLocaleString("ar-EG") : "—"}</td>
                   <td>{rl ? <a className="as-linkbtn" href={rl}>{x.reference_label ?? "فتح"}</a> : (x.reference_label ?? "—")}</td></tr>;
@@ -1294,7 +1335,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
       <section className="as-block" aria-label="السيولة">
         <header className="as-block-head">
           <span className="as-block-ic"><Icon name="chart" /></span>
-          <div className="as-block-title"><h3>السيولة حسب الفرع</h3>{block.as_of ? <span>بتاريخ {new Date(String(block.as_of)).toLocaleString("ar-EG")}</span> : null}</div>
+          <div className="as-block-title"><h3>السيولة حسب الفرع</h3>{block.as_of ? <span>بتاريخ {safeFormatDate(block.as_of)}</span> : null}</div>
         </header>
         <div className="as-tablewrap"><table className="as-table as-num">
           <thead><tr><th scope="col">الفرع</th><th scope="col">كاش</th><th scope="col">بنك</th><th scope="col">وارد معلق</th><th scope="col">صادر معلق</th><th scope="col">المتوقع</th></tr></thead>
@@ -1324,7 +1365,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
               <thead><tr><th scope="col">التاريخ</th><th scope="col">النوع</th><th scope="col">المبلغ</th><th scope="col">الرصيد بعد</th><th scope="col">المرجع</th></tr></thead>
               <tbody>{txs.map((x, i) => {
                 const rl = normalizeDeepLink(x.reference_link);
-                return <tr key={i}><td>{x.at ? new Date(x.at).toLocaleString("ar-EG") : "—"}</td><td>{x.type_label ?? "—"}</td>
+                return <tr key={i}><td>{safeFormatDate(x.at)}</td><td>{x.type_label ?? "—"}</td>
                   <td style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}><strong>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</strong></td>
                   <td>{typeof x.balance_after === "number" ? x.balance_after.toLocaleString("ar-EG") : "—"}</td>
                   <td>{rl ? <a className="as-linkbtn" href={rl}>{x.reference_label ?? "فتح"}</a> : (x.reference_label ?? "—")}</td></tr>;
@@ -1352,8 +1393,8 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
         <div className="as-block-body">
           {explanation.untrusted_text ? <p>{explanation.untrusted_text}</p> : null}
           {warnings.map((w, i) => <div className="as-alert as-alert--warning" role="note" key={i}><Icon name="alert" size={16} /><div className="as-alert-body"><span>{w}</span></div></div>)}
-          {wallet.length > 0 ? (<><h4>حركات المحفظة</h4><ul className="as-list">{wallet.map((x, i) => <li key={i}><span>{x.type} · {x.at ? new Date(x.at).toLocaleDateString("ar-EG") : "—"} · {x.reference_label ?? ""}</span><span className="as-num" style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>) : null}
-          {treasury.length > 0 ? (<><h4>حركات الخزينة</h4><ul className="as-list">{treasury.map((x, i) => <li key={i}><span>{x.treasury_name ?? `#${x.treasury_id ?? ""}`} · {x.type_label ?? x.type} · {x.at ? new Date(x.at).toLocaleDateString("ar-EG") : "—"}</span><span className="as-num" style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>) : null}
+          {wallet.length > 0 ? (<><h4>حركات المحفظة</h4><ul className="as-list">{wallet.map((x, i) => <li key={i}><span>{x.type} · {safeFormatDate(x.at, "date")} · {x.reference_label ?? ""}</span><span className="as-num" style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>) : null}
+          {treasury.length > 0 ? (<><h4>حركات الخزينة</h4><ul className="as-list">{treasury.map((x, i) => <li key={i}><span>{x.treasury_name ?? `#${x.treasury_id ?? ""}`} · {x.type_label ?? x.type} · {safeFormatDate(x.at, "date")}</span><span className="as-num" style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>) : null}
         </div>
       </section>
     );

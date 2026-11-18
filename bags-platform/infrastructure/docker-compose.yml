@@ -29,6 +29,11 @@ x-app: &app
     QUEUE_CONNECTION: database
     MEDIA_QUEUE: media
     LOG_STACK: stderr
+    SENTRY_LARAVEL_DSN: ${SENTRY_LARAVEL_DSN:-}
+    SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+    SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+    SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.05}
+    SENTRY_SERVICE: api
     LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
     PHP_FPM_PM_CONTROL: static
     # M-2: HAProxy sends APP_MAXCONN (be_api) + APP_SLOW_MAXCONN (be_api_slow) per node.
@@ -100,11 +105,17 @@ services:
     restart: 'no'
   worker:
     <<: *app
+    environment:
+      <<: *app-env
+      SENTRY_SERVICE: queue
     command: [php, artisan, 'queue:work', '--queue=default', '--tries=3', '--max-time=3600']
     healthcheck: {disable: true}
     stop_grace_period: 190s
   worker2:
     <<: *app
+    environment:
+      <<: *app-env
+      SENTRY_SERVICE: queue
     command: [php, artisan, 'queue:work', '--queue=default', '--tries=3', '--max-time=3600']
     healthcheck: {disable: true}
     stop_grace_period: 190s
@@ -113,6 +124,7 @@ services:
     environment:
       <<: *app-env
       PHP_MEMORY_LIMIT: 512M
+      SENTRY_SERVICE: queue
     # M8: video/image conversions can exceed the 60s default --timeout and get
     # SIGKILLed, retried 3x, then marked failed. --timeout=600 with a matching
     # retry_after=900 media connection keeps one attempt alive long enough;
@@ -122,6 +134,9 @@ services:
     stop_grace_period: 660s
   scheduler:
     <<: *app
+    environment:
+      <<: *app-env
+      SENTRY_SERVICE: scheduler
     command: [php, artisan, 'schedule:work']
     healthcheck: {disable: true}
     # H4: give in-flight jobs time to finish and release their
@@ -131,6 +146,9 @@ services:
   whatsapp-worker:
     <<: *app
     profiles: [whatsapp]
+    environment:
+      <<: *app-env
+      SENTRY_SERVICE: whatsapp-worker
     command: [php, artisan, 'queue:work', whatsapp, '--queue=whatsapp-ai', '--timeout=300', '--max-time=3600']
     healthcheck: {disable: true}
     stop_grace_period: 330s
@@ -144,6 +162,10 @@ services:
       WA_SESSION_KEY: ${WA_SESSION_KEY:-}
       DATABASE_URL: ${WA_SESSION_DATABASE_URL:-}
       WA_LARAVEL_INBOUND_URL: ${API_INTERNAL_URL:-http://haproxy1:8081}/api/v1/webhooks/whatsapp/inbound
+      SENTRY_DSN: ${WA_GATEWAY_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${WA_GATEWAY_SENTRY_TRACES_SAMPLE_RATE:-0.05}
     networks:
       appnet: {ipv4_address: 172.31.0.25}
     restart: unless-stopped
@@ -260,8 +282,22 @@ services:
       dockerfile: infrastructure/docker/storefront.Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.alfarid.example}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
+        NEXT_PUBLIC_SENTRY_RELEASE: ${NEXT_PUBLIC_SENTRY_RELEASE:-}
+        NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: ${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-0.05}
+        SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+        SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+        SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.05}
+        SENTRY_ORG: ${SENTRY_ORG:-akgroup-ig}
+        SENTRY_PROJECT: ${STOREFRONT_SENTRY_PROJECT:-alfarid-storefront}
         R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
-    environment: {API_INTERNAL_URL: '${API_INTERNAL_URL:-http://haproxy1:8081}'}
+    environment:
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://haproxy1:8081}
+      SENTRY_DSN: ${STOREFRONT_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.05}
     networks:
       appnet: {ipv4_address: 172.31.0.20}
     restart: unless-stopped
@@ -279,6 +315,12 @@ services:
         APP: backoffice
         VITE_API_URL: ${PUBLIC_API_URL:-https://api.alfarid.example}
         VITE_WEB_URL: ${PUBLIC_WEB_URL:-https://alfarid.example}
+        VITE_SENTRY_DSN: ${BACKOFFICE_VITE_SENTRY_DSN:-}
+        VITE_SENTRY_ENVIRONMENT: ${VITE_SENTRY_ENVIRONMENT:-production}
+        VITE_SENTRY_RELEASE: ${VITE_SENTRY_RELEASE:-}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${VITE_SENTRY_TRACES_SAMPLE_RATE:-0.05}
+        SENTRY_ORG: ${SENTRY_ORG:-akgroup-ig}
+        SENTRY_PROJECT: ${BACKOFFICE_SENTRY_PROJECT:-alfarid-backoffice}
     networks: [appnet]
     profiles: [frontend]
   pos:

@@ -135,9 +135,11 @@ final class UpdatePriceListTool implements WriteTool, LocksTargets, UndoableTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $args = (array) $action->args;
-        $listId = (int) $args['price_list_id'];
-        unset($args['price_list_id']);
+        $rawArgs = (array) $action->args;
+        $listId = (int) $rawArgs['price_list_id'];
+        $args = \Illuminate\Support\Arr::only($rawArgs, [
+            'name', 'type', 'priority', 'customer_group_id', 'customer_id', 'branch_id', 'starts_at', 'ends_at', 'is_active', 'notes',
+        ]);
         $locked = PricingLocks::lockListAndItems($action, $listId, [], (string) ($action->expected_versions['pl:'.$listId] ?? ''))['list'];
         $updated = $this->lists->update($locked, $args, $actor);
 

@@ -95,11 +95,7 @@ final class SimulateCartTool implements AgentTool
             return $scope;
         }
 
-        $lines = [];
-        $subtotal = 0.0;
-        $variantIds = [];
-        $categoryIds = [];
-        $brandIds = [];
+        $resolvedVariants = [];
         foreach ($rawItems as $index => $raw) {
             if (! is_array($raw)) {
                 return ToolOutcome::denied('بند رقم '.($index + 1).' غير صالح.', auditable: false);
@@ -109,7 +105,17 @@ final class SimulateCartTool implements AgentTool
             if ($resolved instanceof ToolOutcome) {
                 return $resolved;
             }
-            $variant = $resolved['variant'];
+            $resolvedVariants[$index] = ['variant' => $resolved['variant'], 'itemArgs' => $itemArgs];
+        }
+        \Illuminate\Database\Eloquent\Collection::make(array_column($resolvedVariants, 'variant'))
+            ->loadMissing('product:id,category_id,brand_id');
+
+        $lines = [];
+        $subtotal = 0.0;
+        $variantIds = [];
+        $categoryIds = [];
+        $brandIds = [];
+        foreach ($resolvedVariants as $index => ['variant' => $variant, 'itemArgs' => $itemArgs]) {
             $qty = isset($itemArgs['qty']) ? (float) $itemArgs['qty'] : 1.0;
             if (! is_finite($qty) || $qty <= 0) {
                 return ToolOutcome::denied('كمية البند رقم '.($index + 1).' لازم تكون موجبة.', auditable: false);
@@ -121,7 +127,6 @@ final class SimulateCartTool implements AgentTool
             }
             $lineTotal = round($result['unit_price'] * $qty, 2);
             $subtotal += $lineTotal;
-            $variant->loadMissing('product:id,category_id,brand_id');
             $variantIds[] = $variant->id;
             if ($variant->product?->category_id !== null) {
                 $categoryIds[] = (int) $variant->product->category_id;

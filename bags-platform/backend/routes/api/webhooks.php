@@ -16,4 +16,5 @@ Route::post('payment/{gateway}', [PaymentWebhookController::class, 'handle'])
 Route::post('shipping/{company}', [ShippingWebhookController::class, 'handle'])
     ->where('company', '[A-Za-z0-9_-]{1,40}')->middleware('throttle:webhooks-shipping')->name('shipping');
 Route::post('whatsapp/inbound', [WhatsAppInboundController::class, 'handle'])->middleware('throttle:webhooks-whatsapp')->name('whatsapp.inbound');
+Route::get('whatsapp/customers', [CustomerWhatsAppWebhookController::class, 'verify'])->middleware('throttle:webhooks-whatsapp')->name('whatsapp.customers.verify');
 Route::post('whatsapp/customers', [CustomerWhatsAppWebhookController::class, 'handle'])->middleware('throttle:webhooks-whatsapp')->name('whatsapp.customers');

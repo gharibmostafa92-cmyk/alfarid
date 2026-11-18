@@ -36,6 +36,7 @@ import {
   fmtInt,
   HatchBar,
   Seg,
+  useStackedEscape,
 } from './ui';
 
 /* ============ 11. Reports · 13. Notifications ============ */
@@ -775,12 +776,7 @@ export function NotifDrawer({
   go: (r: { m: string; id?: any; sub?: any }) => void;
   container?: Element | DocumentFragment | null;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [open, onClose]);
+  useStackedEscape(open, onClose);
 
   if (!open) return null;
   const unread = items.filter((n) => !n.read_at).length;
@@ -836,6 +832,7 @@ export function NotifDrawer({
 
 export function NotificationsPage({
   items,
+  unreadCount,
   onRead,
   onReadAll,
   onMore,
@@ -843,13 +840,14 @@ export function NotificationsPage({
   go,
 }: {
   items: NotificationItem[];
+  unreadCount?: number;
   onRead: (id: string) => void;
   onReadAll: () => void;
   onMore?: () => void;
   loading?: boolean;
   go: (r: { m: string; id?: any; sub?: any }) => void;
 }) {
-  const unread = items.filter((n) => !n.read_at).length;
+  const unread = unreadCount ?? items.filter((n) => !n.read_at).length;
 
   return (
     <div className="space-y-5">
@@ -857,12 +855,12 @@ export function NotificationsPage({
         title="الإشعارات"
         sub={
           <>
-            <Num>{unread}</Num> غير مقروءة في الإشعارات المحمّلة · <Num>20</Num> إشعارًا لكل صفحة
+            <Num>{unread}</Num> غير مقروءة · <Num>20</Num> إشعارًا لكل صفحة
           </>
         }
       />
       <Card stg={2} pad="p-3">
-        <button className="btn btn-soft" onClick={onReadAll} disabled={!unread}>تعليم المحمّل كمقروء</button>
+        <button className="btn btn-soft" onClick={onReadAll} disabled={unread === 0}>تعليم الكل كمقروء</button>
         {loading && <AdminLoading compact label="جارٍ تحميل الإشعارات" />}
         {!loading && !items.length && <Empty title="لا توجد إشعارات" />}
         <div className="space-y-1">

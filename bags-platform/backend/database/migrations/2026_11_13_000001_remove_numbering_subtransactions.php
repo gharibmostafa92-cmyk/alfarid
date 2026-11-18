@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // Keep the shared numbering lock until commit without allocating a savepoint per movement.
         DB::unprepared(<<<'SQL'
             CREATE OR REPLACE FUNCTION document_next_number(doc_type text, minimum bigint DEFAULT NULL) RETURNS bigint
@@ -72,6 +76,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         (require __DIR__.'/2026_11_12_000060_release_numbering_locks_after_sequence_access.php')->up();
     }
 };

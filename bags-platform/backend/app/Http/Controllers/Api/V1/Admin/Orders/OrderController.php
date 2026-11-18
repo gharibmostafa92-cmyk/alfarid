@@ -79,8 +79,8 @@ class OrderController extends Controller implements HasMiddleware
             'status' => ['nullable', Rule::enum(OrderStatus::class)],
             'allocated_branch_id' => ['nullable', 'integer', 'min:1'],
             'payment_method' => ['nullable', Rule::in(['cod', 'card', 'wallet', 'bank_transfer', 'credit'])],
-            'date_from' => ['nullable', 'date'],
-            'date_to' => ['nullable', 'date'],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
             'search' => ['nullable', 'string', 'max:100'],
             'needs_attention' => ['nullable', 'boolean'],
             'requires_refund' => ['nullable', 'boolean'],
@@ -118,12 +118,12 @@ class OrderController extends Controller implements HasMiddleware
                     ->orWhere('guest_phone_normalized', 'like', $prefix);
                 if ($phonePrefix !== $prefix) {
                     $inner->orWhere('guest_phone_normalized', 'like', $phonePrefix)
-                        ->orWhereHas('customer', fn ($cq) => $cq->where('phone', 'like', $phonePrefix));
+                        ->orWhereIn('customer_id', Customer::query()->select('id')->where('phone', 'like', $phonePrefix));
                 }
                 if (! $numeric) {
                     $pattern = SearchTerm::pattern((string) $term);
                     $inner->orWhere('guest_name', 'ilike', $pattern)
-                        ->orWhereHas('customer', fn ($cq) => $cq->where('name', 'ilike', $pattern));
+                        ->orWhereIn('customer_id', Customer::query()->select('id')->where('name', 'ilike', $pattern));
                 }
             }))
             ->latest('id')
@@ -144,6 +144,11 @@ class OrderController extends Controller implements HasMiddleware
 
         $row = Order::query()
             ->when($branch !== null, fn ($q) => $q->allocatedToBranch($branch))
+            ->where(static function ($q): void {
+                $q->whereIn('status', ['pending', 'processing'])
+                    ->orWhere('needs_attention', true)
+                    ->orWhere('requires_refund', true);
+            })
             ->selectRaw("COUNT(*) FILTER (WHERE status = 'pending') AS pending")
             ->selectRaw("COUNT(*) FILTER (WHERE status = 'processing') AS processing")
             ->selectRaw('COUNT(*) FILTER (WHERE needs_attention IS TRUE) AS needs_attention')
@@ -213,12 +218,12 @@ class OrderController extends Controller implements HasMiddleware
      */
     public function updatePayment(UpdateOrderPaymentRequest $request, Order $order): AdminOrderResource
     {
-        $this->authorizeOrder($request, $order);
         $data = $request->validated();
         $to = (string) $data['payment_status'];
 
-        $order = DB::transaction(function () use ($order, $to, $data, $request): Order {
+        $execute = fn (): Order => DB::transaction(function () use ($order, $to, $data, $request): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorizeOrder($request, $order);
             $from = $order->payment_status;
 
             if ($from === $to) {
@@ -254,11 +259,21 @@ class OrderController extends Controller implements HasMiddleware
                 'to_status' => $order->status,
                 'changed_by_type' => $actor?->getMorphClass(),
                 'changed_by_id' => $actor?->getKey(),
-                'notes' => mb_substr($notes, 0, 500 - mb_strlen($reference)).$reference,
+                'notes' => mb_substr($notes, 0, max(0, 500 - mb_strlen($reference))).$reference,
             ]);
 
             return $order;
         });
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $order = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_order_payment_update',
+                $request->user(),
+                $idempotencyKey,
+                ['order_id' => $order->id, ...$data],
+                $execute,
+            )
+            : $execute();
 
         return $this->orderResource($order);
     }
@@ -315,20 +330,34 @@ class OrderController extends Controller implements HasMiddleware
      */
     public function allocate(AllocateOrderRequest $request, Order $order): AdminOrderResource
     {
-        if ($order->allocated_branch_id !== null || $this->allocation->isAllocated($order)) {
-            $this->authorizeOrder($request, $order);
-        } else {
-            $this->branchAccess->assertCentralAccess($request->user());
-        }
-        if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
-            throw new BusinessException('التوزيع متاح فقط لطلب مؤكد أو قيد التجهيز.');
-        }
+        $data = $request->validated();
+        $execute = fn (): Order => DB::transaction(function () use ($request, $order, $data): Order {
+            $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($locked->allocated_branch_id !== null || $this->allocation->isAllocated($locked)) {
+                $this->authorizeOrder($request, $locked);
+            } else {
+                $this->branchAccess->assertCentralAccess($request->user());
+            }
+            if (! in_array($locked->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+                throw new BusinessException('التوزيع متاح فقط لطلب مؤكد أو قيد التجهيز.');
+            }
 
-        $order = $this->allocation->allocate(
-            $order,
-            $request->validated()['branch_id'] ?? null,
-            (int) $request->user()->id,
-        );
+            return $this->allocation->allocate(
+                $locked,
+                $data['branch_id'] ?? null,
+                (int) $request->user()->id,
+            );
+        });
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $order = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_order_allocate',
+                $request->user(),
+                $idempotencyKey,
+                ['order_id' => $order->id, ...$data],
+                $execute,
+            )
+            : $execute();
 
         return $this->orderResource($order);
     }
@@ -344,12 +373,25 @@ class OrderController extends Controller implements HasMiddleware
      */
     public function deallocate(Request $request, Order $order): AdminOrderResource
     {
-        $this->authorizeOrder($request, $order);
-        if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
-            throw new BusinessException('فك التوزيع متاح فقط لطلب مؤكد أو قيد التجهيز.');
-        }
+        $execute = fn (): Order => DB::transaction(function () use ($request, $order): Order {
+            $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorizeOrder($request, $locked);
+            if (! in_array($locked->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+                throw new BusinessException('فك التوزيع متاح فقط لطلب مؤكد أو قيد التجهيز.');
+            }
 
-        $order = $this->allocation->deallocate($order, (int) $request->user()->id);
+            return $this->allocation->deallocate($locked, (int) $request->user()->id);
+        });
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $order = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'admin_order_deallocate',
+                $request->user(),
+                $idempotencyKey,
+                ['order_id' => $order->id],
+                $execute,
+            )
+            : $execute();
 
         return $this->orderResource($order);
     }
@@ -363,20 +405,26 @@ class OrderController extends Controller implements HasMiddleware
 
     private function businessDayStart(string $date, int $daysAfter = 0): Carbon
     {
-        return Carbon::parse($date, $this->businessTimezone())->addDays($daysAfter)->startOfDay()->utc();
+        $start = Carbon::createFromFormat('!Y-m-d', $date, $this->businessTimezone());
+        if ($start === false) {
+            throw new \InvalidArgumentException('Expected an ISO calendar date.');
+        }
+
+        return $start->addDays($daysAfter)->utc();
     }
 
     private function businessTimezone(): string
     {
-        $timezone = config('app.business_timezone');
+        $fallback = config('app.timezone', 'UTC');
+        $timezone = config('app.business_timezone', $fallback);
         if (! is_string($timezone) || $timezone === '') {
-            return 'UTC';
+            return is_string($fallback) && $fallback !== '' ? $fallback : 'UTC';
         }
 
         try {
             new \DateTimeZone($timezone);
         } catch (\Exception) {
-            return 'UTC';
+            return is_string($fallback) && $fallback !== '' ? $fallback : 'UTC';
         }
 
         return $timezone;

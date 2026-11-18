@@ -37,7 +37,7 @@ final class ToolOutcome
     {
         $max = max(1024, $maxChars);
         $encoded = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if ($encoded !== false && strlen($encoded) > $max) {
+        if ($encoded !== false && mb_strlen($encoded) > $max) {
             return self::data([
                 'truncated' => true,
                 'message' => 'ضيّق البحث',

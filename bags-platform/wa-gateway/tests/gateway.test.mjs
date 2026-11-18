@@ -1,0 +1,199 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { DisconnectReason } from '@whiskeysockets/baileys';
+import {
+  MAX_MEDIA_ENTRIES,
+  consumeMediaStream,
+  createMediaStore,
+  createPoolConfig,
+  createPostInbound,
+  handleConnectionUpdate,
+  logoutSession,
+  resolveBaileysVersion,
+} from '../src/gateway.js';
+
+test('createPoolConfig sets bounded pool options', () => {
+  const cfg = createPoolConfig('postgres://user:pass@localhost:5432/db');
+  assert.deepEqual(cfg, {
+    connectionString: 'postgres://user:pass@localhost:5432/db',
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+  });
+});
+
+test('media store caps entries at MAX_MEDIA_ENTRIES (500) with FIFO/LRU eviction', () => {
+  assert.equal(MAX_MEDIA_ENTRIES, 500);
+  const store = createMediaStore();
+  for (let i = 0; i < 510; i += 1) {
+    store.remember({ key: { id: `msg-${i}` } });
+  }
+  assert.equal(store.map.size, 500);
+  assert.equal(store.get('msg-0'), undefined);
+  assert.equal(store.get('msg-9'), undefined);
+  assert.ok(store.get('msg-10'));
+  assert.ok(store.get('msg-509'));
+});
+
+test('postInbound retries with backoff, regenerates timestamp/signature, and deletes media on failure', async () => {
+  const store = createMediaStore();
+  const attempts = [];
+  const sleeps = [];
+  let nowSec = 1000;
+
+  const postInbound = createPostInbound({
+    inboundUrl: 'https://laravel.test/api/wa/inbound',
+    secret: 'super-secret-key',
+    mediaStore: store,
+    now: () => (nowSec += 1) * 1000,
+    sleep: async (ms) => { sleeps.push(ms); },
+    logger: { warn() {} },
+    fetchImpl: async (_url, opts) => {
+      attempts.push({
+        timestamp: opts.headers['X-WA-Timestamp'],
+        signature: opts.headers['X-WA-Signature'],
+      });
+      return { ok: false, status: 500 };
+    },
+  });
+
+  const rawMsg = { key: { id: 'img-1' } };
+  const ok = await postInbound({ media: { type: 'image' }, text: 'hi' }, rawMsg);
+
+  assert.equal(ok, false);
+  assert.equal(attempts.length, 3);
+  assert.deepEqual(sleeps, [500, 1000]);
+  assert.notEqual(attempts[0].timestamp, attempts[1].timestamp);
+  assert.notEqual(attempts[0].signature, attempts[1].signature);
+  assert.equal(store.get('img-1'), undefined, 'media entry must be deleted when postInbound fails');
+});
+
+test('postInbound keeps media when Laravel returns ok', async () => {
+  const store = createMediaStore();
+  const postInbound = createPostInbound({
+    inboundUrl: 'https://laravel.test/api/wa/inbound',
+    secret: 'super-secret-key',
+    mediaStore: store,
+    sleep: async () => {},
+    logger: { warn() {} },
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+  });
+
+  const rawMsg = { key: { id: 'img-ok' } };
+  const ok = await postInbound({ media: { type: 'image' }, text: 'hi' }, rawMsg);
+
+  assert.equal(ok, true);
+  assert.ok(store.get('img-ok'));
+});
+
+test('consumeMediaStream destroys stream on success and on size overflow', async () => {
+  let destroyed1 = false;
+  const goodStream = {
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from('hello ');
+      yield Buffer.from('world');
+    },
+    destroy() { destroyed1 = true; },
+  };
+  const res1 = await consumeMediaStream(goodStream, { maxBytes: 100, timeoutMs: 1000 });
+  assert.equal(destroyed1, true);
+  assert.equal(res1.tooLarge, false);
+  assert.equal(res1.buffer.toString('utf8'), 'hello world');
+
+  let destroyed2 = false;
+  const bigStream = {
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.alloc(60);
+      yield Buffer.alloc(60);
+    },
+    destroy() { destroyed2 = true; },
+  };
+  const res2 = await consumeMediaStream(bigStream, { maxBytes: 100, timeoutMs: 1000 });
+  assert.equal(destroyed2, true);
+  assert.equal(res2.tooLarge, true);
+});
+
+test('logoutSession clears auth, resets runtime to close, and schedules reconnect', async () => {
+  let loggedOutCalled = false;
+  let authCleared = false;
+  let reconnectCalled = false;
+
+  const runtime = {
+    state: 'connected',
+    phone: '201000000000',
+    qr: 'data:image/png;base64,old',
+    sock: {
+      async logout() { loggedOutCalled = true; },
+    },
+  };
+
+  await logoutSession({
+    runtime,
+    clearAuth: async () => { authCleared = true; },
+    scheduleReconnect: () => { reconnectCalled = true; },
+  });
+
+  assert.equal(loggedOutCalled, true);
+  assert.equal(authCleared, true);
+  assert.equal(reconnectCalled, true);
+  assert.equal(runtime.sock, null);
+  assert.equal(runtime.state, 'close');
+  assert.equal(runtime.phone, null);
+  assert.equal(runtime.qr, null);
+});
+
+test('handleConnectionUpdate recovers from DisconnectReason.loggedOut by clearing auth and scheduling reconnect', async () => {
+  let authCleared = false;
+  let scheduledDelay = null;
+  const sock = { user: { id: '201000:1@s.whatsapp.net' } };
+  const runtime = {
+    state: 'connected',
+    phone: '201000',
+    qr: null,
+    sock,
+    lastConnectedAt: null,
+  };
+
+  await handleConnectionUpdate({
+    update: {
+      connection: 'close',
+      lastDisconnect: { error: { output: { statusCode: DisconnectReason.loggedOut } } },
+    },
+    sock,
+    runtime,
+    auth: { clear: async () => { authCleared = true; } },
+    scheduleReconnect: (delay) => { scheduledDelay = delay; },
+    resetBackoff: () => {},
+    qrToDataUrl: async () => '',
+  });
+
+  assert.equal(authCleared, true);
+  assert.equal(runtime.sock, null);
+  assert.equal(runtime.state, 'close');
+  assert.equal(runtime.phone, null);
+  assert.equal(runtime.qr, null);
+  assert.equal(scheduledDelay, 5000);
+});
+
+test('resolveBaileysVersion falls back to built-in version on timeout or error', async () => {
+  const fallback = [2, 3000, 123456];
+  const warnings = [];
+  const logger = { warn: (obj, msg) => warnings.push({ obj, msg }) };
+
+  const fromTimeout = await resolveBaileysVersion({
+    fetchLatest: () => new Promise(() => {}),
+    fallbackVersion: fallback,
+    timeoutMs: 30,
+    logger,
+  });
+  assert.deepEqual(fromTimeout, fallback);
+
+  const fromError = await resolveBaileysVersion({
+    fetchLatest: async () => { throw new Error('network down'); },
+    fallbackVersion: fallback,
+    timeoutMs: 100,
+    logger,
+  });
+  assert.deepEqual(fromError, fallback);
+  assert.equal(warnings.length, 2);
+});

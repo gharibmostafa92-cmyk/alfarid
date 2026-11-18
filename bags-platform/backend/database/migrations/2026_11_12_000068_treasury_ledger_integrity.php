@@ -26,6 +26,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         ConcurrentIndex::ensure(
             'treasury_transactions_reference_unique',
             'ON treasury_transactions (reference_type, reference_id, type, treasury_id) WHERE reference_type IS NOT NULL AND reference_id IS NOT NULL',
@@ -47,6 +51,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('ALTER TABLE treasury_transactions DROP CONSTRAINT IF EXISTS treasury_transactions_type_sign_check');
         ConcurrentIndex::drop('treasury_transactions_reference_unique');
     }

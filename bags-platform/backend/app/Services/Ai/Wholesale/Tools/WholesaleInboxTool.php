@@ -14,9 +14,11 @@ use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Inventory\BranchAccess;
 
 final class WholesaleInboxTool implements AgentTool
 {
+    public function __construct(private BranchAccess $branches) {}
     public function name(): string
     {
         return 'wholesale_inbox';
@@ -48,9 +50,10 @@ final class WholesaleInboxTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        $branchId = $this->branches->restrictedBranch($actor);
         $quotes = [];
         $expiring = [];
-        if ($actor->can('quotations.view')) {
+        if ($branchId === null && $actor->can('quotations.view')) {
             $quotes = Quotation::query()
                 ->with('customer:id,name,company_name')
                 ->where('status', QuotationStatus::Requested)
@@ -83,6 +86,7 @@ final class WholesaleInboxTool implements AgentTool
             $notices = WholesalePaymentNotice::query()
                 ->with('customer:id,name,company_name')
                 ->where('status', WholesalePaymentNoticeStatus::PendingReview)
+                ->when($branchId !== null, fn ($q) => $q->whereHas('order', fn ($order) => $order->where('allocated_branch_id', $branchId)))
                 ->orderBy('id')
                 ->limit(25)
                 ->get()
@@ -95,7 +99,7 @@ final class WholesaleInboxTool implements AgentTool
                 ])->all();
         }
 
-        $applications = Customer::query()
+        $applications = $branchId !== null ? [] : Customer::query()
             ->commercial()
             ->where('status', CustomerStatus::Pending)
             ->orderBy('id')

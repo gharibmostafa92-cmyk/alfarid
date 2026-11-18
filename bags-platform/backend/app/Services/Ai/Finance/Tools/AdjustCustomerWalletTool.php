@@ -21,6 +21,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
+use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 use App\Services\Finance\WalletAdjustmentService;
 use Illuminate\Validation\ValidationException;
@@ -33,6 +34,7 @@ final class AdjustCustomerWalletTool implements AgentTool, LocksTargets, Undoabl
         private ProposalBuilder $proposals,
         private WalletAdjustmentService $adjustments,
         private SettingService $settings,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -78,6 +80,9 @@ final class AdjustCustomerWalletTool implements AgentTool, LocksTargets, Undoabl
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
+        if ($denied = $this->denyIfNoCentralAccess($actor)) {
+            return $denied;
+        }
         $args = FinanceArgs::normalizeDigitsInArray($args);
         if (! $this->settings->getBool('ai_finance_wallet_tools_enabled', false)) {
             return ToolOutcome::denied('أدوات المحفظة مقفولة من الإعدادات.', auditable: false);
@@ -149,26 +154,34 @@ final class AdjustCustomerWalletTool implements AgentTool, LocksTargets, Undoabl
             before: ['wallet_balance' => (float) $current],
             after: ['wallet_balance' => (float) $after, 'kind' => $kind, 'direction' => $direction, 'amount' => (float) $amount],
             warnings: $warnings,
-            expectedVersions: ['wallet:'.$customer->id => (int) ($latest?->id ?? 0)],
+            expectedVersions: ['wallet:'.$customer->id => $this->walletFingerprint($customer->id, (string) ($customer->wallet_balance ?? '0.00'))],
             extraPreview: ['recent_movements' => $movements],
         );
     }
 
     public function lockTargets(AiPendingAction $action): void
     {
+        $actor = User::query()->findOrFail((int) $action->user_id);
+        $this->branches->assertCentralAccess($actor);
+        $adjustmentId = $this->createdAdjustmentId($action);
+        if ($adjustmentId !== null) {
+            WalletAdjustment::query()->whereKey($adjustmentId)->lockForUpdate()->first();
+        }
         Customer::query()->whereKey((int) ($action->args['customer_id'] ?? 0))->lockForUpdate()->first();
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
+        if ($denied = $this->denyIfNoCentralAccess($actor)) {
+            return $denied;
+        }
         $a = $action->args;
         $customer = Customer::query()->lockForUpdate()->findOrFail((int) $a['customer_id']);
         if (($a['direction'] ?? null) === 'debit' && $customer->status !== CustomerStatus::Approved) {
             throw new BusinessException('حالة العميل اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
         }
         $expected = $action->expected_versions['wallet:'.$customer->id] ?? null;
-        $latestId = CustomerWalletTransaction::query()->where('customer_id', $customer->id)->max('id');
-        if ($expected !== (int) ($latestId ?? 0)) {
+        if ($expected !== $this->walletFingerprint($customer->id, (string) ($customer->wallet_balance ?? '0.00'))) {
             throw new BusinessException('البيانات اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
         }
         $adjustment = $this->adjustments->adjust([
@@ -201,23 +214,41 @@ final class AdjustCustomerWalletTool implements AgentTool, LocksTargets, Undoabl
     public function targetState(AiPendingAction $action): string
     {
         $adjustment = WalletAdjustment::findOrFail($this->createdAdjustmentId($action));
+        $customer = Customer::query()->findOrFail($adjustment->customer_id);
 
-        return hash('sha256', json_encode([$adjustment->id, (string) $adjustment->created_at], JSON_THROW_ON_ERROR));
+        return hash('sha256', json_encode([
+            $adjustment->id,
+            (string) $adjustment->amount,
+            $adjustment->direction,
+            (string) $adjustment->created_at,
+            $this->walletFingerprint($customer->id, (string) ($customer->wallet_balance ?? '0.00')),
+        ], JSON_THROW_ON_ERROR));
     }
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $adjustment = WalletAdjustment::findOrFail($this->createdAdjustmentId($action));
+        if ($denied = $this->denyIfNoCentralAccess($actor)) {
+            return $denied;
+        }
+        $adjustment = WalletAdjustment::query()->lockForUpdate()->findOrFail($this->createdAdjustmentId($action));
+        $customer = Customer::query()->lockForUpdate()->findOrFail($adjustment->customer_id);
         if ($adjustment->reversals()->exists()) {
             throw new BusinessException('التعديل معكوس بالفعل.', [], 409);
         }
         if ($adjustment->direction === 'credit'
-            && bccomp((string) ($adjustment->customer->wallet_balance ?? '0.00'), (string) $adjustment->amount, 2) < 0) {
+            && bccomp((string) ($customer->wallet_balance ?? '0.00'), (string) $adjustment->amount, 2) < 0) {
             throw new BusinessException('رصيد المحفظة أقل من مبلغ الإضافة؛ التراجع مش آمن.', [], 409);
         }
         $reversal = $this->adjustments->reverse($adjustment, $actor, 'ai-undo-'.$action->id, 'تراجع تعديل AI');
 
         return ToolOutcome::result(true, "اترجع تعديل المحفظة بقيد مقابل #{$reversal->id}.", []);
+    }
+
+    private function walletFingerprint(int $customerId, string $balance): string
+    {
+        $latestId = CustomerWalletTransaction::query()->where('customer_id', $customerId)->max('id');
+
+        return ((int) ($latestId ?? 0)).':'.number_format((float) $balance, 2, '.', '');
     }
 
     private function createdAdjustmentId(AiPendingAction $action): ?int
@@ -231,8 +262,22 @@ final class AdjustCustomerWalletTool implements AgentTool, LocksTargets, Undoabl
         return isset($action->result['adjustment_id']) ? (int) $action->result['adjustment_id'] : null;
     }
 
+    private function denyIfNoCentralAccess(User $actor): ?ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
+        }
+
+        return null;
+    }
+
     private function resolveCustomer(User $actor, array $args): Customer|ToolOutcome
     {
+        if (! $actor->can('customers.view')) {
+            return ToolOutcome::denied('معندكش صلاحية عرض العملاء.', auditable: true);
+        }
         if (! empty($args['customer_id'])) {
             $customer = Customer::find((int) $args['customer_id']);
             if (! $customer) {

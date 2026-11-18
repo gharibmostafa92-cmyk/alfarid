@@ -45,7 +45,7 @@ final class PricingLocks
             ->lockForUpdate()
             ->get();
 
-        if ($action->status === 'pending') {
+        if (in_array($action->status, ['pending', 'bulk_child'], true)) {
             if (! hash_equals($expectedPl, PricingFingerprint::priceList($list))) {
                 abort(409, 'حد عدّل قائمة الأسعار بعد الاقتراح؛ اطلب اقتراحًا جديدًا.');
             }
@@ -66,7 +66,7 @@ final class PricingLocks
         if (! $coupon) {
             throw new NotFoundHttpException('الكوبون غير موجود.');
         }
-        if ($action->status === 'pending' && ! hash_equals($expected, PricingFingerprint::coupon($coupon))) {
+        if (in_array($action->status, ['pending', 'bulk_child'], true) && ! hash_equals($expected, PricingFingerprint::coupon($coupon))) {
             abort(409, 'حد عدّل الكوبون بعد الاقتراح؛ اطلب اقتراحًا جديدًا.');
         }
 
@@ -79,7 +79,7 @@ final class PricingLocks
         if (! $promotion) {
             throw new NotFoundHttpException('العرض غير موجود.');
         }
-        if ($action->status === 'pending' && ! hash_equals($expected, PricingFingerprint::promotion($promotion))) {
+        if (in_array($action->status, ['pending', 'bulk_child'], true) && ! hash_equals($expected, PricingFingerprint::promotion($promotion))) {
             abort(409, 'حد عدّل العرض بعد الاقتراح؛ اطلب اقتراحًا جديدًا.');
         }
 

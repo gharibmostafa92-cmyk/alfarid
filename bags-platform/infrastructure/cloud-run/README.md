@@ -98,6 +98,27 @@ Storefront runs on Cloud Run with request-based billing, zero minimum instances 
 
 Backoffice deploys its Vite build to Cloudflare Pages. The POS Pages project deploys [pos-pages](pos-pages/) and redirects to the connected POS at Backoffice's `/pos`. The standalone `apps/pos` build uses a mock service for its sales; keep it out of the pilot release. Both frontend entry points share the existing staff sign-in flow.
 
+## Sentry pre-deploy configuration
+
+This repository is wired for four isolated Sentry projects: `alfarid-backend`, `alfarid-storefront`, `alfarid-backoffice`, and the optional `alfarid-wa-gateway`, all under `akgroup-ig`. Use each project's own DSN. This implementation work has not deployed to Cloud Run, Pages, or Docker Compose; staging acceptance remains a separate release gate.
+
+Keep the Laravel DSN as a pinned Secret Manager version and pass its reference only to the API, AI, queue, and scheduler deployments. `SENTRY_ENVIRONMENT` is deliberately independent from `APP_ENV=production`. The pilot script rejects an unpinned Sentry secret and a release that is not a full commit SHA. Use `0.05` for a normal comparison; `1.0` is only for an isolated staging smoke test.
+
+```powershell
+./infrastructure/cloud-run/pilot.ps1 -Action DeployApi @pilot `
+  -SentryDsnSecret 'alfarid-backend-sentry-dsn:VERSION' `
+  -SentryEnvironment 'staging' -SentryRelease $releaseSha -SentryTraceSampleRate 1.0
+./infrastructure/cloud-run/pilot.ps1 -Action DeployJobs @pilot `
+  -SentryDsnSecret 'alfarid-backend-sentry-dsn:VERSION' `
+  -SentryEnvironment 'staging' -SentryRelease $releaseSha -SentryTraceSampleRate 1.0
+```
+
+For the Storefront, build with its public DSN, environment, release SHA and sample rate as Docker build arguments. The Next server also needs its Storefront DSN mapped to runtime `SENTRY_DSN` from a pinned secret version. Backoffice's Vite build uses `VITE_SENTRY_*` build values. Build both monitored artifacts with the restricted `org:ci` token through the BuildKit secret `sentry_auth_token`; neither Dockerfile copies the token into a runtime stage. Source maps are uploaded and deleted from public build output. Confirm neither deployed artifact contains `.map` files or a runtime `SENTRY_AUTH_TOKEN` variable.
+
+The local Compose profile keeps `STOREFRONT_SENTRY_DSN`, `BACKOFFICE_VITE_SENTRY_DSN`, `SENTRY_LARAVEL_DSN`, and `WA_GATEWAY_SENTRY_DSN` separate so one service cannot accidentally reuse another project's DSN. WhatsApp stays optional under `--profile whatsapp`; `whatsapp-worker` uses the backend Laravel DSN with the `whatsapp-worker` service tag, while the Fastify gateway uses only `WA_GATEWAY_SENTRY_DSN`.
+
+Before promotion, complete the staging event, source-map, trace-continuity, privacy, alert-delivery, ingestion-outage, p95-overhead and rollback checks in the observability release record. Do not promote a build solely because a local SDK test or `php artisan sentry:test` passes.
+
 ## Managed Redis cache experiment
 
 Use a separate Google Cloud project with a disposable Neon database. Start from the IAM-private database-only API above. Keep its image digest and baseline revision ID, and verify that the base URL returns HTTP 200 at `/health/ready` with `checks.db=ok` and `checks.redis=skipped`. Leave pilot schedulers paused. The two serving Alfarid regions are outside this experiment.

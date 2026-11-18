@@ -230,7 +230,7 @@ final class ClonePriceListTool implements WriteTool
         app(CatalogRetailPriceObserver::class)->batch(function () use ($actor, $header, $rows, &$newList): void {
             $newList = $this->lists->create($header, $actor);
             foreach ($rows as $row) {
-                $this->lists->createItem($newList->fresh(), [
+                $this->lists->createItem($newList, [
                     'product_variant_id' => (int) $row['product_variant_id'],
                     'min_qty' => (float) $row['min_qty'],
                     'price' => (float) $row['price'],

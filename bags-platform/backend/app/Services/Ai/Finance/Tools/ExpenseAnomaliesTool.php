@@ -79,7 +79,7 @@ final class ExpenseAnomaliesTool implements AgentTool
         $base = fn () => Expense::query()->whereNull('voided_at')->where('expense_date', '>=', $from)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId));
 
-        $duplicates = $this->duplicates($base, $branchId);
+        $duplicates = $this->duplicates($base);
         $jumps = $this->categoryJumps($base, $branchId, $from);
         $round = $this->roundRepeated($base);
         $afterHours = $this->afterHours($base);
@@ -114,28 +114,51 @@ final class ExpenseAnomaliesTool implements AgentTool
     }
 
     /** @return list<array{id:int,title:string,detail:string,link:string}> */
-    private function duplicates(\Closure $base, ?int $branchId): array
+    private function duplicates(\Closure $base): array
     {
         $groups = $base()
             ->selectRaw('branch_id, category, amount, expense_date, COUNT(*) AS c, MIN(id) AS first_id')
             ->groupBy('branch_id', 'category', 'amount', 'expense_date')
             ->havingRaw('COUNT(*) > 1')->orderByDesc('c')->limit(self::SECTION_LIMIT)->get();
 
+        if ($groups->isEmpty()) {
+            return [];
+        }
+
+        $details = $base()->where(function ($query) use ($groups): void {
+            foreach ($groups as $group) {
+                $query->orWhere(function ($match) use ($group): void {
+                    $match->where('branch_id', $group->branch_id)
+                        ->where('category', $group->category)
+                        ->where('amount', $group->amount)
+                        ->where('expense_date', $group->expense_date);
+                });
+            }
+        })->orderBy('id')->get(['id', 'branch_id', 'category', 'amount', 'expense_date', 'expense_number']);
+
+        $numbersByGroup = [];
+        foreach ($details as $expense) {
+            $key = $this->duplicateGroupKey($expense->branch_id, (string) $expense->category, (float) $expense->amount, (string) $expense->expense_date);
+            $numbersByGroup[$key][] = $expense->expense_number;
+        }
+
         $out = [];
         foreach ($groups as $g) {
-            $ids = $base()->where('branch_id', $g->branch_id)->where('category', $g->category)
-                ->where('amount', $g->amount)->where('expense_date', $g->expense_date)
-                ->orderBy('id')->pluck('expense_number', 'id');
-            $first = Expense::query()->find($g->first_id);
+            $key = $this->duplicateGroupKey($g->branch_id, (string) $g->category, (float) $g->amount, (string) $g->expense_date);
             $out[] = [
                 'id' => (int) $g->first_id,
                 'title' => "مكرر محتمل: {$g->c} مصروفات {$g->category} بنفس المبلغ في نفس اليوم",
-                'detail' => 'الأرقام: '.implode('، ', $ids->values()->all()),
+                'detail' => 'الأرقام: '.implode('، ', $numbersByGroup[$key] ?? []),
                 'link' => $this->presenter->deepLink('exp', (int) $g->first_id),
             ];
         }
 
         return $out;
+    }
+
+    private function duplicateGroupKey(mixed $branchId, string $category, float $amount, string $date): string
+    {
+        return implode('|', [$branchId === null ? 'null' : (string) $branchId, $category, number_format($amount, 2, '.', ''), $date]);
     }
 
     /** @return list<array{id:int,title:string,detail:string,link:string}> */
@@ -175,21 +198,19 @@ final class ExpenseAnomaliesTool implements AgentTool
             ->groupBy('created_by', 'amount')->havingRaw('COUNT(*) > 1')
             ->orderByDesc('c')->limit(50)->get();
 
+        $rounded = $groups->filter(fn ($g) => fmod((float) $g->amount, 1000) === 0.0)->take(self::SECTION_LIMIT);
+        $firstNumbers = $rounded->isEmpty()
+            ? collect()
+            : Expense::query()->whereIn('id', $rounded->pluck('first_id')->all())->pluck('expense_number', 'id');
+
         $out = [];
-        foreach ($groups as $g) {
-            if (fmod((float) $g->amount, 1000) !== 0.0) {
-                continue;
-            }
-            $first = Expense::query()->find($g->first_id);
+        foreach ($rounded as $g) {
             $out[] = [
                 'id' => (int) $g->first_id,
                 'title' => "رقم مدوّر متكرر: {$g->c} مصروفات بمبلغ ".(float) $g->amount.' من نفس المستخدم',
-                'detail' => 'أولها '.($first?->expense_number ?? '#'.$g->first_id),
+                'detail' => 'أولها '.($firstNumbers[$g->first_id] ?? '#'.$g->first_id),
                 'link' => $this->presenter->deepLink('exp', (int) $g->first_id),
             ];
-            if (count($out) >= self::SECTION_LIMIT) {
-                break;
-            }
         }
 
         return $out;
@@ -222,14 +243,18 @@ final class ExpenseAnomaliesTool implements AgentTool
     private function newCategories(?int $branchId): array
     {
         $monthStart = now()->startOfMonth()->toDateString();
-        $old = Expense::query()->whereNull('voided_at')->where('expense_date', '<', $monthStart)
-            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
-            ->distinct()->pluck('category')->all();
 
         $out = [];
         foreach (Expense::query()->whereNull('voided_at')->where('expense_date', '>=', $monthStart)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
-            ->whereNotIn('category', $old === [] ? ['__none__'] : $old)
+            ->whereNotExists(function ($q) use ($monthStart, $branchId): void {
+                $q->select(\Illuminate\Support\Facades\DB::raw('1'))
+                    ->from('expenses as prev')
+                    ->whereColumn('prev.category', 'expenses.category')
+                    ->whereNull('prev.voided_at')
+                    ->where('prev.expense_date', '<', $monthStart)
+                    ->when($branchId !== null, fn ($inner) => $inner->where('prev.branch_id', $branchId));
+            })
             ->selectRaw('category, COUNT(*) AS c, MIN(id) AS first_id')
             ->groupBy('category')->orderByDesc('c')->limit(self::SECTION_LIMIT)->get() as $g) {
             $out[] = [

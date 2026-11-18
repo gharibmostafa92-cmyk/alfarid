@@ -181,19 +181,19 @@ export const assistantApi = {
   create: () => api.post<{ data: Conv }>(`${BASE}/conversations`).then(r => r.data.data),
   show: (id: number) => api.get<{ data: Conv }>(`${BASE}/conversations/${id}`).then(r => r.data.data),
   remove: (id: number) => api.delete(`${BASE}/conversations/${id}`),
-  uploadAttachments: (id: number, files: File[]) => {
+  uploadAttachments: (id: number, files: File[], signal?: AbortSignal) => {
     const form = new FormData();
     files.forEach(file => form.append('files[]', file));
-    return api.post<{ data: UploadedAttachment[] }>(`${BASE}/conversations/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data.data);
+    return api.post<{ data: UploadedAttachment[] }>(`${BASE}/conversations/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' }, signal }).then(r => r.data.data);
   },
   send: (id: number, body: { text: string; selection?: { entity: string; id: number | string; label?: string }; mentions?: { entity: string; id: number | string }[]; attachments?: string[] }) =>
     api.post<{ data: { text: string; ui_blocks: UiBlock[]; message_id: number } }>(`${BASE}/conversations/${id}/messages`, body, { timeout: 600000 }).then(r => r.data.data),
-  stream: async (id: number, body: { text: string; selection?: { entity: string; id: number | string; label?: string }; mentions?: { entity: string; id: number | string }[]; attachments?: string[] }, onStatus: (message: string) => void) => {
+  stream: async (id: number, body: { text: string; selection?: { entity: string; id: number | string; label?: string }; mentions?: { entity: string; id: number | string }[]; attachments?: string[] }, onStatus: (message: string) => void, signal?: AbortSignal) => {
     // Parse incoming SSE frames incrementally to avoid O(n^2) re-parsing freezes on long streams.
     const parser = createIncrementalSseParser();
     const seen: { event: string; data: Record<string, unknown> }[] = [];
     await api.post<string>(`${BASE}/conversations/${id}/stream`, body, {
-      timeout: 600000, responseType: 'text', headers: { Accept: 'text/event-stream' },
+      timeout: 600000, responseType: 'text', headers: { Accept: 'text/event-stream' }, signal,
       onDownloadProgress: progress => {
         const text = (progress.event?.target as XMLHttpRequest | undefined)?.responseText;
         if (typeof text !== 'string') return;
@@ -204,9 +204,11 @@ export const assistantApi = {
       },
     });
     const events = [...seen, ...parser.flush()];
+    const hasReply = events.some(e => e.event === 'reply');
+    if (hasReply) return;
     const failure = events.find(e => e.event === 'error');
     if (failure) throw { response: { data: { message: String(failure.data.message ?? 'تعذر إتمام طلب المساعد.') } } };
-    if (!events.some(e => e.event === 'reply')) throw new Error('المحادثة انقطعت قبل اكتمال الرد.');
+    throw new Error('المحادثة انقطعت قبل اكتمال الرد.');
   },
   confirm: (actionId: string, typed_confirmation?: string, selected_items?: string[]) =>
     api.post<{ data: { ok: boolean; message: string; result: Record<string, unknown>; ui_block: UiBlock; status: string } }>(`${BASE}/actions/${actionId}/confirm`, { typed_confirmation, selected_items }).then(r => r.data.data),

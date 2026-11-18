@@ -2,9 +2,12 @@ export interface AgentEvent { event: string; data: Record<string, unknown> }
 
 function parseFrame(frame: string): AgentEvent[] {
   if (frame.trim() === '') return [];
-  const lines = frame.split('\n');
+  const lines = frame.split('\n').filter(l => !l.startsWith(':'));
   const event = lines.find(l => l.startsWith('event:'))?.slice(6).trim();
-  const data = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('\n');
+  const data = lines
+    .filter(l => l.startsWith('data:'))
+    .map(l => (l.startsWith('data: ') ? l.slice(6) : l.slice(5)))
+    .join('\n');
   if (!event || !data) return [];
   try {
     const parsed: unknown = JSON.parse(data);
@@ -41,20 +44,36 @@ export function parseAgentEvents(text: string, complete = false): AgentEvent[] {
 export function createIncrementalSseParser(): { feed(responseText: string): AgentEvent[]; flush(): AgentEvent[] } {
   let cursor = 0;
   let pending = '';
+  let trailingCr = false;
   return {
     feed(responseText: string): AgentEvent[] {
-      if (responseText.length < cursor) { cursor = 0; pending = ''; }
-      pending += responseText.slice(cursor);
-      cursor = responseText.length;
-      const frames = pending.split(/\r?\n\r?\n/);
+      if (responseText.length < cursor) { cursor = 0; pending = ''; trailingCr = false; }
+      let safeLen = responseText.length;
+      // Hold back trailing U+FFFD replacement chars in case an incomplete UTF-8 sequence completes on next chunk.
+      while (safeLen > cursor && responseText.charCodeAt(safeLen - 1) === 0xfffd) {
+        safeLen--;
+      }
+      let chunk = responseText.slice(cursor, safeLen);
+      cursor = safeLen;
+      if (trailingCr) {
+        chunk = '\r' + chunk;
+        trailingCr = false;
+      }
+      if (chunk.endsWith('\r')) {
+        trailingCr = true;
+        chunk = chunk.slice(0, -1);
+      }
+      pending += chunk.replace(/\r\n/g, '\n');
+      const frames = pending.split('\n\n');
       pending = frames.pop() ?? '';
       if (frames.length === 0) return [];
       return frames.flatMap(parseFrame);
     },
     flush(): AgentEvent[] {
-      const tail = pending;
+      const tail = pending + (trailingCr ? '\r' : '');
       pending = '';
-      return parseFrame(tail);
+      trailingCr = false;
+      return parseFrame(tail.replace(/\r\n/g, '\n'));
     },
   };
 }

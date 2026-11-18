@@ -9,6 +9,8 @@ use App\Models\AiPendingAction;
 use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Periodic maintenance job to purge expired AI conversations, delete orphaned storage attachments, and reap abandoned pending actions.
@@ -25,7 +27,10 @@ class PruneAiConversations implements ShouldQueue
         $days = max(1, (int) $settings->get('ai_retention_days', 180));
         // Force-deleting conversations cascades ai_attachments rows; remove the physical directory from the storage disk after deletion.
         $disk = \Illuminate\Support\Facades\Storage::disk('ai_private');
-        AiConversation::withTrashed()->whereRaw('COALESCE(last_message_at, created_at) < ?', [now()->subDays($days)])->chunkById(100, function ($conversations) use ($disk): void {
+        AiConversation::withTrashed()
+            ->where(fn ($q) => $q->whereNotNull('deleted_at')->orWhere('is_pinned', false))
+            ->whereRaw('COALESCE(last_message_at, created_at) < ?', [now()->subDays($days)])
+            ->chunkById(100, function ($conversations) use ($disk): void {
             foreach ($conversations as $conversation) {
                 $conversationId = $conversation->id;
                 $conversation->forceDelete();
@@ -57,7 +62,7 @@ class PruneAiConversations implements ShouldQueue
                 }
             });
         // Prune unconsumed attachment uploads after 24 hours.
-        if (\Illuminate\Support\Facades\Schema::hasTable('ai_attachments')) {
+        if (Schema::hasTable('ai_attachments')) {
             \App\Models\AiAttachment::query()->whereNull('consumed_at')->where('created_at', '<', now()->subHours(24))
                 ->chunkById(100, function ($attachments) use ($disk): void {
                     foreach ($attachments as $attachment) {
@@ -66,5 +71,56 @@ class PruneAiConversations implements ShouldQueue
                     }
                 });
         }
+
+        $this->pruneOperationalTables($days);
+    }
+
+    private function pruneOperationalTables(int $retentionDays): void
+    {
+        $weekAgo = now()->subDays(7);
+        $inboundCutoff = now()->subDays(min($retentionDays, 90));
+
+        if (Schema::hasTable('ai_whatsapp_link_tokens')) {
+            $this->deleteInBatches(fn () => DB::table('ai_whatsapp_link_tokens')
+                ->whereIn('id', DB::table('ai_whatsapp_link_tokens')
+                    ->where(fn ($q) => $q->where('expires_at', '<', $weekAgo)->orWhere('consumed_at', '<', $weekAgo))
+                    ->limit(1000)
+                    ->pluck('id'))
+                ->delete());
+        }
+
+        if (Schema::hasTable('ai_whatsapp_inbound')) {
+            $this->deleteInBatches(fn () => DB::table('ai_whatsapp_inbound')
+                ->whereIn('id', DB::table('ai_whatsapp_inbound')
+                    ->where('created_at', '<', $inboundCutoff)
+                    ->limit(1000)
+                    ->pluck('id'))
+                ->delete());
+        }
+
+        if (Schema::hasTable('ai_whatsapp_outbound')) {
+            $this->deleteInBatches(fn () => DB::table('ai_whatsapp_outbound')
+                ->whereIn('id', DB::table('ai_whatsapp_outbound')
+                    ->whereNotNull('picker')
+                    ->where('created_at', '<', $weekAgo)
+                    ->limit(1000)
+                    ->pluck('id'))
+                ->update(['picker' => null]));
+        }
+
+        if (Schema::hasTable('customer_message_budgets')) {
+            $budgetCutoff = now()->subDays(7)->toDateString();
+            $this->deleteInBatches(fn () => DB::table('customer_message_budgets')
+                ->where('date', '<', $budgetCutoff)
+                ->limit(1000)
+                ->delete());
+        }
+    }
+
+    private function deleteInBatches(callable $step): void
+    {
+        do {
+            $affected = (int) $step();
+        } while ($affected >= 1000);
     }
 }

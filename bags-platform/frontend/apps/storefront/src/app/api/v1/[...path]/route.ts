@@ -1,4 +1,6 @@
 import { cloudRunIdentityToken, proxyCloudRunApi } from '@/lib/core/cloud-run-api';
+import * as Sentry from '@sentry/nextjs';
+import { continueTrace, spanToBaggageHeader, spanToTraceHeader } from '@sentry/core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +20,24 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     identityToken: cloudRunIdentityToken,
     clientIpSecret: process.env.API_PROXY_CLIENT_IP_SECRET,
     trustedProxyHops,
+    withTraceContext: (traceContext, send) => {
+      const sendInBffSpan = () => Sentry.startSpan(
+        { name: 'bff.upstream', op: 'http.client' },
+        (span) => {
+          const traceHeaders = new Headers({ 'sentry-trace': spanToTraceHeader(span) });
+          const baggage = spanToBaggageHeader(span);
+          if (baggage) traceHeaders.set('baggage', baggage);
+          return send(traceHeaders);
+        },
+      );
+      if (!traceContext) return sendInBffSpan();
+      return continueTrace({
+        // Ignore the public sampled flag and all caller baggage. The BFF's
+        // tracesSampler makes the local decision for this request.
+        sentryTrace: `${traceContext.traceId}-${traceContext.parentSpanId}`,
+        baggage: '',
+      }, sendInBffSpan);
+    },
   });
 }
 

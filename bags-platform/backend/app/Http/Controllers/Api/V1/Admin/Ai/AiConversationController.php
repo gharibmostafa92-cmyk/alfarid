@@ -22,16 +22,16 @@ class AiConversationController extends Controller
     {
         $actor = $request->user('staff');
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'all' => ['sometimes', 'boolean']]);
-        $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\Shared\SearchTerm::pattern($data['q'])))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
+        $baseQuery = AiConversation::query()->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\Shared\SearchTerm::pattern($data['q'])));
         if ($request->query('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) {
             // Viewing other users' conversations requires central branch access to prevent cross-branch leaks.
             $this->branchAccess->assertCentralAccess($actor);
         } else {
-            $query->where('user_id', $actor->id);
+            $baseQuery->where('user_id', $actor->id);
         }
         $perPage = min(100, max(1, (int) $request->query('per_page', 15)));
-        $totalTokens = (int) (clone $query)->reorder()->sum('total_tokens');
-        $page = $query->paginate($perPage);
+        $totalTokens = (int) (clone $baseQuery)->sum('total_tokens');
+        $page = $baseQuery->withCount('messages')->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id')->paginate($perPage);
 
         return response()->json([...$page->toArray(), 'total_tokens' => $totalTokens]);
     }

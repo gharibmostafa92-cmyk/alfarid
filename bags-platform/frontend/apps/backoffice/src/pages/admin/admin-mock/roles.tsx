@@ -50,9 +50,8 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const appliedInitialRole = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    if (initialRoleId && appliedInitialRole.current !== initialRoleId && roles.some(r => r.id === initialRoleId)) {
-      setSelId(initialRoleId);
-      appliedInitialRole.current = initialRoleId;
+    if (initialRoleId && roles.some(r => r.id === initialRoleId)) {
+      if (!isDirty) setSelId(initialRoleId);
     }
   }, [initialRoleId, roles]);
 
@@ -67,7 +66,12 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
 
   useEffect(() => {
     if (sel) {
-      setDraft({ id: sel.id, name: sel.name, perms: [...sel.perms], system: sel.system, builtin: sel.builtin });
+      setDraft(prev => {
+        if (prev && prev.id === sel.id && JSON.stringify({ name: prev.name, perms: [...prev.perms].sort() }) !== JSON.stringify({ name: sel.name, perms: [...sel.perms].sort() })) {
+          return prev;
+        }
+        return { id: sel.id, name: sel.name, perms: [...sel.perms], system: sel.system, builtin: sel.builtin };
+      });
     }
   }, [selId, roles]);
 
@@ -79,6 +83,13 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const original = draft?.isNew ? { name: '', perms: [] as string[] } : sel;
   const grantsPermissions = draft?.perms.some(permission => !original?.perms.includes(permission)) ?? false;
   const isDirty = draft && original && (draft.isNew || draft.name !== original.name || draft.perms.length !== original.perms.length || draft.perms.some(p => !original.perms.includes(p)));
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [isDirty]);
   const changeCount = draft && original && !draft.isNew
     ? draft.perms.filter(p => !original.perms.includes(p)).length + original.perms.filter(p => !draft.perms.includes(p)).length + (draft.name !== original.name ? 1 : 0)
     : null;
@@ -217,7 +228,10 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
               const active = r.id === selId && !draft?.isNew;
               const uc = usersCount(r.id);
               return (
-                <button type="button" key={r.id} onClick={() => setSelId(r.id)}
+                <button type="button" key={r.id} onClick={() => {
+                  if (r.id !== selId && isDirty && !window.confirm('لديك تعديلات غير محفوظة. هل تريد تجاهلها؟')) return;
+                  setSelId(r.id);
+                }}
                   className={`w-full rounded-2xl p-3.5 flex items-center gap-3 text-start transition ${active ? 'v-role-active' : 'v-role-item'}`}>
                   <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${r.system ? 'text-white v-accent-btn' : 'v-role-icon'}`}>
                     <Icon name={r.system ? 'shieldCheck' : 'shield'} className="w-[18px] h-[18px]" />

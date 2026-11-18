@@ -15,12 +15,15 @@ use App\Services\Ai\Finance\FinanceArgs;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\Ai\Wholesale\WholesaleAccessGuard;
+use App\Services\Inventory\BranchAccess;
 
 final class CustomerWalletTool implements AgentTool
 {
     public function __construct(
         private EntityResolver $resolver,
         private FinancePresenter $presenter,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -60,6 +63,9 @@ final class CustomerWalletTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
+        if ($denied = WholesaleAccessGuard::denyIfNoCentralAccess($this->branches, $actor)) {
+            return $denied;
+        }
         $args = FinanceArgs::normalizeDigitsInArray($args);
         if (! empty($args['customer_id'])) {
             $customer = Customer::find((int) $args['customer_id']);

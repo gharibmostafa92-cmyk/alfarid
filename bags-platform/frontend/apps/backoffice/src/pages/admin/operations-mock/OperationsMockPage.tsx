@@ -229,7 +229,7 @@ export default function OperationsMockPage({
       case 'reports':
         return <ReportsPage />;
       case 'notifications':
-        return <NotificationsPage items={notifs} onRead={markRead} onReadAll={notif.markAllRead} onMore={notif.hasMore ? notif.loadMore : undefined} loading={notif.loading} go={go} />;
+        return <NotificationsPage items={notifs} unreadCount={notif.unread} onRead={markRead} onReadAll={notif.markAllRead} onMore={notif.hasMore ? notif.loadMore : undefined} loading={notif.loading} go={go} />;
       default:
         return <OrdersList go={go} />;
     }

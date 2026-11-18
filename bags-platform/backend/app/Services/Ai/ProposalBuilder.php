@@ -117,6 +117,18 @@ final class ProposalBuilder
                 $expected['role:'.$role->id] = (int) $role->lock_version;
             }
         }
+        [$typed, $typedHint] = self::resolveTypedConfirmation($tool, $args, $preview);
+        if ($risk === 'high') {
+            if (! is_string($typed) || trim($typed) === '') {
+                $typed = 'تأكيد نهائي';
+            }
+            // Persist the exact phrase shown to the user so confirmation and
+            // WhatsApp quote replies cannot recompute a different fallback.
+            $preview['typed_confirmation'] = $typed;
+            if ($typedHint !== null && $typedHint !== '') {
+                $preview['typed_confirmation_hint'] = $typedHint;
+            }
+        }
         $ttl = max(1, (int) $this->settings->get('ai_action_ttl_minutes', 10));
         $action = AiPendingAction::create([
             'conversation_id' => $conv->id,
@@ -131,8 +143,6 @@ final class ProposalBuilder
             'status' => 'pending',
             'expires_at' => now()->addMinutes($ttl),
         ]);
-
-        [$typed, $typedHint] = self::resolveTypedConfirmation($tool, $args, $preview);
 
         $blockType = $preview['block_type'] ?? 'confirm_action';
         $block = [
@@ -153,14 +163,17 @@ final class ProposalBuilder
             }
         }
 
-        if ($risk === 'high' && $typed) {
+        if ($risk === 'high') {
+            if (! is_string($typed) || trim($typed) === '') {
+                $typed = 'تأكيد نهائي';
+            }
             $block['typed_confirmation'] = $typed;
             if ($typedHint) {
                 $block['typed_confirmation_hint'] = $typedHint;
             }
         }
         if (isset($preview['permission_diff'])) {
-            $block = array_merge($block, ['type' => 'permission_diff'] + $block + $preview['permission_diff']);
+            $block = array_merge($block, ['type' => 'permission_diff'], $preview['permission_diff']);
         }
 
         return ToolOutcome::proposal($block, ['pending_action_id' => $action->id]);
@@ -173,8 +186,10 @@ final class ProposalBuilder
      */
     public static function resolveTypedConfirmation(string $tool, array $args, array $preview = []): array
     {
-        if (isset($preview['typed_confirmation']) && is_string($preview['typed_confirmation']) && $preview['typed_confirmation'] !== '') {
-            return [$preview['typed_confirmation'], $preview['typed_confirmation_hint'] ?? null];
+        if (isset($preview['typed_confirmation']) && is_string($preview['typed_confirmation']) && trim($preview['typed_confirmation']) !== '') {
+            $hint = $preview['typed_confirmation_hint'] ?? null;
+
+            return [$preview['typed_confirmation'], is_string($hint) && trim($hint) !== '' ? $hint : null];
         }
 
         $typed = null;
@@ -187,13 +202,25 @@ final class ProposalBuilder
             $r = Role::find($args['role_id']);
             $typed = $r?->name;
         } elseif (in_array($tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true) && isset($args['customer_id'])) {
-            $phone = Customer::withTrashed()->find($args['customer_id'])?->phone;
-            $typed = $phone ? substr((string) $phone, -4) : null;
-            $typedHint = 'آخر 4 أرقام من موبايل التاجر';
+            $phone = (string) (Customer::withTrashed()->find($args['customer_id'])?->phone ?? '');
+            $digits = preg_replace('/\D+/', '', $phone) ?? '';
+            if (strlen($digits) >= 4) {
+                $typed = substr($digits, -4);
+                $typedHint = 'آخر 4 أرقام من موبايل التاجر';
+            } else {
+                $typed = 'تأكيد نهائي';
+                $typedHint = 'عبارة التأكيد';
+            }
         } elseif ($tool === 'adjust_customer_wallet' && isset($args['customer_id'])) {
-            $phone = Customer::withTrashed()->find($args['customer_id'])?->phone;
-            $typed = $phone ? substr((string) $phone, -4) : null;
-            $typedHint = 'آخر 4 أرقام من موبايل العميل';
+            $phone = (string) (Customer::withTrashed()->find($args['customer_id'])?->phone ?? '');
+            $digits = preg_replace('/\D+/', '', $phone) ?? '';
+            if (strlen($digits) >= 4) {
+                $typed = substr($digits, -4);
+                $typedHint = 'آخر 4 أرقام من موبايل العميل';
+            } else {
+                $typed = 'تأكيد نهائي';
+                $typedHint = 'عبارة التأكيد';
+            }
         } elseif (in_array($tool, ['set_category_status', 'delete_category'], true) && isset($args['category_id'])) {
             $cat = Category::withTrashed()->find($args['category_id']);
             $typed = $cat?->slug;
@@ -203,10 +230,21 @@ final class ProposalBuilder
         } elseif ($tool === 'delete_variant' && isset($args['variant_id'])) {
             $var = ProductVariant::withTrashed()->find($args['variant_id']);
             $typed = $var?->sku;
+        } elseif ($tool === 'delete_location' && isset($args['location_id'])) {
+            $loc = \App\Models\Location::find($args['location_id']);
+            $typed = $loc?->code ?: $loc?->name ?: 'تأكيد نهائي';
+        } elseif (in_array($tool, ['assign_roles', 'set_user_status'], true) && isset($args['user_id'])) {
+            $u = \App\Models\User::find($args['user_id']);
+            $typed = $u?->email ?: 'تأكيد نهائي';
+        } elseif ($tool === 'update_role_permissions' && isset($args['role_id'])) {
+            $r = Role::find($args['role_id']);
+            $typed = $r?->name ?: 'تأكيد نهائي';
+        } elseif (in_array($tool, ['update_settings', 'update_document_numbering'], true)) {
+            $typed = 'تأكيد نهائي';
         } elseif ($tool === 'bulk_update_prices') {
             $typed = 'تنفيذ';
         }
 
-        return [$typed, $typedHint];
+        return [$typed ?? 'تأكيد نهائي', $typedHint];
     }
 }
