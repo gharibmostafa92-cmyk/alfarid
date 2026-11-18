@@ -25,6 +25,7 @@ use App\Models\ReturnRequest;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
+use App\Services\CustomerEmail\CustomerEmailOutbox;
 use App\Services\Finance\WalletService;
 use App\Services\Inventory\InventoryService;
 use App\Services\Pricing\CouponService;
@@ -392,6 +393,10 @@ class OrderService
                 } catch (BusinessException $e) {
                     throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
                 }
+            }
+
+            if (in_array($created->channel, ['store', 'wholesale'], true)) {
+                app(CustomerEmailOutbox::class)->orderReceived($created);
             }
 
             OrderCreated::dispatch($created);
