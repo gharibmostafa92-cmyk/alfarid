@@ -50,7 +50,11 @@ final class WholesaleInboxTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        $branchId = $this->branches->restrictedBranch($actor);
+        try {
+            $branchId = $this->branches->restrictedBranch($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
+        }
         $quotes = [];
         $expiring = [];
         if ($branchId === null && $actor->can('quotations.view')) {
@@ -69,7 +73,7 @@ final class WholesaleInboxTool implements AgentTool
             $expiring = Quotation::query()
                 ->where('status', QuotationStatus::PricedByAdmin)
                 ->whereNotNull('valid_until')
-                ->whereDate('valid_until', '>', now()->toDateString())
+                ->whereDate('valid_until', '>=', now()->toDateString())
                 ->whereDate('valid_until', '<=', now()->addDays(2)->toDateString())
                 ->orderBy('valid_until')
                 ->limit(25)

@@ -10,13 +10,15 @@ use App\Models\AiPendingAction;
 use App\Models\Stocktake;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
+use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Shared\DiscreteQuantity;
+use Illuminate\Support\Facades\DB;
 
-final class RecordCountsTool extends StocktakeToolBase implements AgentTool, WriteTool
+final class RecordCountsTool extends StocktakeToolBase implements AgentTool, LocksTargets, WriteTool
 {
     public function name(): string
     {
@@ -102,6 +104,15 @@ final class RecordCountsTool extends StocktakeToolBase implements AgentTool, Wri
             $items[] = ['product_variant_id' => $match['variant']->id, 'counted_qty' => (float) $raw['counted_qty'], 'sku' => $match['variant']->sku];
         }
 
+        $existingCounts = $stocktake->items->keyBy('product_variant_id');
+        $expectedVersions = ['stocktake:'.$stocktake->id => $stocktake->status->value];
+        foreach ($items as $item) {
+            $existing = $existingCounts->get($item['product_variant_id']);
+            $expectedVersions['item:'.$item['product_variant_id']] = $existing && $existing->counted_qty !== null
+                ? (string) (float) $existing->counted_qty
+                : 'null';
+        }
+
         return $this->proposals->make(
             $actor,
             $this->name(),
@@ -110,18 +121,45 @@ final class RecordCountsTool extends StocktakeToolBase implements AgentTool, Wri
             title: "تسجيل عد — {$stocktake->stocktake_number}",
             before: ['counted' => $stocktake->items->whereNotNull('counted_qty')->count(), 'total' => $stocktake->items->count()],
             after: ['counts' => array_map(fn ($i) => $i['sku'].': '.$i['counted_qty'], $items)],
+            expectedVersions: $expectedVersions,
             extraPreview: ['block_type' => 'count_sheet', 'rows' => $items, 'stocktake_id' => $stocktake->id, 'stocktake_number' => $stocktake->stocktake_number],
         );
+    }
+
+    public function lockTargets(AiPendingAction $action): void
+    {
+        Stocktake::query()->whereKey((int) ($action->args['stocktake_id'] ?? 0))->lockForUpdate()->first();
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $a = $action->args;
-        $stocktake = Stocktake::findOrFail((int) $a['stocktake_id']);
-        $updated = $this->stocktakes->upsertSomeItems($stocktake, array_map(fn ($i) => [
-            'product_variant_id' => (int) $i['product_variant_id'],
-            'counted_qty' => $i['counted_qty'],
-        ], $a['items']), $actor->id);
+        $updated = DB::transaction(function () use ($a, $action, $actor): Stocktake {
+            $stocktake = Stocktake::query()->with('items')->lockForUpdate()->findOrFail((int) $a['stocktake_id']);
+            $expectedStatus = $action->expected_versions['stocktake:'.$stocktake->id] ?? null;
+            if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::InProgress], true)
+                || ($expectedStatus !== null && $stocktake->status->value !== $expectedStatus)) {
+                throw new BusinessException('حالة الجرد تغيّرت أثناء المراجعة؛ اطلب الاقتراح من جديد.', [], 409);
+            }
+
+            $existingCounts = $stocktake->items->keyBy('product_variant_id');
+            foreach ($a['items'] as $i) {
+                $vid = (int) $i['product_variant_id'];
+                $expectedKey = 'item:'.$vid;
+                if (array_key_exists($expectedKey, $action->expected_versions ?? [])) {
+                    $existing = $existingCounts->get($vid);
+                    $currentVal = $existing && $existing->counted_qty !== null ? (string) (float) $existing->counted_qty : 'null';
+                    if ($currentVal !== $action->expected_versions[$expectedKey]) {
+                        throw new BusinessException('تغيّر عدّ أحد الأصناف من شاشة أخرى أثناء المراجعة؛ اطلب الاقتراح من جديد.', [], 409);
+                    }
+                }
+            }
+
+            return $this->stocktakes->upsertSomeItems($stocktake, array_map(fn ($i) => [
+                'product_variant_id' => (int) $i['product_variant_id'],
+                'counted_qty' => $i['counted_qty'],
+            ], $a['items']), $actor->id);
+        });
         $counted = $updated->items->whereNotNull('counted_qty')->count();
 
         return ToolOutcome::result(true, "اتسجل العد في {$updated->stocktake_number} ({$counted} من {$updated->items->count()}).", [

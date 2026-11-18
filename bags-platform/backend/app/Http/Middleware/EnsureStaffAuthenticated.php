@@ -69,6 +69,10 @@ class EnsureStaffAuthenticated
             return response()->json(['message' => 'التوكن غير مصرح له بهذه الواجهة.'], 403);
         }
 
+        if (! $isAccountMaintenance && ! $token->can('*') && $token->can('pos') && $user->branch_id === null) {
+            return response()->json(['message' => 'حسابك غير مرتبط بفرع نشط.', 'code' => 'pos_branch_unavailable'], 403);
+        }
+
         // Staff assigned to a deactivated branch are fail-closed everywhere
         // except own profile/password rotation and logout, mirroring BranchAccess.
         if (! $isAccountMaintenance
@@ -76,7 +80,7 @@ class EnsureStaffAuthenticated
             && ! $user->can('inventory.all_branches')
             && $user->branch_id !== null
             && ! app(\App\Services\Inventory\BranchAccess::class)->isBranchActive((int) $user->branch_id)) {
-            return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
+            return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.', 'code' => 'pos_branch_unavailable'], 403);
         }
 
         return $next($request);

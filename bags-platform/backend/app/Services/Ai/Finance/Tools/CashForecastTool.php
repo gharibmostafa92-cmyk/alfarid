@@ -77,20 +77,19 @@ final class CashForecastTool implements AgentTool
             ? array_values(array_filter(array_map('intval', $args['transfer_ids']), fn ($id) => $id > 0))
             : [];
 
-        $transfers = TreasuryTransfer::query()->where('status', TreasuryTransferStatus::Pending)
+        $pendingTransfers = TreasuryTransfer::query()->where('status', TreasuryTransferStatus::Pending)
             ->when($onlyIds !== [], fn ($q) => $q->whereKey($onlyIds))
             ->when($branchId !== null, fn ($q) => $q->where(fn ($w) => $w
                 ->whereHas('fromTreasury', fn ($t) => $t->where('branch_id', $branchId))
-                ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $branchId))))
-            ->get(['id', 'from_treasury_id', 'to_treasury_id', 'amount']);
-
-        $pendingIn = [];
-        $pendingOut = [];
-        foreach ($transfers as $transfer) {
-            $amount = (float) $transfer->amount;
-            $pendingOut[$transfer->from_treasury_id] = ($pendingOut[$transfer->from_treasury_id] ?? 0) + $amount;
-            $pendingIn[$transfer->to_treasury_id] = ($pendingIn[$transfer->to_treasury_id] ?? 0) + $amount;
-        }
+                ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $branchId))));
+        $pendingOut = (clone $pendingTransfers)
+            ->selectRaw('from_treasury_id AS treasury_id, SUM(amount) AS total')
+            ->groupBy('from_treasury_id')->pluck('total', 'treasury_id');
+        $pendingIn = (clone $pendingTransfers)
+            ->selectRaw('to_treasury_id AS treasury_id, SUM(amount) AS total')
+            ->groupBy('to_treasury_id')->pluck('total', 'treasury_id');
+        $simulatedTransferCount = (clone $pendingTransfers)->count();
+        $simulatedTransferIds = (clone $pendingTransfers)->orderBy('id')->limit(500)->pluck('id')->all();
 
         $treasuries = Treasury::query()->where('is_active', true)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
@@ -102,8 +101,8 @@ final class CashForecastTool implements AgentTool
         $table = [];
         foreach ($treasuries as $treasury) {
             $current = (float) $treasury->current_balance;
-            $in = $pendingIn[$treasury->id] ?? 0;
-            $out = $pendingOut[$treasury->id] ?? 0;
+            $in = (float) ($pendingIn[$treasury->id] ?? 0);
+            $out = (float) ($pendingOut[$treasury->id] ?? 0);
             $projected = $current + $in - $out;
             $daily = $dailyAvgByBranch[$treasury->branch_id] ?? 0;
             $coverage = $daily > 0 ? $projected / $daily : null;
@@ -128,7 +127,9 @@ final class CashForecastTool implements AgentTool
 
         return $this->presenter->present($actor, [
             'window_days' => $window,
-            'simulated_transfers' => $transfers->pluck('id')->all(),
+            'simulated_transfers' => $simulatedTransferIds,
+            'simulated_transfer_count' => $simulatedTransferCount,
+            'simulated_transfers_truncated' => $simulatedTransferCount > count($simulatedTransferIds),
             'daily_expense_avg_by_branch' => array_map(fn ($v) => round($v, 2), $dailyAvgByBranch),
             'treasuries' => $rows,
         ], $this->presenter->table(

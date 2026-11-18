@@ -212,25 +212,40 @@ class UnifiedLoginTest extends TestCase
             ->assertJsonPath('redirect.path', '/pos')
             ->assertJsonPath('actor.subtype', 'pos');
 
+        $token = $cashier->createToken('pos-profile-test', ['pos'])->plainTextToken;
+        $this->authed('get', '/api/v1/admin/me', $token)->assertForbidden();
+        $this->authed('get', '/api/v1/auth/me', $token)->assertOk()
+            ->assertJsonPath('actor.type', 'staff')
+            ->assertJsonPath('data.branch_id', $branch->id)
+            ->assertJsonPath('data.branch.name', $branch->name)
+            ->assertJsonMissingPath('data.phone');
+
         $branchless = $this->makeStaff('cashier2@example.test', 'secret123');
         $branchless->assignRole($this->staffRole('cashier'));
 
         $this->login(['login' => 'cashier2@example.test', 'password' => 'secret123'])
             ->assertForbidden();
+
+        $cashier->update(['branch_id' => null]);
+        $this->authed('get', '/api/v1/pos/bootstrap', $token)
+            ->assertForbidden()->assertJsonPath('code', 'pos_branch_unavailable');
+        $this->authed('post', '/api/v1/auth/logout', $token)->assertNoContent();
     }
 
-    public function test_staff_without_roles_is_forbidden_and_inactive_staff_is_unauthorized(): void
+    public function test_staff_without_roles_is_forbidden_and_inactive_staff_is_forbidden(): void
     {
         $this->makeStaff('norole@example.test', 'secret123');
 
         $this->login(['login' => 'norole@example.test', 'password' => 'secret123'])
             ->assertForbidden();
 
-        $this->makeStaff('off@example.test', 'secret123', false);
+        $staff = $this->makeStaff('off@example.test', 'secret123', false);
 
         $this->login(['login' => 'off@example.test', 'password' => 'secret123'])
-            ->assertUnauthorized()
-            ->assertJsonPath('message', 'بيانات الدخول غير صحيحة.');
+            ->assertForbidden()->assertJsonPath('code', 'account_inactive')
+            ->assertJsonMissingPath('token')->assertJsonMissingPath('handoff_code');
+        $this->assertSame(0, $staff->tokens()->count());
+        $this->login(['login' => 'off@example.test', 'password' => 'wrong-password'])->assertUnauthorized();
     }
 
     public function test_handoff_exchange_requires_the_issuing_browser_context(): void
@@ -299,8 +314,8 @@ class UnifiedLoginTest extends TestCase
         SupplierUser::factory()->create(['email' => 'off-supplier@example.test', 'password' => 'sup-pass', 'is_active' => false]);
 
         $this->login(['login' => 'off-supplier@example.test', 'password' => 'sup-pass'])
-            ->assertUnauthorized()
-            ->assertJsonPath('message', 'بيانات الدخول غير صحيحة.');
+            ->assertForbidden()->assertJsonPath('code', 'account_inactive')
+            ->assertJsonMissingPath('token')->assertJsonMissingPath('handoff_code');
     }
 
     public function test_retail_customer_login_by_phone_and_verified_email_with_redirect_rules(): void
@@ -396,6 +411,25 @@ class UnifiedLoginTest extends TestCase
 
         $this->login(['login' => 'limited@example.test', 'password' => 'wrong'])
             ->assertStatus(429);
+    }
+
+    public function test_api_guest_gets_json_unauthorized_even_with_browser_accept_header(): void
+    {
+        foreach (['text/html', '*/*', 'application/json'] as $accept) {
+            $this->get('/api/v1/auth/me', ['Accept' => $accept])
+                ->assertUnauthorized()->assertHeader('Content-Type', 'application/json');
+        }
+    }
+
+    public function test_expired_pos_session_gets_json_unauthorized(): void
+    {
+        $cashier = User::factory()->create();
+        $token = $cashier->createToken('expired-pos', ['pos'], now()->subMinute())->plainTextToken;
+
+        $this->get('/api/v1/auth/me', [
+            'Accept' => 'text/html',
+            'Authorization' => 'Bearer '.$token,
+        ])->assertUnauthorized()->assertHeader('Content-Type', 'application/json');
     }
 
     public function test_customer_token_cannot_access_admin_and_me_requires_token(): void

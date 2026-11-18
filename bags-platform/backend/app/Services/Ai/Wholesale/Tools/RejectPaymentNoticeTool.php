@@ -9,6 +9,7 @@ use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
+use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
@@ -17,7 +18,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
-final class RejectPaymentNoticeTool implements WriteTool
+final class RejectPaymentNoticeTool implements LocksTargets, WriteTool
 {
     /** @var list<string> */
     private const REASONS = ['المبلغ غير مطابق', 'الإيصال غير واضح', 'التحويل لم يصل', 'إيصال مكرر'];
@@ -89,17 +90,22 @@ final class RejectPaymentNoticeTool implements WriteTool
             ['notice_id' => $notice->id, 'reason' => $reason],
             title: 'رفض '.$notice->notice_number,
             after: ['reason' => $reason],
-            expectedVersions: ['n:'.$notice->id => (string) $notice->updated_at],
+            expectedVersions: ['n:'.$notice->id => WholesaleAccessGuard::noticeFingerprint($notice)],
         );
+    }
+
+    public function lockTargets(AiPendingAction $action): void
+    {
+        WholesalePaymentNotice::query()->lockForUpdate()->findOrFail((int) $action->args['notice_id']);
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail((int) $action->args['notice_id']);
         if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
             return $denied;
         }
-        if (($action->expected_versions['n:'.$notice->id] ?? null) !== (string) $notice->updated_at) {
+        if (($action->expected_versions['n:'.$notice->id] ?? null) !== WholesaleAccessGuard::noticeFingerprint($notice)) {
             return ToolOutcome::denied('الإشعار اتغير بعد الاقتراح.', auditable: false);
         }
         try {

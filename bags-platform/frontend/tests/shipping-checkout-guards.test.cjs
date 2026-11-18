@@ -22,6 +22,7 @@ function loadTs(relative, dependencies = {}) {
       };
     }
     if (name === 'next/navigation') return { useRouter: () => ({}), useSearchParams: () => ({ get: () => null }) };
+    if (name === '@sentry/nextjs') return { startSpan: (_opts, fn) => fn() };
     if (name === '@/services/phone-format') {
       return loadTs('../apps/storefront/src/services/phone-format.ts');
     }

@@ -19,6 +19,8 @@ class PruneAiConversations implements ShouldQueue
 {
     use Queueable;
 
+    public int $timeout = 600;
+
     /**
      * Execute the pruning job.
      */
@@ -41,17 +43,15 @@ class PruneAiConversations implements ShouldQueue
                 }
             }
         });
-        AiPendingAction::query()->where('status', 'pending')->where('expires_at', '<', now())->update(['status' => 'expired']);
+        AiPendingAction::query()->where('status', 'pending')->where('tool', '!=', 'bulk_actions')->where('expires_at', '<', now())->update(['status' => 'expired']);
+        AiPendingAction::query()->where('status', 'pending')->where('tool', 'bulk_actions')->where('expires_at', '<', now())
+            ->chunkById(100, fn ($parents) => $parents->each(fn (AiPendingAction $parent) => $this->finishExpiredBulk($parent, 'expired')));
         AiPendingAction::query()->where('status', 'bulk_child')->where('expires_at', '<', now())->update(['status' => 'expired']);
         // Cancel abandoned confirmed bulk actions and their unexecuted child actions if worker was terminated mid-flight.
         AiPendingAction::query()->where('status', 'confirmed')->where('tool', 'bulk_actions')->where('updated_at', '<', now()->subMinutes(5))
             ->chunkById(100, function ($parents): void {
                 foreach ($parents as $parent) {
-                    $childIds = $parent->args['action_ids'] ?? [];
-                    if (is_array($childIds) && $childIds !== []) {
-                        AiPendingAction::query()->whereIn('id', $childIds)->whereIn('status', ['pending', 'bulk_child'])->update(['status' => 'cancelled']);
-                    }
-                    $parent->forceFill(['status' => 'failed', 'result' => ['message' => 'العملية الجماعية انتهت من غير تنفيذ كامل. اطلب اقتراح جديد.']])->save();
+                    $this->finishExpiredBulk($parent, 'failed');
                 }
             });
         // Mark long-lingering confirmed actions as failed if external transaction was interrupted before completion.
@@ -93,6 +93,7 @@ class PruneAiConversations implements ShouldQueue
             $this->deleteInBatches(fn () => DB::table('ai_whatsapp_inbound')
                 ->whereIn('id', DB::table('ai_whatsapp_inbound')
                     ->where('created_at', '<', $inboundCutoff)
+                    ->where('status', '!=', 'queued')
                     ->limit(1000)
                     ->pluck('id'))
                 ->delete());
@@ -122,5 +123,38 @@ class PruneAiConversations implements ShouldQueue
         do {
             $affected = (int) $step();
         } while ($affected >= 1000);
+    }
+
+    private function finishExpiredBulk(AiPendingAction $parent, string $emptyStatus): void
+    {
+        DB::transaction(function () use ($parent, $emptyStatus): void {
+            $locked = AiPendingAction::query()->lockForUpdate()->find($parent->id);
+            if ($locked === null || ! in_array($locked->status, ['pending', 'confirmed'], true)) {
+                return;
+            }
+            $childIds = $locked->args['action_ids'] ?? [];
+            $childIds = is_array($childIds) ? $childIds : [];
+            $children = $childIds !== []
+                ? AiPendingAction::query()->whereIn('id', $childIds)->lockForUpdate()->get()
+                : collect();
+            $executed = $children->where('status', 'executed')->values();
+            $unfinishedStatus = $emptyStatus === 'expired' ? 'expired' : 'cancelled';
+            AiPendingAction::query()->whereIn('id', $childIds)->whereIn('status', ['pending', 'bulk_child'])->update(['status' => $unfinishedStatus]);
+
+            if ($executed->isNotEmpty()) {
+                $items = $children->map(fn (AiPendingAction $child) => [
+                    'action_id' => $child->id,
+                    'ok' => $child->status === 'executed',
+                    'status' => $child->status === 'executed' ? 'executed' : $unfinishedStatus,
+                    'message' => (string) ($child->result['message'] ?? ($child->status === 'executed' ? 'تم التنفيذ.' : 'لم يتم تنفيذ العنصر.')),
+                ])->all();
+                $message = 'تم تنفيذ '.$executed->count().' من '.count($childIds).' عناصر قبل انتهاء الدفعة؛ راجع العناصر المتبقية.';
+                $locked->forceFill(['status' => 'executed', 'executed_at' => now(), 'result' => ['ok' => false, 'message' => $message, 'items' => $items]])->save();
+
+                return;
+            }
+
+            $locked->forceFill(['status' => $emptyStatus, 'result' => ['ok' => false, 'message' => 'العملية الجماعية انتهت من غير تنفيذ كامل. اطلب اقتراح جديد.']])->save();
+        });
     }
 }

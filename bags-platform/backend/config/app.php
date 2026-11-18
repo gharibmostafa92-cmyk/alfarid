@@ -20,6 +20,8 @@ return [
     |
     */
 
+    'frontend_url' => env('PASSWORD_RESET_FRONTEND_URL', env('FRONTEND_URL', 'http://localhost:3001')),
+
     'name' => env('APP_NAME', 'Laravel'),
 
     /*

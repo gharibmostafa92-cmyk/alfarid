@@ -44,7 +44,7 @@ class Task8Slice1AuthAndSettingsTest extends TestCase
     public function test_settings_index_requires_central_scope_and_hides_ai_keys_without_ai_permission(): void
     {
         Setting::create(['group' => 'ai', 'key' => 'ai_finance_high_risk_amount', 'value' => '5000', 'type' => 'integer']);
-        Setting::create(['group' => 'company', 'key' => 'company_name', 'value' => 'Alfarid', 'type' => 'string']);
+        Setting::create(['group' => 'company', 'key' => 'company_name', 'value' => 'VARYA', 'type' => 'string']);
 
         $branch = Branch::factory()->create(['is_active' => true]);
         $branchStaff = $this->staffWithPermissions(['settings.view'], $branch->id);
@@ -58,7 +58,7 @@ class Task8Slice1AuthAndSettingsTest extends TestCase
         Auth::forgetGuards();
         $response = $this->withToken($centralToken)->getJson('/api/v1/admin/settings')->assertOk();
         $this->assertArrayNotHasKey('ai', $response->json('data'));
-        $this->assertSame('Alfarid', $response->json('data.company.company_name'));
+        $this->assertSame('VARYA', $response->json('data.company.company_name'));
 
         Permission::findOrCreate('ai_agent.settings', 'staff');
         $central->givePermissionTo('ai_agent.settings');

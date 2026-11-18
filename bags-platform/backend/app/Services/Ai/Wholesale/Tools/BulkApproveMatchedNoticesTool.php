@@ -19,6 +19,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, LocksTargets, WriteTool
 {
@@ -71,10 +72,10 @@ final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, Lock
         $ids = [];
         $expected = [];
         foreach ($rows as $notice) {
-            if ($this->notices->receiptCollisions($notice) !== []) {
+            if ($notice->treasury_id === null || $this->notices->receiptCollisions($notice) !== []) {
                 continue;
             }
-            $key = 'n'.$notice->id;
+            $key = (string) Str::ulid();
             $items[] = ['key' => $key, 'label' => $notice->notice_number, 'detail' => (string) $notice->amount];
             $ids[$key] = $notice->id;
             $expected['n:'.$notice->id] = WholesaleAccessGuard::noticeFingerprint($notice);
@@ -127,7 +128,7 @@ final class BulkApproveMatchedNoticesTool implements ExecutesSelectedItems, Lock
             $id = (int) ($action->args['notices'][$key] ?? 0);
             $ok = DB::transaction(function () use ($actor, $action, $id): bool {
                 $notice = WholesalePaymentNotice::query()->lockForUpdate()->find($id);
-                if ($notice === null || (float) $notice->match_score < 95) {
+                if ($notice === null || $notice->treasury_id === null || (float) $notice->match_score < 95) {
                     return false;
                 }
                 if (WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice) !== null) {

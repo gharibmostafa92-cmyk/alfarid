@@ -1,6 +1,6 @@
 .luxury-auth-page {
-  --auth-sans: 'Poppins', 'Cairo', sans-serif;
-  --auth-mono: 'Poppins', 'Cairo', sans-serif;
+  --auth-sans: var(--font-poppins), var(--font-cairo), sans-serif;
+  --auth-mono: var(--font-poppins), var(--font-cairo), sans-serif;
   min-height: 100svh;
   width: 100%;
   background: #fff;

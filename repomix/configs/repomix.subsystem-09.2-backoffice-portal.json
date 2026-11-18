@@ -24,7 +24,8 @@
                     "bags-platform/frontend/apps/backoffice/public/auth/session-probe.js",
                     "bags-platform/frontend/apps/backoffice/index.html",
                     "bags-platform/frontend/apps/backoffice/.env.example",
-                    "bags-platform/frontend/apps/backoffice/sentry-config.ts"
+                    "bags-platform/frontend/apps/backoffice/sentry-config.ts",
+                    "bags-platform/frontend/apps/backoffice/AGENTS.md"
                 ],
     "ignore":  {
                    "useGitignore":  true,

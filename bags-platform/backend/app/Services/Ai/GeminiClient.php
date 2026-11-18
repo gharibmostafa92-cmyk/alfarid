@@ -311,13 +311,25 @@ class GeminiClient
             throw new InvalidArgumentException('محتوى المحادثة مطلوب.');
         }
 
-        // Preserve empty JSON objects ({}) for functionCall.args and functionResponse.response across DB hydration.
+        $argumentSchemas = [];
+        foreach ($tools as $tool) {
+            if (is_array($tool) && is_string($tool['name'] ?? null) && is_array($tool['parameters'] ?? null)) {
+                $argumentSchemas[$tool['name']] = $tool['parameters'];
+            }
+        }
+
+        // Preserve empty JSON objects ({}) across Eloquent's JSON cast. Tool
+        // argument schemas let us distinguish an empty object from an empty list
+        // at nested levels such as update_settings.changes.
         foreach ($contents as $turnIndex => $turn) {
             foreach ($turn['parts'] ?? [] as $partIndex => $part) {
-                foreach (['functionCall' => 'args', 'functionResponse' => 'response'] as $node => $field) {
-                    if (isset($part[$node][$field]) && is_array($part[$node][$field])) {
-                        $contents[$turnIndex]['parts'][$partIndex][$node][$field] = (object) $part[$node][$field];
-                    }
+                if (isset($part['functionCall']['args']) && is_array($part['functionCall']['args'])) {
+                    $name = (string) ($part['functionCall']['name'] ?? '');
+                    $schema = $argumentSchemas[$name] ?? ['type' => 'OBJECT'];
+                    $contents[$turnIndex]['parts'][$partIndex]['functionCall']['args'] = self::normalizeSchemaValue($part['functionCall']['args'], $schema);
+                }
+                if (isset($part['functionResponse']['response']) && is_array($part['functionResponse']['response'])) {
+                    $contents[$turnIndex]['parts'][$partIndex]['functionResponse']['response'] = (object) $part['functionResponse']['response'];
                 }
             }
         }
@@ -451,6 +463,26 @@ class GeminiClient
             $seconds = $ts !== false ? ($ts - time()) : 1;
         }
 
-        return min(5, max(1, $seconds));
+        return min(2, max(1, $seconds));
+    }
+
+    private static function normalizeSchemaValue(mixed $value, array $schema): mixed
+    {
+        $type = strtoupper((string) ($schema['type'] ?? ''));
+        if ($type === 'OBJECT' && is_array($value)) {
+            $properties = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+            foreach ($properties as $key => $childSchema) {
+                if (is_string($key) && array_key_exists($key, $value) && is_array($childSchema)) {
+                    $value[$key] = self::normalizeSchemaValue($value[$key], $childSchema);
+                }
+            }
+
+            return (object) $value;
+        }
+        if ($type === 'ARRAY' && is_array($value) && is_array($schema['items'] ?? null)) {
+            return array_map(fn ($item) => self::normalizeSchemaValue($item, $schema['items']), $value);
+        }
+
+        return $value;
     }
 }

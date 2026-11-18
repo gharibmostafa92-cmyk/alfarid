@@ -52,7 +52,7 @@ class TaskTxtLimitsLocksTest extends TestCase
 
     private function agentUser(): User
     {
-        return $this->staff(['ai_agent.use', 'branches.view', 'inventory.all_branches']);
+        return $this->staff(['ai_agent.use', 'branches.view', 'branches.manage', 'inventory.all_branches']);
     }
 
     private function token(User $u): string
@@ -264,7 +264,7 @@ class TaskTxtLimitsLocksTest extends TestCase
 
         $slots = [];
         for ($i = 0; $i < 10; $i++) {
-            $slot = Cache::lock('ai-agent:concurrent-slot:'.$i, 300);
+            $slot = Cache::lock('ai-agent:concurrent-slot:web:'.$i, 300);
             $this->assertTrue($slot->acquire());
             $slots[] = $slot;
         }
@@ -285,7 +285,7 @@ class TaskTxtLimitsLocksTest extends TestCase
         // After a finished request every slot is acquirable again (no leak).
         $probe = [];
         for ($i = 0; $i < 10; $i++) {
-            $slot = Cache::lock('ai-agent:concurrent-slot:'.$i, 300);
+            $slot = Cache::lock('ai-agent:concurrent-slot:web:'.$i, 300);
             $this->assertTrue($slot->acquire(), "slot {$i} leaked");
             $probe[] = $slot;
         }

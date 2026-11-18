@@ -39,6 +39,9 @@ const nextConfig = {
   env: { NEXT_PUBLIC_R2_PUBLIC_URL: r2Public },
   devIndicators: false,
   transpilePackages: ['@alfarid/ui', '@alfarid/api-client', '@alfarid/utils', '@alfarid/config'],
+  async redirects() {
+    return [{ source: '/reset-password', destination: '/auth/reset-password', permanent: false }];
+  },
   async rewrites() {
     // Only the configured media origin is exposed; no arbitrary URL proxy.
     return [{ source: '/store-media/:path*', destination: mediaDestination }];

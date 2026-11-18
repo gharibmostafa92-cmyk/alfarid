@@ -204,7 +204,7 @@ class StaffFinalReviewTest extends TestCase
     {
         $this->seed(SettingSeeder::class);
         $service = app(SettingService::class);
-        $this->assertSame('Alfarid', $service->get('company_name'));
+        $this->assertSame('VARYA', $service->get('company_name'));
         DB::beginTransaction();
         try {
             $service->updateBatch(['company_name' => 'Uncommitted company']);
@@ -212,7 +212,7 @@ class StaffFinalReviewTest extends TestCase
         } finally {
             DB::rollBack();
         }
-        $this->assertSame('Alfarid', $service->get('company_name'));
+        $this->assertSame('VARYA', $service->get('company_name'));
     }
 
     public function test_stale_settings_are_rejected_without_overwriting_the_other_admin_or_partially_saving(): void
@@ -221,9 +221,9 @@ class StaffFinalReviewTest extends TestCase
         $admin = $this->admin();
         $this->api($admin, 'PUT', '/settings', ['default_tax_rate' => 20, 'expected' => ['default_tax_rate' => 14]])->assertOk();
         $this->api($admin, 'PUT', '/settings', ['default_tax_rate' => 25, 'company_name' => 'Must not save',
-            'expected' => ['default_tax_rate' => 14, 'company_name' => 'Alfarid']])->assertConflict();
+            'expected' => ['default_tax_rate' => 14, 'company_name' => 'VARYA']])->assertConflict();
         $this->assertDatabaseHas('settings', ['key' => 'default_tax_rate', 'value' => '20']);
-        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Alfarid']);
+        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'VARYA']);
     }
 
     public function test_settings_audit_contains_financial_before_and_after_values(): void

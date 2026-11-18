@@ -527,6 +527,7 @@ class TreasuryService
                 'status' => TreasuryTransferStatus::Pending,
                 'created_by' => $userId,
                 'notes' => $data['notes'] ?? null,
+                'reverses_transfer_id' => $data['reverses_transfer_id'] ?? null,
             ]);
         }, 3);
     }

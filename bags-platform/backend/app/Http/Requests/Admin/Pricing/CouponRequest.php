@@ -6,6 +6,7 @@ namespace App\Http\Requests\Admin\Pricing;
 
 use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Models\Coupon;
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -36,7 +37,7 @@ class CouponRequest extends FormRequest
             'code' => ['required', 'string', 'max:50', 'alpha_dash:ascii', Rule::unique('coupons', 'code')->ignore($coupon),
                 function (string $attribute, mixed $value, \Closure $fail) use ($coupon): void {
                     if (is_string($value) && Coupon::query()
-                        ->whereRaw('upper(code) = ?', [strtoupper($value)])
+                        ->whereRaw('upper(code) = ?', [mb_strtoupper($value, 'UTF-8')])
                         ->when($coupon, fn ($query) => $query->whereKeyNot($coupon->getKey()))
                         ->exists()) {
                         $fail('رمز الكوبون مستخدم بالفعل.');
@@ -85,7 +86,7 @@ class CouponRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('code'))) {
-            $this->merge(['code' => strtoupper(trim($this->input('code')))]);
+            $this->merge(['code' => mb_strtoupper(trim((string) $this->input('code')), 'UTF-8')]);
         }
     }
 }

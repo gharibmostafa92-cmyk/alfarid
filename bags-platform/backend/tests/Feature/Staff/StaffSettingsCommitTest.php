@@ -33,7 +33,7 @@ class StaffSettingsCommitTest extends TestCase
         DB::enableQueryLog();
         DB::flushQueryLog();
         try {
-            $this->assertSame('Alfarid', $service->get('company_name'));
+            $this->assertSame('VARYA', $service->get('company_name'));
             $this->assertSame(14.0, $service->get('default_tax_rate'));
             $queries = DB::getQueryLog();
         } finally {
@@ -65,11 +65,11 @@ class StaffSettingsCommitTest extends TestCase
             });
         Cache::swap($proxy);
         try {
-            $this->assertSame('Alfarid', $service->get('company_name'));
+            $this->assertSame('VARYA', $service->get('company_name'));
         } finally {
             Cache::swap($manager);
         }
-        $this->assertSame('Alfarid', $repository->get($oldKey)['company']['company_name']);
+        $this->assertSame('VARYA', $repository->get($oldKey)['company']['company_name']);
         $this->assertSame('Current company', $service->get('company_name'));
     }
 
@@ -120,7 +120,7 @@ class StaffSettingsCommitTest extends TestCase
         DB::enableQueryLog();
         DB::flushQueryLog();
         $this->assertSame(14.0, $service->get('default_tax_rate'));
-        $this->assertSame('Alfarid', $service->get('company_name'));
+        $this->assertSame('VARYA', $service->get('company_name'));
         $queries = DB::getQueryLog();
         DB::disableQueryLog();
         $this->assertSame([], $queries);
@@ -138,9 +138,9 @@ class StaffSettingsCommitTest extends TestCase
         try {
             $this->withToken($token)->putJson('/api/v1/admin/settings', [
                 'company_name' => 'Committed company', 'order_next_number' => 2000,
-                'expected' => ['company_name' => 'Alfarid', 'order_next_number' => 1000],
+                'expected' => ['company_name' => 'VARYA', 'order_next_number' => 1000],
             ])->assertServerError();
-            $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Alfarid']);
+            $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'VARYA']);
             $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '1000']);
         } finally {
             DB::statement('ALTER FUNCTION test_unavailable_document_next_number(text, bigint) RENAME TO document_next_number');

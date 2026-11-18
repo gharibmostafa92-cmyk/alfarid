@@ -72,6 +72,18 @@ final class ExpenseSummaryTool implements AgentTool
         }
         $branchId = $restricted ?? (isset($args['branch_id']) ? (int) $args['branch_id'] : null);
 
+        if (isset($args['treasury_id'])) {
+            $treasury = \App\Models\Treasury::query()->find((int) $args['treasury_id']);
+            if ($treasury === null) {
+                return ToolOutcome::denied('الخزينة مش موجودة.', auditable: false);
+            }
+            try {
+                $this->branches->assertTreasury($actor->id, $treasury);
+            } catch (\Illuminate\Auth\Access\AuthorizationException) {
+                return ToolOutcome::denied('الخزينة خارج نطاقك.', auditable: false);
+            }
+        }
+
         $tz = (string) config('app.business_timezone', 'Africa/Cairo');
         $to = ! empty($args['to_date']) ? Carbon::parse((string) $args['to_date'], $tz) : now($tz);
         $from = ! empty($args['from_date']) ? Carbon::parse((string) $args['from_date'], $tz) : $to->copy()->startOfMonth();
@@ -117,6 +129,7 @@ final class ExpenseSummaryTool implements AgentTool
         $topCategories = Expense::query()->whereNull('voided_at')
             ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
+            ->when(isset($args['treasury_id']), fn ($q) => $q->where('treasury_id', (int) $args['treasury_id']))
             ->selectRaw('category, SUM(amount) AS total')->groupBy('category')
             ->orderByDesc('total')->limit(5)->get()
             ->map(fn ($r) => ['category' => $this->presenter->untrusted((string) $r->category, 191), 'total' => (float) $r->total])->values()->all();

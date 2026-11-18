@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai\Catalog\Tools;
 
 use App\Enums\Catalog\ProductStatus;
+use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -19,6 +20,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\ProductMediaService;
 use App\Services\Auth\StaffAdministration;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -126,11 +128,32 @@ final class DeleteProductMediaTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $product = Product::findOrFail((int) $action->args['product_id']);
-        $mediaItem = Media::findOrFail((int) $action->args['media_id']);
-        $mediaId = $mediaItem->id;
+        [$product, $mediaId] = DB::transaction(function () use ($actor, $action): array {
+            $product = Product::query()->with('variants')->lockForUpdate()->findOrFail((int) $action->args['product_id']);
+            if ($product->status === ProductStatus::Published && ! $actor->can('products.publish')) {
+                throw new BusinessException('حذف صورة منتج منشور يتطلب صلاحية النشر (products.publish).', [], 403);
+            }
 
-        $this->media->delete($product, $mediaItem);
+            $mediaItem = Media::findOrFail((int) $action->args['media_id']);
+            $mediaId = $mediaItem->id;
+
+            $activeVariantIds = $product->variants->where('is_active', true)->pluck('id')->all();
+            $hasOtherImages = Media::query()
+                ->where('collection_name', 'images')
+                ->whereKeyNot($mediaItem->id)
+                ->where(fn ($q) => $q
+                    ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
+                    ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $activeVariantIds)))
+                ->exists();
+
+            if ($product->status === ProductStatus::Published && $mediaItem->collection_name === 'images' && ! $hasOtherImages) {
+                throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور؛ ارفع صورة بديلة أولًا أو أرشف المنتج.', [], 409);
+            }
+
+            $this->media->delete($product, $mediaItem);
+
+            return [$product, $mediaId];
+        });
 
         StaffAdministration::audit(
             $actor,

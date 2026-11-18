@@ -16,7 +16,7 @@ const base = process.env.STOREFRONT_URL || 'http://localhost:3003';
         forgotPayloads.push(route.request().postDataJSON());
         return route.fulfill({ json: { message: 'لو الحساب موجود، أرسلنا رمز الاستعادة إليه.' }, headers: { 'access-control-allow-origin': '*' } });
       }
-      const data = url.pathname.endsWith('/branding') ? { name: 'Alfarid', logo: null } : [];
+      const data = url.pathname.endsWith('/branding') ? { name: 'VARYA', logo: null } : [];
       return route.fulfill({ json: { data }, headers: { 'access-control-allow-origin': '*' } });
     });
     const forgotPayloads = [];

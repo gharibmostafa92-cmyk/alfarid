@@ -86,6 +86,10 @@ final class ExplainBalanceTool implements AgentTool
         if (! array_key_exists('location_id', $args)) {
             $locations = StockLevel::where('product_variant_id', $variant->id)->where('branch_id', $branchId)
                 ->distinct()->limit(2)->pluck('location_id');
+            if ($locations->isEmpty()) {
+                $locations = StockMovement::where('product_variant_id', $variant->id)->where('branch_id', $branchId)
+                    ->distinct()->limit(2)->pluck('location_id');
+            }
             if ($locations->count() > 1) {
                 return ToolOutcome::denied('الصنف موجود في أكتر من موقع؛ حدد الموقع علشان أشرح رصيده بدقة.', auditable: false);
             }

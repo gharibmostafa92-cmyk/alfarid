@@ -15,8 +15,8 @@ use App\Notifications\Channels\CustomerSmsChannel;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerMessageBudget;
-use App\Support\AccountEmailLock;
 use App\Services\Customer\CustomerPhoneVerificationService;
+use App\Support\AccountEmailLock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
@@ -168,7 +168,7 @@ class CustomerAuthService
 
         if ($customer->status === CustomerStatus::Suspended) {
             CustomerAuditLog::record($customer, 'login_failed', null, ['reason' => 'suspended']);
-            throw new BusinessException('هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.', [], 403);
+            throw new BusinessException('هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.', [], 403, 'account_inactive');
         }
 
         if ((bool) config('auth.require_phone_verification', false) && $customer->phone_verified_at === null) {

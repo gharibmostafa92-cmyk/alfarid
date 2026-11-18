@@ -30,12 +30,12 @@ final class SpokenQuantity
         'اربعميه' => 400, 'اربعمية' => 400, 'أربعميه' => 400, 'أربعمية' => 400,
         'خمسميه' => 500, 'خمسمية' => 500, 'ستميه' => 600, 'ستمية' => 600,
         'سبعميه' => 700, 'سبعمية' => 700, 'تمنميه' => 800, 'تمنمية' => 800,
-        'تسعميه' => 900, 'تسعمية' => 900, 'الف' => 1000, 'الاف' => 1000, 'الفين' => 2000, 'ألفين' => 2000,
+        'تسعميه' => 900, 'تسعمية' => 900, 'الف' => 1000, 'الاف' => 1000, 'آلاف' => 1000, 'تلاف' => 1000, 'الفين' => 2000, 'ألفين' => 2000,
         'دسته' => 12, 'دستة' => 12, 'دست' => 12, 'دستتين' => 24,
     ];
 
     /** @var list<string> Dozen spellings act as a ×12 multiplier, not an addition. */
-    private const DOZENS = ['دسته', 'دستة', 'دست'];
+    private const DOZENS = ['دسته', 'دستة', 'دست', 'دستتين'];
 
     /** @var list<string> */
     private const FILLER = ['قطعه', 'قطع', 'حبه', 'حبات', 'علبه', 'علب', 'كرتونه'];
@@ -47,7 +47,7 @@ final class SpokenQuantity
     {
         static $pattern = null;
         if ($pattern === null) {
-            $tokens = array_merge(array_keys(self::WORDS), self::FILLER, ['دستة', 'دسته', 'دست']);
+            $tokens = array_merge(array_keys(self::WORDS), self::FILLER, self::DOZENS);
             usort($tokens, fn (string $a, string $b) => mb_strlen($b) <=> mb_strlen($a));
             $escaped = array_map(fn (string $t) => preg_quote($t, '/'), array_unique($tokens));
             $pattern = implode('|', $escaped);
@@ -77,7 +77,7 @@ final class SpokenQuantity
         if ($clean === '') {
             return null;
         }
-        if (is_numeric($clean)) {
+        if (preg_match('/\A\d+\z/u', $clean) === 1) {
             $v = (float) $clean;
             if ($v >= 0 && $v <= 999999 && floor($v) == $v) {
                 return $v;
@@ -118,6 +118,9 @@ final class SpokenQuantity
             // WORDS holds ints; strict float comparisons below need a float.
             $v = (float) self::WORDS[$token];
             if ($v === 100.0) {
+                if ($group >= 100.0) {
+                    return null;
+                }
                 // M11: hundreds accumulate in the open group so a following
                 // thousand multiplies them ("مية ألف" = 100000), instead of
                 // flushing 100 into the total first (which yielded 1100).

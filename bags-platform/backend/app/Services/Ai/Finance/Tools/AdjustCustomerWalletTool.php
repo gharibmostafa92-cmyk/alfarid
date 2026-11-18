@@ -248,7 +248,7 @@ final class AdjustCustomerWalletTool implements AgentTool, LocksTargets, Undoabl
     {
         $latestId = CustomerWalletTransaction::query()->where('customer_id', $customerId)->max('id');
 
-        return ((int) ($latestId ?? 0)).':'.number_format((float) $balance, 2, '.', '');
+        return ((int) ($latestId ?? 0)).':'.bcadd($balance, '0', 2);
     }
 
     private function createdAdjustmentId(AiPendingAction $action): ?int

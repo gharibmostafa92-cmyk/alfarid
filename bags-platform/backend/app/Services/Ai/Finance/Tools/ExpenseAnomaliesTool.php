@@ -251,6 +251,7 @@ final class ExpenseAnomaliesTool implements AgentTool
                 $q->select(\Illuminate\Support\Facades\DB::raw('1'))
                     ->from('expenses as prev')
                     ->whereColumn('prev.category', 'expenses.category')
+                    ->whereColumn('prev.branch_id', 'expenses.branch_id')
                     ->whereNull('prev.voided_at')
                     ->where('prev.expense_date', '<', $monthStart)
                     ->when($branchId !== null, fn ($inner) => $inner->where('prev.branch_id', $branchId));

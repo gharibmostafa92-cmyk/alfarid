@@ -53,6 +53,29 @@ class Task5Slice2TreasuryHardeningTest extends TestCase
         return $t->fresh();
     }
 
+    public function test_treasury_account_version_guard_requires_an_exact_key_and_value_match(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $treasury = $this->makeTreasury($branch);
+        $guards = app(FinanceWriteGuards::class);
+        $expected = $guards->accountVersions($treasury);
+        $guards->assertAccountVersionsMatch($treasury, $expected);
+
+        try {
+            $guards->assertAccountVersionsMatch($treasury, $expected + ['extra' => 'unexpected']);
+            $this->fail('Expected an extra version key to fail exact comparison.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(409, $exception->status);
+        }
+
+        try {
+            $guards->assertAccountVersionsMatch($treasury, []);
+            $this->fail('Expected a missing version snapshot to fail exact comparison.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(409, $exception->status);
+        }
+    }
+
     public function test_f08b_deactivation_allows_zero_balance_account_with_history(): void
     {
         $branch = Branch::factory()->create(['is_active' => true]);
@@ -224,8 +247,9 @@ class Task5Slice2TreasuryHardeningTest extends TestCase
         {
             public function __construct(private int $treasuryId) {}
 
-            public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute): Model
+            public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute, ?bool &$replayed = null): Model
             {
+                $replayed = false;
                 DB::table('treasuries')->where('id', $this->treasuryId)->update(['is_active' => false]);
 
                 return DB::transaction(fn (): Model => $execute());

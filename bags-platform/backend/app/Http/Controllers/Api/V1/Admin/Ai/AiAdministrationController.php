@@ -24,6 +24,7 @@ class AiAdministrationController extends Controller
      */
     public function settings(Request $request, SettingService $settings, ToolRegistry $registry, BranchAccess $branches): JsonResponse
     {
+        abort_unless($request->user('staff')->canAny(['ai_agent.settings', 'settings.view']), 403);
         $branches->assertCentralAccess($request->user('staff'));
 
         return response()->json(['data' => $settings->getAllGrouped()['ai'] ?? [], 'tools' => array_keys($registry->definitions())]);

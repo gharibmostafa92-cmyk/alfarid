@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\Customer;
+use App\Models\InboundMessage;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\CustomerWholesaleAssistant;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -42,21 +46,47 @@ class ProcessCustomerWhatsAppMessage implements ShouldQueue
         $this->onConnection('whatsapp');
     }
 
+    /** @return array<int, WithoutOverlapping> */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping('customer-whatsapp-inbound:'.$this->inboundId))
+                ->expireAfter(180)
+                ->releaseAfter(20),
+        ];
+    }
+
     public function handle(CustomerWholesaleAssistant $assistant, SettingService $settings): void
     {
         $customer = Customer::query()->find($this->customerId);
-        if ($customer === null) {
+        $inbound = InboundMessage::query()->find($this->inboundId);
+        if ($customer === null || $inbound === null) {
             return;
         }
 
-        $reply = $this->respond($assistant, $customer);
-        if ($reply === '' || $settings->getBool('ai_wholesale_shadow_mode', true)) {
+        $payload = is_array($inbound->payload) ? $inbound->payload : [];
+        if (($payload['assistant_shadow_processed'] ?? false) || ($payload['assistant_reply_sent_at'] ?? null) !== null) {
             return;
         }
 
+        $shadowMode = $settings->getBool('ai_wholesale_shadow_mode', true);
         $token = config('services.whatsapp_business.token');
         $phoneId = config('services.whatsapp_business.phone_number_id');
-        if (! is_string($token) || $token === '' || ! is_string($phoneId) || $phoneId === '') {
+        if (! $shadowMode && (! is_string($token) || $token === '' || ! is_string($phoneId) || $phoneId === '')) {
+            throw new RuntimeException('WhatsApp Business credentials are not configured.');
+        }
+
+        $reply = is_string($payload['assistant_reply'] ?? null)
+            ? $payload['assistant_reply']
+            : $this->respond($assistant, $customer);
+        if ($reply === '') {
+            $this->persistReply($inbound->id, '', $shadowMode);
+
+            return;
+        }
+
+        $state = $this->persistReply($inbound->id, $reply, $shadowMode);
+        if ($state['stop'] || $shadowMode) {
             return;
         }
 
@@ -70,6 +100,48 @@ class ProcessCustomerWhatsAppMessage implements ShouldQueue
                 'text' => ['body' => mb_substr($reply, 0, 4096)],
             ])
             ->throw();
+
+        DB::transaction(function () use ($inbound): void {
+            $locked = InboundMessage::query()->lockForUpdate()->find($inbound->id);
+            if ($locked === null) {
+                return;
+            }
+            $payload = is_array($locked->payload) ? $locked->payload : [];
+            $payload['assistant_reply_sent_at'] ??= now()->toIso8601String();
+            $locked->forceFill(['payload' => $payload])->save();
+        });
+    }
+
+    /**
+     * Stores the generated reply before external delivery so queue retries reuse
+     * the same assistant result instead of rerunning a potentially stateful flow.
+     *
+     * @return array{stop: bool}
+     */
+    private function persistReply(int $inboundId, string $reply, bool $shadowMode): array
+    {
+        return DB::transaction(function () use ($inboundId, $reply, $shadowMode): array {
+            $inbound = InboundMessage::query()->lockForUpdate()->find($inboundId);
+            if ($inbound === null) {
+                return ['stop' => true];
+            }
+            $payload = is_array($inbound->payload) ? $inbound->payload : [];
+            if (($payload['assistant_shadow_processed'] ?? false)
+                || ($payload['assistant_reply_sent_at'] ?? null) !== null) {
+                return ['stop' => true];
+            }
+            if (! is_string($payload['assistant_reply'] ?? null)) {
+                $payload['assistant_reply'] = $reply;
+                $payload['assistant_reply_created_at'] = now()->toIso8601String();
+            }
+            if ($shadowMode) {
+                $payload['assistant_shadow_processed'] = true;
+                $payload['assistant_shadow_processed_at'] = now()->toIso8601String();
+            }
+            $inbound->forceFill(['payload' => $payload])->save();
+
+            return ['stop' => false];
+        });
     }
 
     private function respond(CustomerWholesaleAssistant $assistant, Customer $customer): string
@@ -88,7 +160,11 @@ class ProcessCustomerWhatsAppMessage implements ShouldQueue
             if ($path === false) {
                 return 'الملف موصلش. ابعته تاني من فضلك.';
             }
-            file_put_contents($path, $bytes);
+            if (file_put_contents($path, $bytes) !== strlen($bytes)) {
+                @unlink($path);
+
+                return 'الملف موصلش. ابعته تاني من فضلك.';
+            }
             $isImage = $this->message['kind'] === 'image';
             $file = new UploadedFile(
                 $path,
@@ -123,51 +199,53 @@ class ProcessCustomerWhatsAppMessage implements ShouldQueue
             return null;
         }
 
-        try {
-            $meta = Http::withToken($token)
-                ->connectTimeout(3)
-                ->timeout(10)
-                ->get("https://graph.facebook.com/v21.0/{$mediaId}");
-            if (! $meta->successful()) {
-                return null;
-            }
-
-            $url = $meta->json('url');
-            if (! is_string($url) || ! $this->isAllowedMediaUrl($url)) {
-                return null;
-            }
-
-            $bin = Http::withToken($token)
-                ->withOptions(['stream' => true])
-                ->connectTimeout(3)
-                ->timeout(10)
-                ->get($url);
-            if (! $bin->successful()) {
-                return null;
-            }
-
-            $max = max(1, (int) config('services.gemini.max_image_bytes', 4 * 1024 * 1024));
-            $stream = $bin->toPsrResponse()->getBody();
-            $buffer = '';
-            try {
-                while (! $stream->eof()) {
-                    $chunk = $stream->read(8192);
-                    if ($chunk === '') {
-                        break;
-                    }
-                    $buffer .= $chunk;
-                    if (strlen($buffer) > $max) {
-                        return null;
-                    }
-                }
-            } finally {
-                $stream->close();
-            }
-
-            return $buffer === '' ? null : $buffer;
-        } catch (Throwable) {
+        $meta = Http::withToken($token)
+            ->connectTimeout(3)
+            ->timeout(10)
+            ->get("https://graph.facebook.com/v21.0/{$mediaId}");
+        if ($meta->serverError() || $meta->status() === 429) {
+            throw new RuntimeException('Temporary WhatsApp media metadata failure.');
+        }
+        if (! $meta->successful()) {
             return null;
         }
+
+        $url = $meta->json('url');
+        if (! is_string($url) || ! $this->isAllowedMediaUrl($url)) {
+            return null;
+        }
+
+        $bin = Http::withToken($token)
+            ->withOptions(['stream' => true])
+            ->connectTimeout(3)
+            ->timeout(10)
+            ->get($url);
+        if ($bin->serverError() || $bin->status() === 429) {
+            throw new RuntimeException('Temporary WhatsApp media download failure.');
+        }
+        if (! $bin->successful()) {
+            return null;
+        }
+
+        $max = max(1, (int) config('services.gemini.max_image_bytes', 4 * 1024 * 1024));
+        $stream = $bin->toPsrResponse()->getBody();
+        $buffer = '';
+        try {
+            while (! $stream->eof()) {
+                $chunk = $stream->read(8192);
+                if ($chunk === '') {
+                    break;
+                }
+                $buffer .= $chunk;
+                if (strlen($buffer) > $max) {
+                    return null;
+                }
+            }
+        } finally {
+            $stream->close();
+        }
+
+        return $buffer === '' ? null : $buffer;
     }
 
     private function isAllowedMediaUrl(string $url): bool

@@ -25,6 +25,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 use App\Services\Pos\TreasuryService;
+use Brick\Math\BigDecimal;
 use Illuminate\Support\Str;
 
 final class ApproveTreasuryTransfersBulkTool implements AgentTool, ExecutesSelectedItems, LocksTargets, WriteTool
@@ -147,10 +148,10 @@ final class ApproveTreasuryTransfersBulkTool implements AgentTool, ExecutesSelec
         if ($approvable === []) {
             return ToolOutcome::denied('مفيش تحويلات قابلة للاعتماد في الاختيار ده.', auditable: false);
         }
-        $total = (float) TreasuryTransfer::query()->whereKey($approvable)->sum('amount');
+        $total = BigDecimal::of((string) (TreasuryTransfer::query()->whereKey($approvable)->sum('amount') ?? '0'))->toScale(2);
         $guard = new BulkUndoGuard;
-        $threshold = (float) $this->settings->get('ai_finance_high_risk_amount', 20000);
-        $risk = $total > $threshold ? 'high' : $this->risk();
+        $threshold = BigDecimal::of((string) $this->settings->get('ai_finance_high_risk_amount', 20000));
+        $risk = $total->isGreaterThan($threshold) ? 'high' : $this->risk();
 
         return $this->proposals->make(
             $actor,
@@ -159,7 +160,7 @@ final class ApproveTreasuryTransfersBulkTool implements AgentTool, ExecutesSelec
             risk: $risk,
             title: 'اعتماد جماعي لـ '.count($approvable).' تحويلات',
             before: ['pending_count' => count($approvable)],
-            after: ['approved_count' => count($approvable), 'total' => $total],
+            after: ['approved_count' => count($approvable), 'total' => (string) $total],
             warnings: [$guard->reason()],
             expectedVersions: $expected,
             typedConfirmation: $risk === 'high' ? 'تنفيذ' : null,

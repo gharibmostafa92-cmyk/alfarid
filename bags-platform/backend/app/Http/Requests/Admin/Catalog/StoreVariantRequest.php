@@ -6,6 +6,7 @@ namespace App\Http\Requests\Admin\Catalog;
 
 use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
+use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 

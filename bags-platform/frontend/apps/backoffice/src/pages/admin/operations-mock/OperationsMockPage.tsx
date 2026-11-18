@@ -207,7 +207,7 @@ export default function OperationsMockPage({
   const pageContent = useMemo(() => {
     const { m, id, sub } = route;
     const numId = id != null ? Number(id) : undefined;
-    if (['suppliers', 'purchasing', 'brands'].includes(m)) return <Empty icon="lock" title="هذا القسم متوقف" text="منتجات الفريد من تصنيعنا؛ التجار يُدارون من العملاء والجملة." />;
+    if (['suppliers', 'purchasing', 'brands'].includes(m)) return <Empty icon="lock" title="هذا القسم متوقف" text="منتجات VARYA من تصنيعنا؛ التجار يُدارون من العملاء والجملة." />;
     if (!canViewOperation(m, can)) return <Empty icon="lock" title="ليس لديك صلاحية عرض هذه الصفحة." />;
     switch (m) {
       case 'orders':

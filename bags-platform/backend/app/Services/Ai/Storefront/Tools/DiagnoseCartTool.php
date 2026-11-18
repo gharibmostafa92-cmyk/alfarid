@@ -55,7 +55,7 @@ final class DiagnoseCartTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        $cart = $this->cart($args);
+        $cart = $this->cart($actor, $args);
         if ($cart instanceof ToolOutcome) {
             return $cart;
         }
@@ -111,7 +111,7 @@ final class DiagnoseCartTool implements AgentTool
         ]);
     }
 
-    private function cart(array $args): Cart|ToolOutcome
+    private function cart(User $actor, array $args): Cart|ToolOutcome
     {
         if (! empty($args['cart_id'])) {
             $cart = Cart::query()->with('items')->find((int) $args['cart_id']);
@@ -121,10 +121,19 @@ final class DiagnoseCartTool implements AgentTool
             if (! empty($args['customer_id']) && (int) $cart->customer_id !== (int) $args['customer_id']) {
                 return ToolOutcome::denied('السلة مش بتاعة العميل ده.', auditable: false);
             }
+            if ($cart->customer_id === null) {
+                return ToolOutcome::denied('فحص سلات الزوار غير مسموح بمعرف السلة.', auditable: false);
+            }
+            if (! $actor->can('customers.view')) {
+                return ToolOutcome::denied('محتاج صلاحية عرض العملاء لفحص سلة العميل.', auditable: false);
+            }
 
             return $cart;
         }
         if (! empty($args['customer_id'])) {
+            if (! $actor->can('customers.view')) {
+                return ToolOutcome::denied('محتاج صلاحية عرض العملاء لفحص سلة العميل.', auditable: false);
+            }
             $cart = Cart::query()->with('items')->where('customer_id', (int) $args['customer_id'])->latest('id')->first();
             if (! $cart) {
                 return ToolOutcome::denied('العميل معندوش سلة.', auditable: false);

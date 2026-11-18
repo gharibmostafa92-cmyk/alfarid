@@ -85,6 +85,7 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectGuestsTo(fn (Request $request) => $request->is('api/*') ? null : '/auth/login');
         $middleware->prepend(LimitPaymentWebhookBody::class);
         // Resolve trusted forwarding headers before recording client_ip or
         // running any IP-keyed limiter.

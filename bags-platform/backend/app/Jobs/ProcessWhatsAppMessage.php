@@ -48,10 +48,13 @@ class ProcessWhatsAppMessage implements ShouldBeEncrypted, ShouldQueue
     /** @return list<object> */
     public function middleware(): array
     {
+        $backoff = $this->contentionBackoffSeconds();
         $jid = (string) ($this->message['remote_jid'] ?? '');
         $alt = (string) ($this->message['remote_jid_alt'] ?? '');
         $jids = array_values(array_unique(array_filter([$jid, $alt], fn (string $value): bool => $value !== '')));
         $phones = array_values(array_unique(array_filter(array_map(E164Phone::fromWhatsappJid(...), $jids))));
+        sort($jids, SORT_STRING);
+        sort($phones, SORT_STRING);
         $identity = ($jids !== [] || $phones !== [])
             ? AiWhatsappIdentity::query()
                 ->where(function ($query) use ($jids, $phones): void {
@@ -65,28 +68,10 @@ class ProcessWhatsAppMessage implements ShouldBeEncrypted, ShouldQueue
                 ->first()
             : null;
 
-        // Acquire sender locks from every current and previously linked alias.
-        // Keeping those locks alongside the user lock bridges the interval where
-        // a link message changes from an unknown JID to a resolved identity.
-        $lockIds = array_map(fn (string $value): string => 'jid:'.$value, $jids);
-        foreach ($phones as $phone) {
-            $lockIds[] = 'phone:'.$phone;
-        }
-        if ($identity !== null) {
-            foreach ([$identity->wa_jid, $identity->wa_lid] as $alias) {
-                if (is_string($alias) && $alias !== '') {
-                    $lockIds[] = 'jid:'.$alias;
-                }
-            }
-            if (is_string($identity->phone_e164) && $identity->phone_e164 !== '') {
-                $lockIds[] = 'phone:'.$identity->phone_e164;
-            }
-        }
-
         // A LID-only first pairing message may not yet match the identity's
         // stored phone or JIDs. Its one-time token still identifies the target
         // user, so the following linked message shares the same user lock.
-        if (preg_match('/^ربط\s+([A-Za-z0-9]{4}-[A-Za-z0-9]{4})\s*$/u', trim((string) ($this->message['text'] ?? '')), $matches)) {
+        if (preg_match('/^ربط\s+([A-Za-z0-9]{4}(?:-[A-Za-z0-9]{4}){1,2})\s*$/u', trim((string) ($this->message['text'] ?? '')), $matches)) {
             $tokenHash = hash('sha256', strtoupper($matches[1]));
             $pendingIdentity = AiWhatsappIdentity::query()
                 ->whereHas('linkTokens', fn ($query) => $query->where('token_hash', $tokenHash)
@@ -95,13 +80,14 @@ class ProcessWhatsAppMessage implements ShouldBeEncrypted, ShouldQueue
             $identity ??= $pendingIdentity;
         }
 
-        $keys = array_map(fn (string $value): string => 'wa-sender:'.hash('sha256', $value), array_values(array_unique($lockIds)));
-        if ($identity !== null) {
-            $keys[] = 'wa-user:'.$identity->user_id;
-        }
-        sort($keys, SORT_STRING);
+        // One stable lock per recognized user prevents messages arriving by an
+        // alternate JID/LID from racing, while unknown senders share one lock
+        // for their observed address pair.
+        $lockId = $identity !== null
+            ? 'wa-user:'.$identity->user_id
+            : 'wa-sender:'.hash('sha256', implode('|', array_values(array_unique([...$jids, ...$phones]))));
 
-        return array_map(fn (string $key): WithoutOverlapping => (new WithoutOverlapping($key))->releaseAfter(15)->expireAfter(360), array_values(array_unique($keys)));
+        return [(new WithoutOverlapping($lockId))->releaseAfter($backoff)->expireAfter(360)];
     }
 
     public function handle(WhatsAppInboundProcessor $processor): void
@@ -122,8 +108,16 @@ class ProcessWhatsAppMessage implements ShouldBeEncrypted, ShouldQueue
             return;
         }
         if ($result === 'release') {
-            $this->release(15);
+            $this->release($this->contentionBackoffSeconds());
         }
+    }
+
+    private function contentionBackoffSeconds(): int
+    {
+        $attempt = max(1, $this->attempts());
+        $base = min(60, 15 * (2 ** min(2, $attempt - 1)));
+
+        return $base + random_int(0, 15);
     }
 
     public function failed(?Throwable $exception): void

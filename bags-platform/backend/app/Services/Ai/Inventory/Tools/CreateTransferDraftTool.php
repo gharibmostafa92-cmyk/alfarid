@@ -131,7 +131,7 @@ final class CreateTransferDraftTool extends TransferToolBase implements Undoable
                 'to_location_id' => $i['to_location_id'] ?? null,
             ], $a['items']),
         ], $actor->id, 'ai-transfer:'.$action->id);
-        $action->forceFill(['expected_versions' => array_merge($action->expected_versions ?? [], ['created_transfer_id' => $transfer->id])])->save();
+        $action->forceFill(['inverse' => array_merge($action->inverse ?? [], ['created_transfer_id' => $transfer->id])])->save();
 
         return ToolOutcome::result(true, "اتعملت مسودة التحويل {$transfer->transfer_number}.", [
             'transfer_id' => $transfer->id,
@@ -142,7 +142,7 @@ final class CreateTransferDraftTool extends TransferToolBase implements Undoable
 
     private function createdId(AiPendingAction $action): int
     {
-        return (int) ($action->expected_versions['created_transfer_id'] ?? 0);
+        return (int) ($action->inverse['created_transfer_id'] ?? $action->expected_versions['created_transfer_id'] ?? 0);
     }
 
     public function canUndo(AiPendingAction $action): bool

@@ -104,7 +104,8 @@ class TaskTxtGeminiFailuresTest extends TestCase
 
         $this->assertSame('تمام.', $res['text']);
         $this->assertSame(2, $calls);
-        $this->assertGreaterThanOrEqual(3.0, $elapsed);
+        $this->assertGreaterThanOrEqual(1.9, $elapsed);
+        $this->assertLessThan(3.0, $elapsed, 'Retry-After is capped so a provider cannot stall a web worker for a long period.');
     }
 
     // ── 500 twice → GeminiException with status 500, two requests ──

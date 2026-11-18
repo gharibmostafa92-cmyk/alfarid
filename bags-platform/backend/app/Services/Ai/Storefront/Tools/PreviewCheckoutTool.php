@@ -57,13 +57,29 @@ final class PreviewCheckoutTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        $cart = ! empty($args['cart_id'])
-            ? Cart::query()->with('items')->find((int) $args['cart_id'])
-            : (! empty($args['customer_id']) ? Cart::query()->with('items')->where('customer_id', (int) $args['customer_id'])->latest('id')->first() : null);
+        if (! empty($args['cart_id'])) {
+            $cart = Cart::query()->with('items')->find((int) $args['cart_id']);
+            if (! $cart) {
+                return ToolOutcome::denied('السلة غير موجودة.', auditable: false);
+            }
+            if (! empty($args['customer_id']) && (int) $cart->customer_id !== (int) $args['customer_id']) {
+                return ToolOutcome::denied('السلة مش بتاعة العميل ده.', auditable: false);
+            }
+        } elseif (! empty($args['customer_id'])) {
+            $cart = Cart::query()->with('items')->where('customer_id', (int) $args['customer_id'])->latest('id')->first();
+        } else {
+            $cart = null;
+        }
         if (! $cart) {
             return ToolOutcome::denied('حدد سلة موجودة بـ cart_id أو customer_id.', auditable: false);
         }
-        $customer = $cart->customer_id ? Customer::query()->find($cart->customer_id) : null;
+        if ($cart->customer_id === null) {
+            return ToolOutcome::denied('فحص سلات الزوار غير مسموح بمعرف السلة.', auditable: false);
+        }
+        if (! $actor->can('customers.view')) {
+            return ToolOutcome::denied('محتاج صلاحية عرض العملاء لمعاينة سلة العميل.', auditable: false);
+        }
+        $customer = Customer::query()->find($cart->customer_id);
 
         return ToolOutcome::data($this->preview->diagnose($cart, $customer, $args));
     }

@@ -175,7 +175,7 @@ class CartService
                 $existingQty = $accountQty[$variantId] ?? null;
                 $isNew = $existingQty === null;
 
-                // Skip new items exceeding max cart lines to avoid blocking user login.
+                // Keep guest lines that do not fit the account cart instead of deleting them.
                 if ($isNew && $maxLines > 0 && $accountLines >= $maxLines) {
                     $remainingQuantities[$item->id] = (float) $item->qty;
                     $lineLimitReached = true;
@@ -214,6 +214,7 @@ class CartService
                 if ($isNew) {
                     $accountLines++;
                 }
+                $dropIds[] = (int) $item->id;
             }
             if ($rows !== []) {
                 CartItem::query()->upsert(
@@ -299,6 +300,7 @@ class CartService
         // Reject adding new lines when the maximum allowed cart line limit is reached.
         if ($existing === null) {
             $maxLines = (int) config('store.max_cart_lines', 50);
+            $this->pruneDanglingItems($cart);
             if ($maxLines > 0 && $cart->items()->count() >= $maxLines) {
                 throw new BusinessException("بلغت سلة التسوق سقف الأصناف ({$maxLines})؛ احذف صنفًا قبل الإضافة.");
             }
@@ -426,6 +428,8 @@ class CartService
      */
     public function pricedLines(Cart $cart, ?Customer $customer): array
     {
+        $cart->loadMissing('items.variant.product');
+        $this->pruneDanglingItems($cart);
         $cart->loadMissing('items.variant.product');
         $purchasableIds = $this->retailVariants()->whereIn('id', $cart->items->pluck('product_variant_id'))->pluck('id')->all();
         $context = $this->pricing->contextFor($customer, $cart->items->pluck('product_variant_id')->all());
@@ -658,6 +662,25 @@ class CartService
         }
 
         return $this->resolveCart(null, $cart->cart_token);
+    }
+
+    /**
+     * Drop cart lines whose variant was deleted so they cannot occupy the line cap invisibly.
+     */
+    private function pruneDanglingItems(Cart $cart): void
+    {
+        if (! $cart->exists) {
+            return;
+        }
+
+        $cart->load(['items.variant' => fn ($query) => $query->withTrashed()]);
+        foreach ($cart->items as $item) {
+            $variant = $item->variant;
+            if ($variant === null || $variant->trashed()) {
+                $item->delete();
+            }
+        }
+        $cart->unsetRelation('items');
     }
 
     /**

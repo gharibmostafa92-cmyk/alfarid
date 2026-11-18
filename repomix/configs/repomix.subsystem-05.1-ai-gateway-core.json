@@ -46,7 +46,9 @@
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiConversationController.php",
                     "bags-platform/frontend/apps/backoffice/src/pages/admin/assistant/WhatsAppPanel.tsx",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiAttachmentController.php",
-                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiMessageController.php"
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiMessageController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/AiAdministrationController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/WhatsAppAdminController.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

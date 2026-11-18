@@ -68,7 +68,7 @@ final class LedgerIntegrityCheckTool implements AgentTool
         $branchId = $restricted ?? (isset($args['branch_id']) ? (int) $args['branch_id'] : null);
 
         $run = FinanceReconcileRun::query()
-            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId), fn ($q) => $q->whereNull('branch_id'))
+            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->orderByDesc('id')->first();
 
         if (! $run) {
@@ -77,12 +77,15 @@ final class LedgerIntegrityCheckTool implements AgentTool
             ], null, 'مفيش مطابقة مسجلة لسه. شغّل finance:reconcile من المجدول الليلي.');
         }
 
-        $samples = array_slice($run->samples ?? [], 0, 20);
+        $samples = array_slice(is_array($run->samples) ? $run->samples : [], 0, 20);
         $items = [];
         if ((int) $run->problem_count === 0) {
             $items[] = ['key' => 'ok', 'label' => 'كل الأرصدة مطابقة للدفتر', 'severity' => 'ok'];
         }
         foreach ($samples as $i => $problem) {
+            if (! is_array($problem)) {
+                continue;
+            }
             $items[] = [
                 'key' => ($problem['issue'] ?? 'diff').':'.$i,
                 'label' => $this->label($problem),
@@ -95,6 +98,7 @@ final class LedgerIntegrityCheckTool implements AgentTool
             'has_run' => true,
             'checked' => (int) $run->checked,
             'problem_count' => (int) $run->problem_count,
+            'run_branch_id' => $run->branch_id,
             'samples' => $samples,
             'ran_at' => $run->created_at?->toIso8601String(),
         ], $this->presenter->checklist($items));

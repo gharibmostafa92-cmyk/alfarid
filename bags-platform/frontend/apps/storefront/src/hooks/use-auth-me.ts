@@ -15,7 +15,7 @@ export const authMeQueryKey = (token: string | null) => ['auth', 'me', token] as
 export function useAuthMe(token: string | null, enabled = true) {
   return useQuery<AuthMeResponse, { response?: { status?: number } }>({
     queryKey: authMeQueryKey(token),
-    queryFn: () => authEndpoints.me() as Promise<AuthMeResponse>,
+    queryFn: ({ signal }) => authEndpoints.me(signal) as Promise<AuthMeResponse>,
     enabled: Boolean(enabled && token),
     staleTime: 60_000,
     retry: false,

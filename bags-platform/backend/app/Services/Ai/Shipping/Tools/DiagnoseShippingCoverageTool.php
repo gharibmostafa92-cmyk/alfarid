@@ -55,16 +55,19 @@ final class DiagnoseShippingCoverageTool implements AgentTool
             $issues[] = ['code' => $code, 'message' => $message] + $extra;
         };
 
-        $covered = DB::table('shipping_zone_cities')
-            ->join('shipping_zones', 'shipping_zones.id', '=', 'shipping_zone_cities.shipping_zone_id')
-            ->where('shipping_zones.is_active', true)
-            ->pluck('shipping_zone_cities.city_id');
-        $used = DB::table('customer_addresses')->distinct()->pluck('city_id');
         City::query()->where('is_active', true)
-            ->where(function ($q) use ($used): void {
-                $q->whereIn('id', $used)->orWhere('shipping_cost', '>', 0);
+            ->where(function ($q): void {
+                $q->whereExists(function ($sub): void {
+                    $sub->selectRaw('1')->from('customer_addresses')->whereColumn('customer_addresses.city_id', 'cities.id');
+                })->orWhere('shipping_cost', '>', 0);
             })
-            ->when($covered->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $covered))
+            ->whereNotExists(function ($sub): void {
+                $sub->selectRaw('1')
+                    ->from('shipping_zone_cities')
+                    ->join('shipping_zones', 'shipping_zones.id', '=', 'shipping_zone_cities.shipping_zone_id')
+                    ->where('shipping_zones.is_active', true)
+                    ->whereColumn('shipping_zone_cities.city_id', 'cities.id');
+            })
             ->orderBy('id')->limit(30)->get(['id', 'name_ar'])
             ->each(fn (City $city) => $push('city_without_active_zone', 'المدينة مستخدمة أو لها تكلفة احتياط ومش مربوطة بمنطقة نشطة.', ['city_id' => $city->id, 'name_ar' => $city->name_ar]));
 

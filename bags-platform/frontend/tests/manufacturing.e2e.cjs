@@ -15,7 +15,7 @@ const os = require('node:os');
       const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
       requests.push({ p, method });
       if (p.endsWith('/me')) return route.fulfill({ json: { data: { id: 1, name: 'مدير المصنع', is_active: true, roles: [{ name: 'staff' }], permissions } } });
-      if (p.endsWith('/production-receipts/options')) return route.fulfill({ json: { data: { branches: [{ id: 1, name: 'مخزن المصنع', locations: [{ id: 1, name: 'المنتج التام' }] }], variants: [{ id: 7, label: 'شنطة الفريد / BAG-01' }] } } });
+      if (p.endsWith('/production-receipts/options')) return route.fulfill({ json: { data: { branches: [{ id: 1, name: 'مخزن المصنع', locations: [{ id: 1, name: 'المنتج التام' }] }], variants: [{ id: 7, label: 'شنطة VARYA / BAG-01' }] } } });
       if (p.endsWith('/production-receipts') && method === 'POST') {
         assert.ok(req.headers()['idempotency-key']);
         const data = req.postDataJSON();
@@ -47,7 +47,7 @@ const os = require('node:os');
     await page.getByText('اختر الفرع', { exact: true }).click();
     await page.getByRole('button', { name: 'مخزن المصنع', exact: true }).click();
     await page.getByText('اختر الصنف (أول 50 نتيجة)', { exact: true }).click();
-    await page.getByRole('button', { name: 'شنطة الفريد / BAG-01', exact: true }).click();
+    await page.getByRole('button', { name: 'شنطة VARYA / BAG-01', exact: true }).click();
     await page.getByRole('button', { name: 'إضافة الصنف', exact: true }).click();
     await page.getByLabel('الكمية', { exact: true }).fill('12');
     await page.getByLabel('تكلفة تصنيع الوحدة', { exact: true }).fill('75');

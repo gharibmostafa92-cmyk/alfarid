@@ -393,7 +393,7 @@ export const QuoteForm = ({ id }) => {
       <PageHead en={draftId ? 'تعديل مسودة' : 'New Quote'} crumb={<Crumb items={[{ label: 'عروض الأسعار', go: () => go('quotes') }, { label: draftId ? 'تعديل مسودة' : 'طلب جديد' }]} />} ar={draftId ? 'مسودة — يمكنك التعديل قبل الإرسال' : 'اختر المنتجات والكميات، واقترح السعر المستهدف لو حابب'}>
         {draftId && <button className="btn-pill is-danger" onClick={() => setConfirm('delete')}><i className="fa-regular fa-trash-can" /> حذف المسودة</button>}
       </PageHead>
-      <div className="grid-2" style={{ gridTemplateColumns: '1fr 340px' }}>
+      <div className="grid-2 grid-summary">
         <section className="panel">
           <div className="toolbar" style={{ position: 'relative' }}>
             <div className="search" style={{ flex: 1 }}><i className="fa-solid fa-plus" /><input className="line-input" placeholder="أضف منتج — ابحث بالاسم أو SKU" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
@@ -640,7 +640,7 @@ export const ReturnForm = ({ orderId }) => {
   return (
     <>
       <PageHead en="New Return" crumb={<Crumb items={[{ label: 'المرتجعات', go: () => go('returns') }, { label: 'طلب جديد' }]} />} ar="اختر الطلب والبنود، ووضح السبب" />
-      <div className="grid-2" style={{ gridTemplateColumns: '1fr 340px' }}>
+      <div className="grid-2 grid-summary">
         <div className="stack">
           <Panel title="الطلب المؤهل" en="ORDER">
             {errs.order && <p className="f-error">{errs.order}</p>}

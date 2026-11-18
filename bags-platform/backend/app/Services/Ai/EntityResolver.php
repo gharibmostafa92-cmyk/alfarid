@@ -17,11 +17,13 @@ use App\Models\Product;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\Promotion;
+use App\Models\Quotation;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\Treasury;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
+use App\Models\WholesalePaymentNotice;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SearchTerm;
 use App\Services\Auth\StaffAdministration;
@@ -734,6 +736,51 @@ final class EntityResolver
             ->all();
     }
 
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function quotations(User $actor, string $query = ''): array
+    {
+        // Quotation reads are restricted to central staff by WholesaleAccessGuard.
+        if ($this->restricted($actor) !== null) {
+            return [];
+        }
+
+        return Quotation::query()
+            ->when(trim($query) !== '', fn ($q) => $q->where('quotation_number', 'ilike', SearchTerm::pattern($query)))
+            ->orderBy('id')
+            ->limit(50)
+            ->get(['id', 'quotation_number', 'status'])
+            ->map(fn (Quotation $quotation) => [
+                'id' => $quotation->id,
+                'label' => $quotation->quotation_number,
+                'meta' => $quotation->status->value,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function paymentNotices(User $actor, string $query = ''): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+
+        return WholesalePaymentNotice::query()
+            ->when($restricted !== null, fn ($q) => $q->whereHas('order', fn ($order) => $order->where('allocated_branch_id', $restricted)))
+            ->when(trim($query) !== '', fn ($q) => $q->where('notice_number', 'ilike', SearchTerm::pattern($query)))
+            ->orderBy('id')
+            ->limit(50)
+            ->get(['id', 'notice_number', 'status'])
+            ->map(fn (WholesalePaymentNotice $notice) => [
+                'id' => $notice->id,
+                'label' => $notice->notice_number,
+                'meta' => $notice->status->value,
+            ])
+            ->values()
+            ->all();
+    }
+
     /** @param list<string> $fields */
     public function matches(string $query, array $fields): bool
     {
@@ -987,6 +1034,13 @@ final class EntityResolver
             'category' => Category::query()->find($id),
             'product' => Product::query()->find($id),
             'variant' => ProductVariant::query()->with('product:id,name_ar,code')->find($id),
+            'price_list' => PriceList::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
+            'coupon' => Coupon::query()->find($id),
+            'promotion' => Promotion::query()->find($id),
+            'quotation' => $branch === null ? Quotation::query()->find($id) : null,
+            'payment_notice' => WholesalePaymentNotice::query()
+                ->when($branch !== null, fn ($q) => $q->whereHas('order', fn ($order) => $order->where('allocated_branch_id', $branch)))
+                ->find($id),
             'transfer' => StockTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w->where('from_branch_id', $branch)->orWhere('to_branch_id', $branch)))->find($id),
             'stocktake' => Stocktake::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
             'production_receipt' => ProductionReceipt::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
@@ -1002,6 +1056,10 @@ final class EntityResolver
         $rawLabel = match ($type) {
             'category', 'product' => (string) $model->name_ar,
             'variant' => (($model->product?->name_ar ?? '').' — '.$model->sku),
+            'price_list', 'promotion' => (string) $model->name,
+            'coupon' => (string) $model->code,
+            'quotation' => (string) $model->quotation_number,
+            'payment_notice' => (string) $model->notice_number,
             'transfer' => (string) $model->transfer_number,
             'stocktake' => (string) $model->stocktake_number,
             'production_receipt' => (string) $model->batch_number,
@@ -1009,10 +1067,8 @@ final class EntityResolver
             'expense' => (string) $model->expense_number,
             default => (string) $model->name,
         };
-        // Strip control characters and clamp length to sanitize user-provided text before embedding into model prompts.
-        $label = in_array($type, ['customer', 'customer_group', 'category', 'product', 'variant', 'treasury'], true)
-            ? mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $rawLabel), 0, 120)
-            : $rawLabel;
+        // Treat every stored label as untrusted prompt data, regardless of entity type.
+        $label = mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $rawLabel), 0, 120);
 
         return ['entity' => $type, 'id' => $type === 'permission' ? $model->name : $model->id, 'label' => $label];
     }

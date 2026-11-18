@@ -9,6 +9,7 @@ import posCss from '@alfarid/pos-core/styles/pos.css?inline';
 /** Point of Sale page for authorized cashiers and stock counters. */
 export function PosPage() {
   const user = useAuthStore((s) => s.user);
+  const destination = useAuthStore((s) => s.destination);
   const logoutRemote = useAuthStore((s) => s.logoutRemote);
   const canPos = useCan('pos.access');
   const canCount = useCan('stocktakes.update');
@@ -42,6 +43,10 @@ export function PosPage() {
       root.classList.toggle('theme-dark', shouldBeDark);
     };
   }, [mountFullPos]);
+
+  useEffect(() => {
+    if (user && !branchId && destination === '/pos') void logoutRemote('unified', 'branch');
+  }, [user, branchId, destination, logoutRemote]);
 
   if (!branchId) {
     return (

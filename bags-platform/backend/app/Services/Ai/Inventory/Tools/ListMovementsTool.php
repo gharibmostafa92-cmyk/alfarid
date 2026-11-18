@@ -103,29 +103,35 @@ final class ListMovementsTool implements AgentTool
             ->orderByDesc('id')->limit($limit + 1)->get();
 
         $hasMore = $movements->count() > $limit;
-        $items = $movements->take($limit)->map(fn (StockMovement $m) => [
-            'id' => $m->id,
-            'reference_number' => $m->reference_number,
-            'variant_id' => $m->product_variant_id,
-            'sku' => $m->variant?->sku,
-            'branch_id' => $m->branch_id,
-            'branch_name' => $m->branch?->name,
-            'type' => $m->type->value,
-            'affected_bucket' => $m->affected_bucket->value,
-            'quantity' => (float) $m->quantity,
-            'balance_before' => (float) $m->balance_before,
-            'balance_after' => (float) $m->balance_after,
-            'unit_cost' => $m->unit_cost !== null ? (float) $m->unit_cost : null,
-            'created_by' => $m->created_by,
-            'notes' => $m->notes !== null ? $this->presenter->untrusted($m->notes, 200) : null,
-            'created_at' => $m->created_at?->toIso8601String(),
-        ])->values()->all();
-
         $showCost = CostAccess::canView($actor);
+        $items = $movements->take($limit)->map(function (StockMovement $m) use ($showCost): array {
+            $row = [
+                'id' => $m->id,
+                'reference_number' => $m->reference_number,
+                'variant_id' => $m->product_variant_id,
+                'sku' => $m->variant?->sku,
+                'branch_id' => $m->branch_id,
+                'branch_name' => $m->branch?->name,
+                'type' => $m->type->value,
+                'affected_bucket' => $m->affected_bucket->value,
+                'quantity' => (float) $m->quantity,
+                'balance_before' => (float) $m->balance_before,
+                'balance_after' => (float) $m->balance_after,
+                'created_by' => $m->created_by,
+                'notes' => $m->notes !== null ? $this->presenter->untrusted($m->notes, 200) : null,
+                'created_at' => $m->created_at?->toIso8601String(),
+            ];
+            if ($showCost) {
+                $row['unit_cost'] = $m->unit_cost !== null ? (float) $m->unit_cost : null;
+            }
+
+            return $row;
+        })->values()->all();
+
         $table = array_map(fn ($i) => array_merge([
             (string) $i['id'], $i['reference_number'] ?? '—', $i['sku'] ?? '—',
             $i['type'], (string) $i['quantity'], (string) $i['balance_after'],
-        ], $showCost ? [$i['unit_cost'] !== null ? (string) $i['unit_cost'] : '—'] : []), $items);
+        ], $showCost ? [($i['unit_cost'] ?? null) !== null ? (string) $i['unit_cost'] : '—'] : []), $items);
         $columns = ['#', 'المرجع', 'المتغير', 'النوع', 'الكمية', 'الرصيد بعد'];
         if ($showCost) {
             $columns[] = 'تكلفة الوحدة';

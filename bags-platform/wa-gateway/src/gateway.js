@@ -158,19 +158,19 @@ export async function resolveBaileysVersion({
   return fallbackVersion;
 }
 
-export async function logoutSession({ runtime, clearAuth, scheduleReconnect, logger = console }) {
+export async function logoutSession({ runtime, clearAuth, logger = console }) {
   const sock = runtime.sock;
   try {
     if (sock) await sock.logout();
   } catch (err) {
     logger.warn({ err }, 'sock.logout failed during logout');
   } finally {
-    await clearAuth();
+    await clearAuth().catch((error) => logger.error({ err: error }, 'could not clear credentials'));
+    closeSocketSafely(sock);
     runtime.sock = null;
-    runtime.state = 'close';
+    runtime.state = 'logged_out';
     runtime.phone = null;
     runtime.qr = null;
-    scheduleReconnect();
   }
 }
 
@@ -184,7 +184,7 @@ export async function handleConnectionUpdate({
   qrToDataUrl,
   logger = console,
 }) {
-  if (runtime.sock && runtime.sock !== sock) return;
+  if (runtime.sock !== sock) return;
 
   if (update.qr) {
     runtime.state = 'awaiting_scan';
@@ -207,10 +207,35 @@ export async function handleConnectionUpdate({
     if (code === DisconnectReason.loggedOut) {
       runtime.phone = null;
       await auth.clear().catch((error) => logger.error({ err: error }, 'could not clear credentials'));
-      runtime.state = 'close';
-      scheduleReconnect(5000);
+      runtime.state = 'logged_out';
       return;
     }
     scheduleReconnect();
   }
+}
+
+export function closeSocketSafely(sock) {
+  try {
+    sock?.end?.(undefined);
+  } catch {
+    // Ignore errors when closing an already-closed socket
+  }
+}
+
+export function buildQuotedMessage(toJid, quotedId, quotedFromMe = false) {
+  if (!quotedId) return undefined;
+  return {
+    key: { remoteJid: toJid, id: quotedId, fromMe: Boolean(quotedFromMe) },
+    message: { conversation: '' },
+  };
+}
+
+export function buildDeleteForMeModify(toJid, id, timestampSec = Math.floor(Date.now() / 1000)) {
+  return {
+    deleteForMe: {
+      deleteMedia: false,
+      key: { id, fromMe: false, remoteJid: toJid },
+      timestamp: timestampSec,
+    },
+  };
 }

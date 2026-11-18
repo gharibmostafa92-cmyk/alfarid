@@ -111,6 +111,12 @@ final class UpsertShippingZoneTool implements LocksTargets, WriteTool
         if (! empty($args['zone_id'])) {
             $zone = ShippingZone::query()->lockForUpdate()->findOrFail((int) $args['zone_id']);
             ShippingVersions::assertSame($zone, (string) ($action->expected_versions['zone:'.$zone->id] ?? ''));
+            if ($data['is_active']) {
+                $cityIds = $zone->cities()->pluck('cities.id')->all();
+                if ($cityIds !== []) {
+                    \App\Models\City::query()->whereKey($cityIds)->orderBy('id')->lockForUpdate()->get(['id']);
+                }
+            }
             $zone->update($data);
         } else {
             $zone = ShippingZone::query()->create($data);

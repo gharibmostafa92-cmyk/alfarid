@@ -14,7 +14,8 @@ import { logoutWeb } from '@/services/auth.service';
 import { prefetchMegaMenu, useMegaMenu } from '@/hooks/useMegaMenu';
 import { toProfileVM } from '@/lib/catalog/sophie-mappers';
 import { STORE_ROUTES } from '@/lib/orders/store-routes';
-import { BrandLogo, useBranding } from '@alfarid/ui/branding';
+import { StorefrontLogo } from '@/components/StorefrontLogo';
+import { useBranding } from '@alfarid/ui/branding';
 
 export function SophieHeader() {
   const pathname = usePathname();
@@ -209,20 +210,10 @@ export function SophieHeader() {
         <Link
           href="/"
           title={branding.name}
-          className="flex items-center gap-2 min-w-0 min-h-[44px] font-[var(--font-poppins)] text-xl sm:text-2xl font-bold tracking-tight text-black"
+          aria-label={branding.name}
+          className="flex items-center min-w-0 min-h-[44px]"
         >
-          <BrandLogo
-            className="w-6 h-6 shrink-0"
-            fallback={
-              <svg className="w-6 h-6 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="2,12 20,3 14,21 10,14 2,12" fill="#000" />
-                <line x1="20" y1="3" x2="10" y2="14" stroke="#fff" strokeWidth="1.5" />
-              </svg>
-            }
-          />
-          <span dir="auto" className="truncate max-w-[125px] min-[380px]:max-w-[165px] sm:max-w-[220px]">
-            {branding.name}
-          </span>
+          <StorefrontLogo className="w-[100px] h-10 sm:w-[120px] sm:h-12" />
         </Link>
 
         {/* Desktop Navigation */}

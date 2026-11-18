@@ -85,7 +85,7 @@ class AiCustomerToolsTest extends TestCase
         return Customer::factory()->create([
             'type' => CustomerType::Wholesale,
             'status' => CustomerStatus::Pending,
-            'company_name' => 'شركة الفريد للتجارة',
+            'company_name' => 'شركة VARYA للتجارة',
             'tax_number' => '123456789',
             'commercial_register' => '987654',
             'phone' => '01012345678',
@@ -317,7 +317,7 @@ class AiCustomerToolsTest extends TestCase
             'generativelanguage.googleapis.com/*' => Http::response([
                 'candidates' => [[
                     'finishReason' => 'STOP',
-                    'content' => ['parts' => [['text' => '{"commercial_register":"999999","tax_number":"123-456-789","company_name":"شركة الفريد","expiry_date":"2028-01-01"}']]],
+                    'content' => ['parts' => [['text' => '{"commercial_register":"999999","tax_number":"123-456-789","company_name":"شركة VARYA","expiry_date":"2028-01-01"}']]],
                 ]],
                 'usageMetadata' => ['promptTokenCount' => 120, 'candidatesTokenCount' => 30, 'totalTokenCount' => 150],
             ], 200),

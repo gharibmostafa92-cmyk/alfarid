@@ -522,7 +522,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       <div className="as-brand">
         <span className="as-mark"><Icon name="spark" size={18} /></span>
         <div>
-          <h1>مساعد الفريد</h1>
+          <h1>مساعد VARYA</h1>
           <p>الكتالوج، التجار، الفروع، والصلاحيات</p>
         </div>
         <button type="button" className="as-iconbtn as-only-desktop" onClick={() => setCollapsed(true)} aria-label="إخفاء القائمة" title="إخفاء القائمة"><Icon name="sidebar" /></button>

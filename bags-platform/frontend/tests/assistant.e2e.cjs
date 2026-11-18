@@ -69,7 +69,7 @@ const user = { id: 1, name: 'مراجع المساعد', email: 'assistant@examp
     });
     await page.goto(`${base}/auth/callback#code=isolated-assistant-handoff`);
     const assistant = page.locator('#view-assistant .assistant');
-    await assistant.getByRole('heading', { name: 'مساعد الفريد', exact: true }).waitFor();
+    await assistant.getByRole('heading', { name: 'مساعد VARYA', exact: true }).waitFor();
     assert.equal(await assistant.locator('.as-shell').evaluate(element => getComputedStyle(element).display), 'grid', 'assistant styles reach the Vortix shadow root');
     assert.equal(await page.locator('#side-logout-btn').count(), 1, 'Vortix shell remains available');
     await assistant.getByRole('button', { name: /اعرض الفروع المتوقفة حاليًا/ }).click();
@@ -157,7 +157,7 @@ const user = { id: 1, name: 'مراجع المساعد', email: 'assistant@examp
     assert.equal(await page.getByRole('textbox', { name: 'الاسم كامل *', exact: true }).inputValue(), 'أحمد الاختبار');
     user.roles = [{ name: 'cashier' }]; user.permissions = ['ai_agent.use'];
     await page.goto(`${base}/auth/callback#code=isolated-assistant-cashier`);
-    await page.locator('#view-assistant .assistant').getByRole('heading', { name: 'مساعد الفريد', exact: true }).waitFor();
+    await page.locator('#view-assistant .assistant').getByRole('heading', { name: 'مساعد VARYA', exact: true }).waitFor();
     await page.getByText('المساعد الذكي', { exact: true }).waitFor();
     assert.deepEqual(errors, []);
     console.log('Assistant browser flow passed: shell, suggestions, typed confirmation, safe Markdown, mentions, pins, settings, logs, delete, four viewport widths.');

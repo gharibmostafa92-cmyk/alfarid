@@ -42,10 +42,25 @@ function createMockPool() {
       }
       return { rows: found };
     }
+    if (sql.includes('INSERT INTO wa_gateway_auth') && sql.includes('UNNEST')) {
+      await new Promise((r) => setTimeout(r, 5));
+      const ids = params[0] || [];
+      const payloads = params[1] || [];
+      for (let i = 0; i < ids.length; i += 1) {
+        rows.set(ids[i], payloads[i]);
+      }
+      return { rows: [] };
+    }
     if (sql.includes('INSERT INTO wa_gateway_auth')) {
       // Simulate async DB latency to catch race conditions if writes are not serialized
       await new Promise((r) => setTimeout(r, 5));
       rows.set(params[0], params[1]);
+      return { rows: [] };
+    }
+    if (sql.includes('DELETE FROM wa_gateway_auth WHERE id = ANY($1::text[])')) {
+      for (const id of params[0] || []) {
+        rows.delete(id);
+      }
       return { rows: [] };
     }
     if (sql.includes('DELETE FROM wa_gateway_auth WHERE id = $1')) {
@@ -126,19 +141,47 @@ test('keys.set serializes concurrent writes and wraps each call in a DB transact
   assert.equal(commitCount, 2);
 });
 
-test('corrupt auth row logs error and returns null instead of crashing', async () => {
+test('corrupt creds row fails fast while corrupt key row logs error and returns null', async () => {
   const pool = createMockPool();
   const errors = [];
   const logger = { error: (obj, msg) => errors.push({ obj, msg }) };
 
-  // Seed corrupt payload for creds and a key
   pool.rows.set('creds', Buffer.from('corrupt-bytes'));
-  pool.rows.set('key:session:bad', Buffer.from('corrupt-bytes'));
+  await assert.rejects(
+    () => usePostgresAuthState(pool, { logger }),
+    /decrypt|creds/i,
+    'must fail fast when existing creds row cannot be decrypted',
+  );
 
+  pool.rows.delete('creds');
+  pool.rows.set('key:session:bad', Buffer.from('corrupt-bytes'));
   const auth = await usePostgresAuthState(pool, { logger });
-  assert.ok(auth.state.creds.noiseKey, 'falls back to initAuthCreds when creds row is corrupt');
+  assert.ok(auth.state.creds.noiseKey, 'initializes fresh creds when creds row is missing');
 
   const keys = await auth.state.keys.get('session', ['bad']);
   assert.deepEqual(keys, {});
   assert.ok(errors.length >= 2, 'logs decryption errors');
+});
+
+test('keys.set batches inserts with UNNEST and deletes with ANY in a single transaction', async () => {
+  const pool = createMockPool();
+  const auth = await usePostgresAuthState(pool);
+
+  pool.queries.length = 0;
+  await auth.state.keys.set({
+    'pre-key': {
+      '1': { a: 1 },
+      '2': { a: 2 },
+      '3': { a: 3 },
+      '4': null,
+      '5': null,
+    },
+  });
+
+  const insertQueries = pool.queries.filter((q) => q.sql.includes('INSERT INTO wa_gateway_auth'));
+  const deleteQueries = pool.queries.filter((q) => q.sql.includes('DELETE FROM wa_gateway_auth'));
+  assert.equal(insertQueries.length, 1);
+  assert.match(insertQueries[0].sql, /UNNEST\(\$1::text\[\], \$2::bytea\[\]\)/);
+  assert.equal(deleteQueries.length, 1);
+  assert.match(deleteQueries[0].sql, /ANY\(\$1::text\[\]\)/);
 });

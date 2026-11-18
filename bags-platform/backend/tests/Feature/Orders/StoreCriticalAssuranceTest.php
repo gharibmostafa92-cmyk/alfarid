@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class StoreCriticalAssuranceTest extends TestCase
@@ -49,6 +50,54 @@ class StoreCriticalAssuranceTest extends TestCase
         $this->seed(SettingSeeder::class);
         $this->staff = User::factory()->create();
         $this->branch = Branch::factory()->create();
+    }
+
+    public static function guestCartAuthCases(): array
+    {
+        return [
+            'retail registration' => [true, false],
+            'retail login' => [false, false],
+            'wholesale login' => [false, true],
+        ];
+    }
+
+    #[DataProvider('guestCartAuthCases')]
+    public function test_in_stock_guest_cart_after_authentication(bool $register, bool $wholesale): void
+    {
+        $variant = $this->purchasableVariant(80);
+        $this->giveStock($variant, 10);
+        $guestToken = $this->postJson('/api/v1/store/cart/items', [
+            'product_variant_id' => $variant->id,
+            'qty' => 2,
+        ])->assertOk()->json('data.cart_token');
+        $this->assertIsString($guestToken);
+        $guest = Cart::query()->where('cart_token', $guestToken)->sole();
+        $password = 'Guest-cart-password1';
+
+        if ($register) {
+            $phone = '01012345678';
+            $this->postJson('/api/v1/store/auth/register', [
+                'name' => 'Guest cart customer', 'phone' => $phone, 'password' => $password,
+            ], ['X-Cart-Session' => $guestToken])->assertCreated()->assertJsonPath('cart_merged', true);
+            $customer = Customer::query()->where('phone', $phone)->sole();
+        } else {
+            $factory = Customer::factory();
+            $customer = ($wholesale ? $factory->wholesale() : $factory)->create([
+                'status' => 'approved', 'password' => $password,
+            ]);
+            $this->postJson('/api/v1/auth/login', [
+                'login' => $customer->phone, 'password' => $password,
+            ], ['X-Cart-Session' => $guestToken])->assertOk();
+        }
+
+        if ($wholesale) {
+            $this->assertDatabaseMissing('carts', ['customer_id' => $customer->id]);
+            $this->assertSame(2.0, (float) $guest->items()->where('product_variant_id', $variant->id)->sole()->qty);
+        } else {
+            $cart = Cart::query()->where('customer_id', $customer->id)->sole();
+            $this->assertSame(2.0, (float) $cart->items()->where('product_variant_id', $variant->id)->sole()->qty);
+            $this->assertDatabaseMissing('carts', ['id' => $guest->id]);
+        }
     }
 
     public function test_recent_guest_cart_activity_survives_prune(): void

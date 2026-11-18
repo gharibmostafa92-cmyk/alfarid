@@ -145,6 +145,11 @@ PROMPT;
             }
         }
 
+        AiAttachment::query()
+            ->whereIn('id', $attachments->pluck('id'))
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+
         AiMessage::create([
             'conversation_id' => $conv->id,
             'role' => 'event',

@@ -129,11 +129,13 @@ class UnifiedAuthController extends Controller
                 && ! $actor->can('inventory.all_branches')
                 && $actor->branch_id !== null
                 && ! app(\App\Services\Inventory\BranchAccess::class)->isBranchActive((int) $actor->branch_id)) {
-                return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
+                return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.', 'code' => 'pos_branch_unavailable'], 403);
             }
 
             $actor->load(['branch', 'roles.permissions', 'permissions']);
             $redirect = $this->destinations->resolve($actor);
+
+            abort_if(! $token->can('*') && $redirect['destination'] !== 'pos', 403);
 
             $data = $token->can('*')
                 ? UserResource::make($actor)->resolve($request)
@@ -142,6 +144,10 @@ class UnifiedAuthController extends Controller
                     'name' => $actor->name,
                     'email' => $actor->email,
                     'branch_id' => $actor->branch_id,
+                    'branch' => $actor->branch?->only('id', 'name'),
+                    'permissions' => $actor->getAllPermissions()->pluck('name')
+                        ->filter(fn (string $name) => str_starts_with($name, 'pos.') || $name === 'stocktakes.update')
+                        ->values()->all(),
                     'must_change_password' => (bool) $actor->must_change_password,
                 ];
 

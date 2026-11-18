@@ -171,8 +171,11 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
             ->where('created_at', '>=', now()->subHours(48))->exists()) {
             $warnings[] = 'فيه مصروف مشابه بنفس المبلغ والخزينة خلال آخر ٤٨ ساعة.';
         }
-        $average = (string) ((clone $similar)->where('expense_date', '>=', $now->copy()->subMonthsNoOverflow(6)->toDateString())->avg('amount') ?? '0');
-        $averageDec = BigDecimal::of($average);
+        $aggregate = (clone $similar)->where('expense_date', '>=', $now->copy()->subMonthsNoOverflow(6)->toDateString())
+            ->selectRaw('COALESCE(SUM(amount), 0) AS amount_total, COUNT(*) AS amount_count')->first();
+        $averageDec = (int) ($aggregate?->amount_count ?? 0) > 0
+            ? BigDecimal::of((string) $aggregate->amount_total)->dividedBy((string) $aggregate->amount_count, 2, RoundingMode::HalfUp)
+            : BigDecimal::zero();
         $amountDec = BigDecimal::of((string) $amount)->toScale(2, RoundingMode::HalfUp);
         if ($averageDec->isGreaterThan(0) && $amountDec->isGreaterThan($averageDec->multipliedBy(3))) {
             $warnings[] = 'المبلغ أكبر من ٣ أضعاف متوسط الفئة.';

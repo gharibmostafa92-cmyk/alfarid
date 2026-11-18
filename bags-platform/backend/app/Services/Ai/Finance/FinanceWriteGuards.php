@@ -178,6 +178,17 @@ final class FinanceWriteGuards
         ];
     }
 
+    /** @param array<string,mixed> $expected */
+    public function assertAccountVersionsMatch(Treasury $treasury, array $expected): void
+    {
+        $current = $this->accountVersions($treasury);
+        ksort($current);
+        ksort($expected);
+        if ($expected === [] || $current !== $expected) {
+            throw new \App\Exceptions\BusinessException('الخزينة اتعدلت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
+        }
+    }
+
     /**
      * Smart top-up suggestion (Phase 5.5): finds a same-branch treasury able
      * to cover a shortfall, with a ready one-click prompt for the model.

@@ -3,6 +3,9 @@ import test from 'node:test';
 import { DisconnectReason } from '@whiskeysockets/baileys';
 import {
   MAX_MEDIA_ENTRIES,
+  buildDeleteForMeModify,
+  buildQuotedMessage,
+  closeSocketSafely,
   consumeMediaStream,
   createMediaStore,
   createPoolConfig,
@@ -11,6 +14,7 @@ import {
   logoutSession,
   resolveBaileysVersion,
 } from '../src/gateway.js';
+import { createReplayGuard, sign, verify } from '../src/hmac.js';
 
 test('createPoolConfig sets bounded pool options', () => {
   const cfg = createPoolConfig('postgres://user:pass@localhost:5432/db');
@@ -113,7 +117,7 @@ test('consumeMediaStream destroys stream on success and on size overflow', async
   assert.equal(res2.tooLarge, true);
 });
 
-test('logoutSession clears auth, resets runtime to close, and schedules reconnect', async () => {
+test('logoutSession clears auth and stays logged out without scheduling reconnect', async () => {
   let loggedOutCalled = false;
   let authCleared = false;
   let reconnectCalled = false;
@@ -130,19 +134,37 @@ test('logoutSession clears auth, resets runtime to close, and schedules reconnec
   await logoutSession({
     runtime,
     clearAuth: async () => { authCleared = true; },
-    scheduleReconnect: () => { reconnectCalled = true; },
+    logger: { warn() {}, error() {} },
   });
 
   assert.equal(loggedOutCalled, true);
   assert.equal(authCleared, true);
-  assert.equal(reconnectCalled, true);
+  assert.equal(reconnectCalled, false);
   assert.equal(runtime.sock, null);
-  assert.equal(runtime.state, 'close');
+  assert.equal(runtime.state, 'logged_out');
   assert.equal(runtime.phone, null);
   assert.equal(runtime.qr, null);
 });
 
-test('handleConnectionUpdate recovers from DisconnectReason.loggedOut by clearing auth and scheduling reconnect', async () => {
+test('handleConnectionUpdate ignores stale socket events even after active socket is cleared', async () => {
+  let reconnects = 0;
+  const stale = { user: { id: '201000:1@s.whatsapp.net' } };
+  const runtime = { state: 'logged_out', sock: null, phone: null, qr: null };
+  await handleConnectionUpdate({
+    update: { connection: 'open' },
+    sock: stale,
+    runtime,
+    auth: { clear: async () => {} },
+    scheduleReconnect: () => { reconnects += 1; },
+    resetBackoff: () => {},
+    qrToDataUrl: async () => '',
+  });
+  assert.equal(runtime.state, 'logged_out');
+  assert.equal(runtime.sock, null);
+  assert.equal(reconnects, 0);
+});
+
+test('handleConnectionUpdate transitions to logged_out on DisconnectReason.loggedOut without auto-reconnect', async () => {
   let authCleared = false;
   let scheduledDelay = null;
   const sock = { user: { id: '201000:1@s.whatsapp.net' } };
@@ -169,10 +191,10 @@ test('handleConnectionUpdate recovers from DisconnectReason.loggedOut by clearin
 
   assert.equal(authCleared, true);
   assert.equal(runtime.sock, null);
-  assert.equal(runtime.state, 'close');
+  assert.equal(runtime.state, 'logged_out');
   assert.equal(runtime.phone, null);
   assert.equal(runtime.qr, null);
-  assert.equal(scheduledDelay, 5000);
+  assert.equal(scheduledDelay, null);
 });
 
 test('resolveBaileysVersion falls back to built-in version on timeout or error', async () => {
@@ -196,4 +218,50 @@ test('resolveBaileysVersion falls back to built-in version on timeout or error',
   });
   assert.deepEqual(fromError, fallback);
   assert.equal(warnings.length, 2);
+});
+
+test('createReplayGuard rejects duplicate mutating signatures within TTL and allows after expiry', () => {
+  let nowMs = 1_000_000;
+  const guard = createReplayGuard({ ttlMs: 300_000, now: () => nowMs });
+  const secret = 'super-secret-key';
+  const ts = String(Math.floor(nowMs / 1000));
+  const body = JSON.stringify({ to_jid: '123@s.whatsapp.net', text: 'hi' });
+  const sig = sign(secret, ts, body);
+
+  assert.equal(verify(secret, ts, body, sig, nowMs), true);
+  assert.equal(guard.consume('POST', '/send', sig), true);
+  assert.equal(guard.consume('POST', '/send', sig), false, 'replay must be rejected within TTL');
+
+  nowMs += 300_001;
+  assert.equal(guard.consume('POST', '/send', sig), true, 'allowed after TTL expiry');
+});
+
+test('closeSocketSafely closes existing socket and ignores errors', () => {
+  let ended = false;
+  closeSocketSafely({ end() { ended = true; } });
+  assert.equal(ended, true);
+
+  assert.doesNotThrow(() => closeSocketSafely({ end() { throw new Error('already closed'); } }));
+  assert.doesNotThrow(() => closeSocketSafely(null));
+});
+
+test('buildQuotedMessage defaults quoted_from_me to false and buildDeleteForMeModify targets local device', () => {
+  assert.deepEqual(buildQuotedMessage('2010@s.whatsapp.net', 'msg-1'), {
+    key: { remoteJid: '2010@s.whatsapp.net', id: 'msg-1', fromMe: false },
+    message: { conversation: '' },
+  });
+  assert.deepEqual(buildQuotedMessage('2010@s.whatsapp.net', 'msg-2', true), {
+    key: { remoteJid: '2010@s.whatsapp.net', id: 'msg-2', fromMe: true },
+    message: { conversation: '' },
+  });
+  assert.equal(buildQuotedMessage('2010@s.whatsapp.net', null), undefined);
+
+  const mod = buildDeleteForMeModify('2010@s.whatsapp.net', 'pin-1', 1700000000);
+  assert.deepEqual(mod, {
+    deleteForMe: {
+      deleteMedia: false,
+      key: { id: 'pin-1', fromMe: false, remoteJid: '2010@s.whatsapp.net' },
+      timestamp: 1700000000,
+    },
+  });
 });

@@ -15,6 +15,37 @@ Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes b
 
 ## 2. Ready / Pending Server Deployment (NOT yet deployed)
 
+### 2026-11-18 AI Assistant, Catalog, Inventory, Shipping & Storefront Security Hardening (`[F-01]`–`[F-18]`) (local only / not deployed)
+
+- Live status is unverified; no live Cloud Run revision or production database was checked for this change.
+- **Database Migrations & Models (`[F-01]`, `[F-02]`, `[F-04]`, `[F-18]`):**
+  - Verified `[F-01]` (`2026_11_01_000002_add_bulk_child_action_status.php`, `2026_11_05_000001_apply_audit_fixes.php`) and `[F-02]` (`2026_11_18_000002_add_durable_whatsapp_outbound_delivery.php`).
+  - Added pending forward migration `2026_11_18_000003_add_model_to_ai_messages_table.php` (nullable `model` column on `ai_messages`), added `'model'` to `AiMessage` `#[Fillable]`, and added `'is_pinned'` to `AiConversation` `#[Fillable]` and `casts()` (`boolean`).
+  - Made `2026_11_12_000024_fail_fast_on_number_sync_contention.php::down()` self-contained (removed relative `require` dependency on `2026_11_12_000018`).
+- **Storefront AI & Banner Locking (`[F-03]`, `[F-10]`, `[F-11]`):**
+  - `PlaceAssistedOrderTool`: normalized phone digits before taking last 4 digits, added `cart_fingerprint` SHA-256 TOCTOU check, re-checked `StorefrontToolProvider::enabled()` and `isToolHidden()` on `execute()`, locked `Customer` & `Cart`, and verified `$cart->customer_id === $customer->id`.
+  - `PreviewCheckoutTool` & `DiagnoseCartTool`: blocked guest cart inspection by numeric `cart_id`, enforced `customer_id` match when both are provided, and required `customers.view`.
+  - `UpdateBannerTool`, `SetBannerStatusTool`, `CreateBannerTool`, `ReorderBannersTool`: added `LocksTargets` + microsecond `updated_at` optimistic concurrency checks and `StaffAdministration::audit()` logging.
+- **Catalog AI Locking & Atomicity (`[F-06]`, `[F-08]`, `[F-14]`, `[F-16]`):**
+  - `DeleteProductMediaTool`, `DeleteProductTool`, `DeleteVariantTool`, `SetVariantStatusTool`, `SetCategoryStatusTool`: acquired exclusive `Product` row locks (`lockForUpdate()`) and re-checked publishability / non-zero stock invariants on `execute()`.
+  - `BulkUpdatePricesTool` & `AddVariantsTool`: wrapped `execute()` and `undo()` in `DB::transaction()`, guarded deleted variants in `undo()`, and validated `Product` `lock_version` once under lock before multi-variant creation.
+  - `SetProductStatusTool`: recorded actual post-execution `lock_version` in `inverse['target_version']` instead of assuming `+1` in `prepare()`.
+  - `CatalogPresenter::product()`: eager-loaded `variants.media` to eliminate N+1 media count queries.
+- **Inventory AI, Cost Privacy & Stocktake Locking (`[F-05]`, `[F-10]`, `[F-12]`, `[F-14]`, `[F-16]`, `[F-17]`):**
+  - `ListMovementsTool` & `InventoryPresenter`: omitted `unit_cost` unless `CostAccess::canView($actor)` and added `'unit_cost'` to `COST_KEYS`.
+  - `ReceiveProductionTool`: masked absolute `cost_before`/`cost_after` in `changes` summary when `ai_inventory_share_cost_with_model` is disabled, locked `StockLevel` rows in `lockTargets()`, and converted `batch_number` unique violations to 409 `BusinessException`.
+  - `RecordCountsTool` & `CancelStocktakeTool`: added `LocksTargets` and per-item `counted_qty` / `status` concurrency checks on `execute()`.
+  - `AdjustStockTool`, `CreateTransferDraftTool`, `ApproveTransferTool`: required `expected_versions` key presence in `AdjustStockTool`, moved `created_transfer_id` from `expected_versions` to `inverse` in `CreateTransferDraftTool`, and removed destructive `UndoableTool` from `ApproveTransferTool`.
+  - `StockMatrixTool` & `ExplainBalanceTool`: added `SUM(available) AS available` to `selectRaw` and fell back to `StockMovement` distinct `location_id`s when `StockLevel` rows were deleted.
+- **Bulk Prep, Shipping, Controllers, Attachments & SpokenQuantity (`[F-07]`, `[F-09]`, `[F-13]`, `[F-15]`, `[F-16]`, `[F-17]`):**
+  - `ToolRegistry::prepareBulk()`: enforced `ai_bulk_max_items` and deleted failed unshown child actions instead of marking them `cancelled`.
+  - `UpsertShippingRateTool`, `SyncZoneCitiesTool`, `DeleteShippingRateTool`, `SetShippingCompanyStatusTool`, `UpsertShippingZoneTool`, `DiagnoseShippingCoverageTool`: prevented duplicate rate 500s, audited all shipping `undo()` actions, touched zone `updated_at` on undo, verified company/zone existence on rate restore, and replaced large `pluck()`/`whereIn` with `whereExists`/`whereNotExists`.
+  - `AiMessageController`, `AiAdministrationController`, `AiConversationController`, `AiAttachmentController`, `ShippingArgs`, `CreateBannerTool`, `ParseCountSheetTool`, `SpokenQuantity`: unified `store()` error handling & non-empty payload validation, gated `settings()` with `ai_agent.settings`/`settings.view`, used `$request->boolean('all')`, excluded soft-deleted conversations from attachment quota & marked `consumed_at` on `ParseCountSheetTool`/`CreateBannerTool`, expanded `ShippingArgs::secretKey()`, and fixed `SpokenQuantity::parse()` (`تلاف`, `ميه ميه`).
+- **Required deployment actions:**
+  - Run `php artisan migrate` to apply `2026_11_18_000003_add_model_to_ai_messages_table.php` (if not already applied alongside `2026_11_18_000002_add_durable_whatsapp_outbound_delivery.php`).
+  - Deploy updated backend PHP codebase and restart queue workers.
+  - Local verification: `55/55` targeted backend tests (`237` assertions) passed across 8 test suites (`AiModelSchemaAuditTest`, `AiStorefrontSecurityAuditTest`, `AiCatalogHardeningAuditTest`, `AiInventoryHardeningAuditTest`, `AiRemainingHardeningAuditTest`, `SpokenQuantityTest`, `AiAgentTest`, `AiCatalogToolsTest`).
+
 ### 2026-11-18 AI Gateway, WhatsApp Cloud API & Webhook Hardening Roadmap (`_archive_unused/tasks_execution/task.txt`) (local only / not deployed)
 
 - Live status is unverified; no live Cloud Run revision or production database was checked for this change.

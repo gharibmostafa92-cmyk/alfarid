@@ -22,9 +22,9 @@ const locations = {
 };
 const variant = (id, sku, ar, en) => ({ id, sku, barcode: null, product_id: 5, product_name_ar: ar, product_name_en: en });
 const levels = [
-  { id: 1, product_variant_id: 7, variant: variant(7, 'BAG-01', 'شنطة الفريد', 'Alfarid Bag'), branch: { id: 1, name: 'المخزن الرئيسي' }, location: { id: 10, name: 'رف A-01', code: 'A-01' }, on_hand: '100.0000', reserved: '10.0000', damaged: '2.0000', in_transit: '5.0000', available: '93.0000', reorder_level: '20.0000', is_low_stock: false, updated_at: NOW },
+  { id: 1, product_variant_id: 7, variant: variant(7, 'BAG-01', 'شنطة VARYA', 'VARYA Bag'), branch: { id: 1, name: 'المخزن الرئيسي' }, location: { id: 10, name: 'رف A-01', code: 'A-01' }, on_hand: '100.0000', reserved: '10.0000', damaged: '2.0000', in_transit: '5.0000', available: '93.0000', reorder_level: '20.0000', is_low_stock: false, updated_at: NOW },
   { id: 2, product_variant_id: 8, variant: variant(8, 'BAG-02', 'شنطة سفر', 'Travel Bag'), branch: { id: 1, name: 'المخزن الرئيسي' }, location: null, on_hand: '3.0000', reserved: '0.0000', damaged: '0.0000', in_transit: '0.0000', available: '3.0000', reorder_level: '20.0000', is_low_stock: true, updated_at: NOW },
-  { id: 3, product_variant_id: 7, variant: variant(7, 'BAG-01', 'شنطة الفريد', 'Alfarid Bag'), branch: { id: 2, name: 'فرع مدينة نصر' }, location: { id: 20, name: 'رف B-01', code: 'B-01' }, on_hand: '15.0000', reserved: '0.0000', damaged: '0.0000', in_transit: '0.0000', available: '15.0000', reorder_level: '5.0000', is_low_stock: false, updated_at: NOW },
+  { id: 3, product_variant_id: 7, variant: variant(7, 'BAG-01', 'شنطة VARYA', 'VARYA Bag'), branch: { id: 2, name: 'فرع مدينة نصر' }, location: { id: 20, name: 'رف B-01', code: 'B-01' }, on_hand: '15.0000', reserved: '0.0000', damaged: '0.0000', in_transit: '0.0000', available: '15.0000', reorder_level: '5.0000', is_low_stock: false, updated_at: NOW },
 ];
 const move = (id, type, qty, before, after, extra = {}) => ({
   id, reference_number: 'MV-' + id, product_variant_id: 7, variant: { id: 7, sku: 'BAG-01', product_id: 5 },
@@ -60,7 +60,7 @@ async function mockApi(context) {
     if (p.endsWith('/me')) return route.fulfill({ json: { data: me } });
     if (p.endsWith('/production-receipts/options')) {
       const q = (url.searchParams.get('search') || '').trim();
-      const all = [{ id: 7, label: 'شنطة الفريد / BAG-01' }, { id: 8, label: 'شنطة سفر / BAG-02' }];
+      const all = [{ id: 7, label: 'شنطة VARYA / BAG-01' }, { id: 8, label: 'شنطة سفر / BAG-02' }];
       return route.fulfill({ json: { data: { branches: [{ id: 1, name: 'المخزن الرئيسي', locations: [{ id: 10, name: 'رف A-01' }, { id: 11, name: 'منطقة الاستلام' }] }, { id: 2, name: 'فرع مدينة نصر', locations: [{ id: 20, name: 'رف B-01' }] }], variants: q ? all.filter(v => v.label.includes(q)) : all.slice(0, 50) } } });
     }
     if (p.endsWith('/production-receipts') && method === 'POST') {
@@ -353,7 +353,7 @@ async function mockApi(context) {
     await visit(page, screen, 'stock?low=1', 'أرصدة المخزون');
     assert.equal(await screen.getByRole('row').count(), 2);
     await visit(page, screen, 'stock', 'أرصدة المخزون');
-    await pickVariant(screen, 'شنطة الفريد / BAG-01');
+    await pickVariant(screen, 'شنطة VARYA / BAG-01');
     await page.waitForFunction(() => location.hash.includes('variantId=7'));
     assert.equal(await screen.getByRole('row').count(), 3); // header + 2 rows variant 7
 
@@ -375,7 +375,7 @@ async function mockApi(context) {
     await visit(page, screen, 'adjust', 'تسوية المخزون');
     await screen.locator('select').first().selectOption('1');
     const firstLine = screen.getByRole('row').nth(1);
-    await pickVariant(firstLine, 'شنطة الفريد / BAG-01');
+    await pickVariant(firstLine, 'شنطة VARYA / BAG-01');
     await firstLine.getByPlaceholder('0.0000').fill('٥٫٥');
     await firstLine.getByPlaceholder(/مثال/).fill('تجربة قفل');
     await screen.getByRole('button', { name: 'تنفيذ التسوية', exact: true }).click();
@@ -387,7 +387,7 @@ async function mockApi(context) {
     assert.equal(payloads.find(p => p.path.endsWith('/adjustments')).body.items[0].quantity, 5.5);
     await visit(page, screen, 'adjust', 'تسوية المخزون');
     await screen.locator('select').first().selectOption('1');
-    const types = [['زيادة', 'شنطة الفريد / BAG-01', '10', 'زيادة تجربة'], ['نقصان', 'شنطة سفر / BAG-02', '2', 'نقصان تجربة'], ['تسجيل تالف', 'شنطة الفريد / BAG-01', '1', 'تالف تجربة'], ['إعدام تالف', 'شنطة سفر / BAG-02', '1', 'إعدام تجربة'], ['استرجاع من التالف', 'شنطة الفريد / BAG-01', '1', 'استرجاع تجربة']];
+    const types = [['زيادة', 'شنطة VARYA / BAG-01', '10', 'زيادة تجربة'], ['نقصان', 'شنطة سفر / BAG-02', '2', 'نقصان تجربة'], ['تسجيل تالف', 'شنطة VARYA / BAG-01', '1', 'تالف تجربة'], ['إعدام تالف', 'شنطة سفر / BAG-02', '1', 'إعدام تجربة'], ['استرجاع من التالف', 'شنطة VARYA / BAG-01', '1', 'استرجاع تجربة']];
     for (let i = 0; i < types.length; i++) {
       if (i > 0) await screen.getByRole('button', { name: /إضافة بند/ }).click();
       await fillAdjustLine(screen.getByRole('row').nth(i + 1), ...types[i]);
@@ -399,7 +399,7 @@ async function mockApi(context) {
     await screen.locator('select').first().selectOption('1');
     const badLine = screen.getByRole('row').nth(1);
     await badLine.getByRole('combobox').first().selectOption({ label: 'نقصان' });
-    await pickVariant(badLine, 'شنطة الفريد / BAG-01');
+    await pickVariant(badLine, 'شنطة VARYA / BAG-01');
     await badLine.getByPlaceholder('0.0000').fill('999');
     await badLine.getByPlaceholder(/مثال/).fill('رصيد غير كاف');
     await screen.getByRole('button', { name: 'تنفيذ التسوية', exact: true }).click();
@@ -414,7 +414,7 @@ async function mockApi(context) {
     await screen.getByLabel(/فرع المصدر/).selectOption('1');
     await screen.getByLabel(/فرع الوجهة/).selectOption('2');
     const trLine = screen.getByRole('row').nth(1);
-    await pickVariant(trLine, 'شنطة الفريد / BAG-01');
+    await pickVariant(trLine, 'شنطة VARYA / BAG-01');
     await trLine.getByPlaceholder('0.0000').fill('10');
     await screen.getByRole('button', { name: 'حفظ كمسودة', exact: true }).click();
     await screen.locator('h1').filter({ hasText: /TRF-/ }).waitFor();
@@ -442,7 +442,7 @@ async function mockApi(context) {
     await screen.getByRole('button', { name: /تحويل جديد/ }).click();
     await screen.getByLabel(/فرع المصدر/).selectOption('1');
     await screen.getByLabel(/فرع الوجهة/).selectOption('2');
-    await pickVariant(screen.getByRole('row').nth(1), 'شنطة الفريد / BAG-01');
+    await pickVariant(screen.getByRole('row').nth(1), 'شنطة VARYA / BAG-01');
     await screen.getByRole('row').nth(1).getByPlaceholder('0.0000').fill('3');
     await screen.getByRole('button', { name: 'حفظ كمسودة', exact: true }).click();
     await screen.locator('h1').filter({ hasText: /TRF-/ }).waitFor();
@@ -506,7 +506,7 @@ async function mockApi(context) {
     await screen.getByRole('button', { name: /تسجيل استلام/ }).first().click();
     await modal().getByLabel(/رقم الدفعة/).fill('B-INT-1');
     await modal().getByLabel(/الفرع/).selectOption('1');
-    await pickVariant(modal(), 'شنطة الفريد / BAG-01');
+    await pickVariant(modal(), 'شنطة VARYA / BAG-01');
     await modal().getByPlaceholder('0', { exact: true }).first().fill('12');
     await modal().getByPlaceholder('0.00', { exact: true }).first().fill('75');
     const prodPosts = [];

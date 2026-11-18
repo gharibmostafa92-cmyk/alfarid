@@ -169,7 +169,7 @@ class ProductController extends Controller
         $validUntil = now()->addDays(30);
 
         return Pdf::loadView('pdfs.wholesale_price_list', [
-            'company_name' => (string) $this->settings->get('company_name', 'Alfarid'),
+            'company_name' => (string) $this->settings->get('company_name', 'VARYA'),
             'customer' => $customer,
             'rows' => $rows,
             'valid_until' => $validUntil,

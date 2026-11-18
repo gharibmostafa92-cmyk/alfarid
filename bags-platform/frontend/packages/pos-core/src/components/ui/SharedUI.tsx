@@ -23,12 +23,13 @@ export const nf2 = new Intl.NumberFormat('ar-EG', {
 });
 export const egp = (v: number): string => nf2.format(Math.round(v * 100) / 100);
 
-export const toAsciiNum = (s: string | number, maxDecimals = 2): string => {
-  const cleaned = String(s)
+export const normalizeMoneyDigits = (s: string | number): string => String(s)
     .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
     .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-    .replace(/[،٫]/g, '.')
-    .replace(/[^\d.]/g, '');
+    .replace(/[،٫]/g, '.');
+
+export const toAsciiNum = (s: string | number, maxDecimals = 2): string => {
+  const cleaned = normalizeMoneyDigits(s).replace(/[^\d.]/g, '');
   const [intPart, ...rest] = cleaned.split('.');
   if (rest.length === 0) return intPart;
   const dec = rest.join('').slice(0, maxDecimals);
@@ -143,6 +144,7 @@ export function MoneyInput({
   onEnter,
   disabled,
   readOnly,
+  normalize = toAsciiNum,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -152,6 +154,7 @@ export function MoneyInput({
   onEnter?: () => void;
   disabled?: boolean;
   readOnly?: boolean;
+  normalize?: (value: string) => string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -171,7 +174,7 @@ export function MoneyInput({
         placeholder={placeholder}
         disabled={disabled}
         readOnly={readOnly}
-        onChange={(e) => !disabled && !readOnly && onChange(toAsciiNum(e.target.value))}
+        onChange={(e) => !disabled && !readOnly && onChange(normalize(e.target.value))}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && onEnter) onEnter();
         }}

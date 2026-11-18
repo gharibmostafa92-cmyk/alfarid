@@ -58,6 +58,8 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
   }, [open, failed, close]);
 
   if (!open || failed) return null;
+  const href = safeStoreHref(banner.href);
+  const external = banner.is_external && href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
   const image = (
     <StoreImage
       src={banner.image}
@@ -69,8 +71,6 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
       }}
     />
   );
-  const href = safeStoreHref(banner.href);
-  const external = href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
   return (
     <div
       className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"

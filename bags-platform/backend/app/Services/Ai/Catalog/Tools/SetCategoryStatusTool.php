@@ -123,9 +123,20 @@ final class SetCategoryStatusTool implements LocksTargets, UndoableTool, WriteTo
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $category = Category::findOrFail((int) $action->args['category_id']);
+        $targetActive = (bool) $action->args['is_active'];
+        if (! $targetActive) {
+            $subtreeIds = [$category->id, ...$category->descendantIds()];
+            $publishedCount = Product::query()
+                ->whereIn('category_id', $subtreeIds)
+                ->where('status', ProductStatus::Published)
+                ->count();
+            if ($publishedCount > 0) {
+                throw new \App\Exceptions\BusinessException("لازم تأرشف أو تنقل الـ {$publishedCount} منتج المنشورين في القسم الأول.", [], 409);
+            }
+        }
         $oldActive = (bool) $category->is_active;
         $updated = $this->categories->update($category, [
-            'is_active' => (bool) $action->args['is_active'],
+            'is_active' => $targetActive,
             'expected_version' => $action->expected_versions['category:'.$category->id] ?? null,
         ], null);
 

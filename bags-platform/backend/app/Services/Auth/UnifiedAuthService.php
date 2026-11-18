@@ -8,6 +8,7 @@ use App\Enums\Customer\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
+use App\Models\SupplierUser;
 use App\Models\User;
 use App\Rules\TurnstileToken;
 use Illuminate\Support\Facades\Hash;
@@ -157,13 +158,11 @@ final class UnifiedAuthService
 
             if ($present === []) {
                 Hash::check($password, CustomerAuthService::dummyHash());
-                logger()->info('unified.login', ['result' => 'wrong_password']);
-
-                throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
             }
 
             $matched = null;
             $inactiveAuditedIds = [];
+            $inactiveMatch = false;
             foreach ($present as $candidate) {
                 $hasPassword = is_string($candidate->password) && $candidate->password !== '';
                 $hash = $hasPassword ? $candidate->password : CustomerAuthService::dummyHash();
@@ -173,6 +172,7 @@ final class UnifiedAuthService
                 if ($candidate instanceof User && (! $candidate->is_active || $candidate->is_system)) {
                     // L3: record inactive once; the wrong_password block below must not double-count it.
                     $inactiveAuditedIds[] = $candidate->id;
+                    $inactiveMatch = ! $candidate->is_system;
                     if (! $suppressAudit) {
                         StaffAuthenticationAudit::record($candidate, 'inactive');
                     }
@@ -185,6 +185,9 @@ final class UnifiedAuthService
             }
 
             if ($matched === null) {
+                if ($inactiveMatch || (! $staffOnly && $this->matchesInactiveSupplier($email, $password))) {
+                    throw new BusinessException('الحساب غير نشط.', [], 403, 'account_inactive');
+                }
                 if ($customer !== null) {
                     defer(fn () => CustomerAuditLog::record($customer, 'login_failed', null, [
                         'identifier_key' => hash_hmac('sha256', $email, (string) config('app.key')),
@@ -220,9 +223,10 @@ final class UnifiedAuthService
                 CustomerAuditLog::record($matched, 'login_failed', null, ['reason' => 'suspended']);
 
                 throw new BusinessException(
-                    'هذا الحساب موقوف.'.($matched->suspension_reason ? ' السبب: '.$matched->suspension_reason : ''),
-                    ['suspension_reason' => $matched->suspension_reason],
+                    'هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.',
+                    [],
                     403,
+                    'account_inactive',
                 );
             }
             // Rehash password only after verifying active account status.
@@ -238,6 +242,20 @@ final class UnifiedAuthService
         }
 
         return $this->customerAuth->login($login, $password);
+    }
+
+    private function matchesInactiveSupplier(string $email, string $password): bool
+    {
+        // The retired supplier portal never issues credentials through unified login.
+        $supplier = SupplierUser::query()->where('email', $email)
+            ->where(fn ($query) => $query->where('is_active', false)
+                ->orWhereHas('supplier', fn ($supplier) => $supplier->where('is_active', false)))
+            ->first();
+        if ($supplier === null || ! is_string($supplier->password) || $supplier->password === '') {
+            return false;
+        }
+
+        return Hash::check($password, $supplier->password);
     }
 
     private function rehashIfNeeded(User|SupplierUser|Customer $model, string $password): void

@@ -117,9 +117,6 @@ final class ParsePriceSheetTool implements AgentTool
         $belowCostPolicy = in_array($belowCostPolicy, ['block', 'warn'], true) ? $belowCostPolicy : 'block';
         $listType = $list->type instanceof PriceListType ? $list->type->value : (string) $list->type;
         $isWholesaleList = in_array($listType, [PriceListType::Wholesale->value, PriceListType::Distributor->value], true);
-        $current = PriceListItem::query()->where('price_list_id', $list->id)->get()
-            ->keyBy(fn (PriceListItem $i) => $i->product_variant_id.':'.number_format((float) $i->min_qty, 4, '.', ''));
-
         foreach ($rawIds as $fileIndex => $attId) {
             /** @var AiAttachment $att */
             $att = $attachments->get($attId);
@@ -131,7 +128,7 @@ final class ParsePriceSheetTool implements AgentTool
 
                         continue;
                     }
-                    $this->consumeRow($actor, $list, $row, $current, $rows, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, 'مرفق '.($fileIndex + 1).' · سطر '.($lineIndex + 1));
+                    $this->consumeRow($actor, $list, $row, $rows, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, 'مرفق '.($fileIndex + 1).' · سطر '.($lineIndex + 1));
                 }
             } elseif (in_array($att->mime, ['text/csv', 'text/plain'], true) || str_ends_with((string) $att->path, '.csv') || str_ends_with((string) $att->path, '.txt')) {
                 if (! $disk->exists($att->path)) {
@@ -144,7 +141,7 @@ final class ParsePriceSheetTool implements AgentTool
                     }
                     $parts = str_getcsv($line);
                     $row = ['sku' => trim((string) ($parts[0] ?? '')), 'price' => trim((string) ($parts[1] ?? '')), 'min_qty' => trim((string) ($parts[2] ?? '1')), 'confidence' => 1.0];
-                    $this->consumeRow($actor, $list, $row, $current, $rows, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, 'مرفق '.($fileIndex + 1).' · سطر '.($lineIndex + 1));
+                    $this->consumeRow($actor, $list, $row, $rows, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, 'مرفق '.($fileIndex + 1).' · سطر '.($lineIndex + 1));
                 }
             } else {
                 return ToolOutcome::denied('نوع الملف غير مدعوم (صور أو CSV فقط).', auditable: false);
@@ -156,6 +153,16 @@ final class ParsePriceSheetTool implements AgentTool
 
             return ToolOutcome::denied('مفيش سطور واضحة في المرفقات. صوّر أوضح أو اكتب البنود يدويًا.', auditable: false);
         }
+
+        $variantIds = array_values(array_unique(array_map(static fn (array $row): int => (int) $row['variant_id'], $rows)));
+        $current = PriceListItem::query()->where('price_list_id', $list->id)
+            ->whereIn('product_variant_id', $variantIds)->get()
+            ->keyBy(fn (PriceListItem $i) => $i->product_variant_id.':'.number_format((float) $i->min_qty, 4, '.', ''));
+        foreach ($rows as &$row) {
+            $old = $current->get($row['variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', ''));
+            $row['old_price'] = $old instanceof PriceListItem ? (float) $old->price : null;
+        }
+        unset($row);
 
         $minPct = null;
         foreach ($rows as $row) {
@@ -169,7 +176,7 @@ final class ParsePriceSheetTool implements AgentTool
         $risk = (count($rows) > 20 || ($minPct !== null && $minPct < -15)) ? 'high' : 'medium';
         $locking = PricingUpsertPrep::versionsAndInverse($list, $rows, $current);
 
-        return DB::transaction(function () use ($actor, $conv, $list, $rows, $risk, $warnings, $locking, $visionEvents): ToolOutcome {
+        return DB::transaction(function () use ($actor, $conv, $list, $rawIds, $rows, $risk, $warnings, $locking, $visionEvents): ToolOutcome {
             $outcome = $this->proposals->make(
             $actor,
             'upsert_price_list_items',
@@ -190,6 +197,12 @@ final class ParsePriceSheetTool implements AgentTool
                 'blocked' => [],
             ],
             );
+
+            if ($outcome->type === 'proposal') {
+                AiAttachment::query()->where('conversation_id', $conv->id)
+                    ->whereIn('id', $rawIds)->whereNull('consumed_at')
+                    ->update(['consumed_at' => now()]);
+            }
 
             $this->recordVisionEvents((int) $conv->id, $visionEvents);
 
@@ -264,11 +277,10 @@ PROMPT,
 
     /**
      * @param  array<string,mixed>  $row
-     * @param  \Illuminate\Support\Collection<int, PriceListItem>  $current
      * @param  list<array<string,mixed>>  $rows
      * @param  list<string>  $warnings
      */
-    private function consumeRow(User $actor, \App\Models\PriceList $list, array $row, $current, array &$rows, array &$warnings, bool $canViewCost, string $belowCostPolicy, bool $isWholesaleList, string $fallbackSource): void
+    private function consumeRow(User $actor, \App\Models\PriceList $list, array $row, array &$rows, array &$warnings, bool $canViewCost, string $belowCostPolicy, bool $isWholesaleList, string $fallbackSource): void
     {
         $code = trim((string) ($row['sku'] ?? ''));
         if ($code === '') {
@@ -314,13 +326,12 @@ PROMPT,
         $sender = trim((string) ($row['sender_name'] ?? ''));
         $rawSourceRow = $sender !== '' ? 'واتساب: '.$sender.' · '.trim((string) ($row['message_date'] ?? '')) : $fallbackSource;
         $sourceRow = ToolOutcome::untrusted($rawSourceRow, 200)['untrusted_text'];
-        $old = $current->get($variant->id.':'.number_format($minQty, 4, '.', ''));
         $rows[] = [
             'variant_id' => $variant->id,
             'sku' => $variant->sku,
             'min_qty' => $minQty,
             'price' => $price,
-            'old_price' => $old ? (float) $old->price : null,
+            'old_price' => null,
             'source_row' => $sourceRow,
         ];
     }

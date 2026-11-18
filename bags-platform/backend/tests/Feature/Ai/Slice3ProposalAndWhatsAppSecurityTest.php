@@ -189,7 +189,8 @@ class Slice3ProposalAndWhatsAppSecurityTest extends TestCase
 
         // Hold all concurrent slots (limit = 1) to trigger transient concurrency 429
         app(SettingService::class)->updateBatch(['ai_max_concurrent_sessions' => 1]);
-        $slot = Cache::lock('ai-agent:concurrent-slot:0', 60);
+        config(['services.gemini.whatsapp_max_concurrent_sessions' => 1]);
+        $slot = Cache::lock('ai-agent:concurrent-slot:whatsapp:0', 60);
         $this->assertTrue($slot->get());
 
         try {

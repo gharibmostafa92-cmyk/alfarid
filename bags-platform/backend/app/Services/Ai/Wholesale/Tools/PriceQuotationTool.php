@@ -21,6 +21,9 @@ use App\Services\Wholesale\QuotationService;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\QuotationVersion;
 use App\Services\Wholesale\QuoteAdvisor;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
+use InvalidArgumentException;
 
 final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
 {
@@ -83,36 +86,44 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
         $byId = [];
         foreach ($args['items'] ?? [] as $row) {
             if (is_array($row) && isset($row['id'])) {
-                $byId[(int) $row['id']] = round((float) $row['offered_unit_price'], 2);
+                try {
+                    $byId[(int) $row['id']] = $this->money($row['offered_unit_price'] ?? null);
+                } catch (InvalidArgumentException) {
+                    return ToolOutcome::denied('سعر البند غير صالح.', auditable: false);
+                }
             }
         }
         $useSuggested = (bool) ($args['use_suggested'] ?? $byId === []);
         $priced = [];
         $maxDiscount = 0.0;
-        $total = 0.0;
+        $total = BigDecimal::zero();
         $belowCost = false;
         $policy = (string) $this->settings->get('ai_price_below_cost_policy', 'block');
         foreach ($suggestion['lines'] as $line) {
             $id = (int) $line['quotation_item_id'];
-            $price = $byId[$id] ?? ($useSuggested ? (float) $line['suggested_price'] : null);
+            $price = $byId[$id] ?? ($useSuggested ? $this->money($line['suggested_price'] ?? null) : null);
             if ($price === null) {
                 return ToolOutcome::denied('حدد سعر كل بند أو اطلب التسعير المقترح.', auditable: false);
             }
-            $list = (float) $line['list_price'];
-            if ($list > 0) {
-                $maxDiscount = max($maxDiscount, (($list - $price) / $list) * 100);
+            if (! $price->isGreaterThan(0)) {
+                return ToolOutcome::denied('سعر البند لازم يكون أكبر من صفر.', auditable: false);
+            }
+            $list = $this->money($line['list_price'] ?? null);
+            if ($list->isGreaterThan(0)) {
+                $discount = $list->minus($price)->multipliedBy(100)->dividedBy($list, 4, RoundingMode::HalfUp);
+                $maxDiscount = max($maxDiscount, (float) (string) $discount);
             }
             $item = $quotation->items->firstWhere('id', $id);
-            $qty = (float) ($item->qty ?? 0);
-            $total += $price * $qty;
+            $qty = BigDecimal::of((string) ($item->qty ?? '0'));
+            $total = $total->plus($price->multipliedBy($qty)->toScale(2, RoundingMode::HalfUp));
             $cost = $item?->variant?->cost_price;
-            if ($cost !== null && $price + 0.001 < (float) $cost) {
+            if ($cost !== null && $price->isLessThan($this->money($cost))) {
                 if ($policy === 'block') {
                     return ToolOutcome::denied('السعر أقل من التكلفة والسياسة تمنع ذلك.', auditable: false);
                 }
                 $belowCost = true;
             }
-            $priced[] = ['id' => $id, 'offered_unit_price' => $price];
+            $priced[] = ['id' => $id, 'offered_unit_price' => (string) $price];
         }
         $discountCap = (float) $this->settings->get('ai_quote_high_risk_discount_percent', 15);
         $whatsappCap = (float) $this->settings->get('ai_whatsapp_quote_max_discount_percent', 5);
@@ -121,7 +132,7 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
         }
         $high = $belowCost
             || $maxDiscount > $discountCap
-            || $total > (float) $this->settings->get('ai_quote_high_risk_total', 100000);
+            || $total->isGreaterThan(BigDecimal::of((string) $this->settings->get('ai_quote_high_risk_total', 100000)));
         $snapshot = [
             'valid_until' => $quotation->valid_until?->toDateString(),
             'discount_amount' => (string) $quotation->discount_amount,
@@ -144,7 +155,7 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
             risk: $high ? 'high' : 'medium',
             title: 'تسعير '.$quotation->quotation_number,
             before: ['status' => $quotation->status->value],
-            after: ['lines' => $priced, 'estimated_total' => round($total, 2)],
+            after: ['lines' => $priced, 'estimated_total' => (string) $total->toScale(2, RoundingMode::HalfUp)],
             warnings: $this->quotations->acceptanceWarnings($quotation),
             expectedVersions: ['q:'.$quotation->id => QuotationVersion::hash($quotation)],
             inverse: $snapshot,
@@ -216,5 +227,21 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
         }
 
         return ToolOutcome::result(true, 'اتلغى التسعير ورجع العرض للطلب.');
+    }
+
+    private function money(mixed $value): BigDecimal
+    {
+        if (is_float($value)) {
+            $raw = rtrim(rtrim(sprintf('%.10F', $value), '0'), '.');
+        } elseif (is_int($value) || is_string($value)) {
+            $raw = trim((string) $value);
+        } else {
+            throw new InvalidArgumentException('Invalid decimal value.');
+        }
+        if (! preg_match('/\A\d+(?:\.\d+)?\z/', $raw)) {
+            throw new InvalidArgumentException('Invalid decimal value.');
+        }
+
+        return BigDecimal::of($raw)->toScale(2, RoundingMode::HalfUp);
     }
 }

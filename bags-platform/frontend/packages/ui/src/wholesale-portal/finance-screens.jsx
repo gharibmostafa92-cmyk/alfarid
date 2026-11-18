@@ -15,7 +15,7 @@ import {
 /* Screens 18–21, 23–25: invoices, statement, payment notices, wallet, notifications, account. */
 
 /* ---------- 18. Invoices ---------- */
-export const Invoices = () => {
+export const Invoices = ({ brandName }) => {
   const { go, toast, account } = useApp();
   const [f, setF] = useState('all');
   const [page, setPage] = useState(1);
@@ -75,7 +75,7 @@ export const Invoices = () => {
         <Modal wide title={<>فاتورة <span className="num">{open.number}</span></>} onClose={() => setOpen(null)}
           foot={<><button className="btn-pill" onClick={() => go('order', open.id)}>فتح الطلب المرتبط</button><button className="btn-pill is-dark" disabled={dl === open.id} onClick={() => pdf(open)}>{dl === open.id ? <span className="spin" /> : <i className="fa-regular fa-file-pdf" />} تنزيل PDF</button></>}>
           <div className="inv-head">
-            <div><div className="wp-logo" style={{ fontSize: 20 }}>SOPHIE</div><div className="soft small">فاتورة ضريبية مبسطة</div></div>
+            <div><div className="wp-logo" style={{ fontSize: 20 }}>{brandName}</div><div className="soft small">فاتورة ضريبية مبسطة</div></div>
             <dl className="kv" style={{ gridTemplateColumns: '90px auto' }}><dt>التاريخ</dt><dd className="num">{open.date}</dd><dt>العميل</dt><dd>{account?.company}</dd><dt>السداد</dt><dd><Badge map={PAY_STATUS} k={open.pay} /></dd></dl>
           </div>
           <DataBoundary api={detailApi}><Async rows={3} cols={4}>
@@ -128,13 +128,13 @@ export const Statement = () => {
       <PageHead en="Statement" ar="كشف الحساب والمديونية">
         <button className="btn-pill is-dark" onClick={() => go('noticeNew')}><i className="fa-solid fa-money-check-dollar" /> تسجيل إشعار سداد</button>
       </PageHead>
-      <div className="kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
+      <div className="kpis">
         <div className="kpi is-ink"><span className="kpi-en">CURRENT DEBT</span><span className="kpi-label">المديونية الحالية</span><span className="kpi-value">{fmt(debt)}<small>EGP</small></span></div>
         <div className="kpi"><span className="kpi-en">CREDIT LIMIT</span><span className="kpi-label">حد الائتمان</span><span className="kpi-value">{fmt(account?.credit_limit ?? 0)}<small>EGP</small></span></div>
         <div className="kpi"><span className="kpi-en">OPENING</span><span className="kpi-label">رصيد أول المدة</span><span className="kpi-value">{fmt(api.data?.opening_balance)}<small>EGP</small></span></div>
         <div className="kpi"><span className="kpi-en">CLOSING</span><span className="kpi-label">رصيد آخر المدة</span><span className="kpi-value">{fmt(api.data?.closing_balance)}<small>EGP</small></span></div>
       </div>
-      <div className="grid-2" style={{ gridTemplateColumns: '1fr 320px' }}>
+      <div className="grid-2 grid-summary">
         <section className="panel">
           <div className="toolbar">
             <div className="row" style={{ gap: 20 }}>
@@ -255,7 +255,7 @@ export const NoticeForm = () => {
   return (
     <>
       <PageHead en="Payment Notice" crumb={<Crumb items={[{ label: 'إشعارات السداد', go: () => go('notices') }, { label: 'إشعار جديد' }]} />} ar="سجّل تحويل أو شيك أو إيداع تم لحساب الشركة" />
-      <div className="grid-2" style={{ gridTemplateColumns: '1fr 340px' }}>
+      <div className="grid-2 grid-summary">
         <section className="panel"><div className="panel-body">
           <div className="fields">
             <Field label="طلب مرتبط" opt span error={errs.order}>

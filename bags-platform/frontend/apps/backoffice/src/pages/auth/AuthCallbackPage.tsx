@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { authEndpoints, resolveServiceUrl } from '@alfarid/api-client';
 import { useAuthStore } from '../../stores/auth.store';
+import { AdminLoading } from '../../components/admin/AdminLoading';
 import { toStaffUser } from '../../stores/mappers';
 
 const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
@@ -25,8 +26,9 @@ export default function AuthCallbackPage() {
     if (ran.current) return;
     ran.current = true;
     // Handoff code arrives in URL fragment to prevent exposure in server logs or Referer headers.
-    const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('code');
-    const code = fromHash;
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const code = fragment.get('code');
+    const lang = fragment.get('lang') === 'en' ? 'en' : 'ar';
     window.history.replaceState(null, '', window.location.pathname);
     if (!code) {
       window.location.replace(`${WEB_URL}/auth/login?error=handoff`);
@@ -55,30 +57,11 @@ export default function AuthCallbackPage() {
           }
         }
         login(res.token, toStaffUser(res.data));
+        sessionStorage.setItem('alfarid_login_notice', lang);
         window.location.replace(resolveSafeRedirectPath(res.redirect?.path));
       })
       .catch(() => window.location.replace(`${WEB_URL}/auth/login?error=handoff`));
   }, []);
 
-  return (
-    <div
-      role="status"
-      dir="rtl"
-      style={{
-        boxSizing: 'border-box',
-        minHeight: '100svh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-        backgroundColor: '#f2eff3',
-        color: '#18151c',
-        textAlign: 'center',
-        fontSize: '15px',
-        fontWeight: 500,
-      }}
-    >
-      جارٍ تسجيل الدخول…
-    </div>
-  );
+  return <div className="min-h-svh grid place-items-center"><AdminLoading compact label="جارٍ تسجيل الدخول" /></div>;
 }

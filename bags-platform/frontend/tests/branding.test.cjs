@@ -7,7 +7,7 @@ const ts = require('typescript');
 const source = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../apps/storefront/src/lib/core/server-branding.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const defaults = { name: 'Alfarid', logo: null, email: null, phone: null, address: null };
+const defaults = { name: 'VARYA', logo: null, email: null, phone: null, address: null };
 
 function loadServerBranding(fetch, env = {}, cloudRunIdentityToken = async () => {
   assert.fail('Public branding requests must not ask for a Cloud Run identity token');
@@ -40,10 +40,10 @@ test('server metadata caches public identity for one minute with an invalidation
   let request;
   const get = loadServerBranding(async (url, options) => {
     request = { url, options };
-    return { ok: true, json: async () => ({ data: { ...defaults, name: 'الفريد للحقائب' } }) };
+    return { ok: true, json: async () => ({ data: { ...defaults, name: 'VARYA للحقائب' } }) };
   }, { NEXT_PUBLIC_API_URL: 'http://localhost:8000' });
 
-  assert.equal((await get()).name, 'الفريد للحقائب');
+  assert.equal((await get()).name, 'VARYA للحقائب');
   assert.equal(String(request.url), 'http://127.0.0.1:8000/api/v1/store/branding');
   assert.deepEqual(request.options.next, { revalidate: 60, tags: ['branding'] });
   assert.equal(request.options.headers.get('Authorization'), null);
@@ -147,7 +147,7 @@ test('StoreBrandingProvider with initialBranding skips redundant client fetch on
   }
 });
 
-test('unavailable or malformed branding falls back to Alfarid without breaking server rendering', async () => {
+test('unavailable or malformed branding falls back to VARYA without breaking server rendering', async () => {
   for (const fetch of [
     async () => { throw new Error('Offline'); },
     async () => ({ ok: false }),
@@ -155,5 +155,5 @@ test('unavailable or malformed branding falls back to Alfarid without breaking s
   ]) {
     assert.deepEqual(await loadServerBranding(fetch)(), defaults);
   }
-  assert.equal((await loadServerBranding(async () => ({ ok: true, json: async () => ({ data: { name: '  ' } }) }))()).name, 'Alfarid');
+  assert.equal((await loadServerBranding(async () => ({ ok: true, json: async () => ({ data: { name: '  ' } }) }))()).name, 'VARYA');
 });

@@ -7,6 +7,8 @@ namespace App\Http\Controllers\Api\V1\Webhook;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessWhatsAppMessage;
 use App\Models\AiWhatsappIdentity;
+use App\Models\AiWhatsappLinkToken;
+use App\Services\Ai\WhatsApp\E164Phone;
 use App\Services\Shared\WebhookSignatureVerifier;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Http\JsonResponse;
@@ -39,7 +41,10 @@ class WhatsAppInboundController extends Controller
         $remoteJid = is_string($payload['remote_jid'] ?? null) ? substr($payload['remote_jid'], 0, 128) : '';
         $remoteAlt = is_string($payload['remote_jid_alt'] ?? null) ? substr($payload['remote_jid_alt'], 0, 128) : null;
         $text = is_string($payload['text'] ?? null) ? mb_substr($payload['text'], 0, 8000) : '';
-        if ($remoteJid !== '' && ! $this->knownSender($remoteJid, $remoteAlt) && $this->unknownLimited($remoteJid, $text)) {
+        if ($remoteJid === '') {
+            return response()->json(['message' => 'invalid sender'], 422);
+        }
+        if (! $this->knownSender($remoteJid, $remoteAlt) && $this->unknownLimited($remoteJid, $remoteAlt, $text)) {
             return response()->json(['ok' => true]);
         }
         DB::transaction(function () use ($messageId, $remoteJid, $remoteAlt, $text, $payload): void {
@@ -69,26 +74,49 @@ class WhatsAppInboundController extends Controller
 
     private function knownSender(string $remoteJid, ?string $remoteAlt): bool
     {
+        $jids = array_values(array_filter([$remoteJid, $remoteAlt]));
+        $phones = array_values(array_unique(array_filter(array_map(E164Phone::fromWhatsappJid(...), $jids))));
+
         return AiWhatsappIdentity::query()
             ->where('status', 'active')
             ->whereNotNull('verified_at')
-            ->where(function ($query) use ($remoteJid, $remoteAlt): void {
-                foreach (array_filter([$remoteJid, $remoteAlt]) as $key) {
+            ->where(function ($query) use ($jids, $phones): void {
+                foreach ($jids as $key) {
                     $query->orWhere('wa_jid', $key)->orWhere('wa_lid', $key);
+                }
+                if ($phones !== []) {
+                    $query->orWhereIn('phone_e164', $phones);
                 }
             })
             ->exists();
     }
 
-    private function unknownLimited(string $remoteJid, string $text): bool
+    private function unknownLimited(string $remoteJid, ?string $remoteAlt, string $text): bool
     {
         $link = str_starts_with(trim($text), 'ربط');
-        $key = 'wa-unknown:'.hash('sha256', $remoteJid);
-        $max = $link ? 8 : 5;
-        if (RateLimiter::tooManyAttempts($key, $max)) {
-            return true;
+        $senderKeys = array_values(array_unique(array_filter([$remoteJid, $remoteAlt])));
+        sort($senderKeys, SORT_STRING);
+        $keys = array_map(fn (string $sender): string => 'wa-unknown:'.hash('sha256', $sender), $senderKeys);
+        if ($link && preg_match('/^ربط\s+([A-Za-z0-9]{4}(?:-[A-Za-z0-9]{4}){1,2})\s*$/u', trim($text), $matches)) {
+            $tokenHash = hash('sha256', strtoupper($matches[1]));
+            $identityId = AiWhatsappLinkToken::query()
+                ->where('token_hash', $tokenHash)
+                ->whereNull('consumed_at')
+                ->where('expires_at', '>', now())
+                ->value('identity_id');
+            if ($identityId !== null) {
+                $keys[] = 'wa-unknown-identity:'.$identityId;
+            }
         }
-        RateLimiter::hit($key, 3600);
+        $max = $link ? 8 : 5;
+        foreach ($keys as $key) {
+            if (RateLimiter::tooManyAttempts($key, $max)) {
+                return true;
+            }
+        }
+        foreach ($keys as $key) {
+            RateLimiter::hit($key, 3600);
+        }
 
         return false;
     }

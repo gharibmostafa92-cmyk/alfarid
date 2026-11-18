@@ -122,7 +122,14 @@ final class DeleteShippingRateTool implements LocksTargets, UndoableTool, WriteT
         if (ShippingRate::query()->whereKey((int) $action->args['rate_id'])->exists()) {
             return ToolOutcome::result(false, 'التعريفة لسه موجودة.');
         }
+        $companyId = (int) ($action->inverse['shipping_company_id'] ?? 0);
+        $zoneId = (int) ($action->inverse['shipping_zone_id'] ?? 0);
+        if (! \App\Models\ShippingCompany::query()->whereKey($companyId)->exists()
+            || ! \App\Models\ShippingZone::query()->whereKey($zoneId)->exists()) {
+            throw new \App\Exceptions\BusinessException('الشركة أو المنطقة المرتبطة بالتعريفة لم تعد موجودة؛ تعذّر الاسترجاع.', [], 409);
+        }
         $rate = ShippingRate::query()->create($action->inverse);
+        StaffAdministration::audit($actor, 'shipping.rate_restored', 'shipping_rate', $rate->id, [], [], [], ['channel' => 'ai', 'tool' => $this->name(), 'action_id' => $action->id]);
 
         return ToolOutcome::result(true, 'تم استرجاع تعريفة الشحن.', ['rate_id' => $rate->id]);
     }

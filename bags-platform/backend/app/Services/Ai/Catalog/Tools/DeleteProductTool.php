@@ -112,17 +112,28 @@ final class DeleteProductTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $product = Product::findOrFail((int) $action->args['product_id']);
-        $expected = $action->expected_versions['product:'.$product->id] ?? null;
-        if ($expected !== null && (int) $product->lock_version !== (int) $expected) {
-            throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-        }
+        [$id, $code, $before] = \Illuminate\Support\Facades\DB::transaction(function () use ($actor, $action): array {
+            $product = Product::query()->with('variants')->lockForUpdate()->findOrFail((int) $action->args['product_id']);
+            $expected = $action->expected_versions['product:'.$product->id] ?? null;
+            if ($expected !== null && (int) $product->lock_version !== (int) $expected) {
+                throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
+            if ($product->status === ProductStatus::Published && ! $actor->can('products.publish')) {
+                throw new BusinessException('حذف منتج منشور يتطلب صلاحية النشر (products.publish).', [], 403);
+            }
+            $variantIds = $product->variants->pluck('id')->all();
+            if ($variantIds !== [] && StockLevel::query()->whereIn('product_variant_id', $variantIds)->hasNonZeroBalance()->exists()) {
+                throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا أو أرشفه بـ set_product_status.', [], 409);
+            }
 
-        $code = $product->code;
-        $id = $product->id;
-        $before = ['code' => $product->code, 'name_ar' => $product->name_ar, 'status' => $product->status->value];
+            $code = $product->code;
+            $id = $product->id;
+            $before = ['code' => $product->code, 'name_ar' => $product->name_ar, 'status' => $product->status->value];
 
-        $this->products->delete($product, $actor, $expected === null ? null : (int) $expected);
+            $this->products->delete($product, $actor, $expected === null ? null : (int) $expected);
+
+            return [$id, $code, $before];
+        });
 
         StaffAdministration::audit(
             $actor,

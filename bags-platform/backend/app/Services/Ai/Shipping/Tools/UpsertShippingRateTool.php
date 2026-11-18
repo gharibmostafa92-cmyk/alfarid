@@ -135,7 +135,19 @@ final class UpsertShippingRateTool implements LocksTargets, UndoableTool, WriteT
             ShippingVersions::assertSame($rate, (string) ($action->expected_versions['rate:'.$rate->id] ?? ''));
             $rate->update($payload);
         } else {
-            $rate = ShippingRate::query()->create($payload);
+            ShippingCompany::query()->lockForUpdate()->findOrFail((int) $payload['shipping_company_id']);
+            ShippingZone::query()->lockForUpdate()->findOrFail((int) $payload['shipping_zone_id']);
+            if (ShippingRate::query()
+                ->where('shipping_company_id', (int) $payload['shipping_company_id'])
+                ->where('shipping_zone_id', (int) $payload['shipping_zone_id'])
+                ->exists()) {
+                throw new \App\Exceptions\BusinessException('يوجد تعريفة مسجلة بالفعل لهذه الشركة والمنطقة.', [], 409);
+            }
+            try {
+                $rate = ShippingRate::query()->create($payload);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+                throw new \App\Exceptions\BusinessException('يوجد تعريفة مسجلة بالفعل لهذه الشركة والمنطقة.', [], 409);
+            }
         }
         StaffAdministration::audit($actor, 'shipping.rate_saved', 'shipping_rate', $rate->id, ['base_cost'], [], ['base_cost' => $rate->base_cost], ['channel' => 'ai', 'tool' => $this->name(), 'action_id' => $action->id]);
 
@@ -160,6 +172,7 @@ final class UpsertShippingRateTool implements LocksTargets, UndoableTool, WriteT
 
         $rate = ShippingRate::query()->lockForUpdate()->findOrFail((int) $action->args['rate_id']);
         $rate->update($action->inverse);
+        StaffAdministration::audit($actor, 'shipping.rate_undone', 'shipping_rate', $rate->id, ['base_cost'], [], ['base_cost' => $rate->base_cost], ['channel' => 'ai', 'tool' => $this->name(), 'action_id' => $action->id]);
 
         return ToolOutcome::result(true, 'تم التراجع عن تعريفة الشحن.', ['rate_id' => $rate->id]);
     }

@@ -335,7 +335,7 @@ class WhatsAppAssistantTest extends TestCase
         $user = $this->staff();
         $user->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));
         $conversation = AiConversation::query()->create(['user_id' => $user->id, 'channel' => 'web', 'model' => 'test']);
-        $args = ['changes' => ['company_name' => 'الفريد']];
+        $args = ['changes' => ['company_name' => 'VARYA']];
         $action = AiPendingAction::query()->create([
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,

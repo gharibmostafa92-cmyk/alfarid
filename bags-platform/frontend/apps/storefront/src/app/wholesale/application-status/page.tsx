@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authEndpoints, defaultApiClient } from '@alfarid/api-client';
+import { useBranding } from '@alfarid/ui/branding';
 import { WholesalePortal } from '@alfarid/ui';
 import { useAuthStore } from '@/store/auth.store';
 import type { Destination } from '@/types/auth';
@@ -13,7 +14,14 @@ interface ApplicationStatus {
   rejection_reason: string | null;
 }
 
-function ApplicationStatusContent() {
+const statusLabels: Record<string, string> = {
+  pending: 'قيد المراجعة',
+  rejected: 'مرفوض',
+  approved: 'معتمد',
+  suspended: 'موقوف',
+};
+
+function ApplicationStatusContent({ brandName }: { brandName: string }) {
   const [data, setData] = useState<ApplicationStatus | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -29,25 +37,29 @@ function ApplicationStatusContent() {
   }, [attempt]);
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold">حالة طلب الاعتماد</h1>
-      {error ? (
-        <div role="alert">
-          <p>تعذر تحميل حالة الطلب. حاول مرة أخرى.</p>
-          <button type="button" onClick={() => setAttempt((n) => n + 1)}>إعادة المحاولة</button>
-        </div>
-      ) : (
-        <>
-          <p className="mt-2 text-sm" role="status">الحالة: {data?.status ?? 'جارٍ التحميل…'}</p>
-          {data?.rejection_reason && <p className="mt-2 text-sm text-red-600">سبب الرفض: {data.rejection_reason}</p>}
-        </>
-      )}
-    </div>
+    <main dir="rtl" className="mx-auto max-w-xl px-4 py-8 sm:py-14">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+        <p className="mb-3 text-sm font-semibold text-slate-600" dir="auto">{brandName}</p>
+        <h1 className="text-2xl font-bold">حالة طلب الاعتماد</h1>
+        {error ? (
+          <div role="alert">
+            <p>تعذر تحميل حالة الطلب. حاول مرة أخرى.</p>
+            <button type="button" onClick={() => setAttempt((n) => n + 1)}>إعادة المحاولة</button>
+          </div>
+        ) : (
+          <>
+            <p className="mt-3 text-sm" role="status">{data ? statusLabels[data.status] ?? 'الحالة غير متاحة' : 'جارٍ التحميل…'}</p>
+            {data?.rejection_reason && <p className="mt-2 text-sm text-red-600">سبب الرفض: {data.rejection_reason}</p>}
+          </>
+        )}
+      </section>
+    </main>
   );
 }
 
 export default function ApplicationStatusPage() {
   const router = useRouter();
+  const { branding } = useBranding();
   const destination = useAuthStore((state) => state.destination);
   const status = useAuthStore((state) => (state.user as { status?: string } | null)?.status);
   const isPendingOrRejected = destination === 'wholesale_pending' || status === 'pending' || status === 'rejected';
@@ -73,9 +85,9 @@ export default function ApplicationStatusPage() {
   return (
     <RequireActor allow={['wholesale_pending', 'wholesale']}>
       {isPendingOrRejected ? (
-        <ApplicationStatusContent />
+        <ApplicationStatusContent brandName={branding.name} />
       ) : (
-        <WholesalePortal
+        <WholesalePortal brandName={branding.name}
           initialScreen="status"
           onLogout={logoutWeb}
           onEnter={onEnter}

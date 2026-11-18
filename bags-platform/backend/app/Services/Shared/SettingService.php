@@ -281,7 +281,7 @@ class SettingService
         $company = $this->staticSettings()['company'] ?? [];
 
         return [
-            'name' => trim((string) ($company['company_name'] ?? '')) ?: 'Alfarid',
+            'name' => trim((string) ($company['company_name'] ?? '')) ?: 'VARYA',
             'logo' => $company['company_logo'] ?? null,
             'email' => $company['company_email'] ?? null,
             'phone' => $company['company_phone'] ?? null,

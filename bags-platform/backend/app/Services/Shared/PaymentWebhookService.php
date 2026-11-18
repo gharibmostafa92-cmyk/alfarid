@@ -574,7 +574,19 @@ class PaymentWebhookService
             $suffix .= ':'.number_format($refundAmount, 2, '.', '');
         }
 
-        return mb_substr($base, 0, max(1, 191 - mb_strlen($suffix))).$suffix;
+        if (mb_strlen($suffix) > 120) {
+            $suffix = ':'.substr(hash('sha256', $suffix), 0, 64);
+        }
+
+        if (mb_strlen($base.$suffix) <= 191) {
+            return $base.$suffix;
+        }
+
+        $digest = substr(hash('sha256', $base), 0, 32);
+        $hashPart = ':'.$digest;
+        $prefixLength = max(0, 191 - mb_strlen($suffix) - mb_strlen($hashPart));
+
+        return mb_substr($base, 0, $prefixLength).$hashPart.$suffix;
     }
 
     /**

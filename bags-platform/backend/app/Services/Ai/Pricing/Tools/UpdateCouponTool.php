@@ -163,8 +163,9 @@ final class UpdateCouponTool implements WriteTool, LocksTargets, UndoableTool
     {
         $locked = PricingLocks::lockCoupon($action, (int) $action->args['coupon_id'], (string) ($action->expected_versions['coupon:'.$action->args['coupon_id']] ?? ''));
         $changes = \Illuminate\Support\Arr::only((array) $action->args, [
-            'name', 'type', 'value', 'min_order_amount', 'max_discount', 'usage_limit', 'usage_limit_per_customer', 'starts_at', 'expires_at', 'is_active',
+            'value', 'min_order_amount', 'max_discount_amount', 'usage_limit', 'usage_limit_per_customer', 'starts_at', 'ends_at', 'is_active',
         ]);
+        $before = (array) $action->inverse;
         $locked->update($changes);
         $coupon = $locked->fresh();
 
@@ -173,9 +174,9 @@ final class UpdateCouponTool implements WriteTool, LocksTargets, UndoableTool
             'coupon.updated',
             'coupon',
             $coupon->id,
-            ['code', 'type'],
-            ['code' => $coupon->code],
-            ['code' => $coupon->code, 'type' => $coupon->type],
+            array_keys($changes),
+            $before,
+            \Illuminate\Support\Arr::only($coupon->toArray(), array_keys($changes)),
             ['channel' => 'ai', 'tool' => $this->name(), 'entity' => 'coupon:'.$coupon->id, 'conversation_id' => $action->conversation_id, 'action_id' => $action->id],
         );
 

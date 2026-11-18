@@ -148,6 +148,32 @@ class ShippingQuoteTest extends TestCase
         }
     }
 
+    public function test_quote_picks_the_cheapest_active_carrier_for_the_city(): void
+    {
+        $city = City::factory()->create(['shipping_cost' => 30, 'is_active' => true]);
+        $zone = ShippingZone::factory()->create(['is_active' => true]);
+        $zone->cities()->sync([$city->id]);
+        $expensive = ShippingCompany::factory()->create(['is_active' => true]);
+        $cheap = ShippingCompany::factory()->create(['is_active' => true]);
+        ShippingRate::factory()->create([
+            'shipping_company_id' => $expensive->id,
+            'shipping_zone_id' => $zone->id,
+            'base_cost' => 80,
+            'free_shipping_threshold' => null,
+        ]);
+        $cheapRate = ShippingRate::factory()->create([
+            'shipping_company_id' => $cheap->id,
+            'shipping_zone_id' => $zone->id,
+            'base_cost' => 25,
+            'free_shipping_threshold' => null,
+        ]);
+
+        $quote = $this->quotes->quoteForCity($city->id, 100, false);
+
+        $this->assertSame(25.0, $quote['cost']);
+        $this->assertSame($cheapRate->id, $quote['rate']?->id);
+    }
+
     private function ratedCity(float $base, ?float $threshold, float $cod): City
     {
         $city = City::factory()->create(['shipping_cost' => 30]);

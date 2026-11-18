@@ -24,6 +24,7 @@ class TreasuryTransfer extends Model
         'rejected_by',
         'rejection_reason',
         'notes',
+        'reverses_transfer_id',
     ];
 
     protected function casts(): array

@@ -72,27 +72,25 @@ final class CustomerAccount360Tool implements AgentTool
         $outstanding = (float) $this->notices->balanceBreakdown($customer)['outstanding'];
         $used = max(0, $outstanding);
         $limit = (float) $customer->credit_limit;
-        $orders = Order::query()
+        $today = now()->startOfDay();
+        $aging = Order::query()
             ->where('customer_id', $customer->id)
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
             ->where('status', '!=', OrderStatus::Cancelled->value)
-            ->get(['id', 'grand_total', 'due_at', 'created_at']);
-        $buckets = ['0_30' => 0.0, '31_60' => 0.0, '61_90' => 0.0, 'over_90' => 0.0];
-        foreach ($orders as $order) {
-            $basis = $order->due_at ?? $order->created_at;
-            $days = $basis === null ? 0 : max(0, (int) $basis->copy()->startOfDay()->diffInDays(now()->startOfDay(), false));
-            $amount = (float) $order->grand_total;
-            if ($days <= 30) {
-                $buckets['0_30'] += $amount;
-            } elseif ($days <= 60) {
-                $buckets['31_60'] += $amount;
-            } elseif ($days <= 90) {
-                $buckets['61_90'] += $amount;
-            } else {
-                $buckets['over_90'] += $amount;
-            }
-        }
+            ->selectRaw(
+                'COALESCE(SUM(CASE WHEN COALESCE(due_at, created_at) >= ? THEN grand_total ELSE 0 END), 0) AS age_0_30, '
+                .'COALESCE(SUM(CASE WHEN COALESCE(due_at, created_at) < ? AND COALESCE(due_at, created_at) >= ? THEN grand_total ELSE 0 END), 0) AS age_31_60, '
+                .'COALESCE(SUM(CASE WHEN COALESCE(due_at, created_at) < ? AND COALESCE(due_at, created_at) >= ? THEN grand_total ELSE 0 END), 0) AS age_61_90, '
+                .'COALESCE(SUM(CASE WHEN COALESCE(due_at, created_at) < ? THEN grand_total ELSE 0 END), 0) AS age_over_90',
+                [$today->copy()->subDays(30), $today->copy()->subDays(30), $today->copy()->subDays(60), $today->copy()->subDays(60), $today->copy()->subDays(90), $today->copy()->subDays(90)]
+            )->first();
+        $buckets = [
+            '0_30' => (float) ($aging->age_0_30 ?? 0),
+            '31_60' => (float) ($aging->age_31_60 ?? 0),
+            '61_90' => (float) ($aging->age_61_90 ?? 0),
+            'over_90' => (float) ($aging->age_over_90 ?? 0),
+        ];
 
         $payments = WholesalePaymentNotice::query()
             ->where('customer_id', $customer->id)

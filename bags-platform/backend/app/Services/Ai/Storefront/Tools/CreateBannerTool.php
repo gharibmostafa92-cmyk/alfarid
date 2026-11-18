@@ -104,19 +104,30 @@ final class CreateBannerTool implements ExecutesOutsideTransaction, WriteTool
         if ($tmp === false) {
             return ToolOutcome::result(false, 'تعذّر تجهيز الصورة.');
         }
-        file_put_contents($tmp, $disk->get($attachment->path));
-        $size = @getimagesize($tmp);
-        if ($size === false || $size[0] < 600 || $size[1] < 300 || $size[0] > 4000 || $size[1] > 4000) {
-            @unlink($tmp);
-
-            return ToolOutcome::result(false, 'الصورة لازم تبقى بين 600×300 و 4000×4000.');
-        }
-        $file = new UploadedFile($tmp, basename($attachment->path), $attachment->mime ?: 'image/jpeg', null, true);
         try {
+            file_put_contents($tmp, $disk->get($attachment->path));
+            $size = @getimagesize($tmp);
+            if ($size === false || $size[0] < 600 || $size[1] < 300 || $size[0] > 4000 || $size[1] > 4000) {
+                return ToolOutcome::result(false, 'الصورة لازم تبقى بين 600×300 و 4000×4000.');
+            }
+            $file = new UploadedFile($tmp, basename($attachment->path), $attachment->mime ?: 'image/jpeg', null, true);
             $banner = $this->banners->create($action->args, $file);
         } finally {
             @unlink($tmp);
         }
+
+        $attachment->forceFill(['consumed_at' => $attachment->consumed_at ?? now()])->save();
+
+        \App\Services\Auth\StaffAdministration::audit(
+            $actor,
+            'banner.created',
+            'banner',
+            $banner->id,
+            ['title', 'position', 'link_type', 'link_value'],
+            null,
+            ['title' => $banner->title, 'position' => $banner->position?->value],
+            ['channel' => 'ai', 'tool' => $this->name(), 'conversation_id' => $action->conversation_id, 'action_id' => $action->id],
+        );
 
         return ToolOutcome::result(true, 'تم إنشاء البانر.', ['banner_id' => $banner->id]);
     }

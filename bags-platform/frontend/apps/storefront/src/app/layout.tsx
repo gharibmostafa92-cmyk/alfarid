@@ -40,7 +40,7 @@ export default async function RootLayout({
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   const { branding, fromFallback } = await getServerBrandingResult();
   return (
-    <html lang="ar" dir="rtl" className={`${oswald.variable} ${poppins.variable} ${cairo.variable}`}>
+    <html lang="en" dir="ltr" className={`${oswald.variable} ${poppins.variable} ${cairo.variable}`}>
       <head>
         {nonce ? <meta property="csp-nonce" content={nonce} /> : null}
         <link

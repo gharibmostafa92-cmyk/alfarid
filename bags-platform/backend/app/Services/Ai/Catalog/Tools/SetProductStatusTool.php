@@ -140,7 +140,6 @@ final class SetProductStatusTool implements LocksTargets, UndoableTool, WriteToo
             after: ['status' => $targetStatus->value],
             expectedVersions: [
                 'product:'.$product->id => (int) $product->lock_version,
-                'target_version:'.$product->id => (int) $product->lock_version + 1,
             ],
             inverse: [
                 'status' => $currentStatus->value,
@@ -168,6 +167,10 @@ final class SetProductStatusTool implements LocksTargets, UndoableTool, WriteToo
         $oldStatus = $product->status->value;
         $targetStatus = ProductStatus::from((string) $action->args['status']);
         $this->products->changeStatus($product, $targetStatus, $actor, $expected === null ? null : (int) $expected);
+        $actualVersion = (int) $product->fresh()->lock_version;
+        $action->update([
+            'inverse' => array_merge((array) $action->inverse, ['target_version' => $actualVersion]),
+        ]);
 
         StaffAdministration::audit(
             $actor,
@@ -197,7 +200,7 @@ final class SetProductStatusTool implements LocksTargets, UndoableTool, WriteToo
         if (! $p) {
             return false;
         }
-        $expectedAfter = $action->expected_versions['target_version:'.$p->id] ?? null;
+        $expectedAfter = $action->inverse['target_version'] ?? ($action->expected_versions['target_version:'.$p->id] ?? null);
         if ($expectedAfter !== null && (int) $p->lock_version !== (int) $expectedAfter) {
             return false;
         }

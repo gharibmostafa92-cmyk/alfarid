@@ -121,6 +121,7 @@ export function AccountForm({
   const [confirmation, setConfirmation] = useState('');
   const [identifier, setIdentifier] = useState(initialIdentifier);
   const [resetToken, setResetToken] = useState(initialToken);
+  useEffect(() => { if (initialToken) setResetToken(initialToken); }, [initialToken]);
   const [company, setCompany] = useState('');
   const [taxNumber, setTaxNumber] = useState('');
   const [commercialRegister, setCommercialRegister] = useState('');
@@ -207,8 +208,10 @@ export function AccountForm({
           setConfirmation('');
           setResetToken('');
         } else {
-          const response = await requestPasswordReset(identifier);
-          setNotice(response.message);
+          await requestPasswordReset(identifier);
+          setNotice(identifier.includes('@')
+            ? text('تأكّد من عنوان البريد الذي أدخلته. إذا كان مرتبطًا بحسابك، فستجد فيه رابط تغيير كلمة المرور.', 'Check the email address you entered. If it is linked to your account, look there for a password reset link.')
+            : text('تأكّد من رقم الهاتف. إذا كان مرتبطًا بحسابك، ستصلك رسالة برابط تغيير كلمة المرور.', 'Check the phone number. If it is linked to your account, you will receive a password reset link by text.'));
           setRecoverySent(true);
         }
       } else {

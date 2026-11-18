@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, MoneyInput, Api } from '../ui/SharedUI';
+import { egp, fmt, MoneyInput, normalizeMoneyDigits, Api } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import type { PosShift, Treasury, Branch, CashierUser } from '../../types/pos.types';
 import { normalizeError } from '../../lib/pos-error';
@@ -11,7 +11,10 @@ interface OpenShiftGateProps {
 
 export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const [treasury, setTreasury] = useState<number | null>(null);
-  const [cash, setCash] = useState<string>('500');
+  const [cash, setCash] = useState<string>('');
+  const submitting = useRef(false);
+  const [drawerState, setDrawerState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [treasuries, setTreasuries] = useState<Treasury[]>([]);
@@ -23,18 +26,24 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
     pos.getTreasuries().then((list) => {
       if (!active) return;
       setTreasuries(list);
+      setDrawerState('ready');
       const free = list.find((t) => t.state === 'free');
       if (free) {
         setTreasury(free.id);
-        if ((free.balance ?? 0) > 0) {
-          setCash(String(free.balance));
-        }
       } else {
         setTreasury(null);
       }
     }).catch((err) => {
-      if (active) setError(normalizeError(err).message);
+      if (active) {
+        setDrawerState('error');
+        setError(normalizeError(err).message);
+      }
     });
+    return () => { active = false; };
+  }, [attempt]);
+
+  useEffect(() => {
+    let active = true;
     pos.getBranch().then((b) => {
       if (active) setBranch(b);
     }).catch((err) => {
@@ -52,22 +61,22 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const isBalanceLocked = Boolean(selectedDrawer && (selectedDrawer.balance ?? 0) > 0);
 
   useEffect(() => {
-    if (selectedDrawer && (selectedDrawer.balance ?? 0) > 0) {
-      setCash(String(selectedDrawer.balance));
-    }
+    setCash((selectedDrawer?.balance ?? 0) > 0 ? String(selectedDrawer?.balance) : '');
   }, [treasury, selectedDrawer?.balance]);
 
   const amount = Number(cash || 0);
+  const validAmount = /^\d+(?:\.\d{1,2})?$/.test(cash) && amount <= 9999999;
   const now = new Date();
   const hr = now.getHours();
   const greet = hr < 12 ? 'صباح الخير' : 'مساء الخير';
 
   const submit = async () => {
-    if (!treasury || busy) return;
-    if (!Number.isFinite(amount)) {
+    if (!treasury || drawerState !== 'ready' || submitting.current) return;
+    if (!validAmount) {
       setError('مبلغ العهدة غير صالح — أدخل رقمًا بعشريتين على الأكثر');
       return;
     }
+    submitting.current = true;
     setBusy(true);
     setError('');
     try {
@@ -77,6 +86,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
       const apiErr = normalizeError(err);
       setError(apiErr.message || 'تعذر فتح الوردية');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -128,6 +138,15 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
                 {treasuries.filter((t) => t.state === 'free').length} متاح في الفرع
               </span>
             </div>
+            {drawerState === 'loading' && <p role="status">جارٍ تحميل أدراج النقدية…</p>}
+            {drawerState === 'error' && <button type="button" onClick={() => {
+              setDrawerState('loading');
+              setError('');
+              setAttempt((previous) => previous + 1);
+            }}>إعادة تحميل الأدراج</button>}
+            {drawerState === 'ready' && treasuries.length === 0 && (
+              <p role="status" className="banner b-warn">لا يوجد درج نقدية نشط في هذا الفرع. تواصل مع مسؤول الفرع.</p>
+            )}
             {treasuries.length > 0 && !treasuries.some((t) => t.state === 'free') && (
               <div className="banner b-warn" style={{ borderRadius: 10, padding: '8px 12px', fontSize: 12 }}>
                 <Icon n="alert" s={14} />
@@ -140,7 +159,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
                   key={t.id}
                   role="radio"
                   aria-checked={treasury === t.id}
-                  disabled={t.state === 'busy'}
+                  disabled={busy || t.state === 'busy'}
                   onClick={() => setTreasury(t.id)}
                 >
                   <div className="row between">
@@ -177,8 +196,10 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
             </div>
             <MoneyInput
               value={cash}
-              onChange={setCash}
+              normalize={normalizeMoneyDigits}
+              onChange={(value) => { setCash(value); setError(''); }}
               autoFocus={!isBalanceLocked}
+              disabled={!treasury || busy || drawerState !== 'ready'}
               readOnly={isBalanceLocked}
               onEnter={submit}
             />
@@ -195,17 +216,14 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
                 <Icon n="lock" s={14} />
                 <span>العهدة يجب أن تساوي رصيد الدرج ({egp(selectedDrawer?.balance ?? 0)} ج)</span>
               </div>
-            ) : (
+            ) : treasury && (
               <div className="denoms">
                 {[200, 500, 1000].map((v) => (
-                  <button key={v} className="denom" onClick={() => setCash(String(amount + v))}>
+                  <button key={v} className="denom" disabled={busy} onClick={() => setCash(((validAmount ? amount : 0) + v).toFixed(2))}>
                     +{fmt(v)}
                     <small>ج</small>
                   </button>
                 ))}
-                <button className="denom ghost" onClick={() => setCash('500')}>
-                  نفس أمس
-                </button>
               </div>
             )}
           </div>
@@ -225,12 +243,12 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
           <button
             className="pay-btn"
             style={{ margin: 0, width: '100%' }}
-            disabled={!treasury || busy}
+            disabled={!treasury || busy || drawerState !== 'ready' || !cash}
             onClick={submit}
           >
             <span className="row gap-2">{busy ? 'جارِ فتح الوردية…' : 'فتح الوردية وبدء البيع'}</span>
             <span className="row gap-2">
-              <span className="amt num">{egp(amount)}</span>
+              <span className="amt num">{validAmount ? egp(amount) : '—'}</span>
               <Icon n="arrowLeft" s={18} />
             </span>
           </button>

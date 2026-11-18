@@ -175,7 +175,7 @@ final class ToolRegistry
 
         $defs = [
             'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage', 'customers.approve', 'customers.documents.view', 'categories.create', 'categories.update', 'products.create', 'products.update', 'inventory.adjust', 'transfers.approve', 'treasury_transfers.create'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً. لتحويل فائض الأدراج للرئيسية استخدم drawer_surplus=true وفرع اختياري، بدون items. الاعتماد والرفض ممنوعان في الجماعي.', 'parameters' => $obj(['drawer_surplus' => $bool, 'branch_id' => $int, 'items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'reactivate_customer', 'create_category', 'update_category', 'move_category', 'reorder_categories', 'set_category_status', 'create_product_draft', 'update_product', 'set_product_status', 'add_variants', 'update_variant', 'set_variant_status', 'attach_product_images', 'reorder_product_media', 'delete_product_media', 'adjust_stock', 'approve_transfer']], 'args' => ['type' => 'OBJECT']], ['tool', 'args'])]])]],
-            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view', 'transfers.view', 'stocktakes.view', 'inventory.view', 'treasuries.view', 'treasury_transfers.view', 'expenses.view', 'customers.wallet.view', 'price_lists.view', 'coupons.view', 'promotions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين أو عملاء أو مجموعات عملاء أو أقسام أو منتجات أو متغيرات أو تحويلات أو جرود أو استلامات إنتاج أو خزائن أو تحويلات خزائن أو مصروفات', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location', 'customer', 'customer_group', 'category', 'product', 'variant', 'transfer', 'stocktake', 'production_receipt', 'treasury', 'treasury_transfer', 'expense', 'price_list', 'coupon', 'promotion']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
+            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view', 'transfers.view', 'stocktakes.view', 'inventory.view', 'treasuries.view', 'treasury_transfers.view', 'expenses.view', 'customers.wallet.view', 'price_lists.view', 'coupons.view', 'promotions.view', 'quotations.view', 'payment_notices.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين أو عملاء أو مجموعات عملاء أو أقسام أو منتجات أو متغيرات أو تحويلات أو جرود أو استلامات إنتاج أو خزائن أو تحويلات خزائن أو مصروفات', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location', 'customer', 'customer_group', 'category', 'product', 'variant', 'transfer', 'stocktake', 'production_receipt', 'treasury', 'treasury_transfer', 'expense', 'price_list', 'coupon', 'promotion', 'quotation', 'payment_notice']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
             'list_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_roles', 'description' => 'قائمة الأدوار', 'parameters' => $obj([])]],
@@ -184,7 +184,7 @@ final class ToolRegistry
             'who_can' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'who_can', 'description' => 'مين معاه صلاحية معينة', 'parameters' => $obj(['permission' => $str], ['permission'])]],
             'compare_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'compare_roles', 'description' => 'مقارنة صلاحيات دورين', 'parameters' => $obj(['role_a' => $int, 'role_b' => $int], ['role_a', 'role_b'])]],
             'recent_audit' => ['kind' => ToolKind::Read, 'permissions' => ['users.view', 'users.manage'], 'risk' => 'low', 'declaration' => ['name' => 'recent_audit', 'description' => 'آخر أحداث سجل التدقيق الإداري', 'parameters' => $obj(['days' => $int])]],
-            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view', 'transfers.view', 'stocktakes.view', 'inventory.view', 'treasuries.view', 'treasury_transfers.view', 'expenses.view', 'customers.wallet.view', 'price_lists.view', 'coupons.view', 'promotions.view'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location', 'customer', 'customer_group', 'category', 'product', 'variant', 'transfer', 'stocktake', 'production_receipt', 'treasury', 'treasury_transfer', 'expense', 'price_list', 'coupon', 'promotion']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
+            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view', 'transfers.view', 'stocktakes.view', 'inventory.view', 'treasuries.view', 'treasury_transfers.view', 'expenses.view', 'customers.wallet.view', 'price_lists.view', 'coupons.view', 'promotions.view', 'quotations.view', 'payment_notices.view'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location', 'customer', 'customer_group', 'category', 'product', 'variant', 'transfer', 'stocktake', 'production_receipt', 'treasury', 'treasury_transfer', 'expense', 'price_list', 'coupon', 'promotion', 'quotation', 'payment_notice']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
             'create_branch' => ['kind' => ToolKind::Write, 'permissions' => ['branches.create', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_branch', 'description' => 'إنشاء فرع جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes], 'city' => $str, 'phone' => $str], ['name', 'code', 'type'])]],
             'set_branch_status' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'high', 'declaration' => ['name' => 'set_branch_status', 'description' => 'تفعيل أو تعطيل فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'active' => $bool], ['active'])]],
             'create_role' => ['kind' => ToolKind::Write, 'permissions' => ['roles.create', 'roles.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'create_role', 'description' => 'إنشاء دور جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'permissions' => $strArr], ['name'])]],
@@ -300,6 +300,13 @@ final class ToolRegistry
             return $actor->can('ai_agent.catalog.vision') && $actor->can('products.create');
         }
 
+        // These declarations describe the permissions needed across a set of
+        // possible targets/child actions. Each concrete lookup or child tool
+        // applies its own permission check before returning data or a proposal.
+        if (in_array($name, ['bulk_actions', 'find_entities', 'ask_user_to_choose'], true)) {
+            return $actor->canAny($def['permissions']);
+        }
+
         $domain = ($def['provider'] ?? null)?->domain();
         if ($domain === 'finance') {
             if (! $actor->can('ai_agent.finance')) {
@@ -309,18 +316,63 @@ final class ToolRegistry
                 return $actor->can('orders.view') && $actor->canAny(array_diff($def['permissions'], ['orders.view']));
             }
 
-            return $actor->can($def['permissions']);
+            return $this->actorHasAllPermissions($actor, $def['permissions']);
         }
 
         if ($domain === 'pricing') {
-            return $actor->can($def['permissions']);
+            return $actor->can('ai_agent.pricing') && $this->actorHasAllPermissions($actor, $def['permissions']);
         }
 
         if ($domain === 'wholesale') {
-            return $actor->can('ai_agent.wholesale') && $actor->canAny($def['permissions']);
+            if (! $actor->can('ai_agent.wholesale')) {
+                return false;
+            }
+
+            return $name === 'wholesale_inbox'
+                ? $actor->canAny($def['permissions'])
+                : $this->actorHasAllPermissions($actor, $def['permissions']);
         }
 
-        return $actor->canAny($def['permissions']);
+        // A resource's manage permission is an alternative grant for the
+        // corresponding single action, not an additional permission to stack.
+        if ($this->hasManageFallbackPermissions($def['permissions'])) {
+            return $actor->canAny($def['permissions']);
+        }
+
+        return $this->actorHasAllPermissions($actor, $def['permissions']);
+    }
+
+    /** @param list<string> $permissions */
+    private function hasManageFallbackPermissions(array $permissions): bool
+    {
+        if (count($permissions) !== 2) {
+            return false;
+        }
+        foreach ($permissions as $permission) {
+            if (! is_string($permission) || ! str_ends_with($permission, '.manage')) {
+                continue;
+            }
+            $resource = substr($permission, 0, -strlen('.manage'));
+            foreach ($permissions as $candidate) {
+                if (is_string($candidate) && str_starts_with($candidate, $resource.'.')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @param list<string> $permissions */
+    private function actorHasAllPermissions(User $actor, array $permissions): bool
+    {
+        foreach ($permissions as $permission) {
+            if (! is_string($permission) || $permission === '' || ! $actor->can($permission)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function domainOf(string $name, array $def): string
@@ -338,9 +390,9 @@ final class ToolRegistry
         return 'admin';
     }
 
-    public function blockedOnWhatsapp(string $name, ToolKind $kind, string $risk): bool
+    public function blockedOnWhatsapp(string $name, ToolKind $kind, string $risk, ?User $actor = null): bool
     {
-        return (new WhatsApp\WhatsAppChannelPolicy($this->settings))->blocks($name, $kind, $risk);
+        return (new WhatsApp\WhatsAppChannelPolicy($this->settings))->blocks($name, $kind, $risk, $actor ?? null);
     }
 
     public function isWrite(string $name): bool
@@ -379,7 +431,7 @@ final class ToolRegistry
         if ($this->toolHiddenByFlags($name)) {
             return ToolOutcome::denied('الأداة دي مقفولة من الإعدادات.', auditable: false);
         }
-        if (($conv->channel ?: 'web') === 'whatsapp' && $this->blockedOnWhatsapp($name, $defs[$name]['kind'], (string) $defs[$name]['risk'])) {
+        if (($conv->channel ?: 'web') === 'whatsapp' && $this->blockedOnWhatsapp($name, $defs[$name]['kind'], (string) $defs[$name]['risk'], $actor)) {
             return ToolOutcome::denied('الأداة دي مش متاحة من واتساب.', auditable: false);
         }
         if ($defs[$name]['kind'] === ToolKind::Write && ! $actor->can('ai_agent.execute')) {
@@ -623,6 +675,8 @@ final class ToolRegistry
             'price_list' => ToolOutcome::data(['results' => $this->resolver->priceLists($actor, $query)]),
             'coupon' => ToolOutcome::data(['results' => $this->resolver->coupons($query)]),
             'promotion' => ToolOutcome::data(['results' => $this->resolver->promotions($query)]),
+            'quotation' => ToolOutcome::data(['results' => $this->resolver->quotations($actor, $query)]),
+            'payment_notice' => ToolOutcome::data(['results' => $this->resolver->paymentNotices($actor, $query)]),
             'treasury' => ToolOutcome::data(['results' => $this->resolver->treasuries($actor, $query, isset($args['branch_id']) ? ['branch_id' => (int) $args['branch_id']] : [])]),
             'treasury_transfer' => ToolOutcome::data(['results' => $this->resolver->treasuryTransfers($actor, $query)]),
             'expense' => ToolOutcome::data(['results' => $this->resolver->expenses($actor, $query)]),
@@ -746,6 +800,8 @@ final class ToolRegistry
             'price_list' => $this->resolver->priceLists($actor, $query),
             'coupon' => $this->resolver->coupons($query),
             'promotion' => $this->resolver->promotions($query),
+            'quotation' => $this->resolver->quotations($actor, $query),
+            'payment_notice' => $this->resolver->paymentNotices($actor, $query),
             'treasury' => $this->resolver->treasuries($actor, $query),
             'treasury_transfer' => $this->resolver->treasuryTransfers($actor, $query),
             'expense' => $this->resolver->expenses($actor, $query),
@@ -1303,23 +1359,29 @@ final class ToolRegistry
 
     private function prepareBulk(User $actor, AiConversation $conv, array $args): ToolOutcome
     {
-        return DB::transaction(function () use ($actor, $conv, $args): ToolOutcome {
+        $max = max(1, (int) $this->settings->get('ai_bulk_max_items', 25));
+        $rawItems = (array) ($args['items'] ?? []);
+        if ($rawItems === [] || count($rawItems) > $max) {
+            return ToolOutcome::denied("عدد عناصر العملية الجماعية لازم يكون بين 1 و {$max}.");
+        }
+
+        return DB::transaction(function () use ($actor, $conv, $rawItems): ToolOutcome {
             $ids = [];
             $items = [];
             $creditUnderUsed = 0;
-            $allSetCustomerGroup = $args['items'] !== [];
-            foreach ($args['items'] as $item) {
+            $allSetCustomerGroup = $rawItems !== [];
+            foreach ($rawItems as $item) {
                 // Isolate each sub-action inside a savepoint so individual SQL failures do not poison the outer transaction.
                 try {
                     $outcome = DB::transaction(fn () => $this->dispatch($actor, $conv, ['name' => $item['tool'], 'args' => $item['args']]));
                 } catch (QueryException $e) {
                     report($e);
-                    AiPendingAction::whereIn('id', $ids)->update(['status' => 'cancelled']);
+                    AiPendingAction::whereIn('id', $ids)->delete();
 
                     return ToolOutcome::denied('تعذّر تجهيز أحد عناصر العملية الجماعية بسبب خطأ في قاعدة البيانات؛ راجع العناصر وحاول مجددًا.');
                 }
                 if ($outcome->type !== 'proposal') {
-                    AiPendingAction::whereIn('id', $ids)->update(['status' => 'cancelled']);
+                    AiPendingAction::whereIn('id', $ids)->delete();
 
                     return ToolOutcome::denied($outcome->message ?? 'حدد كل العناصر بوضوح قبل تجهيز العملية الجماعية.');
                 }
@@ -1327,7 +1389,7 @@ final class ToolRegistry
                 $ids[] = $id;
                 // High-risk actions require explicit typed confirmation and cannot be batched into bulk executions.
                 if (AiPendingAction::whereKey($id)->value('risk') === 'high') {
-                    AiPendingAction::whereIn('id', $ids)->update(['status' => 'cancelled']);
+                    AiPendingAction::whereIn('id', $ids)->delete();
 
                     return ToolOutcome::denied('العنصر "'.($outcome->uiBlock['title'] ?? $item['tool']).'" عالي الخطورة؛ نفّذه لوحده مش ضمن عملية جماعية.');
                 }
@@ -1346,7 +1408,7 @@ final class ToolRegistry
             if ($allSetCustomerGroup && $ids !== []) {
                 $noChange = AiPendingAction::whereIn('id', $ids)->get()->every(fn (AiPendingAction $child) => array_key_exists('customer_group_id', $child->inverse ?? []) && (int) $child->inverse['customer_group_id'] === (int) ($child->args['customer_group_id'] ?? -1) && (int) ($child->args['customer_group_id'] ?? -1) !== -1);
                 if ($noChange) {
-                    AiPendingAction::whereIn('id', $ids)->update(['status' => 'cancelled']);
+                    AiPendingAction::whereIn('id', $ids)->delete();
 
                     return ToolOutcome::denied('مفيش تغيير.');
                 }
@@ -1904,6 +1966,7 @@ final class ToolRegistry
 
     public function executeWrite(User $actor, AiPendingAction $action, array $via, ?array $selectedItems = null): ToolOutcome
     {
+        $this->assertActionExecutionPermissions($actor, $action);
         $args = $action->args;
         $tool = $action->tool;
         $providerTool = $this->toolInstance($tool);
@@ -2792,36 +2855,40 @@ final class ToolRegistry
 
     private function execApproveDealerApplication(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $service = app(CustomerManagementService::class);
-        $customer = Customer::findOrFail($args['customer_id']);
-        foreach ($args['verify_document_ids'] ?? [] as $docId) {
-            $doc = $customer->documents()->whereKey($docId)->firstOrFail();
-            $service->reviewDocument($customer, $doc, CustomerDocumentStatus::Verified->value, $actor->id, null, $via);
-        }
-        $data = [];
-        foreach (['customer_group_id', 'credit_limit', 'type'] as $field) {
-            if (array_key_exists($field, $args)) {
-                $data[$field] = $args[$field];
+        return DB::transaction(function () use ($actor, $args, $via): ToolOutcome {
+            $service = app(CustomerManagementService::class);
+            $customer = Customer::query()->lockForUpdate()->findOrFail($args['customer_id']);
+            foreach ($args['verify_document_ids'] ?? [] as $docId) {
+                $doc = $customer->documents()->whereKey($docId)->lockForUpdate()->firstOrFail();
+                $service->reviewDocument($customer, $doc, CustomerDocumentStatus::Verified->value, $actor->id, null, $via);
             }
-        }
-        $service->approve($customer, $data, $actor->id, $via);
+            $data = [];
+            foreach (['customer_group_id', 'credit_limit', 'type'] as $field) {
+                if (array_key_exists($field, $args)) {
+                    $data[$field] = $args[$field];
+                }
+            }
+            $service->approve($customer, $data, $actor->id, $via);
 
-        return ToolOutcome::result(true, 'تم اعتماد التاجر.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم اعتماد التاجر.', 'deep_link' => '/dealers?customer='.$customer->id]);
+            return ToolOutcome::result(true, 'تم اعتماد التاجر.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم اعتماد التاجر.', 'deep_link' => '/dealers?customer='.$customer->id]);
+        });
     }
 
     private function execRejectDealerApplication(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $service = app(CustomerManagementService::class);
-        $customer = Customer::findOrFail($args['customer_id']);
-        $notes = $args['document_notes'] ?? [];
-        foreach ($args['reject_document_ids'] ?? [] as $docId) {
-            $doc = $customer->documents()->whereKey($docId)->firstOrFail();
-            $note = $notes[$docId] ?? $notes[(string) $docId] ?? null;
-            $service->reviewDocument($customer, $doc, CustomerDocumentStatus::Rejected->value, $actor->id, $note, $via);
-        }
-        $service->reject($customer, $args['reason'], $actor->id, $via);
+        return DB::transaction(function () use ($actor, $args, $via): ToolOutcome {
+            $service = app(CustomerManagementService::class);
+            $customer = Customer::query()->lockForUpdate()->findOrFail($args['customer_id']);
+            $notes = $args['document_notes'] ?? [];
+            foreach ($args['reject_document_ids'] ?? [] as $docId) {
+                $doc = $customer->documents()->whereKey($docId)->lockForUpdate()->firstOrFail();
+                $note = $notes[$docId] ?? $notes[(string) $docId] ?? null;
+                $service->reviewDocument($customer, $doc, CustomerDocumentStatus::Rejected->value, $actor->id, $note, $via);
+            }
+            $service->reject($customer, $args['reason'], $actor->id, $via);
 
-        return ToolOutcome::result(true, 'تم رفض الطلب.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم رفض الطلب.', 'deep_link' => '/dealers?customer='.$customer->id]);
+            return ToolOutcome::result(true, 'تم رفض الطلب.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم رفض الطلب.', 'deep_link' => '/dealers?customer='.$customer->id]);
+        });
     }
 
     private function execSuspendCustomer(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
@@ -2869,6 +2936,7 @@ final class ToolRegistry
 
     public function executeUndo(User $actor, AiPendingAction $action, array $via): ToolOutcome
     {
+        $this->assertActionExecutionPermissions($actor, $action);
         $inv = $action->inverse ?? [];
         $tool = $action->tool;
         $args = $action->args;
@@ -2952,6 +3020,32 @@ final class ToolRegistry
         } catch (QueryException $e) {
             // Report conflict failures gracefully instead of throwing 500 so action remains executed until conflict resolution.
             return ToolOutcome::result(false, 'تعذّر التراجع؛ القيمة المطلوبة مستخدمة حاليًا.');
+        }
+    }
+
+    private function assertActionExecutionPermissions(User $actor, AiPendingAction $action): void
+    {
+        $actor->refresh();
+        $definition = $this->definitions()[$action->tool] ?? null;
+        abort_unless(
+            $definition !== null
+                && $actor->is_active
+                && $actor->can('ai_agent.use')
+                && $actor->can('ai_agent.execute')
+                && $this->settings->getBool('ai_enabled', false)
+                && $this->actorHasToolPermissions($actor, $action->tool, $definition),
+            403,
+        );
+        abort_unless(hash_equals($action->args_hash, $this->hashArgs($action->args)), 409, 'بيانات الإجراء اتغيرت.');
+
+        $disabled = $this->settings->get('ai_disabled_tools', []);
+        abort_if(is_array($disabled) && in_array($action->tool, $disabled, true), 403, 'الأداة مقفولة من الإعدادات.');
+        abort_if($this->toolHiddenByFlags($action->tool), 403, 'الأداة مقفولة من الإعدادات.');
+        abort_if($this->isCustomerTool($action->tool) && ! $this->customerToolsEnabled(), 403, 'أدوات العملاء مقفولة من الإعدادات.');
+
+        if ($action->conversation?->channel === 'whatsapp') {
+            abort_unless($this->settings->getBool('ai_whatsapp_enabled', false), 403, 'مساعد واتساب مقفول.');
+            abort_if($this->blockedOnWhatsapp($action->tool, $definition['kind'], (string) $action->risk, $actor), 403, 'الأداة دي مش متاحة من واتساب.');
         }
     }
 }

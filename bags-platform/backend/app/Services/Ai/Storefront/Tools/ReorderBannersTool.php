@@ -12,6 +12,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
+use App\Services\Auth\StaffAdministration;
 use App\Services\Catalog\BannerService;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -89,6 +90,17 @@ final class ReorderBannersTool implements WriteTool
         }
 
         $this->banners->reorder((string) $action->args['position'], $action->args['ids']);
+
+        StaffAdministration::audit(
+            $actor,
+            'banner.reordered',
+            'banner',
+            null,
+            ['sort_order'],
+            $action->preview['before'] ?? null,
+            ['position' => $action->args['position'], 'ids' => $action->args['ids']],
+            ['channel' => 'ai', 'tool' => $this->name(), 'conversation_id' => $action->conversation_id, 'action_id' => $action->id],
+        );
 
         return ToolOutcome::result(true, 'تم ترتيب البانرات.', ['position' => $action->args['position']]);
     }

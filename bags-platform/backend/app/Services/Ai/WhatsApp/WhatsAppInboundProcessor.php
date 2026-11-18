@@ -147,7 +147,7 @@ final class WhatsAppInboundProcessor
     private function link(AiWhatsappInbound $inbound, array $message, string $text): string
     {
         $remoteJid = (string) $message['remote_jid'];
-        if (! preg_match('/^ربط\s+([A-Za-z0-9]{4}-[A-Za-z0-9]{4})\s*$/u', $text, $matches)) {
+        if (! preg_match('/^ربط\s+([A-Za-z0-9]{4}(?:-[A-Za-z0-9]{4}){1,2})\s*$/u', $text, $matches)) {
             $this->finish($inbound, 'ignored', 'invalid_link', null, null);
 
             return 'done';
@@ -180,7 +180,8 @@ final class WhatsAppInboundProcessor
 
             return null;
         }
-        if ($phone !== null ? $phone !== $identity->phone_e164 : $lid === null) {
+        // LID alone does not prove ownership of the phone number registered by an admin.
+        if ($phone === null || $phone !== $identity->phone_e164) {
             $this->finish($inbound, 'ignored', 'phone_mismatch', $identity->id, null);
 
             return null;
@@ -652,10 +653,6 @@ final class WhatsAppInboundProcessor
             return 'الصورة أكبر من 4 ميجا.';
         }
         $quota = max(1, (int) config('services.gemini.max_pending_attachments_per_user', 40));
-        $pending = AiAttachment::query()->where('user_id', $user->id)->whereNull('consumed_at')->count();
-        if ($pending >= $quota) {
-            return 'وصلت للحد الأقصى من المرفقات غير المستخدمة.';
-        }
         $ulid = (string) Str::ulid();
         $ext = match ($mime) {
             'image/png' => 'png',
@@ -667,17 +664,31 @@ final class WhatsAppInboundProcessor
             throw new \RuntimeException('Could not store WhatsApp attachment.');
         }
         try {
-            AiAttachment::query()->forceCreate([
-                'id' => $ulid,
-                'conversation_id' => $conversation->id,
-                'user_id' => $user->id,
-                'path' => $path,
-                'mime' => $mime,
-                'size' => strlen($bytes),
-                'sha256' => hash('sha256', $bytes),
-            ]);
+            DB::transaction(function () use ($user, $conversation, $quota, $ulid, $path, $mime, $bytes): void {
+                User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $pending = AiAttachment::query()
+                    ->where('user_id', $user->id)
+                    ->whereNull('consumed_at')
+                    ->whereHas('conversation')
+                    ->count();
+                if ($pending >= $quota) {
+                    throw new \Symfony\Component\HttpKernel\Exception\HttpException(429, 'وصلت للحد الأقصى من المرفقات غير المستخدمة.');
+                }
+                AiAttachment::query()->forceCreate([
+                    'id' => $ulid,
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $user->id,
+                    'path' => $path,
+                    'mime' => $mime,
+                    'size' => strlen($bytes),
+                    'sha256' => hash('sha256', $bytes),
+                ]);
+            });
         } catch (\Throwable $e) {
             Storage::disk('ai_private')->delete($path);
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface && $e->getStatusCode() === 429) {
+                return 'وصلت للحد الأقصى من المرفقات غير المستخدمة.';
+            }
             throw $e;
         }
 
@@ -709,19 +720,32 @@ final class WhatsAppInboundProcessor
     private function activeIdentity(array $message): ?AiWhatsappIdentity
     {
         $keys = array_values(array_filter([(string) ($message['remote_jid'] ?? ''), (string) ($message['remote_jid_alt'] ?? '')]));
-        if ($keys === []) {
+        $phones = array_values(array_unique(array_filter(array_map(E164Phone::fromWhatsappJid(...), $keys))));
+        if ($keys === [] && $phones === []) {
             return null;
         }
 
         return AiWhatsappIdentity::query()
             ->where('status', 'active')
             ->whereNotNull('verified_at')
-            ->where(function ($query) use ($keys): void {
+            ->where(function ($query) use ($keys, $phones): void {
                 foreach ($keys as $key) {
                     $query->orWhere('wa_jid', $key)->orWhere('wa_lid', $key);
                 }
+                if ($phones !== []) {
+                    $query->orWhereIn('phone_e164', $phones);
+                }
             })
             ->first();
+    }
+
+    /** @param list<string> $attachmentIds */
+    private function deleteUnconsumedAttachments(array $attachmentIds): void
+    {
+        foreach (AiAttachment::query()->whereIn('id', $attachmentIds)->whereNull('consumed_at')->get() as $attachment) {
+            Storage::disk('ai_private')->delete($attachment->path);
+            $attachment->delete();
+        }
     }
 
     /** @param array<string, mixed> $message */
@@ -761,7 +785,10 @@ final class WhatsAppInboundProcessor
             return false;
         }
 
-        return $identity->unlocked_until === null || $identity->unlocked_until->isPast();
+        return $identity->pin_hash === null
+            || $identity->pin_hash === ''
+            || $identity->unlocked_until === null
+            || $identity->unlocked_until->isPast();
     }
 
     private function allowsWhatsapp(User $user): bool

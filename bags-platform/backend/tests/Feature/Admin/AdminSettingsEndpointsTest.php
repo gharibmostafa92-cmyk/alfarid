@@ -32,7 +32,7 @@ class AdminSettingsEndpointsTest extends TestCase
             ->assertJsonPath('data.tax.tax_enabled', false)
             ->assertJsonPath('data.tax.default_tax_rate', 14)
             ->assertJsonPath('data.numbering.invoice_next_number', 1000)
-            ->assertJsonPath('data.company.company_name', 'Alfarid');
+            ->assertJsonPath('data.company.company_name', 'VARYA');
     }
 
     public function test_admin_can_update_settings_and_cache_is_invalidated(): void
@@ -43,17 +43,17 @@ class AdminSettingsEndpointsTest extends TestCase
         $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
 
         $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
-            'company_name' => 'Alfarid Trading',
+            'company_name' => 'VARYA Trading',
             'tax_enabled' => true,
             'default_tax_rate' => 15,
             'order_next_number' => 2000,
         ])->assertOk()
-            ->assertJsonPath('data.company.company_name', 'Alfarid Trading')
+            ->assertJsonPath('data.company.company_name', 'VARYA Trading')
             ->assertJsonPath('data.tax.tax_enabled', true)
             ->assertJsonPath('data.tax.default_tax_rate', 15)
             ->assertJsonPath('data.numbering.order_next_number', 2000);
 
-        $this->assertSame('Alfarid Trading', $service->get('company_name'));
+        $this->assertSame('VARYA Trading', $service->get('company_name'));
         $this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '1']);
     }
 
@@ -148,10 +148,10 @@ class AdminSettingsEndpointsTest extends TestCase
         $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings?company_name=Injected&tax_enabled=1', [
             'invoice_prefix' => 'BILL-',
         ])->assertOk()
-            ->assertJsonPath('data.company.company_name', 'Alfarid')
+            ->assertJsonPath('data.company.company_name', 'VARYA')
             ->assertJsonPath('data.tax.tax_enabled', false);
 
-        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Alfarid']);
+        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'VARYA']);
         $this->assertDatabaseHas('settings', ['key' => 'invoice_prefix', 'value' => 'BILL-']);
     }
 

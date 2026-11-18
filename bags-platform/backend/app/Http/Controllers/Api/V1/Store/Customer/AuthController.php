@@ -121,7 +121,7 @@ class AuthController extends Controller
     {
         $this->auth->forgotPassword($request->validated()['email'] ?? null, $request->validated()['phone'] ?? null);
 
-        return response()->json(['message' => 'لو الحساب موجود، أرسلنا رمز الاستعادة إليه.']);
+        return response()->json(['message' => 'تأكّد من البيانات التي أدخلتها. إذا كانت مرتبطة بحسابك، سيصلك رابط تغيير كلمة المرور.']);
     }
 
     /**
@@ -154,8 +154,11 @@ class AuthController extends Controller
             throw new BusinessException('تعذر التحقق من الشبكة، حاول مرة أخرى.');
         }
 
-        SendCustomerPhoneVerification::dispatch($phone, $networkKey)
-            ->onConnection(config('auth.customer_password_reset.connection', 'database'));
+        // Same response whether or not the phone is registered. Do not spend an SMS on a known number.
+        if (! Customer::query()->where('phone', Customer::normalizePhone($phone))->exists()) {
+            SendCustomerPhoneVerification::dispatch($phone, $networkKey)
+                ->onConnection(config('auth.customer_password_reset.connection', 'database'));
+        }
 
         return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم إذا كان متاحًا.']);
     }

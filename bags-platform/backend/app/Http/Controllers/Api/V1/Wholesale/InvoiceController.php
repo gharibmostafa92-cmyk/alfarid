@@ -77,7 +77,7 @@ class InvoiceController extends Controller
             ->findOrFail($order);
 
         return Pdf::loadView('pdfs.wholesale_invoice', [
-            'company_name' => (string) $this->settings->get('company_name', 'Alfarid'),
+            'company_name' => (string) $this->settings->get('company_name', 'VARYA'),
             'customer' => $customer,
             'order' => $model,
         ])->download("invoice-{$model->order_number}.pdf");

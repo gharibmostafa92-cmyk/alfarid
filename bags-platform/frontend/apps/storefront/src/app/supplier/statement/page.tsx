@@ -17,7 +17,11 @@ export default function SupplierStatementPage() {
     setData(null);
     setError('');
     supplierPortalApi.statement(period, controller.signal).then(setData)
-      .catch(() => { if (!controller.signal.aborted) setError('تعذر تحميل كشف الحساب.'); });
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const message = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+        setError(typeof message === 'string' && message.trim() ? message : 'تعذر تحميل كشف الحساب.');
+      });
     return () => controller.abort();
   }, [period]);
 

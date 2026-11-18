@@ -257,9 +257,11 @@ final class PendingActionService
         abort_unless($action->conversation()->exists(), 409, 'المحادثة اتحذفت.');
         abort_unless(hash_equals($action->args_hash, $this->registry->hashArgs($action->args)), 409, 'بيانات الإجراء اتغيرت.');
         $mode = app(WhatsAppActorContext::class)->mode();
-        if (in_array($mode, ['confirm', 'undo'], true) && $def) {
+        $isWhatsappAction = $mode !== 'off' || $action->conversation?->channel === 'whatsapp';
+        if ($isWhatsappAction && $def) {
+            abort_unless($this->settings->getBool('ai_whatsapp_enabled', false), 403, 'مساعد واتساب مقفول.');
             $risk = (string) ($action->risk ?: $def['risk']);
-            abort_if($this->registry->blockedOnWhatsapp($action->tool, $def['kind'], $risk), 403, 'الأداة دي مش متاحة من واتساب.');
+            abort_if($this->registry->blockedOnWhatsapp($action->tool, $def['kind'], $risk, $actor), 403, 'الأداة دي مش متاحة من واتساب.');
         }
     }
 
@@ -430,6 +432,31 @@ final class PendingActionService
             $this->lockForAction($action->tool);
             $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
             if ($locked->status === 'pending') {
+                if ($locked->tool === 'bulk_actions') {
+                    $childIds = $locked->args['action_ids'] ?? [];
+                    $children = is_array($childIds)
+                        ? AiPendingAction::query()->whereIn('id', $childIds)->lockForUpdate()->get()
+                        : collect();
+                    $executed = $children->where('status', 'executed')->values();
+                    if ($executed->isNotEmpty()) {
+                        AiPendingAction::query()->whereIn('id', $childIds)->whereIn('status', ['pending', 'bulk_child'])->update(['status' => 'cancelled']);
+                        $items = $children->map(fn (AiPendingAction $child) => [
+                            'action_id' => $child->id,
+                            'ok' => $child->status === 'executed',
+                            'status' => $child->status === 'executed' ? 'executed' : 'cancelled',
+                            'message' => (string) ($child->result['message'] ?? ($child->status === 'executed' ? 'تم التنفيذ.' : 'تم الإلغاء قبل التنفيذ.')),
+                        ])->all();
+                        $message = 'تم تنفيذ '.$executed->count().' من '.count($childIds).' عناصر قبل الإلغاء؛ اتلغت العناصر المتبقية.';
+                        $locked->forceFill([
+                            'status' => 'executed',
+                            'executed_at' => now(),
+                            'result' => ['ok' => false, 'message' => $message, 'items' => $items],
+                        ])->save();
+                        $this->event($locked, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message, 'items' => $items]]);
+
+                        return $locked;
+                    }
+                }
                 $locked->forceFill(['status' => 'cancelled'])->save();
                 if ($locked->tool === 'bulk_actions') {
                     // Cancel child actions in lockstep when parent bulk action is cancelled.
@@ -498,7 +525,9 @@ final class PendingActionService
 
     private function isRetryableLockFailure(QueryException $e): bool
     {
-        return in_array((string) $e->getCode(), ['55P03', '40P01'], true);
+        $sqlState = (string) ($e->errorInfo[0] ?? $e->getCode());
+
+        return in_array($sqlState, ['55P03', '40P01', '40001'], true);
     }
 
     /**

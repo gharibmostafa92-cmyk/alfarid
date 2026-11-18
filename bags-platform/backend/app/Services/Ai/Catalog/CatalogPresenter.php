@@ -76,7 +76,7 @@ final class CatalogPresenter
     /** @return array<string,mixed> */
     public function product(Product $product, User $actor): array
     {
-        $product->loadMissing(['category', 'variants', 'media']);
+        $product->loadMissing(['category', 'variants.media', 'media']);
         $canViewCost = CostAccess::canView($actor);
         $variants = $product->variants->map(fn (ProductVariant $v) => $this->variant($v, $actor))->values()->all();
         $activeVariants = $product->variants->where('is_active', true);

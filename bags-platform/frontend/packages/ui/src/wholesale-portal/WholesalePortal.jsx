@@ -126,7 +126,7 @@ export function WholesalePortal({
   onForbidden = null,
   onForgotSubmit = null,
   onResetSubmit = null,
-  brandName = 'SOPHIE',
+  brandName = 'VARYA',
 }) {
   const [route, setRoute] = useState(() => {
     const r = readRoute(initialScreen);
@@ -335,7 +335,7 @@ export function WholesalePortal({
       case 'return':
         return <ReturnDetail id={id} />;
       case 'invoices':
-        return <Invoices />;
+        return <Invoices brandName={brandName} />;
       case 'statement':
         return <Statement />;
       case 'notices':
@@ -351,11 +351,11 @@ export function WholesalePortal({
       case 'account':
         return <Account />;
       case 'status':
-        return <ApplicationStatus onLogout={logout} onEnter={onEnter || (() => go('dashboard'))} />;
+        return <ApplicationStatus brandName={brandName} onLogout={logout} onEnter={onEnter || (() => go('dashboard'))} />;
       case 'forgot':
-        return <ForgotPassword onBack={() => go('dashboard')} onGoReset={() => go('reset')} onForgotSubmit={onForgotSubmit} />;
+        return <ForgotPassword brandName={brandName} onBack={() => go('dashboard')} onGoReset={() => go('reset')} onForgotSubmit={onForgotSubmit} />;
       case 'reset':
-        return <ResetPassword onBack={() => go('dashboard')} onForgot={() => go('forgot')} onResetSubmit={onResetSubmit} />;
+        return <ResetPassword brandName={brandName} onBack={() => go('dashboard')} onForgot={() => go('forgot')} onResetSubmit={onResetSubmit} />;
       default:
         return <Dashboard />;
     }

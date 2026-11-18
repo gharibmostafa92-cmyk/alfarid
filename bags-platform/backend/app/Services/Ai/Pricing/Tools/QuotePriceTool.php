@@ -56,6 +56,7 @@ final class QuotePriceTool implements AgentTool
                     'sku' => ['type' => 'STRING'],
                     'query' => ['type' => 'STRING'],
                     'customer_id' => ['type' => 'INTEGER'],
+                    'customer_query' => ['type' => 'STRING'],
                     'quantities' => ['type' => 'ARRAY', 'items' => ['type' => 'NUMBER']],
                     'branch_id' => ['type' => 'INTEGER'],
                     'branch_query' => ['type' => 'STRING'],
@@ -74,7 +75,8 @@ final class QuotePriceTool implements AgentTool
         $variant = $resolved['variant'];
 
         $customer = null;
-        if (! empty($args['customer_id'])) {
+        $hasCustomerSelector = ! empty($args['customer_id']) || ! empty($args['customer_query']);
+        if ($hasCustomerSelector) {
             if (! $actor->can('customers.view')) {
                 return ToolOutcome::denied('معندكش صلاحية عرض العملاء.');
             }

@@ -74,6 +74,9 @@ final class ExplainPriceTool implements AgentTool
         }
         $variant = $resolved['variant'];
 
+        if ((! empty($args['customer_id']) || ! empty($args['customer_query'])) && ! $actor->can('customers.view')) {
+            return ToolOutcome::denied('معندكش صلاحية عرض العملاء.');
+        }
         $customerResolved = PricingArgs::resolveCustomer($actor, $this->resolver, $args);
         if ($customerResolved instanceof ToolOutcome) {
             return $customerResolved;

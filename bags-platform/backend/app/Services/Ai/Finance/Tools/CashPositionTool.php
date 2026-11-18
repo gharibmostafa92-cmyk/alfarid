@@ -74,10 +74,13 @@ final class CashPositionTool implements AgentTool
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->get(['id', 'branch_id', 'type', 'current_balance']);
 
+        $treasuryIds = $treasuries->modelKeys();
         $pendingOut = TreasuryTransfer::query()->where('status', TreasuryTransferStatus::Pending)
+            ->whereIn('from_treasury_id', $treasuryIds)
             ->selectRaw('from_treasury_id AS treasury_id, SUM(amount) AS total')
             ->groupBy('from_treasury_id')->pluck('total', 'treasury_id');
         $pendingIn = TreasuryTransfer::query()->where('status', TreasuryTransferStatus::Pending)
+            ->whereIn('to_treasury_id', $treasuryIds)
             ->selectRaw('to_treasury_id AS treasury_id, SUM(amount) AS total')
             ->groupBy('to_treasury_id')->pluck('total', 'treasury_id');
 

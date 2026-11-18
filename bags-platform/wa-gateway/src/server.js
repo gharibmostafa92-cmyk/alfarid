@@ -10,8 +10,11 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { usePostgresAuthState } from './auth-state.js';
 import { toInbound } from './filter.js';
-import { verify } from './hmac.js';
+import { createReplayGuard, verify } from './hmac.js';
 import {
+  buildDeleteForMeModify,
+  buildQuotedMessage,
+  closeSocketSafely,
   consumeMediaStream,
   createMediaStore,
   createPoolConfig,
@@ -76,21 +79,28 @@ async function clearAuthState() {
 }
 
 async function connect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
   if (runtime.starting || runtime.state === 'connected' || runtime.state === 'logged_out') return;
   runtime.starting = true;
   try {
+    if (runtime.sock) {
+      closeSocketSafely(runtime.sock);
+      runtime.sock = null;
+    }
     const auth = await usePostgresAuthState(pool, { logger });
     runtime.auth = auth;
     const version = await resolveBaileysVersion({ logger });
     const sock = makeWASocket({
       version,
       auth: { creds: auth.state.creds, keys: makeCacheableSignalKeyStore(auth.state.keys, logger) },
-      browser: Browsers.macOS('Alfarid'),
+      browser: Browsers.macOS('VARYA'),
       markOnlineOnConnect: false,
       logger,
     });
     runtime.sock = sock;
     sock.ev.on('creds.update', () => {
+      if (runtime.sock !== sock) return;
       auth.saveCreds().catch((error) => logger.error({ err: error }, 'could not save credentials'));
     });
     sock.ev.on('connection.update', (update) => {
@@ -106,6 +116,7 @@ async function connect() {
       }).catch((error) => logger.error({ err: error }, 'connection update handling failed'));
     });
     sock.ev.on('messages.upsert', ({ messages, type }) => {
+      if (runtime.sock !== sock) return;
       if (type !== 'notify') return;
       for (const msg of messages) {
         const inbound = toInbound(msg);
@@ -120,6 +131,9 @@ async function connect() {
   }
 }
 
+const replayGuard = createReplayGuard();
+const MUTATING_REPLAY_PATHS = new Set(['/send', '/logout', '/reconnect', '/delete']);
+
 const app = Fastify({ loggerInstance: logger });
 registerFastifyTelemetry(app);
 app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
@@ -128,8 +142,13 @@ app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, bo
 });
 app.addHook('preHandler', async (request, reply) => {
   const raw = request.rawBody ?? '';
-  if (!verify(secret, request.headers['x-wa-timestamp'], raw, request.headers['x-wa-signature'])) {
+  const sig = request.headers['x-wa-signature'];
+  if (!verify(secret, request.headers['x-wa-timestamp'], raw, sig)) {
     return reply.code(401).send({ message: 'invalid signature' });
+  }
+  const path = request.url.split('?')[0];
+  if (request.method === 'POST' && MUTATING_REPLAY_PATHS.has(path) && !replayGuard.consume(request.method, path, sig)) {
+    return reply.code(401).send({ message: 'replayed request' });
   }
 });
 
@@ -163,15 +182,14 @@ app.post('/logout', async (_request, reply) => {
   await logoutSession({
     runtime,
     clearAuth: clearAuthState,
-    scheduleReconnect,
     logger,
   });
   return { ok: true };
 });
 app.post('/send', async (request, reply) => {
-  const { to_jid: toJid, text, quoted_id: quotedId } = request.body || {};
+  const { to_jid: toJid, text, quoted_id: quotedId, quoted_from_me: quotedFromMe = false } = request.body || {};
   if (!runtime.sock || !toJid || !text) return reply.code(409).send({ message: 'not ready' });
-  const quoted = quotedId ? { key: { remoteJid: toJid, id: quotedId, fromMe: true }, message: { conversation: '' } } : undefined;
+  const quoted = buildQuotedMessage(toJid, quotedId, quotedFromMe);
   const sent = await runtime.sock.sendMessage(toJid, { text }, quoted ? { quoted } : undefined);
   return { wa_message_id: sent?.key?.id ?? null };
 });
@@ -184,7 +202,11 @@ app.post('/presence', async (request, reply) => {
 app.post('/delete', async (request) => {
   const { to_jid: toJid, wa_message_id: id } = request.body || {};
   if (runtime.sock && toJid && id) {
-    await runtime.sock.sendMessage(toJid, { delete: { remoteJid: toJid, fromMe: false, id } });
+    try {
+      await runtime.sock.chatModify(buildDeleteForMeModify(toJid, id), toJid);
+    } catch (err) {
+      logger.warn({ err }, 'chatModify deleteForMe failed');
+    }
   }
   return { ok: true };
 });

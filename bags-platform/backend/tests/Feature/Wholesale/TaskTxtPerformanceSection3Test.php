@@ -78,7 +78,7 @@ class TaskTxtPerformanceSection3Test extends TestCase
 
         $this->trader = Customer::factory()->create([
             'name' => 'تاجر الأداء والحمل',
-            'company_name' => 'شركة الفريد الكبرى للتجارة',
+            'company_name' => 'شركة VARYA الكبرى للتجارة',
             'phone' => '01091112233',
             'email' => 'perf-sec3@example.com',
             'type' => 'wholesale',
@@ -201,10 +201,10 @@ class TaskTxtPerformanceSection3Test extends TestCase
         $statement = $service->statement($this->trader);
         $elapsedMs = (microtime(true) - $t0) * 1000;
 
-        // 300 unpaid orders * 100 = 30000.00 debt; 300 unallocated free notices * 100 = 30000.00 free_pool -> 0.00 outstanding
+        // 600 credit orders total (300 paid + 300 unpaid) - 30000.00 free notices = 30000.00 outstanding.
         $this->assertSame('30000.00', $breakdown['debt']);
         $this->assertSame('30000.00', $breakdown['free_pool']);
-        $this->assertSame('0.00', $breakdown['outstanding']);
+        $this->assertSame('30000.00', $breakdown['outstanding']);
         $this->assertCount(180, $statement['entries']);
         $this->assertSame('30000.00', $statement['opening_balance']);
         $this->assertSame('30000.00', $statement['closing_balance']);
@@ -243,13 +243,14 @@ class TaskTxtPerformanceSection3Test extends TestCase
                     'amount' => 1000 + $r,
                     'reference' => "BNK-REF-{$r}",
                     'date' => $today,
-                    'description' => "تحويل من شركة الفريد الكبرى للتجارة {$r}",
+                    'description' => "تحويل من شركة VARYA الكبرى للتجارة {$r}",
                 ];
             } elseif ($r <= 200) {
                 // Probable matches (different reference, same amount and date)
                 $statementRows[] = [
                     'amount' => 1000 + $r,
-                    'reference' => "OTHER-REF-{$r}",
+                    // No statement reference means date + amount can qualify as a probable match.
+                    'reference' => '',
                     'date' => $today,
                     'description' => 'تحويل بنكي',
                 ];
@@ -259,7 +260,7 @@ class TaskTxtPerformanceSection3Test extends TestCase
                     'amount' => 90000 + $r,
                     'reference' => "UNMATCHED-{$r}",
                     'date' => $today,
-                    'description' => 'تحويل وارد من شركة الفريد الكبرى للتجارة',
+                    'description' => 'تحويل وارد من شركة VARYA الكبرى للتجارة',
                 ];
             }
         }

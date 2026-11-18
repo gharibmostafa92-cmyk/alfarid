@@ -37,7 +37,7 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       const json = value => route.fulfill({ headers, json: value });
       const fail = (status, message, code) => route.fulfill({ status, headers, json: { message, code } });
       if (method === 'OPTIONS') return route.fulfill({ status: 204, headers });
-      if (pathname.endsWith('/branding')) return data({ name: 'Sophie', logo: null });
+      if (pathname.endsWith('/branding')) return data({ name: 'VARYA', logo: null });
       if (pathname.endsWith('/auth/login')) return json({ ...session(), token: 'wholesale-e2e-token', cart_merged: true });
       if (pathname.endsWith('/auth/me')) return json(session());
       if (pathname.endsWith('/application-status')) return data({ ...member(), rejection_reason: null,
@@ -83,7 +83,7 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       }
       if (pathname.endsWith('/wholesale/orders')) return json({ data: [order], meta });
       if (pathname.endsWith('/products')) {
-        if (forbiddenProducts) return fail(403, 'Approved wholesalers only');
+        if (forbiddenProducts) return fail(403, 'Approved wholesalers only', 'wholesale_not_approved');
         return json({ data: [], meta: { ...meta, total: 0 } });
       }
       if (pathname.endsWith('/account/returns') && method === 'POST') throw new Error('Invalid images must never reach the server');
@@ -123,6 +123,22 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor();
     });
     const nav = name => page.locator('.wp-side').getByText(name, { exact: true }).click();
+    const verifyWidths = async (screen) => {
+      for (const width of [320, 390, 768, 1024, 1440, 1920]) {
+        await page.setViewportSize({ width, height: 900 });
+        const overflowing = await page.evaluate(() => (
+          [document.documentElement, ...document.querySelectorAll('.wp-header, .wp-main')]
+            .filter((node) => node.scrollWidth > node.clientWidth + 1)
+            .map((node) => [node.className || node.tagName, node.scrollWidth, node.clientWidth])
+        ));
+        assert.deepEqual(overflowing, [], `${screen} overflow at ${width}px`);
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    };
+    await check('branding and mobile layout keep actions inside the viewport', async () => {
+      await page.locator('.wp-logo').getByText('VARYA', { exact: true }).waitFor();
+      await verifyWidths('Dashboard');
+    });
     await check('cart failure is an error, then retry loads real cart values', async () => {
       await nav('سلة المشتريات');
       await page.getByRole('button', { name: /إعادة المحاولة/ }).waitFor();
@@ -130,6 +146,7 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       await page.getByRole('button', { name: /إعادة المحاولة/ }).click();
       await page.locator('.cart-row').first().waitFor();
       assert.equal(await page.locator('.cart-row').count(), 3);
+      await verifyWidths('Cart');
     });
     await check('notification counts update after single and bulk read', async () => {
       await nav('الإشعارات');
@@ -141,6 +158,7 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
     await check('invoice downloads include Bearer auth and the response filename', async () => {
       await nav('الفواتير');
       await page.getByText('INV-E2E-72', { exact: true }).waitFor();
+      await verifyWidths('Invoices');
       const download = page.waitForEvent('download');
       await page.getByRole('button', { name: /PDF/ }).click();
       assert.equal((await download).suggestedFilename(), 'invoice-72.pdf');
@@ -153,11 +171,12 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       assert.equal(reorders, 1);
       await page.getByRole('dialog').getByRole('button', { name: 'إغلاق', exact: true }).last().click();
     });
-    await check('checkout clears stale previews and retries price changes with the same key', async () => {
+    await check('checkout clears stale previews and uses a new checkout key after a confirmed price change', async () => {
       await nav('سلة المشتريات');
       await page.getByRole('button', { name: 'متابعة لإتمام الطلب' }).click();
       const place = page.getByRole('button', { name: 'إتمام الطلب', exact: true });
       await place.waitFor();
+      await verifyWidths('Checkout');
       await page.waitForFunction(() => !document.querySelector('.wp-wrap > .grid-2 aside .btn-block')?.disabled);
       await page.locator('select').selectOption('2');
       assert.equal(await place.isDisabled(), true);
@@ -167,7 +186,8 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       await page.getByRole('button', { name: 'تأكيد الإجمالي الجديد وإتمام الطلب', exact: true }).click();
       await page.getByRole('heading', { name: 'ORDER PLACED', exact: true }).waitFor();
       assert.equal(submissions.length, 2);
-      assert.equal(submissions[0].key, submissions[1].key);
+      assert(submissions[0].key && submissions[1].key);
+      assert.notEqual(submissions[0].key, submissions[1].key);
       assert.equal(submissions[1].body.expected_total, 320);
       await page.reload();
       await page.getByText('ORD-E2E-72', { exact: true }).waitFor();
@@ -188,7 +208,7 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       assert.equal(await page.locator('.photo-chip').count(), 8);
       await page.screenshot({ path: path.join(output, 'return-validation.png'), fullPage: true });
     });
-    await check('a 403 from any wholesale screen opens application status', async () => {
+    await check('a wholesale approval rejection opens application status', async () => {
       forbiddenProducts = true;
       status = 'suspended';
       await nav('الكتالوج');

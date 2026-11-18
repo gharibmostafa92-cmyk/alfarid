@@ -247,7 +247,7 @@ class TaskTxtVerificationTest extends TestCase
 
         $this->req($token, 'PUT', '/api/v1/admin/settings', ['company_name' => 'Changed'])
             ->assertStatus(422);
-        $this->assertSame('Alfarid', $service->get('company_name'));
+        $this->assertSame('VARYA', $service->get('company_name'));
     }
 
     // Item 19 (fix proof): omitted is_active defaults to true in responses.
@@ -622,12 +622,12 @@ class TaskTxtVerificationTest extends TestCase
             $this->assertStringNotContainsStringIgnoringCase($needle, $dump);
         }
 
-        // Empty company_name falls back to "Alfarid" in branding; non-https logo URLs are rejected (422).
+        // Empty company_name falls back to "VARYA" in branding; non-https logo URLs are rejected (422).
         $this->req($token, 'PUT', '/api/v1/admin/settings', [
             'company_name' => '',
             'expected' => ['company_name' => 'Rollback Proof'],
         ])->assertOk();
-        $this->withToken($token)->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+        $this->withToken($token)->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'VARYA');
         foreach (['javascript:alert(1)', 'http://example.test/logo.png'] as $badLogo) {
             $this->req($token, 'PUT', '/api/v1/admin/settings', [
                 'company_logo' => $badLogo,

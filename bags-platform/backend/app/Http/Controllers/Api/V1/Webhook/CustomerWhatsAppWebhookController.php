@@ -81,54 +81,79 @@ final class CustomerWhatsAppWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        $message = $this->message($decoded);
+        $messages = $this->messages($decoded);
         // Acknowledge non-message webhook events (e.g., delivery receipts) with 200 OK to stop retries.
-        if ($message === null) {
+        if ($messages === []) {
             return response()->json(['ok' => true]);
         }
 
-        $sender = CustomerChannel::canonicalPhone($message['from']);
-        $customer = $sender === null ? null : $this->customerForSender($sender);
-        // Commit the idempotency row and the database-backed queue row together.
-        // If enqueueing fails, Meta's retry must be able to insert the message again.
-        $receipt = DB::transaction(function () use ($message, $sender, $customer): array {
-            $inserted = InboundMessage::query()->insertOrIgnore([
-                'provider_message_id' => $message['id'],
-                'payload' => json_encode(['kind' => $message['kind'], 'text' => $message['text'], 'button_id' => $message['button_id']], JSON_UNESCAPED_UNICODE),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-            if ($inserted === 0) {
-                return ['duplicate' => true];
-            }
+        $queuedCount = 0;
+        foreach ($messages as $message) {
+            $sender = CustomerChannel::canonicalPhone($message['from']);
+            $customer = $sender === null ? null : $this->customerForSender($sender);
+            // Commit each idempotency row and its queue row together so Meta can retry a failed enqueue.
+            $receipt = DB::transaction(function () use ($message, $sender, $customer): array {
+                $inserted = InboundMessage::query()->insertOrIgnore([
+                    'provider_message_id' => $message['id'],
+                    'payload' => json_encode([
+                        'kind' => $message['kind'],
+                        'text' => $message['text'],
+                        'button_id' => $message['button_id'],
+                    ], JSON_UNESCAPED_UNICODE),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                if ($inserted === 0) {
+                    return ['duplicate' => true];
+                }
 
-            $inbound = InboundMessage::query()->where('provider_message_id', $message['id'])->first();
-            if ($inbound === null) {
-                return [];
-            }
+                $inbound = InboundMessage::query()->where('provider_message_id', $message['id'])->first();
+                if ($inbound === null) {
+                    return [];
+                }
 
-            // Acknowledge unlinked senders with 200 OK to prevent webhook replay loops while ignoring untracked traffic.
-            if ($customer === null || $sender === null) {
-                return ['linked' => false];
-            }
+                // Acknowledge unlinked senders to stop retries while ignoring untracked traffic.
+                if ($customer === null || $sender === null) {
+                    return ['linked' => false];
+                }
 
-            $inbound->forceFill(['customer_id' => $customer->id])->save();
-            app(Dispatcher::class)->dispatch(new ProcessCustomerWhatsAppMessage($inbound->id, $customer->id, $message, $sender));
+                $inbound->forceFill(['customer_id' => $customer->id])->save();
+                app(Dispatcher::class)->dispatch(new ProcessCustomerWhatsAppMessage($inbound->id, $customer->id, $message, $sender));
 
-            return ['queued' => true];
-        });
+                return ['queued' => true];
+            });
+            $queuedCount += ($receipt['queued'] ?? false) ? 1 : 0;
+        }
 
-        return response()->json(['ok' => true] + $receipt);
+        return response()->json([
+            'ok' => true,
+            'queued' => $queuedCount > 0,
+            'queued_count' => $queuedCount,
+            'received_count' => count($messages),
+        ]);
     }
 
     private function customerForSender(string $sender): ?Customer
     {
-        // Customer accounts index Egyptian numbers in local form. Convert the
-        // sender once and prefer an explicit WhatsApp number over the login phone.
+        // Customer accounts index Egyptian numbers in local form. An explicit
+        // WhatsApp assignment always wins; only use login phones when no active
+        // customer has explicitly claimed the sender number.
         $phone = Customer::normalizePhone($sender);
+        $explicit = Customer::query()
+            ->where('whatsapp_phone', $phone)
+            ->limit(2)
+            ->get();
+        if ($explicit->count() > 0) {
+            $customer = $explicit->count() === 1 ? $explicit->first() : null;
+
+            return $customer instanceof Customer && $customer->isWholesaleApproved() ? $customer : null;
+        }
+
         $matches = Customer::query()
-            ->where(fn ($query) => $query->where('whatsapp_phone', $phone)
-                ->orWhere(fn ($fallback) => $fallback->whereNull('whatsapp_phone')->where('phone', $phone)))
+            ->whereNull('whatsapp_phone')
+            ->where('phone', $phone)
+            ->where('type', 'wholesale')
+            ->where('status', 'approved')
             ->limit(2)
             ->get();
 
@@ -136,46 +161,59 @@ final class CustomerWhatsAppWebhookController extends Controller
     }
 
     /**
-     * Normalizes payload from either test fixtures or nested WhatsApp Cloud API webhook structure.
+     * Normalizes messages from the WhatsApp Cloud API envelope. Flat local test
+     * payloads are intentionally rejected so production follows Meta's contract.
      *
      * @param  array<string, mixed>  $payload
-     * @return array{id: string, from: string, text: string, button_id: ?string, kind: string, media_id: ?string}|null
+     * @return list<array{id: string, from: string, text: string, button_id: ?string, kind: string, media_id: ?string}>
      */
-    private function message(array $payload): ?array
+    private function messages(array $payload): array
     {
-        // Support flat test payloads directly to facilitate unit and feature test mocking.
-        if (isset($payload['provider_message_id'], $payload['from'])) {
-            return [
-                'id' => (string) $payload['provider_message_id'],
-                'from' => (string) $payload['from'],
-                'text' => (string) ($payload['text'] ?? ''),
-                'button_id' => isset($payload['button_id']) ? (string) $payload['button_id'] : null,
-                'kind' => 'text',
-                'media_id' => null,
-            ];
-        }
-        $entry = $payload['entry'][0]['changes'][0]['value']['messages'][0] ?? null;
-        if (! is_array($entry) || ! isset($entry['id'], $entry['from'])) {
-            return null;
-        }
-        $kind = (string) ($entry['type'] ?? 'text');
-        $mediaId = null;
-        if ($kind === 'image' && isset($entry['image']['id'])) {
-            $mediaId = (string) $entry['image']['id'];
-        } elseif ($kind === 'audio' && isset($entry['audio']['id'])) {
-            $mediaId = (string) $entry['audio']['id'];
-        }
-        if (! in_array($kind, ['text', 'image', 'audio'], true)) {
-            $kind = 'text';
+        $messages = [];
+        foreach ($payload['entry'] ?? [] as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            foreach ($entry['changes'] ?? [] as $change) {
+                $value = is_array($change) ? ($change['value'] ?? null) : null;
+                if (! is_array($value)) {
+                    continue;
+                }
+                foreach ($value['messages'] ?? [] as $message) {
+                    if (! is_array($message) || ! isset($message['id'], $message['from'])) {
+                        continue;
+                    }
+                    $type = (string) ($message['type'] ?? '');
+                    $kind = match ($type) {
+                        'text', 'interactive' => 'text',
+                        'image', 'audio' => $type,
+                        default => null,
+                    };
+                    if ($kind === null) {
+                        continue;
+                    }
+                    $mediaId = match ($kind) {
+                        'image' => isset($message['image']['id']) ? (string) $message['image']['id'] : null,
+                        'audio' => isset($message['audio']['id']) ? (string) $message['audio']['id'] : null,
+                        default => null,
+                    };
+                    $buttonId = $message['interactive']['button_reply']['id']
+                        ?? $message['interactive']['list_reply']['id']
+                        ?? null;
+                    $text = $message['text']['body'] ?? $message['image']['caption'] ?? '';
+
+                    $messages[] = [
+                        'id' => (string) $message['id'],
+                        'from' => (string) $message['from'],
+                        'text' => is_string($text) ? $text : '',
+                        'button_id' => is_string($buttonId) ? $buttonId : null,
+                        'kind' => $kind,
+                        'media_id' => $mediaId,
+                    ];
+                }
+            }
         }
 
-        return [
-            'id' => (string) $entry['id'],
-            'from' => (string) $entry['from'],
-            'text' => (string) ($entry['text']['body'] ?? $entry['image']['caption'] ?? ''),
-            'button_id' => isset($entry['interactive']['button_reply']['id']) ? (string) $entry['interactive']['button_reply']['id'] : null,
-            'kind' => $kind,
-            'media_id' => $mediaId,
-        ];
+        return $messages;
     }
 }

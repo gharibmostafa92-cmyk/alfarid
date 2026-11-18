@@ -20,6 +20,7 @@ use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\CostAccess;
+use App\Services\Shared\SettingService;
 use App\Services\Pricing\CouponService;
 use App\Services\Pricing\PricingService;
 
@@ -32,6 +33,7 @@ final class MarginRiskReportTool implements AgentTool
         private CouponService $coupons,
         private PricingPresenter $presenter,
         private BranchAccess $branches,
+        private SettingService $settings,
     ) {}
 
     public function name(): string
@@ -51,14 +53,14 @@ final class MarginRiskReportTool implements AgentTool
 
     public function permissions(): array
     {
-        return ['price_lists.view', 'coupons.view'];
+        return ['price_lists.view'];
     }
 
     public function declaration(): array
     {
         return [
             'name' => $this->name(),
-            'description' => 'اعرض أقل 20 هامش في عينة من المنتجات المنشورة بعد تسعير القنوات والمجموعات وخصم كوبون مؤهل.',
+            'description' => 'اعرض أقل 20 هامش في عينة من المنتجات المنشورة؛ تُحتسب خصومات الكوبونات إذا كانت أدوات العروض وصلاحية الكوبونات متاحتين.',
             'parameters' => [
                 'type' => 'OBJECT',
                 'properties' => (object) ['branch_id' => ['type' => 'INTEGER']],
@@ -76,7 +78,9 @@ final class MarginRiskReportTool implements AgentTool
             return $scope;
         }
         $branchId = $scope['branchId'];
-        $cached = \Illuminate\Support\Facades\Cache::remember('ai:margin_risk_report:'.($branchId ?? 'all'), 120, function () use ($branchId): array {
+        $includeCoupons = $this->settings->getBool('ai_promotions_tools_enabled', false) && $actor->can('coupons.view');
+        $cacheKey = 'ai:margin_risk_report:'.($branchId ?? 'all').':'.($includeCoupons ? 'coupons' : 'no-coupons');
+        $cached = \Illuminate\Support\Facades\Cache::remember($cacheKey, 120, function () use ($branchId, $includeCoupons): array {
             $variants = ProductVariant::query()->where('is_active', true)->where('cost_price', '>', 0)
                 ->whereHas('product', fn ($query) => $query->where('status', ProductStatus::Published))
                 ->orderByDesc('cost_price')->orderBy('id')->limit(100)->get();
@@ -86,10 +90,12 @@ final class MarginRiskReportTool implements AgentTool
                 ->where(fn ($query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', $now))
                 ->where(fn ($query) => $query->whereNull('ends_at')->orWhere('ends_at', '>=', $now))
                 ->where(fn ($query) => $query->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'));
-            $rawPctCoupons = $couponBase()->where('type', 'percentage')->orderByDesc('value')->orderBy('id')
-                ->limit(self::MAX_COUPONS_PER_TYPE + 1)->get();
-            $rawFixedCoupons = $couponBase()->where('type', 'fixed')->orderByDesc('value')->orderBy('id')
-                ->limit(self::MAX_COUPONS_PER_TYPE + 1)->get();
+            $rawPctCoupons = $includeCoupons
+                ? $couponBase()->where('type', 'percentage')->orderByDesc('value')->orderBy('id')->limit(self::MAX_COUPONS_PER_TYPE + 1)->get()
+                : collect();
+            $rawFixedCoupons = $includeCoupons
+                ? $couponBase()->where('type', 'fixed')->orderByDesc('value')->orderBy('id')->limit(self::MAX_COUPONS_PER_TYPE + 1)->get()
+                : collect();
             $couponSampleTruncated = $rawPctCoupons->count() > self::MAX_COUPONS_PER_TYPE
                 || $rawFixedCoupons->count() > self::MAX_COUPONS_PER_TYPE;
             $pctCoupons = $rawPctCoupons->take(self::MAX_COUPONS_PER_TYPE)->values();

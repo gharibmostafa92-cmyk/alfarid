@@ -16,6 +16,7 @@ use App\Services\Shared\SearchTerm;
 use App\Services\Auth\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class WhatsAppAdminController extends Controller
@@ -143,10 +144,12 @@ class WhatsAppAdminController extends Controller
     /** @return array<string, mixed> */
     private function safeStatus(WhatsAppGatewayClient $gateway): array
     {
-        try {
-            return $gateway->status();
-        } catch (WhatsAppGatewayException) {
-            return ['state' => 'unreachable'];
-        }
+        return Cache::remember('ai-whatsapp:gateway-status', 2, function () use ($gateway): array {
+            try {
+                return $gateway->status();
+            } catch (WhatsAppGatewayException) {
+                return ['state' => 'unreachable'];
+            }
+        });
     }
 }

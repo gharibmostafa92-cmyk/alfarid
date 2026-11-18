@@ -141,9 +141,7 @@ final class UpdateTreasuryTool implements AgentTool, LocksTargets, UndoableTool,
         $a = $action->args;
         $treasury = Treasury::query()->lockForUpdate()->findOrFail((int) $a['treasury_id']);
         $this->branches->assertTreasury($actor->id, $treasury);
-        if (array_diff_assoc($this->guards->accountVersions($treasury), $action->expected_versions ?? []) !== []) {
-            throw new BusinessException('الخزينة اتعدلت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
-        }
+        $this->guards->assertAccountVersionsMatch($treasury, (array) ($action->expected_versions ?? []));
         if (array_key_exists('is_active', $a)) {
             throw new BusinessException('البيانات اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
         }

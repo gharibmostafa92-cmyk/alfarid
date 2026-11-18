@@ -116,7 +116,11 @@ class AiAttachmentController extends Controller
 
     private function assertCapacity(int $userId, int $incoming, int $quota): void
     {
-        $pending = AiAttachment::query()->where('user_id', $userId)->whereNull('consumed_at')->count();
+        $pending = AiAttachment::query()
+            ->where('user_id', $userId)
+            ->whereNull('consumed_at')
+            ->whereHas('conversation')
+            ->count();
         abort_if($pending + $incoming > $quota, 429, 'وصلت للحد الأقصى من المرفقات غير المستخدمة؛ استخدمها أو احذف المحادثة أولًا.');
     }
 }

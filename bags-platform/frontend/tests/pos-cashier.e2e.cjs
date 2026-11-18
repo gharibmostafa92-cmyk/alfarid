@@ -36,7 +36,7 @@ test('cashier journey: scan, discount, mixed pay, hold, resume, return, close', 
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.route('**/api/v1/store/branding', (route) => route.fulfill({
     headers: { 'access-control-allow-origin': '*' },
-    json: { data: { name: 'Alfarid', logo: null, email: null, phone: null, address: null } },
+    json: { data: { name: 'VARYA', logo: null, email: null, phone: null, address: null } },
   }));
   const consoleErrors = [];
   page.on('console', (msg) => {

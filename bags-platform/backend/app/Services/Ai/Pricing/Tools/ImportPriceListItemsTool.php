@@ -24,6 +24,7 @@ use App\Services\Pricing\PriceListService;
 use App\Services\Shared\SettingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 final class ImportPriceListItemsTool implements AgentTool
@@ -109,9 +110,6 @@ final class ImportPriceListItemsTool implements AgentTool
         $belowCostPolicy = in_array($belowCostPolicy, ['block', 'warn'], true) ? $belowCostPolicy : 'block';
         $listType = $list->type instanceof PriceListType ? $list->type->value : (string) $list->type;
         $isWholesaleList = in_array($listType, [PriceListType::Wholesale->value, PriceListType::Distributor->value], true);
-        $current = PriceListItem::query()->where('price_list_id', $list->id)->get()
-            ->keyBy(fn (PriceListItem $i) => $i->product_variant_id.':'.number_format((float) $i->min_qty, 4, '.', ''));
-
         $rows = [];
         $blocked = [];
         $warnings = [];
@@ -121,13 +119,13 @@ final class ImportPriceListItemsTool implements AgentTool
             $att = $attachments->get($attId);
             $ext = strtolower(pathinfo((string) $att->path, PATHINFO_EXTENSION));
             if (! in_array($ext, ['csv', 'txt'], true)) {
-                return ToolOutcome::denied('الاستيراد من CSV/TXT فقط (10MB للملف).', auditable: false);
+                return ToolOutcome::denied('الاستيراد من CSV/TXT فقط (1MB للملف).', auditable: false);
             }
             if (! $disk->exists($att->path)) {
                 return ToolOutcome::denied('ملف الشيت لم يعد متاحًا؛ ارفعه من جديد.', auditable: false);
             }
-            if ($disk->size($att->path) > 10 * 1024 * 1024) {
-                return ToolOutcome::denied('الملف أكبر من 10MB.', auditable: false);
+            if ($disk->size($att->path) > 1024 * 1024) {
+                return ToolOutcome::denied('الملف أكبر من 1MB.', auditable: false);
             }
             $content = (string) $disk->get($att->path);
             $lines = preg_split('/\r\n|\r|\n/', $content);
@@ -150,7 +148,7 @@ final class ImportPriceListItemsTool implements AgentTool
                 foreach ($preview['diff'] as $row) {
                     $source = basename($att->path).' · سطر '.$row['line'];
                     $this->consumeLine($actor, [$row['sku'], $row['new_price'], $row['min_qty'], $row['starts_at'], $row['ends_at']],
-                        $current, $rows, $blocked, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, $source, $variants->get($row['variant_id']));
+                        $rows, $blocked, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, $source, $variants->get($row['variant_id']));
                 }
 
                 continue;
@@ -167,13 +165,22 @@ final class ImportPriceListItemsTool implements AgentTool
                 if (++$processed > $maxItems) {
                     return ToolOutcome::denied("الملف أكبر من الحد ({$maxItems} صف) — قسّم الملف.", auditable: false);
                 }
-                $this->consumeLine($actor, $parts, $current, $rows, $blocked, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, basename($att->path).' · سطر '.($lineIndex + 1));
+                $this->consumeLine($actor, $parts, $rows, $blocked, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, basename($att->path).' · سطر '.($lineIndex + 1));
             }
         }
 
         if ($rows === []) {
             return ToolOutcome::denied('كل الصفوف تم استبعادها بواسطة الحراس — راجع blocked.', auditable: false);
         }
+        $variantIds = array_values(array_unique(array_map(static fn (array $row): int => (int) $row['variant_id'], $rows)));
+        $current = PriceListItem::query()->where('price_list_id', $list->id)
+            ->whereIn('product_variant_id', $variantIds)->get()
+            ->keyBy(fn (PriceListItem $i) => $i->product_variant_id.':'.number_format((float) $i->min_qty, 4, '.', ''));
+        foreach ($rows as &$row) {
+            $old = $current->get($row['variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', ''));
+            $row['old_price'] = $old instanceof PriceListItem ? (float) $old->price : null;
+        }
+        unset($row);
         $rows = collect($rows)->keyBy(fn ($row) => $row['variant_id'].':'.number_format($row['min_qty'], 4, '.', ''))->values()->all();
 
         $minPct = null;
@@ -188,7 +195,8 @@ final class ImportPriceListItemsTool implements AgentTool
         $risk = (count($rows) > 20 || ($minPct !== null && $minPct < -15)) ? 'high' : 'medium';
         $locking = PricingUpsertPrep::versionsAndInverse($list, $rows, $current);
 
-        return $this->proposals->make(
+        return DB::transaction(function () use ($actor, $list, $rawIds, $conv, $rows, $risk, $blocked, $warnings, $locking): ToolOutcome {
+            $outcome = $this->proposals->make(
             $actor,
             'upsert_price_list_items',
             ['price_list_id' => $list->id, 'rows' => array_map(fn ($r) => ['variant_id' => $r['variant_id'], 'min_qty' => $r['min_qty'], 'price' => $r['price'], 'starts_at' => $r['starts_at'], 'ends_at' => $r['ends_at'], 'source_row' => $r['source_row']], $rows)],
@@ -207,7 +215,15 @@ final class ImportPriceListItemsTool implements AgentTool
                 'rows' => array_map(fn ($r) => ['sku' => $r['sku'], 'min_qty' => $r['min_qty'], 'old_price' => $r['old_price'], 'new_price' => $r['price'], 'delta' => $r['old_price'] !== null ? round($r['price'] - $r['old_price'], 2) : $r['price'], 'delta_pct' => null, 'source_row' => $r['source_row']], $rows),
                 'blocked' => $blocked,
             ],
-        );
+            );
+            if ($outcome->type === 'proposal') {
+                AiAttachment::query()->where('conversation_id', $conv->id)
+                    ->whereIn('id', $rawIds)->whereNull('consumed_at')
+                    ->update(['consumed_at' => now()]);
+            }
+
+            return $outcome;
+        });
     }
 
     private function previewCsv(\App\Models\PriceList $list, User $actor, string $content, string $name): array
@@ -238,12 +254,11 @@ final class ImportPriceListItemsTool implements AgentTool
 
     /**
      * @param  list<string|null>  $parts
-     * @param  \Illuminate\Support\Collection<int, PriceListItem>  $current
      * @param  list<array<string,mixed>>  $rows
      * @param  list<array<string,mixed>>  $blocked
      * @param  list<string>  $warnings
      */
-    private function consumeLine(User $actor, array $parts, $current, array &$rows, array &$blocked, array &$warnings, bool $canViewCost, string $belowCostPolicy, bool $isWholesaleList, string $sourceRow, ?ProductVariant $variant = null): void
+    private function consumeLine(User $actor, array $parts, array &$rows, array &$blocked, array &$warnings, bool $canViewCost, string $belowCostPolicy, bool $isWholesaleList, string $sourceRow, ?ProductVariant $variant = null): void
     {
         $code = trim((string) ($parts[0] ?? ''));
         if ($code === '') {
@@ -290,13 +305,12 @@ final class ImportPriceListItemsTool implements AgentTool
             $warnings[] = $sourceRow.": {$code} — {$message}";
         }
 
-        $old = $current->get($variant->id.':'.number_format($minQty, 4, '.', ''));
         $rows[] = [
             'variant_id' => $variant->id,
             'sku' => $variant->sku,
             'min_qty' => $minQty,
             'price' => $price,
-            'old_price' => $old ? (float) $old->price : null,
+            'old_price' => null,
             'starts_at' => $startsAt,
             'ends_at' => $endsAt,
             'source_row' => $sourceRow,

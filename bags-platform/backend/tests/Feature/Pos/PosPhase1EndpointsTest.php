@@ -582,7 +582,7 @@ class PosPhase1EndpointsTest extends TestCase
             'name' => 'Wholesale Merchant',
             'phone' => '01022223333',
             'password' => 'secret123',
-            'company_name' => 'Alfarid Wholesale Co.',
+            'company_name' => 'VARYA Wholesale Co.',
             'tax_number' => '123456789',
             'commercial_register' => '654321',
             'type' => CustomerType::Wholesale,

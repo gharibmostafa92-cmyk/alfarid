@@ -45,7 +45,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
   const href = safeStoreHref(fallback ? slide.ctaHref : slide.href);
   const label = fallback ? slide.ctaText : slide.ctaLabel || 'SHOP NOW';
   const hasText = Boolean(kicker || headline || bold || description);
-  const external = href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
+  const external = !fallback && slide.isExternal && href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
 
   return (
     <div

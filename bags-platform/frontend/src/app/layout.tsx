@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "الفريد | إدارة الفروع والمخزون",
+  title: "VARYA | إدارة الفروع والمخزون",
   description: "منصة عربية لإدارة الفروع والمخزون والمبيعات.",
 };
 

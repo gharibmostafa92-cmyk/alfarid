@@ -6,8 +6,10 @@ namespace App\Http\Requests\Admin\Catalog;
 
 use App\Http\Requests\Admin\Concerns\AuthorizesStaffRequest;
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
+use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Validator;
 
 /**
@@ -63,7 +65,7 @@ class UpdateVariantRequest extends FormRequest
     protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator): void
     {
         if ($validator->errors()->has('expected_version')) {
-            \Illuminate\Support\Facades\Log::warning('variant.update_without_expected_version', [
+            Log::warning('variant.update_without_expected_version', [
                 'user_id' => $this->user()?->id,
                 'variant_id' => $this->route('variant')?->id,
                 'has_version' => $this->filled('expected_version'),

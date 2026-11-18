@@ -16,16 +16,25 @@ export default function SessionProbePage() {
       let authenticated = false;
       let path: '/dashboard' | '/pos' | null = null;
       if (token) {
+        const client = createApiClient({
+          baseURL: resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000'),
+          getToken: () => token,
+          onUnauthorized: () => {},
+        });
         try {
-          const response = await createApiClient({
-            baseURL: resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000'),
-            getToken: () => token,
-            onUnauthorized: () => {},
-          }).get('/api/v1/auth/me', { timeout: 4000 });
-          const destination = response.data?.redirect?.path;
-          path = destination === '/dashboard' || destination === '/pos' ? destination : null;
-          authenticated = path !== null && localStorage.getItem('backoffice_token') === token;
-        } catch { /* Expired or unavailable sessions never trigger a redirect. */ }
+          const { data } = await client.get('/api/v1/auth/me', { timeout: 3000 });
+          const destination = data?.redirect?.path;
+          if (data?.actor?.type === 'staff' && (destination === '/dashboard' || destination === '/pos')) path = destination;
+        } catch (error) {
+          const response = (error as { response?: { data?: { code?: string } } }).response;
+          if (response?.data?.code === 'password_change_required') {
+            try {
+              const { data } = await client.get('/api/v1/admin/me', { timeout: 1200 });
+              if (data?.data?.must_change_password === true) path = '/dashboard';
+            } catch { /* Only a verified rotation session can continue. */ }
+          }
+        }
+        authenticated = path !== null && localStorage.getItem('backoffice_token') === token;
       }
       if (!disposed && request === generation) {
         window.parent.postMessage({ type: 'alfarid:staff-session', nonce, authenticated, path: authenticated ? path : null }, origin);

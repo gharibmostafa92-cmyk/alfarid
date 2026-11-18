@@ -58,6 +58,18 @@ final class ReconcileBankStatementTool implements AgentTool
         if (! is_array($rows) || $rows === []) {
             return ToolOutcome::denied('ارفع صفوف الكشف: مبلغ ومرجع وتاريخ ووصف.', auditable: false);
         }
+        if (count($rows) > 500) {
+            return ToolOutcome::denied('كشف البنك يتجاوز 500 حركة؛ قسّمه إلى ملفات أصغر.', auditable: false);
+        }
+        $rows = array_values(array_map(static function ($row): array {
+            if (! is_array($row)) {
+                return [];
+            }
+            $row['reference'] = ToolOutcome::untrusted(isset($row['reference']) ? (string) $row['reference'] : null, 200)['untrusted_text'];
+            $row['description'] = ToolOutcome::untrusted(isset($row['description']) ? (string) $row['description'] : null, 500)['untrusted_text'];
+
+            return $row;
+        }, $rows));
         $matched = $this->matcher->match($rows);
         foreach ($matched['unmatched'] as &$row) {
             if (isset($row['suggestion']['name'])) {
@@ -67,12 +79,15 @@ final class ReconcileBankStatementTool implements AgentTool
         unset($row);
 
         $tableRows = [];
-        foreach (['matched' => 'مطابق', 'possible' => 'محتمل', 'unmatched' => 'بدون إشعار'] as $bucket => $label) {
-            foreach ((array) ($matched[$bucket] ?? []) as $entry) {
+        foreach (['exact' => 'مطابق', 'probable' => 'محتمل', 'unmatched' => 'بدون إشعار'] as $bucket => $label) {
+            foreach ((array) ($matched[$bucket] ?? []) as $index => $entry) {
+                $rawReference = (string) ($entry['reference'] ?? '');
+                $entry['reference'] = ToolOutcome::untrusted($rawReference, 200);
+                $matched[$bucket][$index] = $entry;
                 $tableRows[] = [
                     $label,
                     (string) ($entry['amount'] ?? ''),
-                    (string) ($entry['reference'] ?? ''),
+                    $rawReference,
                     (string) ($entry['date'] ?? ''),
                     (string) ($entry['notice_number'] ?? ($entry['suggestion']['name'] ?? '')),
                 ];

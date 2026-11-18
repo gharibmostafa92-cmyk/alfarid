@@ -10,14 +10,14 @@ import { APP_STATUS, DOC_STATUS, DOC_TYPE } from './data/constants';
 
 export const Halftone = AuthHalftone;
 
-export const AuthFrame = ({ children, wide }) => (
+export const AuthFrame = ({ children, wide, brandName = 'VARYA' }) => (
   <div className="luxury-auth-page" dir="ltr">
     <div className="auth-card">
       <section className="luxury-left-col" dir="rtl">
         <div className="luxury-top-bar">
           <span className="luxury-brand-btn">
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><polygon points="4,10 10,4 10,13 4,19" fill="#09090b" /><polygon points="11,11 17,5 17,14 11,20" fill="#09090b" /></svg>
-            <span className="luxury-brand-tag">SOPHIE · WHOLESALE</span>
+            <span className="luxury-brand-tag">{brandName} · WHOLESALE</span>
           </span>
         </div>
         <div className="luxury-form-wrap" style={wide ? { maxWidth: 460 } : null}>{children}</div>
@@ -30,7 +30,7 @@ export const AuthFrame = ({ children, wide }) => (
 const DOC_ST = { verified: 'approved' };
 
 /* ---------- 4. Application status ---------- */
-export const ApplicationStatus = ({ onLogout, onEnter }) => {
+export const ApplicationStatus = ({ onLogout, onEnter, brandName }) => {
   const [entering, setEntering] = useState(false);
   const [enterError, setEnterError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -55,7 +55,7 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
   };
 
   const inner = (
-    <AuthFrame wide>
+    <AuthFrame brandName={brandName} wide>
       <h1 className="luxury-title">حالة طلب الاعتماد</h1>
       <p className="luxury-sub">نراجع بيانات شركتك ومستنداتها قبل تفعيل أسعار الجملة والشراء الآجل وعروض الأسعار.</p>
 
@@ -163,7 +163,7 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
 };
 
 /* ---------- 5. Forgot / reset password ---------- */
-export const ForgotPassword = ({ onBack, onGoReset, onForgotSubmit }) => {
+export const ForgotPassword = ({ onBack, onGoReset, onForgotSubmit, brandName }) => {
   const [login, setLogin] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -183,7 +183,7 @@ export const ForgotPassword = ({ onBack, onGoReset, onForgotSubmit }) => {
     }
   };
   return (
-    <AuthFrame>
+    <AuthFrame brandName={brandName}>
       <h1 className="luxury-title">نسيت كلمة المرور؟</h1>
       <p className="luxury-sub">أدخل البريد أو رقم الموبايل المسجل، وهنبعتلك رابط لإعادة تعيين كلمة المرور.</p>
       {sent ? (
@@ -213,7 +213,7 @@ const readResetParams = () => {
   return { token: p.get('token') || '', login: p.get('email') || p.get('phone') || '' };
 };
 
-export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSubmit }) => {
+export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSubmit, brandName }) => {
   const [{ token: urlToken, login: urlLogin }] = useState(readResetParams);
   const [show, setShow] = useState(false);
   const [login, setLogin] = useState(urlLogin);
@@ -248,7 +248,7 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSu
   };
   const rules = [[p1.length >= 12, '12 حرفًا على الأقل'], [/[A-Za-z]/.test(p1) && /\d/.test(p1), 'حروف وأرقام'], [p1 && p1 === p2, 'التأكيد مطابق']];
   if (linkState !== 'valid' || !token) return (
-    <AuthFrame>
+    <AuthFrame brandName={brandName}>
       <h1 className="luxury-title">{linkState === 'expired' ? 'انتهت صلاحية الرابط' : 'الرابط غير صالح'}</h1>
       <p className="luxury-sub">{linkState === 'expired' ? 'روابط إعادة التعيين صالحة لمدة 60 دقيقة فقط. اطلب رابط جديد.' : 'الرابط ده مستخدم قبل كده أو ناقص. اطلب رابط جديد من صفحة استعادة كلمة المرور.'}</p>
       <p className="luxury-form-error" role="alert">لا يمكن إعادة تعيين كلمة المرور بهذا الرابط.</p>
@@ -257,7 +257,7 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSu
     </AuthFrame>
   );
   return (
-    <AuthFrame>
+    <AuthFrame brandName={brandName}>
       <h1 className="luxury-title">{done ? 'تم تغيير كلمة المرور' : 'إعادة تعيين كلمة المرور'}</h1>
       <p className="luxury-sub">{done ? 'تقدر دلوقتي تسجل الدخول بكلمة المرور الجديدة.' : 'اختر كلمة مرور جديدة لحسابك.'}</p>
       {done ? (

@@ -31,7 +31,9 @@
                     "bags-platform/backend/database/migrations/*message_budget*.php",
                     "bags-platform/backend/database/migrations/*widen_text*.php",
                     "bags-platform/frontend/apps/backoffice/src/pages/admin/operations-mock/api/useNotifications.ts",
-                    "bags-platform/frontend/apps/backoffice/src/pages/admin/admin-mock/settings.tsx"
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/admin-mock/settings.tsx",
+                    "bags-platform/backend/database/seeders/SettingSeeder.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/admin/admin-mock/api/__fixtures__/settings.json"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -46,7 +46,7 @@ async function submit(page, endpoint, status) {
 
 async function login(page, identifier, secret) {
   await page.goto(`${web}/auth/login`, { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !document.querySelector('form button[type=submit]').disabled);
+  await page.locator('form button[type=submit]:enabled').waitFor();
   await page.locator('#login').fill(identifier);
   await page.locator('#password').fill(secret);
   return submit(page, '/api/v1/auth/login', 200);

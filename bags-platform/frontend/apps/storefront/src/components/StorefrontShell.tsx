@@ -35,6 +35,22 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   const { branding } = useBranding();
   const pathname = usePathname();
   const layout = shellLayoutFor(pathname);
+  const [loginNotice, setLoginNotice] = useState<'ar' | 'en' | null>(null);
+  useEffect(() => {
+    if (matches(pathname, '/auth')) {
+      setLoginNotice(null);
+      return;
+    }
+    const language = sessionStorage.getItem('alfarid_login_notice');
+    sessionStorage.removeItem('alfarid_login_notice');
+    setLoginNotice(language === 'ar' || language === 'en' ? language : null);
+  }, [pathname]);
+  const signInNotice = loginNotice && (
+    <div role="status" lang={loginNotice} dir={loginNotice === 'ar' ? 'rtl' : 'ltr'} className="mx-auto my-3 flex max-w-5xl items-center justify-between gap-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+      {loginNotice === 'ar' ? 'تم تسجيل الدخول بنجاح.' : 'You signed in successfully.'}
+      <button type="button" className="underline" onClick={() => setLoginNotice(null)}>{loginNotice === 'ar' ? 'إغلاق' : 'Dismiss'}</button>
+    </div>
+  );
 
   useEffect(() => {
     const show = (message: string) => { if (message.trim()) setCartMergeWarning(message); };
@@ -68,6 +84,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
             <SophieHeader />
           </div>
         </div>
+        {signInNotice}
         {cartMergeNotice}
         {children}
       </div>
@@ -80,6 +97,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
         <a href="#main-content" className="skip-to-content">
           Skip to main content
         </a>
+        {signInNotice}
         {cartMergeNotice}
         {children}
       </>
@@ -112,7 +130,8 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
           <AccountMenu />
         </div>
       </header>
-      {cartMergeNotice}
+      {signInNotice}
+        {cartMergeNotice}
       <main id="main-content">{children}</main>
     </>
   );

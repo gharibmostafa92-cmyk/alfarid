@@ -47,7 +47,7 @@ export function ThermalReceipt({
   return (
     <div className="receipt">
       <div style={{ textAlign: 'center' }}>
-        <b className="fs-14 display">الفريد للشنط</b>
+        <b className="fs-14 display">VARYA للشنط</b>
         <div style={{ color: '#6f6a76' }}>{branch?.name || 'الفرع'}</div>
         <div className="num" style={{ color: '#6f6a76' }}>
           {invoiceNumber} · {printedAt}

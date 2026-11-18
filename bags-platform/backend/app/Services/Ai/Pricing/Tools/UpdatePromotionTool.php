@@ -171,8 +171,9 @@ final class UpdatePromotionTool implements WriteTool, LocksTargets, UndoableTool
     {
         $locked = PricingLocks::lockPromotion($action, (int) $action->args['promotion_id'], (string) ($action->expected_versions['promotion:'.$action->args['promotion_id']] ?? ''));
         $changes = \Illuminate\Support\Arr::only((array) $action->args, [
-            'name', 'type', 'discount_value', 'min_order_amount', 'max_discount', 'priority', 'is_stackable', 'starts_at', 'ends_at', 'is_active',
+            'name', 'type', 'value', 'min_order_amount', 'applies_to', 'target_ids', 'starts_at', 'ends_at', 'is_active',
         ]);
+        $before = (array) $action->inverse;
         $locked->update($changes);
         $promotion = $locked->fresh();
         $notice = CreatePromotionTool::autoAppliedNotice($promotion);
@@ -182,9 +183,9 @@ final class UpdatePromotionTool implements WriteTool, LocksTargets, UndoableTool
             'promotion.updated',
             'promotion',
             $promotion->id,
-            ['name', 'type'],
-            ['name' => $promotion->name],
-            ['name' => $promotion->name, 'type' => $promotion->type],
+            array_keys($changes),
+            $before,
+            \Illuminate\Support\Arr::only($promotion->toArray(), array_keys($changes)),
             ['channel' => 'ai', 'tool' => $this->name(), 'entity' => 'promotion:'.$promotion->id, 'conversation_id' => $action->conversation_id, 'action_id' => $action->id],
         );
 

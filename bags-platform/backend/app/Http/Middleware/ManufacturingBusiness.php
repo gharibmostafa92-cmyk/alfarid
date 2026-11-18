@@ -19,7 +19,7 @@ class ManufacturingBusiness
             'api/v1/admin/suppliers', 'api/v1/admin/suppliers/*',
             'api/v1/admin/supplier-*', 'api/v1/admin/purchase-*',
             'api/v1/admin/reports/suppliers')) {
-            return response()->json(['message' => 'هذا الجزء متوقف؛ منتجات الفريد تصنيعنا، والتجار يُدارون من العملاء والجملة.'], 410);
+            return response()->json(['message' => 'هذا الجزء متوقف؛ منتجات VARYA تصنيعنا، والتجار يُدارون من العملاء والجملة.'], 410);
         }
 
         return $next($request);

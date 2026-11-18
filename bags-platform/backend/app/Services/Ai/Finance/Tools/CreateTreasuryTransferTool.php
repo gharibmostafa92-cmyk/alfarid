@@ -96,11 +96,16 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
             if ($transfer->status !== TreasuryTransferStatus::Approved) {
                 return ToolOutcome::denied('التحويل العكسي متاح للتحويل المعتمد فقط.', auditable: false);
             }
+            if (TreasuryTransfer::query()->where('reverses_transfer_id', $transfer->id)
+                ->where('status', '!=', TreasuryTransferStatus::Rejected)->exists()) {
+                return ToolOutcome::denied('تم إنشاء تحويل عكسي لهذا التحويل بالفعل.', auditable: false);
+            }
             $args = [
                 'from_treasury_id' => $transfer->to_treasury_id,
                 'to_treasury_id' => $transfer->from_treasury_id,
                 'amount' => $transfer->amount,
                 'notes' => "تحويل عكسي للتحويل {$transfer->transfer_number}",
+                'reverses_transfer_id' => $transfer->id,
             ];
         }
         $from = FinanceArgs::resolveTreasury($actor, $this->resolver, $this->branches, [
@@ -119,6 +124,9 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
         }
         $fromTreasury = $from['treasury'];
         $toTreasury = $to['treasury'];
+        if (! $fromTreasury->is_active || ! $toTreasury->is_active) {
+            return ToolOutcome::denied('لا يمكن التحويل من أو إلى خزينة غير نشطة.', auditable: false);
+        }
         if ((int) $fromTreasury->id === (int) $toTreasury->id) {
             return ToolOutcome::denied('لا يمكن التحويل من خزينة إلى نفسها.', auditable: false);
         }
@@ -146,6 +154,7 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
             $actor,
             $this->name(),
             ['from_treasury_id' => $fromTreasury->id, 'to_treasury_id' => $toTreasury->id, 'amount' => $amount,
+                'reverses_transfer_id' => $args['reverses_transfer_id'] ?? null,
                 'drawer_surplus' => ($args['drawer_surplus'] ?? false) === true,
                 'notes' => isset($args['notes']) ? mb_substr(trim((string) $args['notes']), 0, 500) : null],
             risk: $highRisk ? 'high' : $this->risk(),
@@ -172,6 +181,9 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
             return;
         }
         (new FinanceLocks)->lockTargets($action);
+        if ($action->status !== 'executed' && isset($action->args['reverses_transfer_id'])) {
+            (new FinanceLocks)->lockTransfers([(int) $action->args['reverses_transfer_id']], $action->user_id);
+        }
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
@@ -187,6 +199,17 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
         $to = $locked->get($toId) ?? throw new BusinessException('خزينة الوجهة غير موجودة.');
         $this->branches->assertTreasury($actor->id, $from);
         $this->branches->assertTreasury($actor->id, $to);
+        if (! $from->is_active || ! $to->is_active) {
+            throw new BusinessException('لا يمكن التحويل من أو إلى خزينة غير نشطة.', [], 409);
+        }
+        if (isset($a['reverses_transfer_id'])) {
+            $original = TreasuryTransfer::query()->lockForUpdate()->findOrFail((int) $a['reverses_transfer_id']);
+            if ($original->status !== TreasuryTransferStatus::Approved
+                || TreasuryTransfer::query()->where('reverses_transfer_id', $original->id)
+                    ->where('status', '!=', TreasuryTransferStatus::Rejected)->exists()) {
+                throw new BusinessException('التحويل الأصلي اتغير أو له تحويل عكسي بالفعل.', [], 409);
+            }
+        }
         foreach ([$from, $to] as $treasury) {
             if (($action->expected_versions['treasury:'.$treasury->id] ?? null) !== FinanceWriteGuards::ledgerVersion($treasury)) {
                 throw new BusinessException('البيانات اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
@@ -202,6 +225,7 @@ final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, Undoa
         $data = [
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id,
             'amount' => (string) $a['amount'], 'notes' => $a['notes'] ?? null,
+            'reverses_transfer_id' => $a['reverses_transfer_id'] ?? null,
         ];
         $transfer = $this->idempotency->run('treasury_transfer', $actor, 'ai:'.$action->id, $data,
             fn () => $this->treasury->createTransfer($data, $actor->id));

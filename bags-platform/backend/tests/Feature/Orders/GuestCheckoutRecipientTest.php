@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\Orders;
 
 use App\Http\Requests\Store\Orders\CheckoutRequest;
-use App\Models\City;
 use App\Models\Cart;
+use App\Models\City;
 use App\Models\Customer;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Str;
@@ -66,5 +66,20 @@ class GuestCheckoutRecipientTest extends TestCase
             ])->assertUnprocessable();
 
         $this->assertDatabaseMissing('carts', ['cart_token' => $cartToken]);
+    }
+
+    public function test_authenticated_checkout_without_a_saved_cart_does_not_insert_one(): void
+    {
+        $customer = Customer::factory()->create();
+        $city = City::factory()->create();
+
+        $this->withToken($customer->createToken('store-token')->plainTextToken)
+            ->postJson('/api/v1/store/checkout', [
+                'city_id' => $city->id,
+                'shipping_address_line' => 'عنوان العميل',
+                'payment_method' => 'cod',
+            ]);
+
+        $this->assertSame(0, Cart::query()->count());
     }
 }

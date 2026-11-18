@@ -111,6 +111,6 @@ final class WhatsAppIdentityService
             return $out;
         };
 
-        return $chunk().'-'.$chunk();
+        return $chunk().'-'.$chunk().'-'.$chunk();
     }
 }

@@ -141,7 +141,11 @@ final class SyncZoneCitiesTool implements LocksTargets, UndoableTool, WriteTool
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $zone = ShippingZone::query()->lockForUpdate()->findOrFail((int) $action->args['zone_id']);
-        $zone->cities()->sync($action->inverse['city_ids'] ?? []);
+        $ids = $action->inverse['city_ids'] ?? [];
+        City::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get(['id']);
+        $zone->cities()->sync($ids);
+        $zone->touch();
+        StaffAdministration::audit($actor, 'shipping.zone_cities_undone', 'shipping_zone', $zone->id, ['count'], [], ['count' => count($ids)], ['channel' => 'ai', 'tool' => $this->name(), 'action_id' => $action->id]);
 
         return ToolOutcome::result(true, 'تم التراجع عن مدن المنطقة.', ['zone_id' => $zone->id]);
     }

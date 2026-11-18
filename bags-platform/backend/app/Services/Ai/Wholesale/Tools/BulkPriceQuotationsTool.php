@@ -22,6 +22,9 @@ use App\Services\Shared\SettingService;
 use App\Services\Wholesale\QuotationVersion;
 use App\Services\Wholesale\QuoteAdvisor;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 
 final class BulkPriceQuotationsTool implements ExecutesSelectedItems, LocksTargets, WriteTool
 {
@@ -75,6 +78,8 @@ final class BulkPriceQuotationsTool implements ExecutesSelectedItems, LocksTarge
         if ($percent < 0 || $percent > 80) {
             return ToolOutcome::denied('نسبة الخصم لازم تكون بين صفر و80.', auditable: false);
         }
+        $discountPercent = BigDecimal::of(number_format($percent, 4, '.', ''));
+        $factor = BigDecimal::of('100')->minus($discountPercent)->dividedBy('100', 6, RoundingMode::HalfUp);
         $quotes = Quotation::query()->with(['items.variant', 'customer'])->where('status', QuotationStatus::Requested)->limit(50)->get();
         $items = [];
         $plans = [];
@@ -92,24 +97,24 @@ final class BulkPriceQuotationsTool implements ExecutesSelectedItems, LocksTarge
             }
             $itemsById = $quotation->items->keyBy('id');
             foreach ($suggestedLines as $line) {
-                if ($line['list_price'] === null || (float) $line['list_price'] <= 0) {
+                if ($line['list_price'] === null || ! BigDecimal::of((string) $line['list_price'])->isGreaterThan(0)) {
                     $invalid = true;
                     $invalidReason = 'غياب سعر القائمة المرجعي لبعض البنود';
                     break;
                 }
-                $price = round((float) $line['list_price'] * (1 - ($percent / 100)), 2);
-                if ($price <= 0) {
+                $price = BigDecimal::of((string) $line['list_price'])->multipliedBy($factor)->toScale(2, RoundingMode::HalfUp);
+                if (! $price->isGreaterThan(0)) {
                     $invalid = true;
                     $invalidReason = 'السعر المقترح غير موجب';
                     break;
                 }
                 $cost = $itemsById->get((int) $line['quotation_item_id'])?->variant?->cost_price;
-                if ($cost !== null && $price + 0.001 < (float) $cost) {
+                if ($cost !== null && $price->isLessThan(BigDecimal::of((string) $cost)->toScale(2, RoundingMode::HalfUp))) {
                     $invalid = true;
                     $invalidReason = 'السعر بعد الخصم أقل من التكلفة';
                     break;
                 }
-                $lines[] = ['id' => $line['quotation_item_id'], 'offered_unit_price' => $price];
+                $lines[] = ['id' => $line['quotation_item_id'], 'offered_unit_price' => (string) $price];
             }
             if ($invalid) {
                 $warnings[] = "تم استبعاد {$quotation->quotation_number}: {$invalidReason}. راجعه يدويًا.";
@@ -118,7 +123,7 @@ final class BulkPriceQuotationsTool implements ExecutesSelectedItems, LocksTarge
             if ($lines === []) {
                 continue;
             }
-            $key = 'q'.$quotation->id;
+            $key = (string) Str::ulid();
             $items[] = ['key' => $key, 'label' => $quotation->quotation_number, 'detail' => 'خصم '.$percent.'%'];
             $plans[$key] = ['quotation_id' => $quotation->id, 'items' => $lines];
             $expected['q:'.$quotation->id] = QuotationVersion::hash($quotation);

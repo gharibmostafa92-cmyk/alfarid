@@ -41,7 +41,7 @@ class CustomerPasswordReset extends Notification
     {
         $base = rtrim((string) config('app.frontend_url', config('app.url')), '/');
 
-        return $base.'/reset-password#token='.rawurlencode($this->token);
+        return $base.'/auth/reset-password#token='.rawurlencode($this->token);
     }
 
     public function toMail(Customer $notifiable): MailMessage
@@ -49,7 +49,6 @@ class CustomerPasswordReset extends Notification
         return (new MailMessage)
             ->subject('استعادة كلمة المرور')
             ->line('وصلنا طلب لاستعادة كلمة مرور حسابك.')
-            ->line('رمز الاستعادة: '.$this->token)
             ->action('استعادة كلمة المرور', $this->resetUrl())
             ->line('لو لم تطلب الاستعادة، تجاهل هذه الرسالة.');
     }

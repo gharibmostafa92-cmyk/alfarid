@@ -47,7 +47,8 @@
                     "bags-platform/backend/database/migrations/*banner*.php",
                     "bags-platform/backend/database/migrations/*storefront*.php",
                     "bags-platform/frontend/apps/storefront/tsconfig.json",
-                    "bags-platform/frontend/apps/storefront/sentry.server.config.ts"
+                    "bags-platform/frontend/apps/storefront/sentry.server.config.ts",
+                    "bags-platform/frontend/apps/storefront/public/images/varya-header.webp"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -86,10 +86,19 @@ class AiMessageController extends Controller
     {
         abort_unless($conversation->user_id === $request->user('staff')->id, 403);
         $data = $this->validated($request);
+        $orchestrator->guard($request->user('staff'));
         try {
             $reply = $orchestrator->handle($request->user('staff'), $conversation, $data);
+        } catch (\Illuminate\Validation\ValidationException|\Illuminate\Auth\Access\AuthorizationException $e) {
+            throw $e;
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            return response()->json(['message' => $e->getMessage()], $e->getStatusCode());
         } catch (GeminiException $e) {
             return response()->json(['message' => $e->getMessage()], 502);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json(['message' => 'تعذر إتمام طلب المساعد. حاول مرة تانية.'], 502);
         }
 
         return response()->json(['data' => ['text' => $reply->text, 'ui_blocks' => $reply->blocks, 'message_id' => $reply->messageId]]);
@@ -97,11 +106,21 @@ class AiMessageController extends Controller
 
     private function validated(Request $request): array
     {
-        return $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'text' => ['nullable', 'string', 'max:8000'],
             'selection' => ['nullable', 'array:entity,id,label'], 'selection.entity' => ['required_with:selection', 'in:branch,user,role,permission,location,customer,customer_group,category,product,variant,transfer,stocktake,production_receipt,treasury,treasury_transfer,expense,price_list,coupon,promotion,quotation,payment_notice'], 'selection.id' => ['required_with:selection', Rule::when($request->input('selection.entity') !== 'permission', ['integer', 'min:1'], ['string', 'max:255'])], 'selection.label' => ['nullable', 'string', 'max:255'],
             'mentions' => ['nullable', 'array', 'max:25'], 'mentions.*.entity' => ['required', 'in:branch,user,role,location,customer,category,product,variant,transfer,stocktake,production_receipt,treasury,treasury_transfer,expense,price_list,coupon,promotion,quotation,payment_notice'], 'mentions.*.id' => ['required', 'integer', 'min:1'],
             'attachments' => ['nullable', 'array', 'max:4'], 'attachments.*' => ['required', 'string', 'ulid', 'distinct'],
         ]);
+        $validator->after(function ($v) use ($request): void {
+            $hasText = trim((string) $request->input('text', '')) !== '';
+            $hasSelection = ! empty($request->input('selection'));
+            $hasAttachments = ! empty($request->input('attachments'));
+            if (! $hasText && ! $hasSelection && ! $hasAttachments) {
+                $v->errors()->add('text', 'أرسل نصًا أو تحديدًا أو مرفقًا واحدًا على الأقل.');
+            }
+        });
+
+        return $validator->validate();
     }
 }

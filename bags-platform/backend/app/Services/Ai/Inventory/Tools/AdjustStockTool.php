@@ -206,7 +206,10 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
     {
         $a = $action->args;
         $key = $this->versionKey((int) $a['variant_id'], (int) $a['branch_id'], $a['location_id'] ?? null);
-        $expected = $action->expected_versions[$key] ?? null;
+        if (! array_key_exists($key, $action->expected_versions ?? [])) {
+            throw new BusinessException('بيانات قفل التسوية مفقودة؛ اطلب اقتراحًا جديدًا.', [], 409);
+        }
+        $expected = $action->expected_versions[$key];
         $current = $this->lastMovementId((int) $a['variant_id'], (int) $a['branch_id'], $a['location_id'] ?? null);
         if ($expected !== $current) {
             throw new BusinessException('السجل اتعدل بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);

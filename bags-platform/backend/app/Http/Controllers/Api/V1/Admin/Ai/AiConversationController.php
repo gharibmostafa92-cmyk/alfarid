@@ -23,7 +23,7 @@ class AiConversationController extends Controller
         $actor = $request->user('staff');
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'all' => ['sometimes', 'boolean']]);
         $baseQuery = AiConversation::query()->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\Shared\SearchTerm::pattern($data['q'])));
-        if ($request->query('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) {
+        if ($request->boolean('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) {
             // Viewing other users' conversations requires central branch access to prevent cross-branch leaks.
             $this->branchAccess->assertCentralAccess($actor);
         } else {

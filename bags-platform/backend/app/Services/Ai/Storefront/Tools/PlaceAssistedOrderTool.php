@@ -4,16 +4,19 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Storefront\Tools;
 
+use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\Storefront\CheckoutPreview;
+use App\Services\Ai\Storefront\StorefrontToolProvider;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Orders\OrderService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 final class PlaceAssistedOrderTool implements WriteTool
@@ -93,8 +96,9 @@ final class PlaceAssistedOrderTool implements WriteTool
             return ToolOutcome::denied((string) $diagnosis['message'], auditable: false);
         }
         $preview = $diagnosis['preview'];
-        $phone = (string) $customer->phone;
-        $typed = strlen($phone) >= 4 ? substr($phone, -4) : $phone;
+        $digits = preg_replace('/\D+/', '', (string) $customer->phone) ?? '';
+        $typed = strlen($digits) >= 4 ? substr($digits, -4) : $digits;
+        $fingerprint = $this->cartFingerprint($cart, (float) $preview['grand_total']);
 
         return $this->proposals->make(
             $actor,
@@ -103,6 +107,7 @@ final class PlaceAssistedOrderTool implements WriteTool
                 'customer_id' => $customer->id,
                 'cart_id' => $cart->id,
                 'expected_total' => $preview['grand_total'],
+                'cart_fingerprint' => $fingerprint,
                 'idempotency_key' => (string) Str::uuid(),
             ],
             risk: $this->risk(),
@@ -117,12 +122,34 @@ final class PlaceAssistedOrderTool implements WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $customer = Customer::query()->findOrFail((int) $action->args['customer_id']);
-        if (! $customer->canShop()) {
-            return ToolOutcome::result(false, 'العميل لم يعد مسموحًا له بالشراء.');
+        $provider = app(StorefrontToolProvider::class);
+        if (! $provider->enabled() || $provider->isToolHidden($this->name())) {
+            return ToolOutcome::result(false, 'أداة الطلب المساعد معطلة حاليًا من إعدادات الإدارة.');
         }
-        $cart = Cart::query()->with('items')->findOrFail((int) $action->args['cart_id']);
-        $order = $this->orders->createFromCart($cart, $action->args, $customer);
+
+        $order = DB::transaction(function () use ($action): mixed {
+            $customer = Customer::query()->lockForUpdate()->findOrFail((int) $action->args['customer_id']);
+            if (! $customer->canShop()) {
+                throw new BusinessException('العميل لم يعد مسموحًا له بالشراء.', [], 409);
+            }
+            $cart = Cart::query()->with('items')->lockForUpdate()->findOrFail((int) $action->args['cart_id']);
+            if ((int) $cart->customer_id !== (int) $customer->id) {
+                throw new BusinessException('السلة لا تخص هذا العميل.', [], 409);
+            }
+
+            $diagnosis = $this->preview->diagnose($cart, $customer, $action->args);
+            if ($diagnosis['ok'] !== true) {
+                throw new BusinessException((string) $diagnosis['message'], [], 409);
+            }
+
+            $expectedFingerprint = $action->args['cart_fingerprint'] ?? null;
+            $currentFingerprint = $this->cartFingerprint($cart, (float) $diagnosis['preview']['grand_total']);
+            if (! is_string($expectedFingerprint) || ! hash_equals($expectedFingerprint, $currentFingerprint)) {
+                throw new BusinessException('تغيّرت محتويات السلة أو الإجمالي أثناء المراجعة؛ اطلب الاقتراح من جديد.', [], 409);
+            }
+
+            return $this->orders->createFromCart($cart, $action->args, $customer);
+        });
 
         return ToolOutcome::result(true, 'تم إنشاء الطلب. لا يوجد رابط دفع.', [
             'order_id' => $order->id,
@@ -131,5 +158,26 @@ final class PlaceAssistedOrderTool implements WriteTool
             'payment_url' => null,
             'payment_collection' => 'not_integrated',
         ]);
+    }
+
+    private function cartFingerprint(Cart $cart, float $grandTotal): string
+    {
+        $cart->loadMissing('items');
+        $items = $cart->items
+            ->sortBy('product_variant_id')
+            ->values()
+            ->map(fn ($item): array => [
+                'variant_id' => (int) $item->product_variant_id,
+                'qty' => round((float) $item->qty, 4),
+            ])
+            ->all();
+
+        return hash('sha256', json_encode([
+            'cart_id' => (int) $cart->id,
+            'customer_id' => (int) $cart->customer_id,
+            'coupon_id' => $cart->coupon_id !== null ? (int) $cart->coupon_id : null,
+            'items' => $items,
+            'grand_total' => round($grandTotal, 2),
+        ], JSON_THROW_ON_ERROR));
     }
 }

@@ -635,7 +635,7 @@ final class CustomerWholesaleAssistant
             $qty = SpokenQuantity::parse($quantityText);
         }
 
-        return $qty === null || $query === '' ? null : ['qty' => $qty, 'query' => $query];
+        return $qty === null || $qty <= 0 || $query === '' ? null : ['qty' => $qty, 'query' => $query];
     }
 
     private function hasTrailingQuantity(string $product, string $count): bool

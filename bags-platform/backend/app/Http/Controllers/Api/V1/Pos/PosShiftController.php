@@ -86,7 +86,7 @@ class PosShiftController extends Controller
     {
         $data = $request->validate([
             'treasury_id'  => ['required', 'integer', 'min:1'],
-            'opening_cash' => ['required', 'numeric', 'min:0', 'max:9999999'],
+            'opening_cash' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
         ]);
 
         /** @var User $user */

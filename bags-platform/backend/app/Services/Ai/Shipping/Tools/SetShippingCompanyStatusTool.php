@@ -116,6 +116,7 @@ final class SetShippingCompanyStatusTool implements LocksTargets, UndoableTool, 
     {
         $company = ShippingCompany::query()->lockForUpdate()->findOrFail((int) $action->args['company_id']);
         $company->update(['is_active' => (bool) $action->inverse['is_active']]);
+        StaffAdministration::audit($actor, 'shipping.company_status_undone', 'shipping_company', $company->id, ['is_active'], [], ['is_active' => $company->is_active], ['channel' => 'ai', 'tool' => $this->name(), 'action_id' => $action->id]);
 
         return ToolOutcome::result(true, 'تم التراجع عن حالة شركة الشحن.', ['company_id' => $company->id]);
     }

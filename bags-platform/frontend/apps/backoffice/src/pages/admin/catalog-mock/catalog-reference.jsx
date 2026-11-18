@@ -428,8 +428,8 @@ function BasicTab({ B, set, errs, code, flat }) {
       <div className="space-y-5">
         <SectionCard title="الاسم والتصنيف">
           <div className="grid md:grid-cols-2 gap-4">
-            <Field label="اسم المنتج (عربي)" required error={errs.ar} id="ar"><Input value={B.ar} onChange={(e) => set('ar', e.target.value)} error={errs.ar} placeholder="مثال: شنطة سفر الفريد" /></Field>
-            <Field label="اسم المنتج (إنجليزي)" required error={errs.en} hint={B.en && !/[a-z]/i.test(B.en) ? 'يُفضّل كتابة الاسم بالإنجليزية لتوليد رابط مناسب' : null} id="en"><Input ltr dir="ltr" value={B.en} onChange={(e) => set('en', e.target.value)} error={errs.en} placeholder="Alfarid Travel Bag" /></Field>
+            <Field label="اسم المنتج (عربي)" required error={errs.ar} id="ar"><Input value={B.ar} onChange={(e) => set('ar', e.target.value)} error={errs.ar} placeholder="مثال: شنطة سفر VARYA" /></Field>
+            <Field label="اسم المنتج (إنجليزي)" required error={errs.en} hint={B.en && !/[a-z]/i.test(B.en) ? 'يُفضّل كتابة الاسم بالإنجليزية لتوليد رابط مناسب' : null} id="en"><Input ltr dir="ltr" value={B.en} onChange={(e) => set('en', e.target.value)} error={errs.en} placeholder="VARYA Travel Bag" /></Field>
             <Field label="القسم" required error={errs.category}>
               <SearchSelect value={B.category} onChange={(v) => set('category', v)} error={errs.category} placeholder="اختر القسم" emptyText="لا يوجد قسم بهذا الاسم"
                 options={flat.map((f) => ({ value: f.id, label: f.ar, depth: f.depth, sub: f.depth ? null : f.en, note: f.status !== 'active' ? 'غير نشط' : null }))} />

@@ -37,6 +37,15 @@ class SpokenQuantityTest extends TestCase
         $this->assertSame(12.0, SpokenQuantity::parse('دسته'));
     }
 
+    public function test_two_dozen_form_is_a_multiplier_and_scientific_notation_is_rejected(): void
+    {
+        $this->assertSame(24.0, SpokenQuantity::parse('دستتين'));
+        $this->assertSame(48.0, SpokenQuantity::parse('اتنين دستتين'));
+        $this->assertSame(2000.0, SpokenQuantity::parse('ألفين'));
+        $this->assertNull(SpokenQuantity::parse('1e5'));
+        $this->assertSame(0.0, SpokenQuantity::parse('0'));
+    }
+
     public function test_repeated_ones_or_tens_are_rejected_as_stutter(): void
     {
         // M2: "خمسه خمسه" is a repeated number (speech-recognition stutter),

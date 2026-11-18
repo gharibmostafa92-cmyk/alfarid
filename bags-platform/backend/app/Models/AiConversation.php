@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['user_id', 'title', 'model', 'total_tokens', 'last_message_at', 'channel'])]
+#[Fillable(['user_id', 'title', 'model', 'total_tokens', 'last_message_at', 'channel', 'is_pinned'])]
 /**
  * Represents an administrative chat conversation session with the AI agent.
  */
@@ -39,6 +39,6 @@ class AiConversation extends Model
 
     protected function casts(): array
     {
-        return ['total_tokens' => 'integer', 'last_message_at' => 'datetime'];
+        return ['total_tokens' => 'integer', 'last_message_at' => 'datetime', 'is_pinned' => 'boolean'];
     }
 }

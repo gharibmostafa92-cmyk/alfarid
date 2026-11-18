@@ -15,7 +15,7 @@ class SettingSeeder extends Seeder
      * @var list<array{group: string, key: string, value: string|null, type: string}>
      */
     private const SETTINGS = [
-        ['group' => 'company', 'key' => 'company_name', 'value' => 'Alfarid', 'type' => 'string'],
+        ['group' => 'company', 'key' => 'company_name', 'value' => 'VARYA', 'type' => 'string'],
         ['group' => 'company', 'key' => 'company_email', 'value' => null, 'type' => 'string'],
         ['group' => 'company', 'key' => 'company_phone', 'value' => null, 'type' => 'string'],
         ['group' => 'company', 'key' => 'company_address', 'value' => null, 'type' => 'string'],

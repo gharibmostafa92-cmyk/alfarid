@@ -36,8 +36,11 @@ final class ShippingArgs
         return str_contains($name, 'credential')
             || str_contains($name, 'secret')
             || str_contains($name, 'api_key')
-            || $name === 'token'
-            || $name === 'password';
+            || str_contains($name, 'apikey')
+            || str_contains($name, 'private_key')
+            || str_contains($name, 'token')
+            || str_contains($name, 'password')
+            || str_contains($name, 'passwd');
     }
 
     /**

@@ -28,11 +28,12 @@ final class WhatsAppGatewayClient
         return $this->request('POST', '/logout', [])->json() ?? [];
     }
 
-    public function send(string $toJid, string $text, ?string $quotedId = null): string
+    public function send(string $toJid, string $text, ?string $quotedId = null, bool $quotedFromMe = false): string
     {
         $payload = ['to_jid' => $toJid, 'text' => $text];
         if ($quotedId !== null && $quotedId !== '') {
             $payload['quoted_id'] = $quotedId;
+            $payload['quoted_from_me'] = $quotedFromMe;
         }
         $body = $this->request('POST', '/send', $payload)->json() ?? [];
         $id = $body['wa_message_id'] ?? null;

@@ -6,6 +6,7 @@ namespace App\Services\Ai\Catalog\Tools;
 
 use App\Enums\Catalog\ProductStatus;
 use App\Models\AiPendingAction;
+use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
@@ -111,12 +112,27 @@ final class SetVariantStatusTool implements LocksTargets, UndoableTool, WriteToo
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $variant = ProductVariant::findOrFail((int) $action->args['variant_id']);
-        $oldActive = (bool) $variant->is_active;
-        $updated = $this->variants->update($variant, [
-            'is_active' => (bool) $action->args['is_active'],
-            'expected_version' => $action->expected_versions['variant:'.$variant->id] ?? null,
-        ]);
+        [$oldActive, $updated] = \Illuminate\Support\Facades\DB::transaction(function () use ($action): array {
+            $variant = ProductVariant::findOrFail((int) $action->args['variant_id']);
+            $product = Product::query()->lockForUpdate()->find($variant->product_id);
+            $variant = ProductVariant::query()->lockForUpdate()->findOrFail($variant->id);
+
+            $targetActive = (bool) $action->args['is_active'];
+            if (! $targetActive && $product && $product->status === ProductStatus::Published) {
+                $hasOtherActive = $product->variants()->where('is_active', true)->where('id', '!=', $variant->id)->exists();
+                if (! $hasOtherActive) {
+                    throw new \App\Exceptions\BusinessException('لا يمكن تعطيل آخر متغير نشط في منتج منشور؛ أرشف المنتج أولًا.', [], 409);
+                }
+            }
+
+            $oldActive = (bool) $variant->is_active;
+            $updated = $this->variants->update($variant, [
+                'is_active' => $targetActive,
+                'expected_version' => $action->expected_versions['variant:'.$variant->id] ?? null,
+            ]);
+
+            return [$oldActive, $updated];
+        });
 
         StaffAdministration::audit(
             $actor,

@@ -153,6 +153,28 @@ class GeminiClientTest extends TestCase
         });
     }
 
+    public function test_function_arguments_preserve_nested_empty_objects_using_the_tool_schema(): void
+    {
+        Http::fake(['generativelanguage.googleapis.com/*' => Http::response([
+            'candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => 'جاهز']]]]],
+        ])]);
+        app(GeminiClient::class)->converse(
+            [['role' => 'model', 'parts' => [['functionCall' => ['name' => 'update_settings', 'args' => ['changes' => []]]]]]],
+            [[
+                'name' => 'update_settings',
+                'parameters' => ['type' => 'OBJECT', 'properties' => [
+                    'changes' => ['type' => 'OBJECT', 'properties' => ['tax_enabled' => ['type' => 'BOOLEAN']]],
+                ]],
+            ]],
+        );
+
+        Http::assertSent(function (Request $request): bool {
+            $body = json_decode($request->body());
+
+            return $body->contents[0]->parts[0]->functionCall->args->changes instanceof \stdClass;
+        });
+    }
+
     public function test_incomplete_output_is_not_reported_as_a_success(): void
     {
         Http::fake(['generativelanguage.googleapis.com/*' => Http::response(['candidates' => [['finishReason' => 'MAX_TOKENS']]])]);

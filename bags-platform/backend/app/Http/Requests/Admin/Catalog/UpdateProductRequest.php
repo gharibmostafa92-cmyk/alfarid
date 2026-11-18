@@ -9,6 +9,7 @@ use App\Enums\Catalog\Occasion;
 use App\Enums\Catalog\ProductStatus;
 use App\Enums\Orders\SalesChannel;
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
+use App\Models\User;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;

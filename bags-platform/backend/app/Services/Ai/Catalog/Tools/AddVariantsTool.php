@@ -241,13 +241,17 @@ final class AddVariantsTool implements LocksTargets, WriteTool
         $variantsToCreate = (array) ($action->args['variants'] ?? []);
         $canViewCost = CostAccess::canView($actor);
 
-        $createdIds = DB::transaction(function () use ($product, $variantsToCreate, $canViewCost, $expected): array {
+        $createdIds = DB::transaction(function () use ($action, $variantsToCreate, $canViewCost, $expected): array {
+            $product = Product::query()->lockForUpdate()->findOrFail((int) $action->args['product_id']);
+            if ($expected !== null && (int) $product->lock_version !== (int) $expected) {
+                throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
             $ids = [];
             foreach ($variantsToCreate as $vData) {
                 if (! $canViewCost) {
                     unset($vData['cost_price']);
                 }
-                $created = $this->variants->create($product, $vData, $expected === null ? null : (int) $expected);
+                $created = $this->variants->create($product, $vData, null);
                 $ids[] = $created->id;
             }
 

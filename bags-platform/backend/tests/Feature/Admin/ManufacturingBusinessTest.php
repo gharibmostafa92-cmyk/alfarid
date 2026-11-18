@@ -154,7 +154,7 @@ class ManufacturingBusinessTest extends TestCase
                 Auth::forgetGuards();
                 $headers = $token === null ? [] : ['Authorization' => 'Bearer '.$token];
                 $this->json($method, '/api/v1/'.$path, [], $headers)->assertStatus(410)
-                    ->assertJsonPath('message', 'هذا الجزء متوقف؛ منتجات الفريد تصنيعنا، والتجار يُدارون من العملاء والجملة.');
+                    ->assertJsonPath('message', 'هذا الجزء متوقف؛ منتجات VARYA تصنيعنا، والتجار يُدارون من العملاء والجملة.');
             }
         }
         foreach ($counts as $table => $count) {
@@ -167,14 +167,14 @@ class ManufacturingBusinessTest extends TestCase
         $staff = $this->staff(['products.create']);
         $product = Product::factory()->create();
         $this->login($staff)->postJson('/api/v1/admin/products', [
-            'name_ar' => 'حقيبة الفريد', 'name_en' => 'Alfarid Bag', 'category_id' => $product->category_id,
+            'name_ar' => 'حقيبة VARYA', 'name_en' => 'VARYA Bag', 'category_id' => $product->category_id,
             'sales_channel' => 'both', 'brand_id' => 1, 'supplier_id' => 1,
         ])->assertUnprocessable()->assertJsonValidationErrors(['brand_id', 'supplier_id']);
         $this->login($staff)->postJson('/api/v1/admin/products', [
-            'name_ar' => 'حقيبة الفريد', 'name_en' => 'Alfarid Bag', 'category_id' => $product->category_id,
+            'name_ar' => 'حقيبة VARYA', 'name_en' => 'VARYA Bag', 'category_id' => $product->category_id,
             'sales_channel' => 'both',
         ])->assertCreated()->assertJsonPath('data.brand', null)->assertJsonPath('data.supplier_id', null);
-        $this->assertDatabaseHas('products', ['name_en' => 'Alfarid Bag', 'brand_id' => null, 'supplier_id' => null]);
+        $this->assertDatabaseHas('products', ['name_en' => 'VARYA Bag', 'brand_id' => null, 'supplier_id' => null]);
     }
 
     public function test_old_inactive_brand_does_not_hide_our_published_products(): void

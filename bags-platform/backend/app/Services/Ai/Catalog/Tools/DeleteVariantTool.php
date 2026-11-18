@@ -110,18 +110,34 @@ final class DeleteVariantTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $variant = ProductVariant::findOrFail((int) $action->args['variant_id']);
-        $expected = $action->expected_versions['variant:'.$variant->id] ?? null;
-        if ($expected !== null && (int) $variant->lock_version !== (int) $expected) {
-            throw new BusinessException('المتغير تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-        }
+        [$id, $sku, $productId, $before] = \Illuminate\Support\Facades\DB::transaction(function () use ($action): array {
+            $variant = ProductVariant::findOrFail((int) $action->args['variant_id']);
+            $product = Product::query()->lockForUpdate()->find($variant->product_id);
+            $variant = ProductVariant::query()->lockForUpdate()->findOrFail($variant->id);
 
-        $sku = $variant->sku;
-        $productId = $variant->product_id;
-        $id = $variant->id;
-        $before = ['sku' => $variant->sku, 'barcode' => $variant->barcode];
+            $expected = $action->expected_versions['variant:'.$variant->id] ?? null;
+            if ($expected !== null && (int) $variant->lock_version !== (int) $expected) {
+                throw new BusinessException('المتغير تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
+            if ($product && $product->status === ProductStatus::Published) {
+                $hasOtherActive = $product->variants()->where('is_active', true)->where('id', '!=', $variant->id)->exists();
+                if (! $hasOtherActive) {
+                    throw new BusinessException('لا يمكن حذف آخر متغير نشط في منتج منشور.', [], 409);
+                }
+            }
+            if (StockLevel::query()->where('product_variant_id', $variant->id)->hasNonZeroBalance()->exists()) {
+                throw new BusinessException('لا يمكن حذف متغير له رصيد مخزون؛ صفِّ رصيده أولًا أو عطّله بدلًا من حذفه.', [], 409);
+            }
 
-        $this->variants->delete($variant, $expected === null ? null : (int) $expected);
+            $sku = $variant->sku;
+            $productId = $variant->product_id;
+            $id = $variant->id;
+            $before = ['sku' => $variant->sku, 'barcode' => $variant->barcode];
+
+            $this->variants->delete($variant, $expected === null ? null : (int) $expected);
+
+            return [$id, $sku, $productId, $before];
+        });
 
         StaffAdministration::audit(
             $actor,

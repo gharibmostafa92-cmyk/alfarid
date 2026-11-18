@@ -578,6 +578,34 @@ class ShippingWebhookContractTest extends TestCase
         return [$order, $shipment];
     }
 
+    public function test_late_delivery_on_a_superseded_waybill_flags_attention_without_delivering_it(): void
+    {
+        $company = $this->company('bosta', self::SECRET);
+        $order = Order::factory()->create(['status' => OrderStatus::Delivered, 'needs_attention' => false]);
+        $old = Shipment::factory()->create([
+            'order_id' => $order->id,
+            'shipping_company_id' => $company->id,
+            'awb_number' => 'OLD-AWB',
+            'status' => ShipmentStatus::Failed,
+        ]);
+        Shipment::factory()->create([
+            'order_id' => $order->id,
+            'shipping_company_id' => $company->id,
+            'awb_number' => 'NEW-AWB',
+            'status' => ShipmentStatus::Delivered,
+        ]);
+
+        $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
+            'awb_number' => 'OLD-AWB',
+            'status' => 'delivered',
+            'event_id' => 'late-1',
+        ], self::SECRET)->assertOk();
+
+        $this->assertSame(ShipmentStatus::Failed, $old->fresh()->status);
+        $this->assertTrue((bool) $order->fresh()->needs_attention);
+        $this->assertSame(OrderStatus::Delivered, $order->fresh()->status);
+    }
+
     private function installStatusTrigger(string $sqlstate): void
     {
         DB::unprepared("CREATE OR REPLACE FUNCTION shipping_test_fail_status() RETURNS trigger AS $$

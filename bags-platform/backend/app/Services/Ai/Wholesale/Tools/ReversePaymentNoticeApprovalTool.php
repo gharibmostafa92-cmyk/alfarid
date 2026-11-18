@@ -84,6 +84,7 @@ final class ReversePaymentNoticeApprovalTool implements LocksTargets, WriteTool
             title: 'عكس اعتماد '.$notice->notice_number,
             before: ['status' => 'approved', 'amount' => (string) $notice->amount],
             after: ['status' => 'reversed'],
+            expectedVersions: ['n:'.$notice->id => WholesaleAccessGuard::noticeFingerprint($notice)],
             typedConfirmation: $notice->notice_number,
             typedConfirmationHint: 'اكتب رقم الإشعار',
         );
@@ -96,9 +97,12 @@ final class ReversePaymentNoticeApprovalTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail((int) $action->args['notice_id']);
         if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice)) {
             return $denied;
+        }
+        if (($action->expected_versions['n:'.$notice->id] ?? null) !== WholesaleAccessGuard::noticeFingerprint($notice)) {
+            return ToolOutcome::denied('الإشعار اتغير بعد الاقتراح.', auditable: false);
         }
         try {
             $reversed = $this->notices->reverse($notice, $actor->id, (string) $action->args['reason']);

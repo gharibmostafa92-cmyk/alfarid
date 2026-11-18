@@ -344,14 +344,16 @@ final class BulkUpdatePricesTool implements LocksTargets, UndoableTool, WriteToo
         $rows = (array) ($action->args['rows'] ?? []);
 
         try {
-            app(CatalogRetailPriceObserver::class)->batch(function () use ($rows, $field): void {
-                foreach (collect($rows)->sortBy('id') as $row) {
-                    $variant = ProductVariant::findOrFail((int) $row['id']);
-                    $this->variants->update($variant, [
-                        $field => (float) $row['new'],
-                        'expected_version' => (int) $row['v'],
-                    ]);
-                }
+            \Illuminate\Support\Facades\DB::transaction(function () use ($rows, $field): void {
+                app(CatalogRetailPriceObserver::class)->batch(function () use ($rows, $field): void {
+                    foreach (collect($rows)->sortBy('id') as $row) {
+                        $variant = ProductVariant::findOrFail((int) $row['id']);
+                        $this->variants->update($variant, [
+                            $field => (float) $row['new'],
+                            'expected_version' => (int) $row['v'],
+                        ]);
+                    }
+                });
             });
         } catch (BusinessException $e) {
             if ($e->status === 409) {
@@ -409,17 +411,25 @@ final class BulkUpdatePricesTool implements LocksTargets, UndoableTool, WriteToo
         $field = (string) $action->inverse['field'];
         $prices = (array) $action->inverse['prices'];
         $variants = ProductVariant::whereIn('id', array_keys($prices))->get()->keyBy('id');
+        if ($variants->count() !== count($prices)) {
+            throw new BusinessException('بعض المتغيرات حُذفت بعد تعديل الأسعار؛ تعذّر التراجع.', [], 409);
+        }
         CatalogUndoGuard::assertUnchanged($this, $action);
 
-        app(CatalogRetailPriceObserver::class)->batch(function () use ($prices, $field, $variants): void {
-            ksort($prices, SORT_NUMERIC);
-            foreach ($prices as $variantId => $oldPrice) {
-                $variant = $variants->get((int) $variantId);
-                $this->variants->update($variant, [
-                    $field => $oldPrice !== null ? (float) $oldPrice : null,
-                    'expected_version' => (int) $variant->lock_version,
-                ]);
-            }
+        \Illuminate\Support\Facades\DB::transaction(function () use ($prices, $field, $variants): void {
+            app(CatalogRetailPriceObserver::class)->batch(function () use ($prices, $field, $variants): void {
+                ksort($prices, SORT_NUMERIC);
+                foreach ($prices as $variantId => $oldPrice) {
+                    $variant = $variants->get((int) $variantId);
+                    if (! $variant) {
+                        throw new BusinessException('بعض المتغيرات حُذفت بعد تعديل الأسعار؛ تعذّر التراجع.', [], 409);
+                    }
+                    $this->variants->update($variant, [
+                        $field => $oldPrice !== null ? (float) $oldPrice : null,
+                        'expected_version' => (int) $variant->lock_version,
+                    ]);
+                }
+            });
         });
 
         return ToolOutcome::result(true, 'تم التراجع عن تعديل الأسعار الجماعي لـ '.count($prices).' متغير.', [

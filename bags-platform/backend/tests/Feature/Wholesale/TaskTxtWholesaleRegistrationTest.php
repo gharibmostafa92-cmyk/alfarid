@@ -41,7 +41,7 @@ class TaskTxtWholesaleRegistrationTest extends TestCase
             'email' => 'trader-'.uniqid().'@example.com',
             'phone' => '01099887766',
             'password' => 'valid-password-123',
-            'company_name' => 'مؤسسة الفريد للتجارة',
+            'company_name' => 'مؤسسة VARYA للتجارة',
             'tax_number' => '555666777',
             'commercial_register' => '112233',
             'documents' => [

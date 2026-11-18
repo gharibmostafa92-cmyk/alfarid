@@ -47,8 +47,10 @@ export const authEndpoints = {
         headers: cartSession ? { 'X-Cart-Session': cartSession } : {},
       })
       .then((r) => r.data),
-  me: () => apiClient.get('/api/v1/auth/me').then((r) => r.data),
-  logout: () => apiClient.post('/api/v1/auth/logout'),
+  me: (signal?: AbortSignal) => apiClient.get('/api/v1/auth/me', { signal }).then((r) => r.data),
+  logout: (signal?: AbortSignal, token?: string) => apiClient.post('/api/v1/auth/logout', undefined, {
+    signal, headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  }),
   exchangeHandoff: (code: string) =>
     apiClient.post<HandoffExchangeResponse>('/api/v1/auth/handoff/exchange', { code }).then((r) => r.data),
   staffMe: (signal?: AbortSignal) => apiClient.get<{ data: StaffUserResource }>('/api/v1/admin/me', { signal }).then((r) => r.data.data),

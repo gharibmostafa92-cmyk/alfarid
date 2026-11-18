@@ -26,7 +26,7 @@ const headers = { 'access-control-allow-origin': '*', 'access-control-allow-head
       if (unavailable) return route.fulfill({ status: 503, headers, json: { message: 'Unavailable' } });
       const company = state.settings.data.company;
       return route.fulfill({ headers, json: { data: {
-        name: company.company_name || 'Alfarid', logo: company.company_logo,
+        name: company.company_name || 'VARYA', logo: company.company_logo,
         email: company.company_email, phone: company.company_phone, address: company.company_address,
       } } });
     });
@@ -41,7 +41,7 @@ const headers = { 'access-control-allow-origin': '*', 'access-control-allow-head
     const store = await context.newPage();
     await store.clock.install();
     await store.goto(storeUrl);
-    await store.locator('header a[title="Alfarid"]').waitFor();
+    await store.locator('header a[title="VARYA"]').waitFor();
     await store.evaluate(() => {
       window.__brandingDocument = 'unchanged';
       document.title = 'Product page title';
@@ -51,9 +51,9 @@ const headers = { 'access-control-allow-origin': '*', 'access-control-allow-head
 
     const office = await context.newPage();
     await office.goto(`${officeUrl}/dashboard#/settings`);
-    await office.locator('#brand-home-btn').getByText('Alfarid', { exact: true }).waitFor();
+    await office.locator('#brand-home-btn').getByText('VARYA', { exact: true }).waitFor();
     const settings = office.locator('[data-admin-mock="settings"]');
-    const name = 'الفريد للحقائب';
+    const name = 'VARYA للحقائب';
     await settings.getByPlaceholder('الاسم التجاري للمنشأة').fill(name);
     await settings.getByLabel('البريد الإلكتروني للشركة', { exact: true }).fill('hello@example.com');
     await settings.getByLabel('رقم الهاتف الرسمي', { exact: true }).fill('+201000000000');
@@ -111,12 +111,11 @@ const headers = { 'access-control-allow-origin': '*', 'access-control-allow-head
     state.settings.data.company.company_logo = 'https://branding.example/missing.svg';
     await store.clock.fastForward(30_001);
     await store.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await store.waitForFunction(() => !document.querySelector('header img'));
-    assert.equal(await store.locator(`header a[title="${name}"] svg`).count(), 1);
+    await store.locator('header img[src="/images/varya-header.webp"]').waitFor();
     state.settings.data.company.company_logo = 'https://branding.example/logo.svg';
     await store.clock.fastForward(30_001);
     await store.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await store.locator('header img').waitFor();
+    await store.locator('header img[src="https://branding.example/logo.svg"]').waitFor();
 
     for (const request of brandingRequests) assert.equal(request.authorization, undefined, 'Public branding must not send stored authentication');
     assert.deepEqual(errors, []);

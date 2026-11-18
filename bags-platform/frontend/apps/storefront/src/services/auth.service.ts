@@ -40,7 +40,7 @@ export function safeLogoutNext(next: string): string {
   return '/auth/login';
 }
 
-export async function loginUnified(login: string, password: string, redirect?: string | null, turnstileToken?: string | null) {
+export async function loginUnified(login: string, password: string, redirect?: string | null, turnstileToken?: string | null, lang: 'ar' | 'en' = 'ar') {
   const guestSession = getCartSession();
   const previousToken = useAuthStore.getState().token;
   const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) }, guestSession);
@@ -50,7 +50,7 @@ export async function loginUnified(login: string, password: string, redirect?: s
     // Clear local state after revoking previous active session when switching to backoffice.
     useAuthStore.getState().clear();
     // Pass single-use handoff code in URL fragment to prevent exposure in HTTP logs or Referers.
-    const url = `${resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173')}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}`;
+    const url = `${resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173')}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}&lang=${lang}`;
     window.location.assign(url);
     return null;
   }

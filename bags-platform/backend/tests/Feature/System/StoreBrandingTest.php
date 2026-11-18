@@ -19,7 +19,7 @@ class StoreBrandingTest extends TestCase
     public function test_public_branding_works_without_settings_or_authentication(): void
     {
         $this->getJson('/api/v1/store/branding')->assertOk()->assertExactJson([
-            'data' => ['name' => 'Alfarid', 'logo' => null, 'email' => null, 'phone' => null, 'address' => null],
+            'data' => ['name' => 'VARYA', 'logo' => null, 'email' => null, 'phone' => null, 'address' => null],
         ]);
     }
 
@@ -28,7 +28,7 @@ class StoreBrandingTest extends TestCase
         $this->seed(SettingSeeder::class);
 
         $response = $this->getJson('/api/v1/store/branding')->assertOk()->assertExactJson([
-            'data' => ['name' => 'Alfarid', 'logo' => null, 'email' => null, 'phone' => null, 'address' => null],
+            'data' => ['name' => 'VARYA', 'logo' => null, 'email' => null, 'phone' => null, 'address' => null],
         ]);
 
         $cacheControl = (string) $response->headers->get('Cache-Control');
@@ -72,13 +72,13 @@ class StoreBrandingTest extends TestCase
         config(['cache.default' => 'branding_cache', 'cache.stores.branding_cache' => ['driver' => 'array']]);
         $this->seed(SettingSeeder::class);
 
-        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'VARYA');
         app(\App\Services\Shared\SettingService::class)->forgetMemoryState();
 
         \Illuminate\Support\Facades\DB::enableQueryLog();
         \Illuminate\Support\Facades\DB::flushQueryLog();
         try {
-            $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+            $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'VARYA');
             $queries = \Illuminate\Support\Facades\DB::getQueryLog();
         } finally {
             \Illuminate\Support\Facades\DB::disableQueryLog();
@@ -93,7 +93,7 @@ class StoreBrandingTest extends TestCase
 
         $this->withToken($token)->putJson('/api/v1/admin/settings', [
             'company_name' => 'Brand Cached Updated',
-            'expected' => ['company_name' => 'Alfarid'],
+            'expected' => ['company_name' => 'VARYA'],
         ])->assertOk();
 
         Auth::forgetGuards();
@@ -104,7 +104,7 @@ class StoreBrandingTest extends TestCase
     public function test_admin_rename_is_visible_publicly_after_warming_the_cache(): void
     {
         $this->seed(SettingSeeder::class);
-        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'VARYA');
         $staff = User::factory()->create();
         $staff->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));
         $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
@@ -112,18 +112,18 @@ class StoreBrandingTest extends TestCase
         Auth::forgetGuards();
 
         $this->withToken($token)->putJson('/api/v1/admin/settings', [
-            'company_name' => 'الفريد للحقائب',
+            'company_name' => 'VARYA للحقائب',
             'company_logo' => 'https://example.com/logo.png',
             'company_email' => 'info@example.com',
             'company_phone' => '+201000000000',
             'company_address' => 'Cairo',
-            'expected' => ['company_name' => 'Alfarid', 'company_logo' => null, 'company_email' => null, 'company_phone' => null, 'company_address' => null],
-        ])->assertOk()->assertJsonPath('data.company.company_name', 'الفريد للحقائب');
+            'expected' => ['company_name' => 'VARYA', 'company_logo' => null, 'company_email' => null, 'company_phone' => null, 'company_address' => null],
+        ])->assertOk()->assertJsonPath('data.company.company_name', 'VARYA للحقائب');
 
-        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'الفريد للحقائب']);
+        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'VARYA للحقائب']);
         Auth::forgetGuards();
         $this->withHeader('Authorization', '')->getJson('/api/v1/store/branding')->assertOk()->assertExactJson([
-            'data' => ['name' => 'الفريد للحقائب', 'logo' => 'https://example.com/logo.png', 'email' => 'info@example.com', 'phone' => '+201000000000', 'address' => 'Cairo'],
+            'data' => ['name' => 'VARYA للحقائب', 'logo' => 'https://example.com/logo.png', 'email' => 'info@example.com', 'phone' => '+201000000000', 'address' => 'Cairo'],
         ]);
     }
 
@@ -131,7 +131,7 @@ class StoreBrandingTest extends TestCase
     {
         Setting::query()->create(['group' => 'company', 'key' => 'company_name', 'value' => '  ', 'type' => 'string']);
 
-        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'VARYA');
     }
 
     public function test_invalid_private_json_cannot_break_public_branding(): void
@@ -139,6 +139,6 @@ class StoreBrandingTest extends TestCase
         $this->seed(SettingSeeder::class);
         Setting::query()->create(['group' => 'private', 'key' => 'broken_json', 'value' => '{invalid', 'type' => 'json']);
 
-        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'VARYA');
     }
 }

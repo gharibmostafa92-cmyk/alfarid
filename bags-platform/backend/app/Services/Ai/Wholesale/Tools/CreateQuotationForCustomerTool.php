@@ -132,6 +132,9 @@ final class CreateQuotationForCustomerTool implements WriteTool
                     $query = $part;
                 }
             }
+            if ($qty <= 0) {
+                return ToolOutcome::denied('كمية البند لازم تكون أكبر من صفر.', auditable: false);
+            }
             $matches = $this->resolver->variants($actor, $query);
             if (count($matches) !== 1) {
                 return ToolOutcome::picker([

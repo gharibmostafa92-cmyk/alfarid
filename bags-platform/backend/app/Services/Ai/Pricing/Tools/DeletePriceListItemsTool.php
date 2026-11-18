@@ -193,13 +193,21 @@ final class DeletePriceListItemsTool implements WriteTool, LocksTargets, Undoabl
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $listId = (int) $action->args['price_list_id'];
-        PricingLocks::lockListAndItems($action, $listId, [], '');
+        // The list row serializes item mutations; don't lock and hydrate every
+        // remaining item just to restore the deleted subset.
+        $list = \App\Models\PriceList::query()->lockForUpdate()->findOrFail($listId);
+        $this->lists->assertListAccess($actor, $list);
         $items = (array) (($action->inverse ?? [])['items'] ?? []);
 
-        app(CatalogRetailPriceObserver::class)->batch(function () use ($actor, $listId, $items): void {
-            $list = \App\Models\PriceList::query()->findOrFail($listId);
+        app(CatalogRetailPriceObserver::class)->batch(function () use ($actor, $list, $listId, $items): void {
             foreach ($items as $old) {
-                $this->lists->createItem($list->fresh(), [
+                $duplicate = PriceListItem::query()
+                    ->where('price_list_id', $listId)
+                    ->where('product_variant_id', (int) $old['product_variant_id'])
+                    ->where('min_qty', $old['min_qty'])
+                    ->exists();
+                abort_if($duplicate, 409, 'تم إنشاء بند مطابق بعد الحذف؛ التراجع غير آمن.');
+                $this->lists->createItem($list, [
                     'product_variant_id' => (int) $old['product_variant_id'],
                     'min_qty' => (float) $old['min_qty'],
                     'price' => (float) $old['price'],

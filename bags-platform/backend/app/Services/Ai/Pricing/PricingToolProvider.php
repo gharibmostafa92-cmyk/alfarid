@@ -99,7 +99,7 @@ final class PricingToolProvider implements ToolProvider
             'parse_price_sheet' => ! $this->settings->getBool('ai_pricing_vision_enabled', false),
             'list_coupons', 'get_coupon', 'create_coupons', 'update_coupon', 'set_coupon_status',
             'list_promotions', 'create_promotion', 'update_promotion', 'set_promotion_status',
-            'coupon_performance', 'simulate_cart', 'margin_risk_report' => ! $this->settings->getBool('ai_promotions_tools_enabled', false),
+            'coupon_performance' => ! $this->settings->getBool('ai_promotions_tools_enabled', false),
             default => false,
         };
     }

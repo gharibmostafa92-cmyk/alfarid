@@ -29,7 +29,7 @@ async function stubPublicApi(context, staffPath = '/dashboard') {
   await context.route('**/api/v1/**', route => {
     const pathname = new URL(route.request().url()).pathname;
     const json = pathname.endsWith('/branding')
-      ? { data: { name: 'Alfarid', logo: null } }
+      ? { data: { name: 'VARYA', logo: null } }
       : pathname.endsWith('/admin/me')
         ? { redirect: { path: staffPath } }
         : { data: [] };

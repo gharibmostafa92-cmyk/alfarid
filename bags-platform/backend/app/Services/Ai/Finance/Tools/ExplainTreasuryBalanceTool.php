@@ -84,7 +84,7 @@ final class ExplainTreasuryBalanceTool implements AgentTool
         $openingTx = TreasuryTransaction::query()->where('treasury_id', $treasury->id)
             ->where('created_at', '<', $start)
             ->orderByDesc('id')->first(['balance_after']);
-        $opening = $openingTx ? (float) $openingTx->balance_after : 0.0;
+        $opening = $openingTx ? (string) $openingTx->balance_after : '0.00';
 
         $grouped = TreasuryTransaction::query()->where('treasury_id', $treasury->id)
             ->where('created_at', '>=', $start)
@@ -93,20 +93,20 @@ final class ExplainTreasuryBalanceTool implements AgentTool
             ->groupBy('type')->orderBy('type')->get();
 
         $groups = [];
-        $periodTotal = 0.0;
+        $periodTotal = '0.00';
         foreach ($grouped as $row) {
             $type = $row->type instanceof \BackedEnum ? $row->type->value : (string) $row->type;
-            $total = (float) $row->total;
-            $periodTotal += $total;
+            $total = (string) ($row->total ?? '0.00');
+            $periodTotal = bcadd($periodTotal, $total, 2);
             $groups[] = [
                 'type' => $this->presenter->transactionTypeLabel($type),
                 'count' => (int) $row->movements_count,
-                'quantity_total' => $total,
+                'quantity_total' => (float) $total,
             ];
         }
 
-        $ending = round($opening + $periodTotal, 2);
-        $current = (float) $treasury->current_balance;
+        $ending = bcadd($opening, $periodTotal, 2);
+        $current = (string) $treasury->current_balance;
         $isCurrentPeriod = $to === $today->toDateString();
 
         $timeline = TreasuryTransaction::query()->where('treasury_id', $treasury->id)
@@ -131,14 +131,14 @@ final class ExplainTreasuryBalanceTool implements AgentTool
             'treasury_id' => $treasury->id,
             'from' => $from,
             'to' => $to,
-            'opening_balance' => $opening,
-            'ending_balance' => $ending,
-            'current_balance' => $current,
-            'matches_current' => $isCurrentPeriod ? abs($ending - $current) < 0.005 : null,
-            'difference' => round($current - $ending, 2),
+            'opening_balance' => (float) $opening,
+            'ending_balance' => (float) $ending,
+            'current_balance' => (float) $current,
+            'matches_current' => $isCurrentPeriod ? bccomp($ending, $current, 2) === 0 : null,
+            'difference' => (float) bcsub($current, $ending, 2),
         ], [
             'type' => 'balance_story',
-            'start_balance' => $opening,
+            'start_balance' => (float) $opening,
             'groups' => $groups,
             'timeline' => $timeline,
         ]);

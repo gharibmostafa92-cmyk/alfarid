@@ -100,7 +100,7 @@ class Task2ShippingHardeningTest extends TestCase
         $actor = User::factory()->create();
 
         $shipment = app(ShipmentService::class)->createForOrder($order, $company->id, null, $actor);
-        $this->assertSame('0.00', (string) $shipment->shipping_cost);
+        $this->assertSame('60.00', (string) $shipment->shipping_cost);
     }
 
     public function test_shipment_tracking_url_rejects_non_https_schemes(): void

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\WhatsApp;
 
+use App\Models\AiWhatsappIdentity;
+use App\Models\User;
 use App\Services\Ai\ToolKind;
 use App\Services\Shared\SettingService;
 
@@ -38,7 +40,7 @@ final class WhatsAppChannelPolicy
      * @param  string  $risk  Risk level ('low', 'medium', 'high')
      * @return bool True if action should be blocked on WhatsApp
      */
-    public function blocks(string $name, ToolKind $kind, string $risk): bool
+    public function blocks(string $name, ToolKind $kind, string $risk, ?User $actor = null): bool
     {
         $disabled = $this->settings->get('ai_whatsapp_disabled_tools', self::DISABLED_BY_DEFAULT);
         if (! is_array($disabled)) {
@@ -52,7 +54,14 @@ final class WhatsAppChannelPolicy
         }
         $noticeException = $name === 'approve_payment_notice'
             && $this->settings->getBool('ai_whatsapp_allow_notice_approval', false)
-            && $this->settings->getBool('ai_whatsapp_pin_required', false);
+            && $this->settings->getBool('ai_whatsapp_pin_required', false)
+            && $actor !== null
+            && AiWhatsappIdentity::query()
+                ->where('user_id', $actor->id)
+                ->where('status', 'active')
+                ->whereNotNull('pin_hash')
+                ->where('pin_hash', '!=', '')
+                ->exists();
         if (in_array($name, ['approve_payment_notice', 'reverse_payment_notice_approval', 'bulk_approve_matched_notices'], true) && ! $noticeException) {
             return true;
         }

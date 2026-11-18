@@ -90,14 +90,23 @@ class HomeController extends Controller
      */
     private function activeBanners(): Collection
     {
-        $load = fn (): Collection => Banner::query()
+        $loadIds = fn (): array => Banner::query()
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
             ->orderBy('sort_order')->orderBy('id')
-            ->get();
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
 
-        $banners = Cache::remember(StoreCatalogService::HOME_BANNERS_CACHE_KEY, 60, $load);
+        $ids = Cache::remember(StoreCatalogService::HOME_BANNERS_CACHE_KEY, 60, $loadIds);
+        if (! is_array($ids)) {
+            Cache::forget(StoreCatalogService::HOME_BANNERS_CACHE_KEY);
+            $ids = $loadIds();
+        }
+        if ($ids === []) {
+            return collect();
+        }
 
         // BannerLinkResolver attaches request-derived attributes. Never mutate the
         // model instances held by a shared in-memory cache (Octane/array cache).

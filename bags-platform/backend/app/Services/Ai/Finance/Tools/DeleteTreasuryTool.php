@@ -104,9 +104,7 @@ final class DeleteTreasuryTool implements AgentTool, LocksTargets, WriteTool
         $a = $action->args;
         $treasury = Treasury::query()->lockForUpdate()->findOrFail((int) $a['treasury_id']);
         $this->branches->assertTreasury($actor->id, $treasury);
-        if (array_diff_assoc($this->guards->accountVersions($treasury), $action->expected_versions ?? []) !== []) {
-            throw new BusinessException('الخزينة اتعدلت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
-        }
+        $this->guards->assertAccountVersionsMatch($treasury, (array) ($action->expected_versions ?? []));
         $blockers = $this->guards->deletionBlockers($treasury);
         if ($blockers !== []) {
             throw new BusinessException('لا يمكن حذف الخزينة: '.implode('، ', $blockers).'.');

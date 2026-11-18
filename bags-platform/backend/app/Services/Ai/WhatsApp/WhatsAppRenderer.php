@@ -243,7 +243,7 @@ final class WhatsAppRenderer
     public function redact(string $text): string
     {
         $text = preg_replace('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', '***', $text) ?? $text;
-        $text = preg_replace('/(?:الباسورد المؤقت|(?:generated_password|password|كلمة المرور)\s*[:=])[^\n]*/iu', 'الباسورد مش بيتبعت على واتساب. افتحه من الويب.', $text) ?? $text;
+        $text = preg_replace('/(?:الباسورد|باسورد|كلمة السر|كلمة المرور|الرقم السري|generated_password|password|api[_-]?key|token)(?:\s+(?:المؤقت|الجديد|هو|الدخول)){0,2}\s*(?:[:=]\s*|\s+)[^\n]*/iu', 'الباسورد مش بيتبعت على واتساب. افتحه من الويب.', $text) ?? $text;
 
         return trim($text);
     }

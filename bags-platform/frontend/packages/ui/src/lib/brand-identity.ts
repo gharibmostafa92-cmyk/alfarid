@@ -7,5 +7,5 @@ export interface BrandIdentity {
 }
 
 export const DEFAULT_BRANDING: BrandIdentity = {
-  name: 'Alfarid', logo: null, email: null, phone: null, address: null,
+  name: 'VARYA', logo: null, email: null, phone: null, address: null,
 };

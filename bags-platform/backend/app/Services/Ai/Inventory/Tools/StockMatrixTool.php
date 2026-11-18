@@ -74,7 +74,7 @@ final class StockMatrixTool implements AgentTool
 
         $variantIds = $product->variants->take(50)->modelKeys();
         $levels = StockLevel::query()->with('branch:id,name')
-            ->selectRaw('product_variant_id, branch_id, SUM(on_hand) AS on_hand, SUM(reserved) AS reserved, SUM(damaged) AS damaged')
+            ->selectRaw('product_variant_id, branch_id, SUM(on_hand) AS on_hand, SUM(reserved) AS reserved, SUM(damaged) AS damaged, SUM(available) AS available')
             ->whereIn('product_variant_id', $variantIds)
             ->when($restricted !== null, fn ($q) => $q->where('branch_id', $restricted))
             ->groupBy('product_variant_id', 'branch_id')

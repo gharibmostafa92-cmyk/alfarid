@@ -96,7 +96,7 @@ final class ApprovePaymentNoticeTool implements LocksTargets, WriteTool
             before: ['status' => 'pending_review', 'match_score' => $score],
             after: ['status' => 'approved', 'allocation' => $allocation],
             warnings: $warnings,
-            expectedVersions: ['n:'.$notice->id => (string) $notice->updated_at],
+            expectedVersions: ['n:'.$notice->id => WholesaleAccessGuard::noticeFingerprint($notice)],
             typedConfirmation: $amount,
             typedConfirmationHint: 'اكتب المبلغ بالأرقام',
             extraPreview: [
@@ -114,15 +114,15 @@ final class ApprovePaymentNoticeTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail((int) $action->args['notice_id']);
         $treasuryId = isset($action->args['treasury_id']) ? (int) $action->args['treasury_id'] : null;
         if ($denied = WholesaleAccessGuard::denyIfNoNoticeAccess($this->branches, $actor, $notice, $treasuryId)) {
             return $denied;
         }
-        if (($action->expected_versions['n:'.$notice->id] ?? null) !== (string) $notice->updated_at) {
+        if (($action->expected_versions['n:'.$notice->id] ?? null) !== WholesaleAccessGuard::noticeFingerprint($notice)) {
             return ToolOutcome::denied('الإشعار اتغير بعد الاقتراح.', auditable: false);
         }
-        if ($this->proposals->conversation()?->channel === 'whatsapp' && (float) $notice->match_score < 95) {
+        if ($action->conversation?->channel === 'whatsapp' && (float) $notice->match_score < 95) {
             return ToolOutcome::denied('مطابقة الإيصال أقل من 95.', auditable: false);
         }
         try {

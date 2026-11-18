@@ -121,10 +121,12 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
         $targetId = $action->status === 'executed'
             ? $this->createdReversalId($action)
             : (int) ($action->args['adjustment_id'] ?? 0);
-        $adjustment = WalletAdjustment::query()->whereKey($targetId)->lockForUpdate()->first();
-        if ($adjustment !== null) {
-            Customer::query()->whereKey($adjustment->customer_id)->lockForUpdate()->first();
+        $customerId = WalletAdjustment::query()->whereKey($targetId)->value('customer_id');
+        if ($customerId === null) {
+            throw new BusinessException('تعديل المحفظة غير موجود.', [], 404);
         }
+        Customer::query()->whereKey($customerId)->lockForUpdate()->firstOrFail();
+        WalletAdjustment::query()->whereKey($targetId)->lockForUpdate()->firstOrFail();
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
@@ -133,8 +135,12 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
             return $denied;
         }
         $a = $action->args;
+        $customerId = WalletAdjustment::query()->whereKey((int) $a['adjustment_id'])->value('customer_id');
+        if ($customerId === null) {
+            throw new BusinessException('تعديل المحفظة غير موجود.', [], 404);
+        }
+        $customer = Customer::query()->whereKey($customerId)->lockForUpdate()->firstOrFail();
         $adjustment = WalletAdjustment::query()->lockForUpdate()->findOrFail((int) $a['adjustment_id']);
-        $customer = Customer::query()->lockForUpdate()->findOrFail($adjustment->customer_id);
         if (($action->expected_versions['wallet:'.$adjustment->customer_id] ?? null) !== $this->walletVersion($adjustment->customer_id, (string) ($customer->wallet_balance ?? '0.00'))) {
             throw new BusinessException('البيانات اتغيرت بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
         }
@@ -209,7 +215,7 @@ final class ReverseWalletAdjustmentTool implements AgentTool, LocksTargets, Undo
         $maxId = (int) (CustomerWalletTransaction::query()->where('customer_id', $customerId)->max('id') ?? 0);
         $bal = $balance ?? (string) (Customer::query()->whereKey($customerId)->value('wallet_balance') ?? '0.00');
 
-        return $maxId.':'.number_format((float) $bal, 2, '.', '');
+        return $maxId.':'.bcadd($bal, '0', 2);
     }
 
     private function createdReversalId(AiPendingAction $action): ?int

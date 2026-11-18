@@ -149,7 +149,7 @@ class Task3Slice4ReconciliationTest extends TestCase
                 'reference' => 'REF-998877',
                 'date' => now()->toDateString(),
                 'bank' => 'CIB',
-                'sender' => 'Alfarid Trader',
+                'sender' => 'VARYA Trader',
             ],
             'model' => 'gemini-1.5-flash',
             'usage' => ['total_tokens' => 120],

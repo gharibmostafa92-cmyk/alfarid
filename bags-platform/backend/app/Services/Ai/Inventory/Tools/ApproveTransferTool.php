@@ -9,13 +9,12 @@ use App\Models\AiPendingAction;
 use App\Models\StockTransfer;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
-use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 
-final class ApproveTransferTool extends TransferToolBase implements UndoableTool, WriteTool, AgentTool
+final class ApproveTransferTool extends TransferToolBase implements WriteTool, AgentTool
 {
     public function name(): string
     {

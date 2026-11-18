@@ -20,7 +20,15 @@
                     "bags-platform/frontend/packages/pos-core/src/index.ts",
                     "bags-platform/frontend/packages/pos-core/src/services/pos-api.core.ts",
                     "bags-platform/frontend/packages/pos-core/src/services/pos-api.service.ts",
-                    "bags-platform/frontend/packages/pos-core/src/services/pos-sale-tracing.ts"
+                    "bags-platform/frontend/packages/pos-core/src/services/pos-sale-tracing.ts",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Pos/PosShiftController.php",
+                    "bags-platform/backend/app/Services/Pos/TreasuryService.php",
+                    "bags-platform/frontend/apps/pos/index.html",
+                    "bags-platform/frontend/packages/pos-core/src/components/checkout/ReceiptDone.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/layout/PosHeader.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/shift/OpenShiftGate.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/components/ui/SharedUI.tsx",
+                    "bags-platform/frontend/packages/pos-core/src/styles/tokens.css"
                 ],
     "ignore":  {
                    "useGitignore":  true,

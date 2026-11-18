@@ -209,7 +209,15 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
         }
 
         // Use relative summary strings in LLM prompt while formatting detailed costs in preview card.
-        $relative = array_map(fn ($r) => $r['sku'].': '.$r['cost_before'].' ← '.$r['cost_after'].($r['change_pct'] !== null ? ' ('.($r['change_pct'] >= 0 ? '+' : '').$r['change_pct'].'%)' : ''), $rows);
+        $shareCostWithModel = $this->settings->getBool('ai_inventory_share_cost_with_model', false);
+        $relative = array_map(function ($r) use ($shareCostWithModel): string {
+            $pct = $r['change_pct'] !== null ? ($r['change_pct'] >= 0 ? '+' : '').$r['change_pct'].'%' : 'تحديث تكلفة';
+            if (! $shareCostWithModel) {
+                return $r['sku'].': '.$pct;
+            }
+
+            return $r['sku'].': '.$r['cost_before'].' ← '.$r['cost_after'].($r['change_pct'] !== null ? ' ('.$pct.')' : '');
+        }, $rows);
 
         return $this->proposals->make(
             $actor,
@@ -235,10 +243,15 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
 
     public function lockTargets(AiPendingAction $action): void
     {
-        $ids = array_column($action->args['items'] ?? [], 'product_variant_id');
+        $ids = array_unique(array_column($action->args['items'] ?? [], 'product_variant_id'));
         sort($ids);
-        ProductVariant::whereIn('id', array_unique($ids))->orderBy('id')->lockForUpdate()->get();
+        ProductVariant::whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get();
         Branch::whereKey((int) $action->args['branch_id'])->sharedLock()->first();
+        StockLevel::whereIn('product_variant_id', $ids)
+            ->where('branch_id', (int) $action->args['branch_id'])
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
@@ -259,21 +272,25 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
                 throw new BusinessException('رصيد الصنف اتغير بعد معاينة متوسط التكلفة. اطلب معاينة جديدة قبل الاستلام.', [], 409);
             }
         }
-        if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower((string) $a['batch_number'])])->exists()) {
+        try {
+            if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower((string) $a['batch_number'])])->exists()) {
+                throw new BusinessException('رقم الدفعة اتسجل في أثناء المراجعة؛ راجع سجل الاستلام.', [], 409);
+            }
+
+            $receipt = $this->receipts->receive([
+                'branch_id' => (int) $a['branch_id'],
+                'location_id' => $a['location_id'] ?? null,
+                'batch_number' => (string) $a['batch_number'],
+                'notes' => $a['notes'] ?? null,
+                'items' => array_map(fn ($i) => [
+                    'product_variant_id' => (int) $i['product_variant_id'],
+                    'quantity' => (int) $i['quantity'],
+                    'unit_cost' => $i['unit_cost'],
+                ], $a['items']),
+            ], $actor->id, 'ai-'.$action->id);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
             throw new BusinessException('رقم الدفعة اتسجل في أثناء المراجعة؛ راجع سجل الاستلام.', [], 409);
         }
-
-        $receipt = $this->receipts->receive([
-            'branch_id' => (int) $a['branch_id'],
-            'location_id' => $a['location_id'] ?? null,
-            'batch_number' => (string) $a['batch_number'],
-            'notes' => $a['notes'] ?? null,
-            'items' => array_map(fn ($i) => [
-                'product_variant_id' => (int) $i['product_variant_id'],
-                'quantity' => (int) $i['quantity'],
-                'unit_cost' => $i['unit_cost'],
-            ], $a['items']),
-        ], $actor->id, 'ai-'.$action->id);
 
         return ToolOutcome::result(true, "تم استلام دفعة الإنتاج {$receipt->batch_number}.", [
             'receipt_id' => $receipt->id,

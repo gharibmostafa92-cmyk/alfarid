@@ -43,20 +43,7 @@ function AuthenticatedApp() {
   }, [routeWithQuery, route]);
   const can = useCallback((permission: string) =>
     hasPermission(user?.permissions, permission), [user]);
-  const hasPosRole = (user?.roles ?? []).some((r) =>
-    r === 'cashier' ||
-    r === 'كاشير' ||
-    r.toLowerCase().includes('pos') ||
-    r.toLowerCase().includes('cashier') ||
-    r.includes('كاشير')
-  );
-  const hasAdminPermissions = canAny(can,
-    'orders.view', 'treasuries.view', 'expenses.view', 'treasury_transfers.view', 'reports.view',
-    'products.view', 'inventory.view', 'users.view', 'customers.view', 'roles.view', 'settings.view', 'store.manage',
-    'returns.view', 'shipping.view', 'price_lists.view', 'promotions.view', 'pos_shifts.view',
-    'quotations.view', 'payment_notices.view',
-  );
-  const cashierOnly = (hasPosRole || can('pos.access')) && !hasAdminPermissions;
+  const cashierOnly = useAuthStore((state) => state.destination === '/pos');
 
   useEffect(() => {
     // Stocktake navigation guards may synchronously restore the accepted hash.
@@ -104,6 +91,13 @@ function AuthenticatedApp() {
   const categoriesActive = route === '/categories';
   const inventoryActive = route === '/inventory' || route.startsWith('/inventory/');
   const isStoreRoute = route === '/store' || route === '/banners' || route === '/settings/store' || route === '/settings/banners';
+  if (
+    (route === '/users' && !canAny(can, 'users.view', 'users.manage')) ||
+    (route === '/roles' && !canAny(can, 'roles.view', 'roles.manage')) ||
+    (route === '/settings' && !canAny(can, 'settings.view', 'settings.manage')) ||
+    (isStoreRoute && !can('store.manage')) ||
+    (route === '/assistant' && !can('ai_agent.use'))
+  ) return <div dir="rtl" role="alert" className="p-6">ليس لديك صلاحية عرض هذه الصفحة. <a href="/dashboard">العودة للوحة التحكم</a></div>;
   const adminActive = route === '/users' ? 'users' : route === '/roles' ? 'roles' : (route === '/settings' || isStoreRoute) ? 'settings' : null;
   const catalogActive = route === '/assistant' ? 'assistant' : isOperation
     ? operationsActive
@@ -131,6 +125,7 @@ function AuthenticatedApp() {
   const assistantNav = can('ai_agent.use') ? [{ id: 'assistant', label: 'المساعد الذكي', onOpen: () => { window.location.hash = '/assistant'; } }] : [];
   return <FinancialDashboard
     onLogout={logoutRemote}
+    storefrontUrl={new URL('/', resolveServiceUrl(import.meta.env.VITE_WEB_URL ?? 'http://localhost:3000')).href}
     account={user}
     overviewPage={<AdminOverview key={user?.id} can={can} name={user?.name} />}
     additionalNavigation={cashierOnly ? [] : NAV_GROUPS.map(group => ({

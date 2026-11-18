@@ -113,6 +113,10 @@ class OrderService
             }
         }
 
+        if (! $cart->exists) {
+            throw new BusinessException('سلة التسوق فارغة.');
+        }
+
         // Enforce daily checkout quota per phone number without deducting budget on validation errors.
         $phoneDayKey = $customer === null && $guestPhoneNormalized !== null && preg_match('/\d/', $guestPhoneNormalized) === 1
             ? 'checkout-phone-day:'.hash('sha256', $guestPhoneNormalized)

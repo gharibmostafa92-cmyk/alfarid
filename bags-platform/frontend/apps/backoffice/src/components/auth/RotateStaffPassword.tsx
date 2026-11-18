@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { authEndpoints } from '@alfarid/api-client';
 import { useAuthStore } from '../../stores/auth.store';
-import { toStaffUser } from '../../stores/mappers';
 import './rotate-staff-password.css';
 
 type RotationError = {
@@ -42,14 +41,14 @@ export function RotateStaffPassword({ token, version }: { token: string; version
     setPending(true);
     setError('');
     try {
-      const profile = await authEndpoints.staffRotatePassword({
+      await authEndpoints.staffRotatePassword({
         current_password: currentPassword,
         password: nextPassword,
         expected_version: version,
       }, token);
       const session = useAuthStore.getState();
       if (session.token === token && localStorage.getItem('backoffice_token') === token) {
-        session.setUser(toStaffUser(profile));
+        window.location.reload();
       }
     } catch (failure) {
       const response = (failure as RotationError)?.response;

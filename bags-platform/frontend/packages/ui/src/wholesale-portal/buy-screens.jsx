@@ -290,7 +290,7 @@ export const QuickOrder = () => {
         <Seg value={tab} onChange={setTab} options={[{ value: 'manual', label: 'إدخال مباشر', icon: 'fa-keyboard' }, { value: 'import', label: 'استيراد ملف', icon: 'fa-file-arrow-up' }]} />
       </PageHead>
       {tab === 'manual' ? (
-        <div className="grid-2" style={{ gridTemplateColumns: '1fr 320px' }}>
+        <div className="grid-2 grid-summary">
           <section className="panel">
             <div className="toolbar">
               <span className="muted small">الصق من Excel مباشرة: عمود SKU أو باركود، ثم الكمية. حتى <span className="num">500</span> بند.</span>
@@ -369,7 +369,7 @@ const ImportTab = () => {
   };
 
   return (
-    <div className="grid-2" style={{ gridTemplateColumns: '1fr 340px' }}>
+    <div className="grid-2 grid-summary">
       <section className="panel"><div className="panel-body">
         {stage !== 'done' ? (
           <>
@@ -536,7 +536,7 @@ export const Cart = () => {
       <PageHead en="Your Bag" ar={<>سلة المشتريات · <span className="num">{lines.length}</span> بند</>}>
         <button className="btn-pill is-danger" onClick={() => setConfirmClear(true)}><i className="fa-regular fa-trash-can" /> تفريغ السلة</button>
       </PageHead>
-      <div className="grid-2" style={{ gridTemplateColumns: '1.35fr 1fr', gap: 48 }}>
+      <div className="grid-2 grid-checkout">
         <section>
           {lines.map((l) => <CartRow key={l.id} line={l} onCommit={commit} onRemove={remove} busy={busy} />)}
         </section>
@@ -699,7 +699,7 @@ export const Checkout = () => {
       <ol className="steps"><li className="step is-done"><span className="step-dot">✓</span>السلة</li><li className="step is-now"><span className="step-dot">2</span>الشحن والدفع</li><li className="step"><span className="step-dot">3</span>التأكيد</li></ol>
       {step === 'changed' && <div className="mb-24"><Banner kind="warn" icon="fa-arrows-rotate"><b>تغيّر الإجمالي قبل التأكيد.</b> الإجمالي الجديد <b className="num">{fmt(preview?.grand_total)} EGP</b>{prevTotal != null && <> بدل <span className="num">{fmt(prevTotal)} EGP</span></>} — راجعه واضغط تأكيد.</Banner></div>}
       {creditErr && <div className="mb-24"><Banner kind="error">{creditErr}</Banner></div>}
-      <div className="grid-2" style={{ gridTemplateColumns: '1.22fr .95fr', gap: 64 }}>
+      <div className="grid-2 grid-checkout">
         <div>
           <fieldset className="ck-block" disabled={step === 'submitting'}>
             <h2 className="checkout-heading">عنوان التسليم</h2>

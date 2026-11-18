@@ -38,7 +38,7 @@ export function PosHeader({
         <Icon n="bag" s={20} w={2} />
       </div>
       <div className="ph-meta">
-        <b>الفريد</b>
+        <b>VARYA</b>
         <span>{branch?.name || 'الفرع'}</span>
       </div>
       <div className="ph-sep" />

@@ -44,7 +44,10 @@
                     "bags-platform/backend/database/migrations/*number_sync*.php",
                     "bags-platform/backend/database/migrations/*numbering*.php",
                     "bags-platform/frontend/packages/api-client/src/endpoints/operations/commerce.ts",
-                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/QuotationController.php"
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Orders/QuotationController.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/ApproveTreasuryTransfersBulkTool.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/CreateTreasuryTransferTool.php",
+                    "bags-platform/frontend/packages/ui/src/wholesale-portal/finance-screens.jsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

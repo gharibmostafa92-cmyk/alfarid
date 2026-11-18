@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Store;
 
+use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;
+use App\Notifications\Auth\CustomerPasswordReset;
 use App\Services\Auth\CustomerAuthService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class Task4AuthPasswordResetTest extends TestCase
@@ -19,6 +22,29 @@ class Task4AuthPasswordResetTest extends TestCase
     {
         parent::setUp();
         $this->seed(SettingSeeder::class);
+    }
+
+    public function test_recovery_notification_uses_the_storefront_route_and_fragment(): void
+    {
+        config(['app.frontend_url' => 'https://store.example.test']);
+        $token = str_repeat('a', 64);
+        $notification = new CustomerPasswordReset($token);
+        $url = 'https://store.example.test/auth/reset-password#token='.$token;
+
+        $this->assertSame($url, $notification->toMail(new Customer)->actionUrl);
+        $this->assertStringContainsString($url, $notification->toSms(new Customer));
+    }
+
+    public function test_recovery_request_response_is_the_same_for_known_and_unknown_addresses(): void
+    {
+        Queue::fake([SendCustomerPasswordReset::class]);
+        $customer = Customer::factory()->create(['email_verified_at' => now()]);
+        $known = $this->postJson('/api/v1/store/auth/forgot-password', ['email' => $customer->email])
+            ->assertOk();
+        $unknown = $this->postJson('/api/v1/store/auth/forgot-password', ['email' => 'unknown@example.test'])
+            ->assertOk();
+
+        $unknown->assertExactJson($known->json());
     }
 
     public function test_forgot_password_accepts_email_with_null_phone(): void
@@ -39,6 +65,7 @@ class Task4AuthPasswordResetTest extends TestCase
 
     public function test_forgot_password_accepts_phone_with_null_email(): void
     {
+        Queue::fake([SendCustomerPasswordReset::class]);
         $customer = Customer::factory()->create([
             'phone' => '01012345678',
         ]);
@@ -53,12 +80,15 @@ class Task4AuthPasswordResetTest extends TestCase
 
     public function test_forgot_password_accepts_international_egyptian_phone_format(): void
     {
+        Queue::fake([SendCustomerPasswordReset::class]);
         Customer::factory()->create(['phone' => '01012345678']);
 
         $this->postJson('/api/v1/store/auth/forgot-password', [
             'email' => null,
             'phone' => '+20 101 234 5678',
         ])->assertOk();
+
+        Queue::assertPushed(SendCustomerPasswordReset::class, fn ($job) => $job->phone === '01012345678');
     }
 
     public function test_forgot_password_accepts_email_with_empty_string_phone(): void

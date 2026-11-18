@@ -1,6 +1,6 @@
-## Alfarid: own manufacturing and dealer sales
+## VARYA: own manufacturing and dealer sales
 
-Products are made by Alfarid. Dealers are customers of type `wholesale` or `distributor`; retail customers remain separate. Products no longer accept brand or supplier assignments. Historical brand, supplier and purchasing records remain in the database. Their API endpoints return 410, and supplier accounts cannot sign in through unified login.
+Products are made by VARYA. Dealers are customers of type `wholesale` or `distributor`; retail customers remain separate. Products no longer accept brand or supplier assignments. Historical brand, supplier and purchasing records remain in the database. Their API endpoints return 410, and supplier accounts cannot sign in through unified login.
 
 ### Production receipts
 

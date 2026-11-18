@@ -44,7 +44,7 @@ class TaskTxtBulkPricingToolTest extends TestCase
         $customer = Customer::factory()->create(['type' => 'wholesale', 'status' => 'approved', 'credit_limit' => 100000]);
         $product = Product::factory()->create(['status' => 'published']);
         $variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
-        $variant->update(['retail_price' => 100, 'wholesale_price' => null, 'is_active' => true]);
+        $variant->update(['retail_price' => 100, 'wholesale_price' => null, 'cost_price' => 50, 'is_active' => true]);
 
         $quotation = Quotation::factory()->create(['customer_id' => $customer->id, 'status' => QuotationStatus::Requested]);
         $quotation->items()->create([
@@ -78,7 +78,8 @@ class TaskTxtBulkPricingToolTest extends TestCase
 
         $this->assertSame('denied', $this->tool()->prepare($this->admin, ['discount_percent' => 81])->type);
         $this->assertSame('denied', $this->tool()->prepare($this->admin, ['discount_percent' => -1])->type);
-        $this->assertNotSame('denied', $this->tool()->prepare($this->admin, ['discount_percent' => 10])->type);
+        $outcome = $this->tool()->prepare($this->admin, ['discount_percent' => 10]);
+        $this->assertNotSame('denied', $outcome->type, $outcome->message ?? '');
     }
 
     public function test_high_discount_requires_typed_confirmation(): void
@@ -110,7 +111,10 @@ class TaskTxtBulkPricingToolTest extends TestCase
             }
         }
 
-        $tool->executeSelected($this->admin, $action->fresh(), ['q'.$quotation->id]);
+        $selectionKey = array_key_first($plans);
+        $this->assertNotNull($selectionKey);
+        $this->assertMatchesRegularExpression('/^[0-9A-HJKMNP-TV-Z]{26}$/', $selectionKey);
+        $tool->executeSelected($this->admin, $action->fresh(), [$selectionKey]);
         $this->assertSame(QuotationStatus::PricedByAdmin, $quotation->fresh()->status);
     }
 

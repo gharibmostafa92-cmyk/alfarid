@@ -275,7 +275,8 @@ class ShippingStorefrontAiToolsTest extends TestCase
 
     public function test_checkout_preview_does_not_create_an_order_and_reports_shipping(): void
     {
-        $actor = $this->staff(['orders.view']);
+        $actor = $this->staff(['orders.view', 'customers.view']);
+        $customer = Customer::factory()->create();
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create([
             'product_id' => Product::factory()->published()->create()->id,
@@ -290,7 +291,7 @@ class ShippingStorefrontAiToolsTest extends TestCase
             'quantity' => 5,
             'created_by' => $actor->id,
         ]);
-        $cart = Cart::query()->create([]);
+        $cart = Cart::query()->create(['customer_id' => $customer->id]);
         $cart->items()->create(['product_variant_id' => $variant->id, 'qty' => 1]);
         $city = City::factory()->create(['shipping_cost' => 10, 'is_active' => true]);
         $company = ShippingCompany::factory()->create();
@@ -321,7 +322,7 @@ class ShippingStorefrontAiToolsTest extends TestCase
             'product_id' => Product::factory()->create()->id,
             'retail_price' => 80,
         ]);
-        $badCart = Cart::query()->create([]);
+        $badCart = Cart::query()->create(['customer_id' => Customer::factory()->create()->id]);
         $badCart->items()->create(['product_variant_id' => $draft->id, 'qty' => 1]);
         $blocked = app(ToolRegistry::class)->dispatch($actor, $this->conv($actor), [
             'name' => 'preview_checkout',
