@@ -91,8 +91,12 @@ final class ResendSender
         }
 
         if ($status === 429) {
-            if (in_array($providerError, ['daily_quota_exceeded', 'monthly_quota_exceeded'], true)) {
-                return new ResendResult('pause', safeCode: 'quota_exceeded');
+            if ($providerError === 'daily_quota_exceeded') {
+                return new ResendResult('pause', safeCode: 'quota_daily_exceeded');
+            }
+
+            if ($providerError === 'monthly_quota_exceeded') {
+                return new ResendResult('pause', safeCode: 'quota_monthly_exceeded');
             }
 
             $retryAfter = $this->retryAfterSeconds($response);

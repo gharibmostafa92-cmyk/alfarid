@@ -30,7 +30,7 @@ return new class extends Migration
             DB::statement('ALTER TABLE customer_email_outbox ADD CONSTRAINT customer_email_outbox_attempts_check CHECK (attempts BETWEEN 0 AND 8)');
             DB::statement("ALTER TABLE customer_email_outbox ADD CONSTRAINT customer_email_outbox_lease_check CHECK ((status = 'sending' AND lease_token IS NOT NULL) OR (status <> 'sending' AND lease_token IS NULL))");
             DB::statement("ALTER TABLE customer_email_outbox ADD CONSTRAINT customer_email_outbox_provider_check CHECK ((status = 'accepted' AND provider_id IS NOT NULL) OR (status <> 'accepted'))");
-            DB::statement("ALTER TABLE customer_email_outbox ADD CONSTRAINT customer_email_outbox_payload_check CHECK ((status IN ('accepted', 'failed') AND payload IS NULL) OR (status NOT IN ('accepted', 'failed') AND payload IS NOT NULL))");
+            DB::statement("ALTER TABLE customer_email_outbox ADD CONSTRAINT customer_email_outbox_payload_check CHECK (((status IN ('pending', 'sending') AND payload IS NOT NULL) OR (status IN ('accepted', 'failed') AND payload IS NULL) OR status = 'review') AND (payload IS NULL OR octet_length(payload) <= 32768))");
             DB::statement("CREATE INDEX customer_email_outbox_due_idx ON customer_email_outbox (available_at, id) WHERE status IN ('pending', 'sending')");
             DB::statement("CREATE INDEX customer_email_outbox_review_cleanup_idx ON customer_email_outbox (updated_at, id) WHERE status = 'review'");
         }

@@ -16,11 +16,15 @@ $base = @{
     Region = 'europe-west3'
     Image = $image
     RuntimeServiceAccount = 'runtime@pilot-project-1.iam.gserviceaccount.com'
+    CustomerEmailServiceAccount = 'customer-email@pilot-project-1.iam.gserviceaccount.com'
     DatabaseHost = 'ep-cool-mouse-a1b2c3.eu-central-1.aws.neon.tech'
     DatabaseName = 'alfarid'
     DatabaseUser = 'alfarid'
     AppKeySecret = 'app-key:1'
     DatabasePasswordSecret = 'database-password:2'
+    ResendApiKeySecret = 'resend-email-key:5'
+    ResendFromAddress = 'orders@alfarid.example'
+    ResendEnvironment = 'staging'
 }
 
 function Assert-True([bool]$condition, [string]$message) {
@@ -38,7 +42,7 @@ function Reset-Invocations {
 
 Reset-Invocations
 & $scriptPath @base -SentryDsnSecret 'sentry-laravel-dsn:7' -SentryEnvironment 'staging' -SentryRelease $sha -SentryTraceSampleRate 1.0
-Assert-True ($global:MockGcloudInvocations.Count -eq 2) 'DeployJobs should invoke gcloud twice.'
+Assert-True ($global:MockGcloudInvocations.Count -eq 3) 'DeployJobs should invoke gcloud for queue, scheduler and email delivery.'
 $deployText = Get-InvocationText
 Assert-True ($deployText.Contains('SENTRY_LARAVEL_DSN=sentry-laravel-dsn:7')) 'Pinned Laravel DSN secret is missing.'
 Assert-True ($deployText.Contains("SENTRY_ENVIRONMENT=staging")) 'Explicit staging environment is missing.'
@@ -46,12 +50,14 @@ Assert-True ($deployText.Contains("SENTRY_RELEASE=$sha")) 'Full release SHA is m
 Assert-True ($deployText.Contains('SENTRY_TRACES_SAMPLE_RATE=1')) 'Explicit staging sample rate is missing.'
 Assert-True ($deployText.Contains('SENTRY_SERVICE=queue')) 'Queue service tag is missing.'
 Assert-True ($deployText.Contains('SENTRY_SERVICE=scheduler')) 'Scheduler service tag is missing.'
+Assert-True ($deployText.Contains('SENTRY_SERVICE=customer-email')) 'Customer-email service tag is missing.'
+Assert-True ($deployText.Contains('SENTRY_LARAVEL_DSN=sentry-laravel-dsn:7')) 'Email worker Sentry secret is missing.'
 Assert-True ($deployText.Contains('APP_ENV=production')) 'Existing APP_ENV must be preserved.'
 Assert-True ($deployText.Contains('DB_DATABASE=alfarid')) 'Existing database settings must be preserved.'
 
 Reset-Invocations
 & $scriptPath @base
-Assert-True ($global:MockGcloudInvocations.Count -eq 2) 'Unmonitored DeployJobs should remain available.'
+Assert-True ($global:MockGcloudInvocations.Count -eq 3) 'Unmonitored DeployJobs should remain available.'
 Assert-True (-not (Get-InvocationText).Contains('SENTRY_LARAVEL_DSN')) 'A DSN binding must be absent when omitted.'
 
 Reset-Invocations
