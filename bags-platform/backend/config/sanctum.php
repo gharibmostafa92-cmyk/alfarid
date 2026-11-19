@@ -51,9 +51,8 @@ return [
     |
     */
 
-    // M4: minutes, not seconds. 30 days is the global ceiling; supplier
-    // tokens (financial statements) and staff tokens are shorter still.
-    'expiration' => env('SANCTUM_EXPIRATION', 43200),
+    // Global access token lifetime in minutes (60 days by default).
+    'expiration' => env('SANCTUM_EXPIRATION', 86400),
 
     /*
     |--------------------------------------------------------------------------

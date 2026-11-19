@@ -26,7 +26,7 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     Route::post('phone-verification/verify', [AuthController::class, 'verifyPhone'])->middleware('throttle:customer-phone-verify')->name('phone-verification.verify');
     // Legacy storefront authentication route; disabled when LEGACY_LOGIN_ENABLED=false in favor of /auth/login.
     if (config('auth.legacy_login_enabled', false)) {
-        Route::post('login', [AuthController::class, 'login'])->middleware('throttle:customer-login')->name('login');
+        Route::post('login', [AuthController::class, 'login'])->middleware([\App\Http\Middleware\PreventLoginWithActiveSession::class, 'throttle:customer-login'])->name('login');
     }
     Route::post('forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:customer-password-reset')->name('forgot-password');
     Route::post('reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:customer-reset-confirm')->name('reset-password');

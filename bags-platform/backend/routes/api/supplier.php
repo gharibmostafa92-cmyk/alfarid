@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 // Legacy supplier authentication; disabled when LEGACY_LOGIN_ENABLED=false in favor of /api/v1/auth/login.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])
-        ->middleware('throttle:supplier-login')
+        ->middleware([\App\Http\Middleware\PreventLoginWithActiveSession::class, 'throttle:supplier-login'])
         ->name('auth.login');
 }
 

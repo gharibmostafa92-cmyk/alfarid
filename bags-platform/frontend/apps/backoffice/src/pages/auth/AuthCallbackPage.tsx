@@ -34,33 +34,28 @@ export default function AuthCallbackPage() {
       window.location.replace(`${WEB_URL}/auth/login?error=handoff`);
       return;
     }
+    const previous = localStorage.getItem('backoffice_token');
     authEndpoints
-      .exchangeHandoff(code)
+      .exchangeHandoff(code, previous)
       .then(async (res) => {
-        // Revoke previous token using raw fetch before persisting the new token to prevent interceptor misrouting.
-        const prev = localStorage.getItem('backoffice_token');
-        if (prev && prev !== res.token) {
-          const baseURL =
-            resolveServiceUrl((import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000');
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 10000);
-          try {
-            await fetch(`${baseURL}/api/v1/admin/auth/logout`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${prev}`, 'Content-Type': 'application/json' },
-              signal: ctrl.signal,
-            });
-          } catch {
-            // Best-effort logout: former token may already be expired or invalidated
-          } finally {
-            clearTimeout(timer);
-          }
+        const current = localStorage.getItem('backoffice_token');
+        if (current !== previous) {
+          // Another tab changed the session while this request was in flight.
+          await authEndpoints.logout(AbortSignal.timeout(3000), res.token).catch(() => {});
+          window.location.replace('/login');
+          return;
         }
         login(res.token, toStaffUser(res.data));
         sessionStorage.setItem('alfarid_login_notice', lang);
         window.location.replace(resolveSafeRedirectPath(res.redirect?.path));
       })
-      .catch(() => window.location.replace(`${WEB_URL}/auth/login?error=handoff`));
+      .catch((error) => {
+        if (error?.response?.data?.code === 'active_session' || localStorage.getItem('backoffice_token') !== previous) {
+          window.location.replace('/login');
+        } else {
+          window.location.replace(`${WEB_URL}/auth/login?error=handoff`);
+        }
+      });
   }, []);
 
   return (

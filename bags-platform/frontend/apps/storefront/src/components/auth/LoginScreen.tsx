@@ -53,6 +53,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const hasRecoveryToken = view === 'reset-password' && Boolean(recoveryToken || resetTokenFromUrl(params));
   const guardSession = !hasRecoveryToken;
   const [probing, setProbing] = useState(guardSession);
+  const [probeFailed, setProbeFailed] = useState(false);
+  const [probeAttempt, retryProbe] = useState(0);
+  const completedProbe = useRef<number | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState('');
@@ -89,69 +92,64 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   }, [view]);
 
   const token = useAuthStore((state) => state.token);
-  const checkingWeb = guardSession && Boolean(token) && !isSubmitting && !navigating;
+  const checkingWeb = guardSession && !probing && !probeFailed && Boolean(token) && !isSubmitting && !navigating;
   const me = useAuthMe(token, checkingWeb);
 
   useEffect(() => {
-    if (!guardSession || token) {
-      setProbing(false);
-      return;
-    }
-    setProbing(true);
-    const complete = () => setProbing(false);
-    const configuredOffice = process.env.NEXT_PUBLIC_BACKOFFICE_URL?.trim() ?? '';
-    let office: URL;
+    if (!guardSession) return;
+    if (completedProbe.current === probeAttempt) return;
+
     try {
-      office = new URL(resolveServiceUrl(configuredOffice || 'http://localhost:5173'));
-    } catch {
-      complete();
-      return;
-    }
-    const pageLoopback = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1';
-    const officeLoopback = office.hostname === 'localhost' || office.hostname === '127.0.0.1' || office.hostname === '::1';
-    if (process.env.NODE_ENV === 'production' && !pageLoopback && (!configuredOffice || officeLoopback)) return complete();
-    const nonce = createSessionNonce();
-    if (!nonce) return complete();
-    const frame = document.createElement('iframe');
-    frame.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0';
-    frame.setAttribute('aria-hidden', 'true');
-    frame.tabIndex = -1;
-    frame.title = 'Session verification';
-    frame.referrerPolicy = 'origin';
-    frame.src = new URL(`/auth/session-probe.html#nonce=${encodeURIComponent(nonce)}`, office).href;
-    let cleaned = false;
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      window.removeEventListener('message', receive);
-      frame.remove();
-    };
-    const receive = (event: MessageEvent) => {
-      if (
-        event.origin !== office.origin ||
-        event.source !== frame.contentWindow ||
-        event.data?.type !== 'alfarid:staff-session' ||
-        event.data?.nonce !== nonce
-      )
+      const key = 'alfarid_staff_session_check';
+      const marker = new URLSearchParams(window.location.hash.slice(1)).get('staff-guest');
+      const pending = sessionStorage.getItem(key);
+      if (marker && marker === pending) {
+        sessionStorage.removeItem(key);
+        window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+        completedProbe.current = probeAttempt;
+        setProbing(false);
         return;
-      window.clearTimeout(timer);
-      cleanup();
-      const path = event.data.authenticated === true ? event.data.path : null;
-      if (path === '/dashboard' || path === '/pos') {
-        window.location.replace(new URL(path, office).href);
-      } else complete();
+      }
+
+      const nonce = createSessionNonce();
+      if (!nonce) throw new Error('Session check requires secure randomness');
+      const configuredOffice = process.env.NEXT_PUBLIC_BACKOFFICE_URL?.trim();
+      const office = new URL(resolveServiceUrl(configuredOffice || 'http://localhost:5173'));
+      if (!['http:', 'https:'].includes(office.protocol)
+        || (window.location.protocol === 'https:' && office.protocol !== 'https:')) {
+        throw new Error('Invalid backoffice origin');
+      }
+
+      const check = new URL('/auth/session', office);
+      check.hash = new URLSearchParams({
+        nonce,
+        origin: window.location.origin,
+        page: window.location.pathname,
+        search: window.location.search,
+      }).toString();
+      sessionStorage.setItem(key, nonce);
+      window.location.replace(check.href);
+    } catch {
+      setProbeFailed(true);
+    }
+  }, [guardSession, probeAttempt]);
+
+  useEffect(() => {
+    if (!guardSession || probing || isSubmitting || navigating) return;
+    const recheck = () => {
+      if (document.visibilityState !== 'visible') return;
+      setProbing(true);
+      setProbeFailed(false);
+      retryProbe((attempt) => attempt + 1);
     };
-    const timer = window.setTimeout(() => {
-      cleanup();
-      complete();
-    }, 5000);
-    window.addEventListener('message', receive);
-    document.body.appendChild(frame);
+    const restored = (event: PageTransitionEvent) => { if (event.persisted) recheck(); };
+    document.addEventListener('visibilitychange', recheck);
+    window.addEventListener('pageshow', restored);
     return () => {
-      window.clearTimeout(timer);
-      cleanup();
+      document.removeEventListener('visibilitychange', recheck);
+      window.removeEventListener('pageshow', restored);
     };
-  }, [guardSession, token]);
+  }, [guardSession, probing, isSubmitting, navigating]);
 
   useEffect(() => {
     if (!checkingWeb || useAuthStore.getState().token !== token) return;
@@ -200,7 +198,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   // Login handler
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isReady || isSubmitting) return;
+    if (!isReady || isSubmitting || (guardSession && (probing || probeFailed || checkingWeb))) return;
     setIsSubmitting(true);
     setErrors({});
     setFormError('');
@@ -214,6 +212,11 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     } catch (err: any) {
       const status = err?.response?.status;
       const code = err?.response?.data?.code;
+      if (code === 'active_session' || err?.message === 'active_session') {
+        setProbing(true);
+        retryProbe((attempt) => attempt + 1);
+        return;
+      }
       const ar = lang === 'ar';
       if (challengeRequired) {
         // Turnstile tokens are single-use and the server consumes them
@@ -251,13 +254,18 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     }
   };
 
-  if (guardSession && (checkingWeb || probing || navigating)) {
+  if (guardSession && (checkingWeb || probing || probeFailed || navigating)) {
     return (
       <div className="luxury-auth-page" dir={lang === 'ar' ? 'rtl' : 'ltr'} data-auth-view={view}>
         <main className="luxury-auth-loading">
-          {me.isError && checkingWeb ? (
+          {(probeFailed || (me.isError && checkingWeb)) ? (
             <div className="luxury-auth-loading-actions">
-              <button type="button" className="pill-btn-primary" onClick={() => void me.refetch()}>
+              <button type="button" className="pill-btn-primary" onClick={() => {
+                if (!probeFailed) { void me.refetch(); return; }
+                setProbeFailed(false);
+                setProbing(true);
+                retryProbe((attempt) => attempt + 1);
+              }}>
                 {lang === 'ar' ? 'إعادة المحاولة' : 'Try again'}
               </button>
             </div>

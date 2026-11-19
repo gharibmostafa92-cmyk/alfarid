@@ -45,17 +45,18 @@ export async function loginUnified(login: string, password: string, redirect?: s
   const previousToken = useAuthStore.getState().token;
   const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) }, guestSession);
 
+  if (useAuthStore.getState().token !== previousToken) {
+    await revokePreviousSession(res.token);
+    throw new Error('active_session');
+  }
+
   if (res.redirect.app === 'backoffice') {
-    await revokePreviousSession(previousToken, res.token, 1500);
-    // Clear local state after revoking previous active session when switching to backoffice.
     useAuthStore.getState().clear();
     // Pass single-use handoff code in URL fragment to prevent exposure in HTTP logs or Referers.
     const url = `${resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173')}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}&lang=${lang}`;
     window.location.assign(url);
     return null;
   }
-
-  await revokePreviousSession(previousToken, res.token, 3000);
 
   // The server merges guest carts for retail logins only and reports it via
   // cart_merged; clearing on the flag (not on subtype) keeps both sides symmetric.

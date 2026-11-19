@@ -7,13 +7,10 @@ use App\Models\User;
 return [
     'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', false),
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
-    // Storefront tokens are stored in localStorage; cap default lifetime to 24 hours.
-    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 1440),
+    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 86400),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
-    // M4: supplier portal tokens expose financial statements; keep them short.
-    'supplier_token_minutes' => (int) env('SUPPLIER_TOKEN_MINUTES', 720),
-    // M-4: 12h instead of 30 days for a '*' admin token held in localStorage.
-    'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 720),
+    'supplier_token_minutes' => (int) env('SUPPLIER_TOKEN_MINUTES', 86400),
+    'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 86400),
     'staff_current_password_failures' => (int) env('STAFF_CURRENT_PASSWORD_FAILURES', 5),
     'staff_admin_mutations_minute' => (int) env('STAFF_ADMIN_MUTATIONS_MINUTE', 60),
     'staff_audit_retention_days' => (int) env('STAFF_AUDIT_RETENTION_DAYS', 365),

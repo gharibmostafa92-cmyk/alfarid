@@ -62,7 +62,7 @@ use Illuminate\Support\Facades\Route;
 // Disabled when LEGACY_LOGIN_ENABLED=false to avoid splitting brute-force rate limits across endpoints.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])
-        ->middleware('throttle:admin-login')
+        ->middleware([\App\Http\Middleware\PreventLoginWithActiveSession::class, 'throttle:admin-login'])
         ->name('admin.auth.login');
 }
 

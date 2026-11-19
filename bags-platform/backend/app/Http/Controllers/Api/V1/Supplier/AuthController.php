@@ -78,10 +78,10 @@ class AuthController extends Controller
                     'email' => ['حساب المورد أو الموظف غير مفعّل.'],
                 ]);
             }
-            StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5), (int) config('auth.supplier_token_minutes', 10080));
+            StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5), (int) config('auth.supplier_token_minutes'));
 
             return $user->createToken('supplier-token', ['supplier'],
-                now()->addMinutes(max(1, (int) config('auth.supplier_token_minutes', 10080))))->plainTextToken;
+                now()->addMinutes(max(1, (int) config('auth.supplier_token_minutes'))))->plainTextToken;
         });
     }
 

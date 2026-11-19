@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Route;
 // Legacy POS cashier login; disabled when LEGACY_LOGIN_ENABLED=false in favor of /api/v1/auth/login.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [PosAuthController::class, 'login'])
-        ->middleware('throttle:pos-login')
+        ->middleware([\App\Http\Middleware\PreventLoginWithActiveSession::class, 'throttle:pos-login'])
         ->name('auth.login');
 }
 

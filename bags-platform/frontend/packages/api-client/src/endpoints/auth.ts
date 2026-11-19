@@ -51,8 +51,10 @@ export const authEndpoints = {
   logout: (signal?: AbortSignal, token?: string) => apiClient.post('/api/v1/auth/logout', undefined, {
     signal, headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   }),
-  exchangeHandoff: (code: string) =>
-    apiClient.post<HandoffExchangeResponse>('/api/v1/auth/handoff/exchange', { code }).then((r) => r.data),
+  exchangeHandoff: (code: string, token?: string | null) =>
+    apiClient.post<HandoffExchangeResponse>('/api/v1/auth/handoff/exchange', { code }, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }).then((r) => r.data),
   staffMe: (signal?: AbortSignal) => apiClient.get<{ data: StaffUserResource }>('/api/v1/admin/me', { signal }).then((r) => r.data.data),
   staffRotatePassword: (body: { current_password: string; password: string; expected_version: number }, token: string) =>
     apiClient.put<{ data: StaffUserResource }>('/api/v1/admin/me/password', body, {

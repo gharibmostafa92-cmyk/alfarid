@@ -9,6 +9,8 @@ const WEB_URL = resolveServiceUrl(import.meta.env.VITE_WEB_URL ?? 'http://localh
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
+  const destination = useAuthStore((s) => s.destination);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const signingOut = useAuthStore((s) => s.signingOut);
@@ -98,7 +100,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
-  if (!token || verifiedToken !== token) return (
+  if (!token || verifiedToken !== token || !isAuthenticated || !user || !destination) return (
     <div
       style={{
         minHeight: '100svh',

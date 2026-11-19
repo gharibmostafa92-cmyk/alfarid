@@ -37,7 +37,7 @@ final class StaffTokenService
             }
 
             // Prune expired tokens and enforce FIFO token cap to prevent unbounded session table growth.
-            self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20), (int) config('auth.staff_token_minutes', 720));
+            self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20), (int) config('auth.staff_token_minutes'));
 
             // L8: abilities follow the roles committed before this lock, not a
             // destination computed on the unlocked row.
@@ -66,7 +66,7 @@ final class StaffTokenService
                 );
             }
 
-            return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 720))))->plainTextToken;
+            return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes'))))->plainTextToken;
         });
     }
 
