@@ -8,6 +8,7 @@ import { logoutWeb } from '@/services/auth.service';
 export function AccountMenu() {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
+  const destination = useAuthStore((s) => s.destination);
   const home = useAuthStore((s) => s.home);
   const [hydrated, setHydrated] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -18,6 +19,7 @@ export function AccountMenu() {
   return (
     <div className="flex items-center gap-4 text-sm">
       <Link href={home ?? '/'} aria-label="حسابي">مرحبًا {String(user?.name ?? '')}</Link>
+      <Link href={destination === 'supplier' ? '/supplier/password' : '/security/password'}>تغيير كلمة المرور</Link>
       <button type="button" disabled={busy} aria-label={busy ? 'جارٍ تسجيل الخروج' : 'تسجيل الخروج'} onClick={() => { setBusy(true); void logoutWeb().finally(() => setBusy(false)); }}>
         {busy ? 'جارٍ تسجيل الخروج…' : 'تسجيل الخروج'}
       </button>

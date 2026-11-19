@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { RequireActor } from '@/components/auth/RequireActor';
 
 const sections = [
+  { href: '/security/password', label: 'تغيير كلمة المرور' },
   { href: '/account', label: 'My profile' },
   { href: '/account/orders', label: 'Orders' },
   { href: '/account/wallet', label: 'Wallet' },

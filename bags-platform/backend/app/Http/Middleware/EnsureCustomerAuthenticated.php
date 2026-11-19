@@ -25,10 +25,10 @@ class EnsureCustomerAuthenticated
         }
 
         $token = $user->currentAccessToken();
-        $canInspectRejection = $request->routeIs('wholesale.auth.application-status', 'store.auth.logout');
+        $canInspectRejection = $request->routeIs('wholesale.auth.application-status', 'store.auth.logout', 'store.account.password');
         // Pending traders additionally keep their self-service onboarding
         // lanes: application status inspection and document (re-)upload.
-        $canPendingSelfService = $request->routeIs('wholesale.auth.application-status', 'wholesale.auth.documents.store', 'store.auth.logout');
+        $canPendingSelfService = $request->routeIs('wholesale.auth.application-status', 'wholesale.auth.documents.store', 'store.auth.logout', 'store.account.password');
 
         if (! $user instanceof Customer
             || ! $token instanceof PersonalAccessToken

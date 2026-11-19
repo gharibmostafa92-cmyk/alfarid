@@ -150,7 +150,13 @@ class UserController extends Controller
             return response()->json(['message' => 'تعذر تغيير كلمة المرور.'], 403);
         }
 
-        return $this->userResource($user->refresh());
+        $user->refresh();
+
+        if ($request->routeIs('pos.me.password')) {
+            return response()->json(['data' => ['version' => (int) $user->lock_version]], 200, ['Cache-Control' => 'no-store']);
+        }
+
+        return $this->userResource($user)->response()->header('Cache-Control', 'no-store');
     }
 
     public function update(UpdateUserRequest $request, User $user): UserResource|JsonResponse

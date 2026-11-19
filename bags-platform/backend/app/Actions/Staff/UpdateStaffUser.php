@@ -94,6 +94,11 @@ final class UpdateStaffUser
             $isSuperAdminRequester = $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
             $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
             abort_if($lockedUser->is_system, 404);
+            if ($selfRotation) {
+                abort_unless($lockedUser->is_active, 403);
+                $sessionId = $via['current_token_id'] ?? null;
+                abort_unless($sessionId !== null && $lockedUser->tokens()->whereKey($sessionId)->exists(), 401);
+            }
             $branch = $this->branches->restrictedBranch($currentUser);
             abort_if($branch !== null && (int) $lockedUser->branch_id !== $branch, 403);
             StaffAdministration::assertVersion($lockedUser, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);

@@ -6,10 +6,11 @@ import type { PosShift, Treasury, Branch, CashierUser } from '../../types/pos.ty
 import { normalizeError } from '../../lib/pos-error';
 
 interface OpenShiftGateProps {
+  accountSettings?: React.ReactNode;
   onOpened: (shift: PosShift) => void;
 }
 
-export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
+export function OpenShiftGate({ onOpened, accountSettings }: OpenShiftGateProps) {
   const [treasury, setTreasury] = useState<number | null>(null);
   const [cash, setCash] = useState<string>('');
   const submitting = useRef(false);
@@ -94,6 +95,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   return (
     <div className="gate" data-screen-label="01 Open Shift">
       <div className="gate-card" role="dialog" aria-modal="true" aria-label="فتح الوردية">
+        {accountSettings}
         <div className="welcome">
           <div className="row gap-3" style={{ position: 'relative', zIndex: 1 }}>
             <span className="avatar">{cashier?.initials || 'أس'}</span>

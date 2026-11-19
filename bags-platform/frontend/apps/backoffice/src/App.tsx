@@ -1,3 +1,4 @@
+import { StaffPasswordPage } from './components/auth/StaffPasswordPage';
 import { AdminLoading } from './components/admin/AdminLoading';
 import { hasPermission, canAny } from '@alfarid/utils';
 import { defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
@@ -69,10 +70,10 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     const isStore = ['/store', '/banners', '/settings/store', '/settings/banners'].includes(route);
-    if (cashierOnly && !['/pos', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) {
+    if (cashierOnly && !['/pos', '/account/password', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) {
       window.location.replace('/pos');
     } else if (
-      !['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings', '/assistant'].includes(route) &&
+      !['/', '/account/password', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings', '/assistant'].includes(route) &&
       !isStore &&
       !isOperation &&
       !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) &&
@@ -81,6 +82,10 @@ function AuthenticatedApp() {
       window.location.replace('/dashboard');
     }
   }, [cashierOnly, route, isOperation, can]);
+
+  if (route === '/account/password') {
+    return <StaffPasswordPage channel={cashierOnly ? 'pos' : 'admin'} />;
+  }
 
   if (cashierOnly && route === '/assistant' && can('ai_agent.use')) {
     // Allow POS assistant route if explicitly permitted

@@ -650,6 +650,11 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('own-password', fn (Request $request) => [
+            Limit::perMinute(30)->by('network:'.$networkIp($request)),
+            Limit::perMinute(5)->by($request->user()::class.':'.$request->user()->getAuthIdentifier()),
+        ]);
+
         RateLimiter::for('customer-password-reset', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.reset_ip_minute', 20))->by('customer-password-reset:'.$networkIp($request)),
             Limit::perDay(config('auth.customer_limits.reset_ip_day', 500))->by('customer-password-reset-day:'.$networkIp($request)),

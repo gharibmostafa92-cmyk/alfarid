@@ -67,8 +67,11 @@ class AuthController extends Controller
      */
     private function issueToken(SupplierUser $user): string
     {
-        return DB::transaction(function () use ($user): string {
+        $verifiedHash = $user->getAuthPassword();
+
+        return DB::transaction(function () use ($user, $verifiedHash): string {
             $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
+            abort_unless($user->getAuthPassword() === $verifiedHash, 401);
             // Re-check after acquiring the lock: admin deactivation may have committed in between.
             if (! $user->is_active || $user->supplier_id === null || ! $user->supplier()->where('is_active', true)->exists()) {
                 throw ValidationException::withMessages([

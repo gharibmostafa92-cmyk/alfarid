@@ -37,10 +37,12 @@ import type {
 
 export interface PosAppProps {
   onLogout?: () => void;
+  renderPasswordSettings?: (cashier: CashierUser) => React.ReactNode;
 }
 
-export function PosApp({ onLogout }: PosAppProps = {}) {
+export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   const toast = useToast();
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('terminal');
   const [currentShift, setCurrentShift] = useState<PosShift | null>(null);
@@ -550,6 +552,13 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     document.documentElement.classList.toggle('theme-dark');
   };
 
+  const passwordSettings = cashier && renderPasswordSettings && (
+        <div>
+          <button type="button" aria-expanded={passwordOpen} onClick={() => setPasswordOpen((open) => !open)}>تغيير كلمة المرور</button>
+          {passwordOpen && renderPasswordSettings(cashier)}
+        </div>
+      );
+
   return (
     <div className={`app ${isDark ? 'theme-dark' : 'theme-light'}`} dir="rtl">
       {/* Multi-tab conflict overlay */}
@@ -683,7 +692,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
           </div>
         </div>
       ) : !currentShift ? (
-        <OpenShiftGate onOpened={(shift) => setCurrentShift(shift)} />
+        <OpenShiftGate onOpened={(shift) => setCurrentShift(shift)} accountSettings={passwordSettings} />
       ) : (
         <>
           <PosHeader
@@ -706,6 +715,8 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             onToggleDark={toggleTheme}
             onLogout={handleLogout}
           />
+
+          {passwordSettings}
 
           {currentScreen === 'terminal' && (
             <div className="sale">

@@ -1,4 +1,4 @@
-import { defaultApiClient as apiClient } from '../axios-instance';
+import { createApiClient, defaultApiClient as apiClient } from '../axios-instance';
 
 export type ActorType = 'staff' | 'supplier' | 'customer';
 export type Destination = 'admin' | 'pos' | 'supplier' | 'wholesale' | 'wholesale_pending' | 'retail';
@@ -58,5 +58,17 @@ export const authEndpoints = {
     apiClient.put<{ data: StaffUserResource }>('/api/v1/admin/me/password', body, {
       headers: { Authorization: `Bearer ${token}` },
     }).then((r) => r.data.data),
+  changePortalPassword: (channel: 'customer' | 'supplier', body: {
+    current_password: string; password: string; password_confirmation: string;
+  }, token: string, signal?: AbortSignal) =>
+    createApiClient({ baseURL: apiClient.defaults.baseURL, getToken: () => token, onUnauthorized: () => {} })
+      .put<void>(channel === 'customer' ? '/api/v1/store/account/password' : '/api/v1/supplier/me/password', body, { timeout: 15000, signal })
+      .then(() => undefined),
+  changeStaffPassword: (channel: 'admin' | 'pos', body: {
+    current_password: string; password: string; expected_version: number;
+  }, token: string, signal?: AbortSignal) =>
+    createApiClient({ baseURL: apiClient.defaults.baseURL, getToken: () => token, onUnauthorized: () => {} })
+      .put<{ data: { version: number } }>(`/api/v1/${channel}/me/password`, body, { timeout: 15000, signal })
+      .then((response) => response.data.data),
   staffLogout: () => apiClient.post('/api/v1/admin/auth/logout'),
 };

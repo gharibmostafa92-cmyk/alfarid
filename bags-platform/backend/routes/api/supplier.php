@@ -20,6 +20,7 @@ if (config('auth.legacy_login_enabled', false)) {
 
 // Supplier portal endpoints scoped strictly to the authenticated supplier.
 Route::middleware(['auth:sanctum', 'auth.supplier', 'throttle:supplier-portal'])->group(function (): void {
+    Route::put('me/password', \App\Http\Controllers\Api\V1\Auth\ChangePortalPasswordController::class)->middleware('throttle:own-password')->name('me.password');
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 

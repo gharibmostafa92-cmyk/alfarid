@@ -16,6 +16,7 @@ test('a cashier must rotate the temporary password before opening POS', async (t
     permissions: ['pos.access', 'pos.sales.create'], version: 7, must_change_password: true,
   };
   const rotationRequests = [];
+  const voluntaryRequests = [];
   let posRequests = 0;
   await page.route('**/*', (route) => new URL(route.request().url()).origin === new URL(office).origin
     ? route.continue()
@@ -32,6 +33,7 @@ test('a cashier must rotate the temporary password before opening POS', async (t
     if (url.pathname === '/api/v1/auth/handoff/exchange') {
       return route.fulfill({ headers, json: { token: 'cashier-test-token', data: cashier, redirect: { path: '/pos' } } });
     }
+    if (url.pathname === '/api/v1/auth/me') return route.fulfill({ headers, json: { actor: { type: 'staff' }, data: cashier, redirect: { path: '/pos' } } });
     if (url.pathname === '/api/v1/admin/me') return route.fulfill({ headers, json: { data: cashier } });
     if (url.pathname === '/api/v1/admin/me/password') {
       rotationRequests.push({ method: request.method(), token: request.headers().authorization, body: request.postDataJSON() });
@@ -42,6 +44,10 @@ test('a cashier must rotate the temporary password before opening POS', async (t
       }
       Object.assign(cashier, { version: 8, must_change_password: false });
       return route.fulfill({ headers, json: { data: cashier } });
+    }
+    if (url.pathname === '/api/v1/pos/me/password') {
+      voluntaryRequests.push(request.postDataJSON());
+      return route.fulfill({ headers, json: { data: { version: 9 } } });
     }
     if (url.pathname.startsWith('/api/v1/pos/')) posRequests++;
     if (url.pathname === '/api/v1/pos/bootstrap') {
@@ -64,6 +70,7 @@ test('a cashier must rotate the temporary password before opening POS', async (t
 
   await current.fill('wrong-temporary-123');
   await next.fill('new-password-456');
+  await page.getByLabel('تأكيد كلمة المرور الجديدة', { exact: true }).fill('new-password-456');
   await submit.click();
   await page.getByRole('alert').getByText('كلمة المرور المؤقتة غير صحيحة.').waitFor();
   assert.equal(posRequests, 0);
@@ -78,5 +85,20 @@ test('a cashier must rotate the temporary password before opening POS', async (t
     token: 'Bearer cashier-test-token',
     body: { current_password: 'temporary-123', password: 'new-password-456', expected_version: 7 },
   });
+  await page.getByRole('button', { name: 'تغيير كلمة المرور', exact: true }).click();
+  await current.fill('new-password-456');
+  await next.fill('voluntary-password-789');
+  const confirmation = page.getByLabel('تأكيد كلمة المرور الجديدة', { exact: true });
+  await confirmation.fill('mismatched-password-789');
+  await submit.click();
+  await page.getByText('كلمتا المرور غير متطابقتين.').waitFor();
+  assert.equal(voluntaryRequests.length, 0);
+  await confirmation.fill('voluntary-password-789');
+  await submit.click();
+  await page.getByText('تم تغيير كلمة المرور.').waitFor();
+  assert.equal(await current.inputValue(), '');
+  assert.deepEqual(voluntaryRequests, [{
+    current_password: 'new-password-456', password: 'voluntary-password-789', expected_version: 8,
+  }]);
   assert.deepEqual(pageErrors, []);
 });

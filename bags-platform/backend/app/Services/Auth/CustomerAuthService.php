@@ -430,8 +430,13 @@ class CustomerAuthService
      */
     public function issueToken(Customer $customer, string $name): string
     {
-        return DB::transaction(function () use ($customer, $name): string {
+        $verifiedHash = $customer->getAuthPassword();
+
+        return DB::transaction(function () use ($customer, $name, $verifiedHash): string {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            if ($customer->getAuthPassword() !== $verifiedHash) {
+                throw new BusinessException("بيانات الدخول غير صحيحة.", [], 401);
+            }
             if ($customer->status === CustomerStatus::Suspended) {
                 throw new BusinessException('هذا الحساب موقوف.', [], 403);
             }

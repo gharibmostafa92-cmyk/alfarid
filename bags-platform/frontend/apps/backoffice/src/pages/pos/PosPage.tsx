@@ -1,3 +1,4 @@
+import { StaffPasswordPage } from '../../components/auth/StaffPasswordPage';
 import { useEffect } from 'react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useCan } from '../../hooks/useCan';
@@ -71,6 +72,7 @@ export function PosPage() {
     return (
       <div style={{ padding: 40 }} dir="rtl">
         <h1>نقطة البيع</h1>
+        <details><summary>تغيير كلمة المرور</summary><StaffPasswordPage channel="pos" embedded /></details>
         <StocktakeVoiceCount />
       </div>
     );
@@ -78,7 +80,7 @@ export function PosPage() {
 
   return (
     <ToastHost>
-      <PosApp onLogout={() => logoutRemote('unified')} />
+      <PosApp renderPasswordSettings={() => <StaffPasswordPage channel="pos" embedded />} onLogout={() => logoutRemote('unified')} />
     </ToastHost>
   );
 }

@@ -115,7 +115,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         });
 
         // Allow self-service rotation for flagged temporary passwords without requiring users.update permission.
-        Route::put('me/password', [UserController::class, 'updateOwnPassword'])->name('me.password');
+        Route::put('me/password', [UserController::class, 'updateOwnPassword'])->middleware('throttle:own-password')->name('me.password');
         Route::apiResource('users', UserController::class)
             ->only(['index', 'show'])
             ->middleware('permission:users.view|users.manage');

@@ -20,6 +20,8 @@ if (config('auth.legacy_login_enabled', false)) {
 }
 
 Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throttle:pos-api'])->group(function (): void {
+    Route::put('me/password', [\App\Http\Controllers\Api\V1\Admin\Auth\UserController::class, 'updateOwnPassword'])
+        ->middleware('throttle:own-password')->name('me.password');
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
     Route::get('bootstrap', [PosBootstrapController::class, 'show'])->name('bootstrap');
     Route::get('treasuries/available', [PosShiftController::class, 'availableDrawers'])

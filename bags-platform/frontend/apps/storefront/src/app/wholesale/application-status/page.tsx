@@ -84,6 +84,7 @@ export default function ApplicationStatusPage() {
   };
   return (
     <RequireActor allow={['wholesale_pending', 'wholesale']}>
+        <a href="/security/password">تغيير كلمة المرور</a>
       {isPendingOrRejected ? (
         <ApplicationStatusContent brandName={branding.name} />
       ) : (

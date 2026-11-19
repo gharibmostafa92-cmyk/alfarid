@@ -80,6 +80,7 @@ Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
 
 // Authenticated customer account routes
 Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('account.')->group(function (): void {
+    Route::put('password', \App\Http\Controllers\Api\V1\Auth\ChangePortalPasswordController::class)->middleware('throttle:own-password')->name('password');
     Route::get('addresses', [AccountController::class, 'addresses'])->name('addresses.index');
     Route::get('wallet', [WalletController::class, 'index'])->name('wallet.index');
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');

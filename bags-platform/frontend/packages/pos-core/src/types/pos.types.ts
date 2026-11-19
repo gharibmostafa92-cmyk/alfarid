@@ -8,6 +8,7 @@ export interface Branch {
 }
 
 export interface CashierUser {
+  version?: number;
   id: number;
   name: string;
   initials: string;

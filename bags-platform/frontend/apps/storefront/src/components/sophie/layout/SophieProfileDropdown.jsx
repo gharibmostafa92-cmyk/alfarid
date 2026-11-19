@@ -13,6 +13,7 @@ const FALLBACK_USER = {
   walletBalance: null,
   menuItems: [
     { id: 'profile', label: 'My profile', icon: 'fa-regular fa-user', type: 'item' },
+    { id: 'password', label: 'تغيير كلمة المرور', icon: 'fa-solid fa-key', type: 'item' },
     { id: 'signout', label: 'Sign out', icon: 'fa-solid fa-arrow-from-bracket', isSignOut: true, type: 'item' },
   ],
 };

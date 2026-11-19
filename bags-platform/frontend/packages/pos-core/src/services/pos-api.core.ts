@@ -69,6 +69,7 @@ export interface QuoteRequest {
 }
 
 export interface ActorInput {
+  version?: number;
   id?: number;
   name?: string;
   roles?: (string | { name: string })[];
@@ -204,6 +205,7 @@ export class PosApiService {
       name: actor.name,
       initials: initialsOf(actor.name),
       role: (typeof first === 'string' ? first : first?.name) || 'كاشير',
+      version: actor.version,
       perms: actor.permissions ?? [],
     };
     if (actor.branch?.name) {

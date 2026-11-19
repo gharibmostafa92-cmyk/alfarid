@@ -28,7 +28,7 @@ class StaffPasswordByteLimitTest extends TestCase
             $this->assertDatabaseMissing('users', ['email' => 'too-long@example.test']);
         }
         Auth::forgetGuards();
-        $this->postJson('/api/v1/auth/login', [
+        $this->withoutHeader('Authorization')->postJson('/api/v1/auth/login', [
             'login' => 'too-long@example.test', 'password' => str_repeat('a', 72),
         ])->assertUnauthorized();
     }

@@ -141,6 +141,10 @@ export function SophieHeader() {
   };
 
   const handleProfileAction = async (actionId: string) => {
+    if (actionId === 'password') {
+      router.push(destination === 'supplier' ? '/supplier/password' : '/security/password');
+      return;
+    }
     if (actionId === 'signout') { await logoutWeb('/'); return; }
     const routes: Record<string, string> = { profile: '/account', orders: '/account/orders', wallet: '/account/wallet', returns: '/account/returns' };
     if (routes[actionId]) router.push(routes[actionId]);

@@ -13,3 +13,5 @@ export { WholesalePortal } from './wholesale-portal';
 export * as wholesalePortal from './wholesale-portal';
 
 export { AuthHalftone } from './components/auth-halftone';
+
+export { ChangePasswordForm, type PasswordFields } from './ChangePasswordForm';

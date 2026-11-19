@@ -5,6 +5,7 @@ import { RequireActor } from '@/components/auth/RequireActor';
 import { logoutWeb } from '@/services/auth.service';
 
 const links = [
+  { href: '/supplier/password', label: 'تغيير كلمة المرور' },
   { href: '/supplier', label: 'لوحة التحكم' },
   { href: '/supplier/purchase-orders', label: 'أوامر الشراء' },
   { href: '/supplier/deliveries', label: 'التوريدات' },

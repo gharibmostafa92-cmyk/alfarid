@@ -394,6 +394,7 @@ export function WholesalePortal({
           </div>
 
           <div className="wp-head-right">
+            <a href="/security/password">تغيير كلمة المرور</a>
             <div className="wp-credit-chip" title="الحد الائتماني والمتاح">
               <span>الرصيد المتاح:</span>
               <strong className="num">{fmt(account.available_credit ?? 0, 0)} EGP</strong>

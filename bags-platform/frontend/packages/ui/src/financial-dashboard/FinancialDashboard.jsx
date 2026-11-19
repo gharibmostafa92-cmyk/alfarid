@@ -302,6 +302,7 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
         <div className="v-mobile-menu-tools">
           <button type="button" onClick={event => changeTheme(!state.darkMode, event.currentTarget)} aria-pressed={state.darkMode}>الوضع الداكن<span aria-hidden="true">{state.darkMode ? 'مفعّل' : 'غير مفعّل'}</span></button>
           {!hasLiveOverview && <button type="button" onClick={() => { setModal(null); showToast(`${branding.name} · All systems operational`); }}>حالة النظام</button>}
+          <a href="#/account/password" onClick={() => setModal(null)}>تغيير كلمة المرور</a>
           <button type="button" onClick={() => { setModal(null); logout(); }}>تسجيل الخروج</button>
         </div>
       </div>;
