@@ -8,6 +8,7 @@ use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
 use App\Models\Customer;
 use App\Notifications\Auth\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerWelcomeNotification;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -147,5 +148,38 @@ class StoreAuthTest extends TestCase
         $phoneless = Customer::factory()->create(['email' => null, 'phone' => '01066665555']);
         $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => '01066665555'])->assertOk();
         $this->assertDatabaseHas('password_reset_tokens', ['email' => 'customer:'.$phoneless->id]);
+    }
+
+    public function test_registration_with_email_sends_varya_welcome_notification(): void
+    {
+        config(['auth.require_phone_verification' => false]);
+        config(['services.resend.capture_enabled' => false]);
+        Notification::fake();
+
+        $this->postJson('/api/v1/store/auth/register', [
+            'name' => 'Varya Customer',
+            'email' => 'varya-user@example.com',
+            'phone' => '01099998888',
+            'password' => 'password123',
+        ])->assertCreated();
+
+        $customer = Customer::where('email', 'varya-user@example.com')->firstOrFail();
+
+        Notification::assertSentTo(
+            $customer,
+            CustomerWelcomeNotification::class,
+            function (CustomerWelcomeNotification $notification, array $channels) use ($customer): bool {
+                $this->assertSame(['mail'], $channels);
+
+                $mail = $notification->toMail($customer);
+                $this->assertSame('emails.customer.welcome', $mail->view);
+                $rendered = view($mail->view, $mail->viewData)->render();
+                $this->assertStringContainsString('ELEVATE<br>EVERY JOURNEY.', $rendered);
+                $this->assertStringContainsString('SHOP COLLECTION', $rendered);
+                $this->assertStringContainsString('@varya', $rendered);
+
+                return true;
+            }
+        );
     }
 }

@@ -99,8 +99,15 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     </div>
   );
   if (!token || verifiedToken !== token) return (
-    <div className="min-h-svh grid place-items-center">
-      <AdminLoading compact label="جارٍ التحقق من الجلسة" />
+    <div
+      style={{
+        minHeight: '100svh',
+        display: 'grid',
+        placeItems: 'center',
+        backgroundColor: '#f2eff3',
+      }}
+    >
+      <AdminLoading compact label="جارٍ التحميل" />
     </div>
   );
   if (token && user?.must_change_password) {

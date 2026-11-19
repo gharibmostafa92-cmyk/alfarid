@@ -12,6 +12,7 @@ use App\Events\Wholesale\WholesaleApplicationSubmitted;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
+use App\Notifications\Auth\CustomerWelcomeNotification;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Customer\CustomerPhoneVerificationService;
 use App\Services\CustomerEmail\CustomerEmailOutbox;
@@ -122,6 +123,14 @@ class WholesaleRegistrationService
                     } catch (\Throwable $exception) {
                         // Commit the account first; prevent queue driver outages or notification failures from aborting a valid registration.
                         report($exception);
+                    }
+
+                    if (config('services.resend.capture_enabled') !== true && filled($customer->email)) {
+                        try {
+                            $customer->notify(new CustomerWelcomeNotification);
+                        } catch (\Throwable $exception) {
+                            report($exception);
+                        }
                     }
                 });
 

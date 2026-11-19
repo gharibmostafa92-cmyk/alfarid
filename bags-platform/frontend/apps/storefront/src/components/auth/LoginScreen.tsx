@@ -50,7 +50,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [navigating, setNavigating] = useState(false);
-  const [probing, setProbing] = useState(initialView === 'login');
+  const hasRecoveryToken = view === 'reset-password' && Boolean(recoveryToken || resetTokenFromUrl(params));
+  const guardSession = !hasRecoveryToken;
+  const [probing, setProbing] = useState(guardSession);
   const [isReady, setIsReady] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState('');
@@ -87,11 +89,14 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   }, [view]);
 
   const token = useAuthStore((state) => state.token);
-  const checkingWeb = view === 'login' && Boolean(token) && !isSubmitting && !navigating;
+  const checkingWeb = guardSession && Boolean(token) && !isSubmitting && !navigating;
   const me = useAuthMe(token, checkingWeb);
 
   useEffect(() => {
-    if (view !== 'login' || token) return;
+    if (!guardSession || token) {
+      setProbing(false);
+      return;
+    }
     setProbing(true);
     const complete = () => setProbing(false);
     const configuredOffice = process.env.NEXT_PUBLIC_BACKOFFICE_URL?.trim() ?? '';
@@ -102,8 +107,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       complete();
       return;
     }
+    const pageLoopback = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1';
     const officeLoopback = office.hostname === 'localhost' || office.hostname === '127.0.0.1' || office.hostname === '::1';
-    if (process.env.NODE_ENV === 'production' && (!configuredOffice || officeLoopback)) return complete();
+    if (process.env.NODE_ENV === 'production' && !pageLoopback && (!configuredOffice || officeLoopback)) return complete();
     const nonce = createSessionNonce();
     if (!nonce) return complete();
     const frame = document.createElement('iframe');
@@ -145,7 +151,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       window.clearTimeout(timer);
       cleanup();
     };
-  }, [view, token]);
+  }, [guardSession, token]);
 
   useEffect(() => {
     if (!checkingWeb || useAuthStore.getState().token !== token) return;
@@ -245,6 +251,26 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     }
   };
 
+  if (guardSession && (checkingWeb || probing || navigating)) {
+    return (
+      <div className="luxury-auth-page" dir={lang === 'ar' ? 'rtl' : 'ltr'} data-auth-view={view}>
+        <main className="luxury-auth-loading">
+          {me.isError && checkingWeb ? (
+            <div className="luxury-auth-loading-actions">
+              <button type="button" className="pill-btn-primary" onClick={() => void me.refetch()}>
+                {lang === 'ar' ? 'إعادة المحاولة' : 'Try again'}
+              </button>
+            </div>
+          ) : (
+            <div role="status" aria-label={lang === 'ar' ? 'جارٍ التحميل' : 'Loading'}>
+              <span className="luxury-auth-spinner" aria-hidden="true" />
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="luxury-auth-page" dir="ltr" data-auth-view={view}>
       <main className="luxury-auth-main">
@@ -283,13 +309,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
 
             {/* SIGN IN FORM */}
             <div className="luxury-form-wrap" ref={formRef}>
-              {view === 'login' && (checkingWeb || probing || navigating) ? (
-                me.isError && checkingWeb ? (
-                  <button type="button" className="pill-btn-primary" onClick={() => void me.refetch()}>
-                    {lang === 'ar' ? 'إعادة التحقق من الجلسة' : 'Retry session verification'}
-                  </button>
-                ) : <p role="status">{lang === 'ar' ? 'جارٍ التحقق من الجلسة…' : 'Checking your session…'}</p>
-              ) : view === 'login' ? (
+              {view === 'login' ? (
                 <>
                   <h1 className="luxury-title" tabIndex={-1}>
                     {t.signInTitle}

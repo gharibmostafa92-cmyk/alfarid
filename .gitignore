@@ -203,6 +203,7 @@ repomix-files.txt
 .agents/
 .superpowers/
 docs/superpowers/
+.human-tests/
 
 # ------------------------------------------
 # Ignore new archive files while keeping tracked copies

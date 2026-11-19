@@ -2,8 +2,8 @@
 
 > Ordered by dependency. Complete every test case in the active `[/]` module before advancing to the next `[ ]` module.
 
-1. [/] `01-auth` — Foundation & Authentication (Register, Login, Verification, Password Reset, Session & Role Guards)
-2. [ ] `02-account` — Customer Account & Profile (`/account/*`: Profile, Addresses, Notifications, Orders/Returns History)
+1. [x] `01-auth` — Foundation & Authentication (Register, Login, Verification, Password Reset, Session & Role Guards)
+2. [/] `02-account` — Customer Account & Profile (`/account/*`: Profile, Addresses, Notifications, Orders/Returns History)
 3. [ ] `03-catalog-storefront` — Storefront Catalog & Discovery (Home, Products, Categories, Brands, Search, Wishlist)
 4. [ ] `04-cart-checkout-payments` — Cart, Checkout, Promotions, Shipping & Payment Gateways / Webhooks
 5. [ ] `05-pos` — Point of Sale (Shifts, Sales, POS Returns, Stock Count, Transfers, POS Inventory)

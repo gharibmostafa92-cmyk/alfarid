@@ -11,6 +11,7 @@ use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Notifications\Auth\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerWelcomeNotification;
 use App\Notifications\Channels\CustomerSmsChannel;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
@@ -105,6 +106,16 @@ class CustomerAuthService
                 $customer->forceFill(['status' => CustomerStatus::Approved, 'approved_at' => now()])->save();
                 CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'store']);
                 $this->customerEmails->welcome($customer);
+
+                DB::afterCommit(static function () use ($customer): void {
+                    if (config('services.resend.capture_enabled') !== true && filled($customer->email)) {
+                        try {
+                            $customer->notify(new CustomerWelcomeNotification);
+                        } catch (\Throwable $exception) {
+                            report($exception);
+                        }
+                    }
+                });
 
                 return $customer;
             });

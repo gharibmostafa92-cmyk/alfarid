@@ -63,5 +63,16 @@ export default function AuthCallbackPage() {
       .catch(() => window.location.replace(`${WEB_URL}/auth/login?error=handoff`));
   }, []);
 
-  return <div className="min-h-svh grid place-items-center"><AdminLoading compact label="جارٍ تسجيل الدخول" /></div>;
+  return (
+    <div
+      style={{
+        minHeight: '100svh',
+        display: 'grid',
+        placeItems: 'center',
+        backgroundColor: '#f2eff3',
+      }}
+    >
+      <AdminLoading compact label="جارٍ تسجيل الدخول" />
+    </div>
+  );
 }

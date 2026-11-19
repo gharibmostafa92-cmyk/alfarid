@@ -12,8 +12,8 @@
   3. (If `phone_verification_required` is enabled in `GET /api/v1/store/auth/registration-options`, complete the phone OTP + Turnstile verification step.)
   4. Submit the registration form.
 - **Expected Result:** Account is created (`201`), user is logged in and redirected to the storefront/account, and the guest cart item(s) added prior to registration are preserved/merged into the new customer's cart.
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -27,8 +27,8 @@
   1. Client/server rejects invalid phone format (`01[0125][0-9]{8}`) and password < 8 chars (or > 72 bytes).
   2. Duplicate customer phone returns a 422 validation error without creating a duplicate account.
   3. Duplicate customer email or email used by another account type (`EmailNotUsedByOtherAccountType`) is rejected with a validation error.
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -40,8 +40,8 @@
 - **Expected Result:**
   - Retail login issues `store-token`, redirects to storefront/account, and merges the guest cart.
   - Wholesale login issues `wholesale-token`, redirects to the wholesale portal (`/wholesale/...`), and does **not** merge/consume the retail guest cart.
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -55,8 +55,8 @@
   - Staff login returns a one-time `handoff_code` and redirects to the appropriate app (Backoffice for admin/manager, POS for cashier).
   - Exchanging the `handoff_code` issues a Sanctum token; refreshing the target app keeps the session active via `/api/v1/auth/me`.
   - Attempting to reuse the same `handoff_code` fails with 401 (`رابط الدخول غير صالح أو انتهت صلاحيته.`).
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -68,8 +68,8 @@
 - **Expected Result:**
   1. `/api/v1/auth/me` returns 403 `password_change_required` (`يجب تغيير كلمة المرور المؤقتة قبل المتابعة.`), forcing password rotation via `PUT /api/v1/admin/me/password` before accessing backoffice routes.
   2. Inactive-branch staff receives 403 (`الفرع المرتبط بحسابك متوقف حالياً.`).
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -81,8 +81,8 @@
 - **Expected Result:**
   - Login or `/auth/me` is rejected with 403.
   - Logout (`POST /api/v1/auth/logout`) still succeeds (`204 No Content`) and revokes the token even when the account is suspended/deactivated.
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -96,8 +96,8 @@
 - **Expected Result:**
   - Forgot-password returns the same generic message (`لو الحساب موجود، أرسلنا رمز الاستعادة إليه.`) regardless of whether the account exists.
   - Reset-password validates `min:8`, `max:72`, `confirmed`, and 64-char `token`; after success, old password fails and new password logs in.
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ---
 
@@ -106,8 +106,8 @@
 - **Steps:**
   1. On `/auth/login`, submit wrong passwords repeatedly (> 10 times) for a test identifier from the same browser/IP.
 - **Expected Result:** After hitting the soft pair limit (`unified_login_failures_hour = 10`), the API requires a Turnstile challenge (`429`, `challenge_required`: `أكمل التحقق البشري للمتابعة.`) or blocks excessive attempts (`محاولات دخول كثيرة؛ حاول لاحقًا.`) rather than allowing unlimited brute force.
-- **Status:** `PENDING`
-- **Observed:**
+- **Status:** `PASS`
+- **Observed:** Tested by user and confirmed working (2026-11-19).
 
 ## QA run — 2026-11-19
 

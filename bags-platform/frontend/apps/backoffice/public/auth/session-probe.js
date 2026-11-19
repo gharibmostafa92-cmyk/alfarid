@@ -12,7 +12,19 @@
 
   try {
     if (localStorage.getItem('backoffice_token')) {
-      window.location.replace('/auth/session' + window.location.hash);
+      var hashParams = new URLSearchParams(window.location.hash.slice(1));
+      try {
+        var parsedParent = new URL(parentOrigin);
+        if (
+          parsedParent.protocol === 'http:' &&
+          (parsedParent.hostname === 'localhost' || parsedParent.hostname === '127.0.0.1' || parsedParent.hostname === '[::1]')
+        ) {
+          hashParams.set('origin', parentOrigin);
+        }
+      } catch (e) {
+        // Ignore unparseable parent origin.
+      }
+      window.location.replace('/auth/session#' + hashParams.toString());
       return;
     }
   } catch (error) {
