@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
+use App\Services\CustomerEmail\CustomerEmailOutbox;
 use App\Services\Orders\OrderAllocationService;
 use App\Services\Orders\OrderService;
 use App\Services\Orders\ShippingQuoteService;
@@ -424,6 +425,7 @@ class QuotationService
             ]);
 
             $freshOrder = $order->fresh();
+            app(CustomerEmailOutbox::class)->orderReceived($freshOrder);
             DB::afterCommit(static fn () => OrderCreated::dispatch($freshOrder));
             QuotationAccepted::dispatch($quotation);
 

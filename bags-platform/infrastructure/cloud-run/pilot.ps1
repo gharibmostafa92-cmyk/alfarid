@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('Plan', 'DeployApi', 'DeployAi', 'DeployJobs', 'EnableQueue', 'EnableLaravelSchedule', 'PauseQueue', 'PauseLaravelSchedule')]
+    [ValidateSet('Plan', 'DeployApi', 'DeployAi', 'DeployJobs', 'EnableQueue', 'EnableLaravelSchedule', 'EnableCustomerEmailDelivery', 'PauseQueue', 'PauseLaravelSchedule', 'PauseCustomerEmailDelivery')]
     [string]$Action = 'Plan',
     [ValidatePattern('^[a-z][a-z0-9-]{4,28}[a-z0-9]$')]
     [string]$ProjectId,
@@ -9,6 +9,7 @@ param(
     [string]$Region = 'us-central1',
     [string]$Image,
     [string]$RuntimeServiceAccount,
+    [string]$CustomerEmailServiceAccount,
     [string]$SchedulerServiceAccount,
     [string]$DatabaseHost,
     [string]$DatabaseName,
@@ -18,6 +19,14 @@ param(
     [string]$GeminiApiKeySecret,
     [string]$GeminiModel,
     [string]$ProxyClientIpSecret,
+    [string]$ResendApiKeySecret,
+    [string]$ResendFromAddress,
+    [ValidateSet('staging', 'production')]
+    [string]$ResendEnvironment = 'staging',
+    [ValidateSet('true', 'false')]
+    [string]$CustomerEmailCaptureEnabled = 'false',
+    [ValidatePattern('^[0-9*/,-]+(?: [0-9*/,-]+){4}$')]
+    [string]$CustomerEmailCron = '2-59/10 10 * * 1-5',
     [string]$SentryDsnSecret,
     [ValidateSet('staging', 'production')]
     [string]$SentryEnvironment = 'staging',
@@ -37,10 +46,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $queueJob = 'alfarid-pilot-queue'
 $laravelJob = 'alfarid-pilot-schedule'
+$customerEmailJob = 'alfarid-pilot-customer-email'
 $queueCron = '*/10 10 * * 1-5'
 $laravelCron = '5-55/5 10 * * 1-5'
 $queueTimeout = 120
 $laravelTimeout = 240
+$customerEmailTimeout = 50
 
 if ($Action -eq 'Plan') {
     [pscustomobject]@{
@@ -49,6 +60,8 @@ if ($Action -eq 'Plan') {
         LaravelCron = $laravelCron
         QueueTimeoutSeconds = $queueTimeout
         LaravelTimeoutSeconds = $laravelTimeout
+        CustomerEmailCron = $CustomerEmailCron
+        CustomerEmailTimeoutSeconds = $customerEmailTimeout
         ApiConcurrency = 8
         ApiMaxInstances = 10
         AiConcurrency = 2
@@ -101,6 +114,9 @@ switch ($Action) {
         if ($AppKeySecret -cnotmatch $secretPattern -or $DatabasePasswordSecret -cnotmatch $secretPattern) {
             throw 'AppKeySecret and DatabasePasswordSecret must be names with pinned numeric versions.'
         }
+        if ($ResendFromAddress -and ($ResendFromAddress.Length -gt 255 -or $ResendFromAddress -cnotmatch '^[^@\s<>;,]+@[^@\s<>;,]+\.[^@\s<>;,]+$')) {
+            throw 'ResendFromAddress must be one valid email address on a verified Resend domain.'
+        }
 
         $environment = @(
             'APP_ENV=production', 'APP_DEBUG=false', 'AUTORUN_ENABLED=false',
@@ -123,6 +139,9 @@ switch ($Action) {
             if ($ProxyClientIpSecret -cnotmatch $secretPattern) {
                 throw 'DeployApi requires a pinned ProxyClientIpSecret.'
             }
+            if ($CustomerEmailCaptureEnabled -eq 'true' -and !$ResendFromAddress) {
+                throw 'DeployApi requires a verified Resend sender address when customer email capture is enabled.'
+            }
         if ($SentryDsnSecret -and ($SentryDsnSecret -cnotmatch $secretPattern -or $SentryRelease -cnotmatch '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$')) {
             throw 'SentryDsnSecret must be pinned and SentryRelease must be a full 40 or 64 character commit SHA.'
         }
@@ -134,7 +153,14 @@ switch ($Action) {
                 "SENTRY_TRACES_SAMPLE_RATE=$($SentryTraceSampleRate.ToString([System.Globalization.CultureInfo]::InvariantCulture))"
             )
         }
-        $apiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8') + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=api') } else { @() }))
+        $apiCustomerEmailEntries = @(
+            "RESEND_FROM_ADDRESS=$ResendFromAddress",
+            "RESEND_ENVIRONMENT=$ResendEnvironment",
+            "CUSTOMER_EMAIL_CAPTURE_ENABLED=$CustomerEmailCaptureEnabled",
+            'CUSTOMER_EMAIL_DELIVERY_ENABLED=false',
+            'CUSTOMER_EMAIL_SCHEDULE_ENABLED=false'
+        )
+        $apiEnvironment = Join-GcloudEnvVars ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8') + $apiCustomerEmailEntries + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=api') } else { @() }))
             $apiRuntime = $runtime | Where-Object { $_ -notlike '--set-secrets=*' }
         $apiSecrets = "$secrets,PROXY_CLIENT_IP_SECRET=$ProxyClientIpSecret"
         if ($SentryDsnSecret) { $apiSecrets += ",SENTRY_LARAVEL_DSN=$SentryDsnSecret" }
@@ -177,6 +203,18 @@ switch ($Action) {
         if ($SentryDsnSecret -and ($SentryDsnSecret -cnotmatch $secretPattern -or $SentryRelease -cnotmatch '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$')) {
             throw 'SentryDsnSecret must be pinned and SentryRelease must be a full 40 or 64 character commit SHA.'
         }
+        $customerEmailRequested = [bool]$CustomerEmailServiceAccount -or [bool]$ResendApiKeySecret -or [bool]$ResendFromAddress
+        if ($customerEmailRequested) {
+            if ($CustomerEmailServiceAccount -cnotmatch "^[a-z][a-z0-9-]+@$ProjectId\.iam\.gserviceaccount\.com$") {
+                throw 'CustomerEmailServiceAccount must be a dedicated service account in the pilot project.'
+            }
+            if ($CustomerEmailServiceAccount -ieq $RuntimeServiceAccount) {
+                throw 'CustomerEmailServiceAccount must be distinct from RuntimeServiceAccount.'
+            }
+            if ($ResendApiKeySecret -cnotmatch $secretPattern -or !$ResendFromAddress) {
+                throw 'Customer email deployment requires a pinned ResendApiKeySecret and ResendFromAddress.'
+            }
+        }
         $sentryRuntimeEntries = @()
         if ($SentryDsnSecret) {
             $sentryRuntimeEntries = @(
@@ -198,14 +236,41 @@ switch ($Action) {
         Invoke-Gcloud -Arguments (@(
             'run', 'jobs', 'deploy', $laravelJob, "--task-timeout=$($laravelTimeout)s",
             '--args=artisan,schedule:run',
-            "--set-env-vars=$(Join-GcloudEnvVars ($environment + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=scheduler') } else { @() })))"
+            "--set-env-vars=$(Join-GcloudEnvVars ($environment + @('CUSTOMER_EMAIL_DELIVERY_ENABLED=false', 'CUSTOMER_EMAIL_SCHEDULE_ENABLED=false', 'CUSTOMER_EMAIL_CAPTURE_ENABLED=false', "RESEND_FROM_ADDRESS=$ResendFromAddress", "RESEND_ENVIRONMENT=$ResendEnvironment") + $sentryRuntimeEntries + $(if ($SentryDsnSecret) { @('SENTRY_SERVICE=scheduler') } else { @() })))"
         ) + $jobCommonSettings)
+
+        if ($customerEmailRequested) {
+            $customerEmailRuntime = @($runtime | Where-Object { $_ -notlike '--set-secrets=*' -and $_ -notlike '--service-account=*' })
+            $customerEmailRuntime += "--service-account=$CustomerEmailServiceAccount"
+            $customerEmailSecrets = "$secrets,RESEND_API_KEY=$ResendApiKeySecret"
+            if ($SentryDsnSecret) { $customerEmailSecrets += ",SENTRY_LARAVEL_DSN=$SentryDsnSecret" }
+            $customerEmailRuntime += "--set-secrets=$customerEmailSecrets"
+            $customerEmailCommonSettings = $scope + $customerEmailRuntime + @('--tasks=1', '--parallelism=1', '--max-retries=0', '--command=php')
+            $customerEmailEnvironment = @(
+                'CUSTOMER_EMAIL_CAPTURE_ENABLED=false',
+                'CUSTOMER_EMAIL_DELIVERY_ENABLED=true',
+                'CUSTOMER_EMAIL_SCHEDULE_ENABLED=false',
+                "RESEND_FROM_ADDRESS=$ResendFromAddress",
+                "RESEND_ENVIRONMENT=$ResendEnvironment",
+                'CUSTOMER_EMAIL_RATE_INTERVAL_SECONDS=1'
+            )
+            if ($SentryDsnSecret) { $customerEmailEnvironment += 'SENTRY_SERVICE=customer-email' }
+            Invoke-Gcloud -Arguments (@(
+                'run', 'jobs', 'deploy', $customerEmailJob, "--task-timeout=$($customerEmailTimeout)s",
+                '--args=artisan,customer-email:deliver',
+                "--set-env-vars=$(Join-GcloudEnvVars ($environment + $customerEmailEnvironment + $sentryRuntimeEntries))"
+            ) + $customerEmailCommonSettings)
+        }
     }
-    { $_ -in 'EnableQueue', 'EnableLaravelSchedule' } {
+    { $_ -in 'EnableQueue', 'EnableLaravelSchedule', 'EnableCustomerEmailDelivery' } {
         if ($SchedulerServiceAccount -cnotmatch "^[a-z][a-z0-9-]+@$ProjectId\.iam\.gserviceaccount\.com$") {
             throw 'SchedulerServiceAccount must be a dedicated service account in the pilot project.'
         }
-        $jobName, $cron = if ($Action -eq 'EnableQueue') { $queueJob, $queueCron } else { $laravelJob, $laravelCron }
+        $jobName, $cron = switch ($Action) {
+            'EnableQueue' { $queueJob, $queueCron; break }
+            'EnableLaravelSchedule' { $laravelJob, $laravelCron; break }
+            default { $customerEmailJob, $CustomerEmailCron }
+        }
         $jobUri = "https://run.googleapis.com/v2/projects/$ProjectId/locations/$Region/jobs/${jobName}:run"
         Invoke-Gcloud -Arguments @(
             'scheduler', 'jobs', 'create', 'http', $jobName,
@@ -216,8 +281,12 @@ switch ($Action) {
             '--max-retry-attempts=0', '--attempt-deadline=30s'
         )
     }
-    { $_ -in 'PauseQueue', 'PauseLaravelSchedule' } {
-        $jobName = if ($Action -eq 'PauseQueue') { $queueJob } else { $laravelJob }
+    { $_ -in 'PauseQueue', 'PauseLaravelSchedule', 'PauseCustomerEmailDelivery' } {
+        $jobName = switch ($Action) {
+            'PauseQueue' { $queueJob; break }
+            'PauseLaravelSchedule' { $laravelJob; break }
+            default { $customerEmailJob }
+        }
         Invoke-Gcloud -Arguments @('scheduler', 'jobs', 'pause', $jobName, "--project=$ProjectId", "--location=$Region")
     }
 }

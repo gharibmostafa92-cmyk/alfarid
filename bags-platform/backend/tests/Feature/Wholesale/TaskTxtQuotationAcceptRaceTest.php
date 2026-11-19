@@ -15,15 +15,15 @@ use App\Models\StockLevel;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\Concerns\RunsConcurrentAuditJobs;
 use Tests\TestCase;
 
 class TaskTxtQuotationAcceptRaceTest extends TestCase
 {
-    use DatabaseMigrations;
     use RunsConcurrentAuditJobs;
 
     private Customer $trader;
@@ -35,6 +35,7 @@ class TaskTxtQuotationAcceptRaceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->artisan('migrate:fresh', ['--force' => true]);
         $this->seed(RolePermissionSeeder::class);
         $this->seed(WholesalePortalPermissionSeeder::class);
         $this->seed(SettingSeeder::class);
@@ -103,11 +104,22 @@ class TaskTxtQuotationAcceptRaceTest extends TestCase
 
     public function test_second_accept_is_rejected_and_creates_no_duplicate_order(): void
     {
+        config([
+            'services.resend.capture_enabled' => true,
+            'services.resend.from' => 'Alfarid <orders@alfarid.example>',
+            'services.resend.environment' => 'testing',
+        ]);
+        Http::preventStrayRequests();
         $quotation = $this->pricedQuotation();
 
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$quotation->id}/accept")->assertOk();
+        $this->assertDatabaseCount('customer_email_outbox', 1);
+        $payload = json_decode(Crypt::decryptString(DB::table('customer_email_outbox')->first()->payload), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame($this->trader->email, $payload['to'][0]);
 
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$quotation->id}/accept")->assertStatus(422);
+        $this->assertDatabaseCount('customer_email_outbox', 1);
+        Http::assertNothingSent();
 
         $this->assertSame(
             1,
@@ -119,14 +131,24 @@ class TaskTxtQuotationAcceptRaceTest extends TestCase
 
     public function test_parallel_accepts_create_only_one_order_and_stock_reservation(): void
     {
+        config([
+            'services.resend.capture_enabled' => true,
+            'services.resend.from' => 'Alfarid <orders@alfarid.example>',
+            'services.resend.environment' => 'testing',
+        ]);
         $quotation = $this->pricedQuotation();
         $job = $this->httpJob($this->traderToken, 'POST', "/api/v1/wholesale/quotations/{$quotation->id}/accept");
-        $results = $this->concurrentJobs([$job, $job]);
+        $results = $this->concurrentJobs([$job, $job], [
+            'CUSTOMER_EMAIL_CAPTURE_ENABLED' => 'true',
+            'RESEND_FROM_ADDRESS' => 'Alfarid <orders@alfarid.example>',
+            'RESEND_ENVIRONMENT' => 'testing',
+        ]);
 
         $this->assertEqualsCanonicalizing([200, 422], array_column($results, 'status'));
         $order = Order::query()->where('customer_id', $this->trader->id)->sole();
         $this->assertSame($order->id, $quotation->fresh()->converted_order_id);
         $this->assertSame(2.0, (float) StockLevel::query()
             ->where('product_variant_id', $this->variant->id)->sole()->reserved);
+        $this->assertDatabaseCount('customer_email_outbox', 1);
     }
 }

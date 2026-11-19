@@ -9,7 +9,7 @@ use Symfony\Component\Process\Process;
 trait RunsConcurrentAuditJobs
 {
     /** Each job calls $ready() at the point that must overlap with its peers. */
-    private function concurrentJobs(array $jobs): array
+    private function concurrentJobs(array $jobs, array $environmentOverrides = []): array
     {
         $barrier = tempnam(sys_get_temp_dir(), 'staff-audit-race-');
         unlink($barrier);
@@ -19,6 +19,7 @@ trait RunsConcurrentAuditJobs
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
             'AUDIT_START_FILE' => $barrier, 'BCRYPT_ROUNDS' => '4'];
+        $environment = array_replace($environment, $environmentOverrides);
         $processes = [];
         try {
             foreach ($jobs as $job) {

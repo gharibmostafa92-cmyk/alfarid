@@ -29,8 +29,10 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
 use Spatie\Permission\Models\Role;
@@ -247,6 +249,12 @@ class StoreOrderFlowTest extends TestCase
     public function test_order_confirmation_waits_for_commit_and_is_not_resent_on_replay(): void
     {
         Notification::fake();
+        config([
+            'services.resend.capture_enabled' => true,
+            'services.resend.from' => 'Alfarid <orders@alfarid.example>',
+            'services.resend.environment' => 'testing',
+        ]);
+        Http::preventStrayRequests();
         $customer = Customer::factory()->create();
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 5);
@@ -255,7 +263,12 @@ class StoreOrderFlowTest extends TestCase
         $city = City::factory()->create(['shipping_cost' => 0]);
         $this->withToken($customer->createToken('confirmation-test')->plainTextToken);
         $checkout = fn () => $this->postJson('/api/v1/store/checkout', [
-            'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',
+            'recipient_name' => $customer->name,
+            'recipient_phone' => $customer->phone,
+            'city_id' => $city->id,
+            'shipping_address_line' => 'عنوان',
+            'recipient_email' => 'delivery@example.test',
+            'payment_method' => 'cod',
         ], ['Idempotency-Key' => 'confirmation-test']);
 
         DB::beginTransaction();
@@ -266,6 +279,7 @@ class StoreOrderFlowTest extends TestCase
         }
         Notification::assertNotSentTo($customer, OrderConfirmationNotification::class);
         $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('customer_email_outbox', 0);
         $this->assertSame(1, $cart->items()->count());
 
         $number = DB::transaction(function () use ($checkout, $customer) {
@@ -276,8 +290,13 @@ class StoreOrderFlowTest extends TestCase
         });
 
         Notification::assertSentToTimes($customer, OrderConfirmationNotification::class, 1);
+        $this->assertDatabaseCount('customer_email_outbox', 1);
+        $payload = json_decode(Crypt::decryptString(DB::table('customer_email_outbox')->first()->payload), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('delivery@example.test', $payload['to'][0]);
         $checkout()->assertCreated()->assertJsonPath('data.order_number', $number);
         Notification::assertSentToTimes($customer, OrderConfirmationNotification::class, 1);
+        $this->assertDatabaseCount('customer_email_outbox', 1);
+        Http::assertNothingSent();
     }
 
     public function test_instapay_requires_configuration_and_staff_confirmation(): void

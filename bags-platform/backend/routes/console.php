@@ -81,6 +81,14 @@ Schedule::call(function (): void {
     Cache::put('scheduler_heartbeat_at', now()->toIso8601String(), 600);
 })->everyMinute()->name('scheduler-heartbeat')->withoutOverlapping(10)->onOneServer();
 
+// Cloud Run uses a dedicated direct-execution Job for email delivery so its
+// per-minute trigger is independent of this general scheduler process.
+if (config('services.resend.schedule_enabled', true)) {
+    Schedule::command('customer-email:deliver')->everyMinute()->withoutOverlapping(2)->onOneServer()->runInBackground();
+}
+Schedule::command('customer-email:prune-review')->dailyAt('05:30')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(30)->onOneServer();
+
 // Give the full scan priority when both schedules are due. The shared mutex
 // prevents the incremental scan from starting on another scheduler process.
 Schedule::command('inventory:reconcile --all-branches')->weeklyOn(0, '02:00')

@@ -54,6 +54,12 @@ return [
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
+        'from' => env('RESEND_FROM_ADDRESS'),
+        'environment' => env('RESEND_ENVIRONMENT', env('APP_ENV', 'production')),
+        'capture_enabled' => filter_var(env('CUSTOMER_EMAIL_CAPTURE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'delivery_enabled' => filter_var(env('CUSTOMER_EMAIL_DELIVERY_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'schedule_enabled' => filter_var(env('CUSTOMER_EMAIL_SCHEDULE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'minimum_interval_seconds' => max(0, (int) env('CUSTOMER_EMAIL_RATE_INTERVAL_SECONDS', 1)),
     ],
 
     'ses' => [

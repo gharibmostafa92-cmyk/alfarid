@@ -16,6 +16,7 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
+use App\Services\CustomerEmail\CustomerEmailOutbox;
 use App\Support\AccountEmailLock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -33,6 +34,10 @@ use Illuminate\Validation\ValidationException;
  */
 class CustomerAuthService
 {
+    public function __construct(
+        private readonly CustomerEmailOutbox $customerEmails,
+    ) {}
+
     /** Resolve a unique trader contact email without treating it as verified. */
     public function findForLogin(string $identifier): ?Customer
     {
@@ -99,6 +104,7 @@ class CustomerAuthService
                 ]);
                 $customer->forceFill(['status' => CustomerStatus::Approved, 'approved_at' => now()])->save();
                 CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'store']);
+                $this->customerEmails->welcome($customer);
 
                 return $customer;
             });
