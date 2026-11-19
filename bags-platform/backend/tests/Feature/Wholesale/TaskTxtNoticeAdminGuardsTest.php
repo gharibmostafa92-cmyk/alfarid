@@ -101,6 +101,30 @@ class TaskTxtNoticeAdminGuardsTest extends TestCase
         $this->assertDatabaseCount('treasury_transactions', 0);
     }
 
+    public function test_branch_restricted_staff_cannot_approve_free_notice_through_service(): void
+    {
+        $branch = Branch::factory()->create();
+        $notice = $this->pendingNotice();
+        Order::factory()->create([
+            'customer_id' => $notice->customer_id,
+            'payment_method' => 'credit',
+            'payment_status' => 'unpaid',
+            'grand_total' => 100,
+            'subtotal' => 100,
+            'allocated_branch_id' => $branch->id,
+        ]);
+        $notice->update(['amount' => 50]);
+        $treasury = Treasury::create([
+            'name' => 'خزينة الفرع', 'code' => 'OWN-'.uniqid(), 'type' => TreasuryType::BankAccount,
+            'branch_id' => $branch->id, 'current_balance' => 0, 'is_active' => true,
+        ]);
+        $staff = User::factory()->create(['branch_id' => $branch->id]);
+
+        $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
+        app(\App\Services\Wholesale\WholesalePaymentNoticeService::class)
+            ->approve($notice, $staff->id, $treasury->id);
+    }
+
     public function test_branch_staff_can_only_access_notices_for_their_branch(): void
     {
         $branch = Branch::factory()->create();

@@ -90,6 +90,6 @@ class WholesalePaymentNotice extends Model
      */
     public function scopeWhereReferenceNumber($query, string $reference)
     {
-        return $query->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower(trim($reference))]);
+        return $query->whereRaw('wholesale_reference_identity(reference_number) = wholesale_reference_identity(?)', [$reference]);
     }
 }

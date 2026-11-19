@@ -75,7 +75,7 @@ export const mapCustomer = (c: any): Customer => ({
   id: Number(c.id),
   name: c.name,
   phone: c.phone ?? '',
-  tier: c.type === 'wholesale' ? 'wholesale' : 'retail',
+  tier: c.type === 'distributor' ? 'distributor' : c.type === 'wholesale' ? 'wholesale' : 'retail',
   points: Number(c.points ?? c.loyalty_points ?? 0),
   status: c.status ?? null,
 });

@@ -214,6 +214,12 @@ class Customer extends Authenticatable
             if (str_contains($message, 'email')) {
                 return ValidationException::withMessages(['email' => 'البريد الإلكتروني مستخدم بالفعل.']);
             }
+            if (str_contains($message, 'tax_number')) {
+                return ValidationException::withMessages(['tax_number' => 'الرقم الضريبي مسجل بالفعل.']);
+            }
+            if (str_contains($message, 'commercial_register')) {
+                return ValidationException::withMessages(['commercial_register' => 'رقم السجل التجاري مسجل بالفعل.']);
+            }
         }
 
         return $e;

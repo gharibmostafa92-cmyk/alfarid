@@ -176,7 +176,8 @@ class TaskTxtPerformanceSection3Test extends TestCase
         $this->assertSame('30000.00', $breakdown['debt']);
         $this->assertSame('30000.00', $breakdown['free_pool']);
         $this->assertSame('0.00', $breakdown['outstanding']);
-        $this->assertCount(900, $statement['entries']);
+        $this->assertLessThan(900, count($statement['entries']), 'The default statement window must not return lifetime history.');
+        $this->assertLessThanOrEqual(500, count($statement['entries']), 'The statement response has a bounded row count.');
         $this->assertLessThan(2000.0, $elapsedMs, 'Bulk statement + balanceBreakdown must complete in under 2 seconds.');
     }
 

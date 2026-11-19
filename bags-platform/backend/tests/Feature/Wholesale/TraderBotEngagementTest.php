@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Models\WholesalePaymentNotice;
 use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\CustomerWholesaleAssistant;
 use Database\Seeders\RolePermissionSeeder;
@@ -51,7 +52,7 @@ class TraderBotEngagementTest extends TestCase
         return $customer;
     }
 
-    public function test_invoice_reply_links_the_portal_pdf(): void
+    public function test_invoice_reply_directs_the_merchant_to_the_portal(): void
     {
         $customer = $this->verifiedTrader();
         $order = Order::factory()->create([
@@ -64,16 +65,26 @@ class TraderBotEngagementTest extends TestCase
 
         $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'فاتورة '.$order->order_number);
 
-        $this->assertStringContainsString("/api/v1/wholesale/invoices/{$order->id}/pdf", $reply);
+        $this->assertStringContainsString('قسم الفواتير في بوابة الجملة', $reply);
     }
 
-    public function test_statement_reply_links_the_portal_pdf(): void
+    public function test_statement_reply_directs_the_merchant_to_the_portal(): void
     {
         $customer = $this->verifiedTrader();
 
         $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'كشف حساب الشهر ده');
 
-        $this->assertStringContainsString('/api/v1/wholesale/statement', $reply);
+        $this->assertStringContainsString('بوابة الجملة', $reply);
+    }
+
+    public function test_receipt_text_does_not_claim_a_payment_was_recorded(): void
+    {
+        $customer = $this->verifiedTrader();
+        $reply = app(CustomerWholesaleAssistant::class)->reply($customer, 'بعت تحويل 50000 مرجع 998877');
+
+        $this->assertStringContainsString('لم يتم تسجيل أو اعتماد التحويل', $reply);
+        $this->assertStringContainsString('ارفع الإيصال', $reply);
+        $this->assertSame(0, WholesalePaymentNotice::query()->count());
     }
 
     public function test_bargaining_hands_off_to_sales_with_staff_notification(): void

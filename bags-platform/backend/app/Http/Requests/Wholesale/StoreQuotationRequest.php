@@ -19,7 +19,7 @@ class StoreQuotationRequest extends FormRequest
         return [
             'customer_notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.product_variant_id' => ['required', 'integer', 'min:1'],
+            'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct:strict'],
             'items.*.qty' => ['required', 'numeric', 'gt:0', 'max:1000000'],
             'items.*.requested_target_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999.99'],
         ];

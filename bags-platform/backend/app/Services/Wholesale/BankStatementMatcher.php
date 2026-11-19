@@ -8,16 +8,12 @@ use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Reconciles parsed bank statement credit transactions against pending wholesale payment notices.
  */
 final class BankStatementMatcher
 {
-    /** @var Collection<int, Customer>|null */
-    private ?Collection $cachedCustomers = null;
-
     /**
      * Classifies statement credit transactions into exact, probable, or unmatched buckets against pending payment notices.
      *
@@ -29,6 +25,8 @@ final class BankStatementMatcher
         $notices = WholesalePaymentNotice::query()
             ->with('customer:id,name,company_name')
             ->where('status', WholesalePaymentNoticeStatus::PendingReview)
+            ->orderBy('id')
+            ->limit(1000)
             ->get();
 
         $preparedNotices = $notices->map(fn ($n) => [
@@ -41,6 +39,7 @@ final class BankStatementMatcher
         $exact = [];
         $probable = [];
         $unmatched = [];
+        $matchedNoticeIds = [];
         foreach ($rows as $index => $row) {
             $amount = number_format((float) ($row['amount'] ?? 0), 2, '.', '');
             $reference = mb_strtolower(trim((string) ($row['reference'] ?? '')));
@@ -54,6 +53,9 @@ final class BankStatementMatcher
             $hit = null;
             $kind = null;
             foreach ($preparedNotices as $prepared) {
+                if (in_array((int) $prepared['model']->id, $matchedNoticeIds, true)) {
+                    continue;
+                }
                 $sameAmount = $prepared['amount'] === $amount;
                 $sameReference = $reference !== '' && $prepared['reference'] === $reference;
                 $closeDate = $date !== null && abs($date->diffInDays($prepared['date'] ?? $date, true)) <= 1;
@@ -77,8 +79,10 @@ final class BankStatementMatcher
                 'notice_number' => $hit?->notice_number,
             ];
             if ($kind === 'exact') {
+                $matchedNoticeIds[] = (int) $hit->id;
                 $exact[] = $entry;
             } elseif ($kind === 'probable') {
+                $matchedNoticeIds[] = (int) $hit->id;
                 $probable[] = $entry;
             } else {
                 $entry['suggestion'] = $this->suggestCustomer((string) ($row['description'] ?? ''));
@@ -100,9 +104,9 @@ final class BankStatementMatcher
         if ($description === '') {
             return null;
         }
-        $customers = $this->cachedCustomers ??= Customer::query()
+        $customers = Customer::query()
             ->commercial()
-            ->limit(200)
+            ->whereRaw('position(lower(coalesce(company_name, name)) in ?) > 0', [$description])
             ->get(['id', 'name', 'company_name']);
 
         foreach ($customers as $customer) {

@@ -86,7 +86,8 @@ final class ReceiptMatchScorer
 
     private function date(mixed $value): ?string
     {
-        if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        if (! is_string($value) || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $parts)
+            || ! checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
             return null;
         }
 

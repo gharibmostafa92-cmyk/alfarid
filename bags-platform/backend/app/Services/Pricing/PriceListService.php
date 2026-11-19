@@ -6,6 +6,7 @@ namespace App\Services\Pricing;
 
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SearchTerm;
+use App\Services\Auth\StaffAdministration;
 
 use App\Enums\Catalog\PriceListType;
 use App\Exceptions\BusinessException;
@@ -85,7 +86,10 @@ class PriceListService
         $this->validateDates($data);
         $data = $this->withValidOwner($data);
 
-        return PriceList::query()->create($data)->load(['customer', 'customerGroup', 'branch']);
+        $priceList = PriceList::query()->create($data)->load(['customer', 'customerGroup', 'branch']);
+        StaffAdministration::audit($user, 'price_list.created', 'price_list', $priceList->id, array_keys($data), [], $this->listAuditState($priceList));
+
+        return $priceList;
     }
 
     /**
@@ -108,9 +112,11 @@ class PriceListService
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             // Re-verify branch access after acquiring row lock to protect against concurrent reassignments.
             $this->assertListAccess($user, $priceList);
+            $before = $this->listAuditState($priceList);
             $this->validateDates($data, $priceList);
             $data = $this->withValidOwner($data, $priceList);
             $priceList->update($data);
+            StaffAdministration::audit($user, 'price_list.updated', 'price_list', $priceList->id, array_keys($data), $before, $this->listAuditState($priceList));
 
             return $priceList->load(['customer', 'customerGroup', 'branch']);
         });
@@ -157,7 +163,9 @@ class PriceListService
         DB::transaction(function () use ($priceList, $user): void {
             $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             $this->assertListAccess($user, $locked);
+            $before = $this->listAuditState($locked);
             $locked->delete();
+            StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, []);
         });
     }
 
@@ -198,7 +206,10 @@ class PriceListService
             $this->validateDates($data);
             $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
 
-            return $priceList->items()->create($data)->load('variant.product');
+            $item = $priceList->items()->create($data)->load('variant.product');
+            StaffAdministration::audit($user, 'price_list_item.created', 'price_list_item', $item->id, array_keys($data), [], $this->itemAuditState($item));
+
+            return $item;
         });
     }
 
@@ -216,6 +227,7 @@ class PriceListService
             $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
             $this->assertListAccess($user, $lockedList);
             $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
+            $before = $this->itemAuditState($item);
             $this->validateDates($data, $item);
             if (isset($data['product_variant_id']) || isset($data['min_qty'])) {
                 $this->assertNoDuplicateTier(
@@ -227,6 +239,7 @@ class PriceListService
             }
 
             $item->update($data);
+            StaffAdministration::audit($user, 'price_list_item.updated', 'price_list_item', $item->id, array_keys($data), $before, $this->itemAuditState($item));
 
             return $item->load('variant.product');
         });
@@ -242,7 +255,10 @@ class PriceListService
         DB::transaction(function () use ($item, $user): void {
             $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
             $this->assertListAccess($user, $lockedList);
-            PriceListItem::query()->lockForUpdate()->findOrFail($item->id)->delete();
+            $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
+            $before = $this->itemAuditState($item);
+            $item->delete();
+            StaffAdministration::audit($user, 'price_list_item.deleted', 'price_list_item', $item->id, array_keys($before), $before, []);
         });
     }
 
@@ -269,6 +285,8 @@ class PriceListService
             if ($productIds !== []) {
                 DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
             }
+
+            StaffAdministration::audit($user, 'price_list.percentage_applied', 'price_list', $locked->id, ['price_adjustment_percent', 'updated_count'], [], ['price_adjustment_percent' => $percent, 'updated_count' => $updated]);
 
             return $updated;
         });
@@ -527,6 +545,11 @@ class PriceListService
             }
         });
 
+        if (! $dryRun && ($report['created'] + $report['updated']) > 0) {
+            StaffAdministration::audit($user, 'price_list.csv_imported', 'price_list', $priceList->id,
+                ['created_count', 'updated_count', 'skipped_count'], [], ['created_count' => $report['created'], 'updated_count' => $report['updated'], 'skipped_count' => $report['skipped']]);
+        }
+
         return $report;
     }
 
@@ -588,6 +611,18 @@ class PriceListService
     private function restrictedBranch(?User $user): ?int
     {
         return $user === null ? null : app(BranchAccess::class)->restrictedBranch($user);
+    }
+
+    /** @return array<string, mixed> */
+    private function listAuditState(PriceList $priceList): array
+    {
+        return $priceList->only(['name', 'type', 'branch_id', 'customer_id', 'customer_group_id', 'currency', 'priority', 'is_active', 'starts_at', 'ends_at']);
+    }
+
+    /** @return array<string, mixed> */
+    private function itemAuditState(PriceListItem $item): array
+    {
+        return $item->only(['price_list_id', 'product_variant_id', 'min_qty', 'price', 'starts_at', 'ends_at']);
     }
 
     /**

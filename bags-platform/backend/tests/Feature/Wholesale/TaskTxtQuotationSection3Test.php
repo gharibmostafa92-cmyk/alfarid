@@ -9,7 +9,9 @@ use App\Events\Wholesale\QuotationPriced;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
+use App\Models\City;
 use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
@@ -63,6 +65,13 @@ class TaskTxtQuotationSection3Test extends TestCase
         $this->admin = User::factory()->create();
         $this->admin->assignRole('Super Admin');
         $this->adminToken = $this->admin->createToken('admin')->plainTextToken;
+
+        CustomerAddress::create([
+            'customer_id' => $this->trader->id,
+            'city_id' => City::factory()->create()->id,
+            'address_line' => 'عنوان التاجر',
+            'is_default' => true,
+        ]);
 
         $product = Product::factory()->create(['status' => 'published']);
         $this->variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
@@ -126,14 +135,13 @@ class TaskTxtQuotationSection3Test extends TestCase
             'items' => [['product_variant_id' => $unpriced->id, 'qty' => 2]],
         ])->assertStatus(422);
 
-        // Same variant in two lines: currently kept as two separate lines (owner decision documented)
-        $res = $this->asTrader()->postJson('/api/v1/wholesale/quotations', [
+        // Duplicate variant lines are rejected so pricing and stock checks use one quantity per SKU.
+        $this->asTrader()->postJson('/api/v1/wholesale/quotations', [
             'items' => [
                 ['product_variant_id' => $this->variant->id, 'qty' => 2],
                 ['product_variant_id' => $this->variant->id, 'qty' => 3],
             ],
-        ])->assertCreated();
-        $this->assertCount(2, $res->json('data.items'));
+        ])->assertStatus(422)->assertJsonValidationErrors(['items.0.product_variant_id', 'items.1.product_variant_id']);
     }
 
     public function test_trader_update_increments_revision_on_items_change_and_allows_clearing_customer_notes_to_null(): void

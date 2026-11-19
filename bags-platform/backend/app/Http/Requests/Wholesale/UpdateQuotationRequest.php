@@ -19,7 +19,7 @@ class UpdateQuotationRequest extends FormRequest
         return [
             'customer_notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['sometimes', 'array', 'min:1', 'max:100'],
-            'items.*.product_variant_id' => ['required_with:items', 'integer', 'min:1'],
+            'items.*.product_variant_id' => ['required_with:items', 'integer', 'min:1', 'distinct:strict'],
             'items.*.qty' => ['required_with:items', 'numeric', 'gt:0', 'max:1000000'],
             'items.*.requested_target_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999.99'],
         ];

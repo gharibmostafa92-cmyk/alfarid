@@ -56,4 +56,20 @@ class SpokenQuantityTest extends TestCase
         $this->assertNull(SpokenQuantity::parse($huge));
         $this->assertSame(99000.0, SpokenQuantity::parse('تسعه وتسعين الف'));
     }
+
+    public function test_compound_words_and_colloquial_hundreds_are_supported(): void
+    {
+        $this->assertSame(11.0, SpokenQuantity::parse('احد عشر قطعه'));
+        $this->assertSame(12.0, SpokenQuantity::parse('اثنا عشر'));
+        $this->assertSame(300.0, SpokenQuantity::parse('تلتميه'));
+        $this->assertSame(500.0, SpokenQuantity::parse('خمسميه'));
+        $this->assertSame(2000.0, SpokenQuantity::parse('الفين'));
+        $this->assertSame(6.0, SpokenQuantity::parse('نص دسته'));
+    }
+
+    public function test_stripping_quantity_tokens_preserves_skus_and_embedded_arabic_words(): void
+    {
+        $this->assertSame('CROSS-1', SpokenQuantity::stripQuantityTokens('50 CROSS-1'));
+        $this->assertSame('عشري شنطة بوستة', SpokenQuantity::stripQuantityTokens('عشري شنطة بوستة 12 قطعة'));
+    }
 }

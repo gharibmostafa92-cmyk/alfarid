@@ -10,6 +10,7 @@ use App\Models\CustomerWalletTransaction;
 use App\Models\WalletAdjustment;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Finance\WalletAdjustmentService;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -31,6 +32,7 @@ class CustomerWalletController extends Controller implements HasMiddleware
     public function __construct(
         private readonly WalletAdjustmentService $adjustments,
         private readonly FinancePresenter $presenter,
+        private readonly BranchAccess $branchAccess,
     ) {}
 
     public function show(Request $request, Customer $customer): JsonResponse
@@ -93,6 +95,7 @@ class CustomerWalletController extends Controller implements HasMiddleware
 
     public function storeAdjustment(Request $request, Customer $customer): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $data = $request->validate([
             'kind' => ['required', 'string', 'in:disbursement,refund,adjustment'],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999', 'decimal:0,2'],
@@ -111,6 +114,7 @@ class CustomerWalletController extends Controller implements HasMiddleware
 
     public function reverseAdjustment(Request $request, WalletAdjustment $adjustment): JsonResponse
     {
+        $this->branchAccess->assertCentralAccess($request->user());
         $reversal = $this->adjustments->reverse($adjustment, $request->user(), $request->header('Idempotency-Key'));
 
         return response()->json(['message' => 'تم عكس التعديل بقيد مقابل.', 'data' => $reversal->load('creator')], 201);

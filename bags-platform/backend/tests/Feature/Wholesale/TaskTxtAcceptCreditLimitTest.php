@@ -7,7 +7,9 @@ namespace Tests\Feature\Wholesale;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Wholesale\QuotationStatus;
 use App\Models\Branch;
+use App\Models\City;
 use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -50,6 +52,12 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
             'credit_limit' => 1000,
         ]);
         $this->traderToken = $this->trader->createToken('portal')->plainTextToken;
+        CustomerAddress::create([
+            'customer_id' => $this->trader->id,
+            'city_id' => City::factory()->create()->id,
+            'address_line' => 'عنوان التاجر',
+            'is_default' => true,
+        ]);
 
         $product = Product::factory()->create(['status' => 'published']);
         $this->variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);

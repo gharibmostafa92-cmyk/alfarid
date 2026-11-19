@@ -58,20 +58,17 @@ class TaskTxtWholesaleOutboxTest extends TestCase
         }
     }
 
-    public function test_overnight_window_is_documented_as_unsupported(): void
+    public function test_overnight_window_stays_open_across_midnight(): void
     {
-        // Documents current behavior: overnight windows (from > to) are not
-        // treated as open; whether they should be is an owner decision.
         $outbox = app(WholesaleOutbox::class);
         $customer = $this->customer(['from' => '20:00', 'to' => '08:00']);
 
         Carbon::setTestNow(Carbon::parse('2026-11-07 23:00:00', 'Africa/Cairo'));
         try {
             $next = $outbox->nextContactAt($customer);
-            $this->assertFalse(
-                $next->format('Y-m-d H:i') === '2026-11-07 23:00',
-                'Overnight window does not resolve to now.'
-            );
+            $this->assertSame('2026-11-07 23:00', $next->format('Y-m-d H:i'));
+            Carbon::setTestNow(Carbon::parse('2026-11-08 10:00:00', 'Africa/Cairo'));
+            $this->assertSame('2026-11-08 20:00', $outbox->nextContactAt($customer->fresh())->format('Y-m-d H:i'));
         } finally {
             Carbon::setTestNow();
         }

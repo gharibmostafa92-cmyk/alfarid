@@ -138,8 +138,10 @@ class TaskTxtStatementParityTest extends TestCase
     public function test_refunded_return_appears_as_a_single_credit(): void
     {
         $service = app(WholesalePaymentNoticeService::class);
+        $order = $this->creditOrder(500);
         $return = ReturnRequest::factory()->create([
             'customer_id' => $this->customer->id,
+            'order_id' => $order->id,
             'status' => 'refunded',
             'refunded_at' => now(),
             'total_refund_amount' => 150,
@@ -153,9 +155,28 @@ class TaskTxtStatementParityTest extends TestCase
 
         $this->assertCount(1, $credits);
         $this->assertSame('0.00', $credits[0]['debit']);
-        // Note: refunds credit the statement ledger but do not feed the
-        // outstanding balance — owner decision pending on unifying them.
-        $this->assertSame(-150.0, $statement['closing_balance']);
-        $this->assertSame('0.00', $service->balanceBreakdown($this->customer)['outstanding']);
+        $this->assertSame(350.0, $statement['closing_balance']);
+        $this->assertSame('350.00', $service->balanceBreakdown($this->customer)['outstanding']);
+    }
+
+    public function test_refunded_return_reduces_linked_order_payment_capacity(): void
+    {
+        $order = $this->creditOrder(500);
+        ReturnRequest::factory()->create([
+            'customer_id' => $this->customer->id,
+            'order_id' => $order->id,
+            'status' => 'refunded',
+            'refunded_at' => now(),
+            'total_refund_amount' => 150,
+        ]);
+        $notice = WholesalePaymentNotice::factory()->create([
+            'customer_id' => $this->customer->id,
+            'order_id' => $order->id,
+            'amount' => 351,
+            'status' => 'pending_review',
+        ]);
+
+        $this->expectException(\App\Exceptions\BusinessException::class);
+        app(WholesalePaymentNoticeService::class)->approve($notice, $this->admin->id, $this->bank->id);
     }
 }

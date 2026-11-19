@@ -23,12 +23,13 @@ class QuoteExpiryReminders extends Command
     public function handle(WholesaleOutbox $outbox): int
     {
         $sent = 0;
-        $until = now()->addDays(2)->toDateString();
+        $businessNow = now((string) config('app.business_timezone', 'Africa/Cairo'));
+        $until = $businessNow->copy()->addDays(2)->toDateString();
         Quotation::query()
             ->with('customer')
             ->where('status', QuotationStatus::PricedByAdmin)
             ->whereNotNull('valid_until')
-            ->whereDate('valid_until', '>', now()->toDateString())
+            ->whereDate('valid_until', '>', $businessNow->toDateString())
             ->whereDate('valid_until', '<=', $until)
             ->orderBy('id')
             ->each(function (Quotation $quotation) use ($outbox, &$sent): void {

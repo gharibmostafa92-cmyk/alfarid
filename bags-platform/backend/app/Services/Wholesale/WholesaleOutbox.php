@@ -97,11 +97,12 @@ final class WholesaleOutbox
             return $now;
         }
 
-        if ($now->betweenIncluded($from, $to)) {
+        $overnight = $from->gt($to);
+        if ($overnight ? ($now->gte($from) || $now->lte($to)) : $now->betweenIncluded($from, $to)) {
             return $now;
         }
 
         // If outside hours, defer until the opening hour today or the following morning.
-        return $now->lt($from) ? $from : $from->copy()->addDay();
+        return $overnight ? $from : ($now->lt($from) ? $from : $from->copy()->addDay());
     }
 }

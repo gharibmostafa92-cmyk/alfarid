@@ -8,6 +8,7 @@ use App\Enums\Orders\OrderStatus;
 use App\Enums\StaffRole;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
+use App\Models\Branch;
 use App\Models\CustomerWalletTransaction;
 use App\Models\Order;
 use App\Models\TreasuryTransaction;
@@ -161,7 +162,7 @@ class FinanceWalletTest extends TestCase
         $noperm = $this->staff(['ai_agent.use']);
         $this->withToken($this->token($noperm))->getJson("/api/v1/admin/customers/{$customer->id}/wallet")->assertForbidden();
 
-        $adjuster = $this->staff(['customers.wallet.adjust']);
+        $adjuster = $this->staff(['customers.wallet.adjust', 'inventory.all_branches']);
         $this->withToken($this->token($adjuster))->postJson("/api/v1/admin/customers/{$customer->id}/wallet/adjustments", [
             'kind' => 'adjustment', 'amount' => 25, 'direction' => 'credit', 'reason' => 'تسوية',
         ])->assertStatus(422); // Idempotency-Key required
@@ -179,6 +180,18 @@ class FinanceWalletTest extends TestCase
         $reversal = WalletAdjustment::query()->where('reverses_id', $adjId)->firstOrFail();
         $this->assertSame($adjId, $reversal->reverses_id);
         $this->assertSame(50.0, (float) $customer->fresh()->wallet_balance);
+    }
+
+    public function test_branch_wallet_adjustments_require_central_access(): void
+    {
+        $customer = Customer::factory()->create();
+        $branchStaff = $this->staff(['customers.wallet.adjust']);
+        $branchStaff->update(['branch_id' => Branch::factory()->create()->id]);
+
+        $this->withToken($this->token($branchStaff))->postJson("/api/v1/admin/customers/{$customer->id}/wallet/adjustments", [
+            'kind' => 'adjustment', 'amount' => 25, 'direction' => 'credit', 'reason' => 'تسوية',
+        ], ['Idempotency-Key' => 'wallet-branch-denied'])->assertForbidden();
+        $this->assertSame(0.0, (float) $customer->fresh()->wallet_balance);
     }
 
     public function test_wallet_ledger_is_immutable(): void

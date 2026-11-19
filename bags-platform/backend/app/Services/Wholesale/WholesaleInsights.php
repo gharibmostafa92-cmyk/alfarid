@@ -67,11 +67,13 @@ final class WholesaleInsights
         $rows = DB::table('orders')
             ->selectRaw('customer_id, count(*) as orders_count, max(created_at) as last_order, min(created_at) as first_order')
             ->whereNotNull('customer_id')
+            ->whereIn('customer_id', Customer::query()->commercial()->where('status', 'approved')->select('id'))
             ->whereNotIn('status', ['cancelled', 'draft'])
             ->groupBy('customer_id')
             ->havingRaw('count(*) >= 2')
             ->limit(100)
             ->get();
+        $customers = Customer::query()->whereIn('id', $rows->pluck('customer_id'))->get(['id', 'name', 'company_name'])->keyBy('id');
         $out = [];
         foreach ($rows as $row) {
             $span = max(1, (int) now()->parse($row->first_order)->diffInDays(now()->parse($row->last_order)));
@@ -81,7 +83,7 @@ final class WholesaleInsights
             if ($since < $average) {
                 continue;
             }
-            $customer = Customer::query()->find($row->customer_id);
+            $customer = $customers->get($row->customer_id);
             $out[] = [
                 'customer_id' => (int) $row->customer_id,
                 'customer' => $customer?->company_name ?: $customer?->name,

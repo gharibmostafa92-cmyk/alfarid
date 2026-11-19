@@ -81,6 +81,15 @@ class TaskTxtNoticeDedupTest extends TestCase
         $this->assertDatabaseCount('treasury_transactions', 0);
     }
 
+    public function test_reference_identity_matches_database_normalization(): void
+    {
+        $this->submit(['reference_number' => 'REF-123'])->assertCreated();
+        $this->submit(['reference_number' => 'REF 123', 'receipt' => UploadedFile::fake()->image('normalized.jpg', 200, 200)])
+            ->assertConflict();
+
+        $this->assertSame(1, \App\Models\WholesalePaymentNotice::query()->count());
+    }
+
     public function test_reference_block_persists_after_reject_while_receipt_check_differs(): void
     {
         // Documents the pending-unification split: the per-trader reference

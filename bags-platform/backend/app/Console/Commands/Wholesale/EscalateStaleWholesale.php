@@ -41,7 +41,11 @@ class EscalateStaleWholesale extends Command
         }
         $day = now((string) config('app.business_timezone', 'Africa/Cairo'))->toDateString();
         $message = "تصعيد: {$quotes} عروض تجاوزت {$quoteHours} ساعة، و{$notices} إشعارات تجاوزت {$noticeHours} ساعة.";
-        $recipients = StaffRecipients::withAnyPermission(['quotations.price']);
+        $permissions = array_values(array_filter([
+            $quotes > 0 ? 'quotations.price' : null,
+            $notices > 0 ? 'payment_notices.approve' : null,
+        ]));
+        $recipients = StaffRecipients::withAnyPermission($permissions);
         if ($recipients->isNotEmpty()) {
             Notification::send($recipients, new WholesaleDeskNotification('wholesale_escalation', $message, []));
         }

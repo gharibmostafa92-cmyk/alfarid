@@ -22,12 +22,13 @@ class MarkWholesaleOverdue extends Command
     public function handle(): int
     {
         $marked = 0;
+        $businessToday = now((string) config('app.business_timezone', 'Africa/Cairo'))->startOfDay();
         Order::query()
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
             ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
-            ->where('due_at', '<', now()->startOfDay())
+            ->where('due_at', '<', $businessToday)
             ->orderBy('id')
             ->each(function (Order $order) use (&$marked): void {
                 $due = $order->due_at?->toDateString() ?? '';

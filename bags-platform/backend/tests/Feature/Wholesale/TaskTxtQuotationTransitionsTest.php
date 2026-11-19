@@ -94,6 +94,10 @@ class TaskTxtQuotationTransitionsTest extends TestCase
         $requested = $this->draft();
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$requested->id}/submit")->assertOk();
         $this->price($requested->id)->assertOk()->assertJsonPath('data.status', 'priced_by_admin');
+        $this->assertDatabaseHas('staff_audit_logs', [
+            'actor_id' => User::query()->whereHas('roles', fn ($query) => $query->where('name', 'Super Admin'))->value('id'),
+            'action' => 'quotation.priced', 'target_type' => 'quotation', 'target_id' => $requested->id,
+        ]);
 
         $rejectable = $this->draft();
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$rejectable->id}/submit")->assertOk();
@@ -168,5 +172,39 @@ class TaskTxtQuotationTransitionsTest extends TestCase
         $extended = $service->extendValidity($requested->fresh(), now()->addDays(10)->toDateString());
         $this->assertSame(QuotationStatus::PricedByAdmin, $extended->status);
         $this->assertSame(now()->addDays(10)->toDateString(), $extended->valid_until->toDateString());
+    }
+
+    public function test_reject_rechecks_locked_state_instead_of_overwriting_a_stale_conversion(): void
+    {
+        $quotation = $this->draft();
+        $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$quotation->id}/submit")->assertOk();
+        $this->price($quotation->id)->assertOk();
+        $stale = $quotation->fresh();
+        $quotation->update(['status' => QuotationStatus::ConvertedToOrder]);
+
+        try {
+            app(QuotationService::class)->reject($stale);
+            $this->fail('A stale rejection must not overwrite a completed conversion.');
+        } catch (BusinessException) {
+            $this->assertSame(QuotationStatus::ConvertedToOrder, $quotation->fresh()->status);
+        }
+    }
+
+    public function test_expire_rechecks_locked_validity_instead_of_overwriting_an_extension(): void
+    {
+        $quotation = $this->draft();
+        $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$quotation->id}/submit")->assertOk();
+        $this->price($quotation->id)->assertOk();
+        $quotation->update(['valid_until' => now()->subDay()->toDateString()]);
+        $stale = $quotation->fresh();
+        $quotation->update(['valid_until' => now()->addDays(15)->toDateString()]);
+
+        try {
+            app(QuotationService::class)->expire($stale);
+            $this->fail('A stale expiry must not overwrite a later validity extension.');
+        } catch (BusinessException) {
+            $this->assertSame(QuotationStatus::PricedByAdmin, $quotation->fresh()->status);
+            $this->assertSame(now()->addDays(15)->toDateString(), $quotation->fresh()->valid_until->toDateString());
+        }
     }
 }

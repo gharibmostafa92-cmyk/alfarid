@@ -67,6 +67,15 @@ class TaskTxtReceiptMatchScorerTest extends TestCase
         ])['score']);
     }
 
+    public function test_impossible_calendar_dates_are_ignored_without_throwing(): void
+    {
+        $result = (new ReceiptMatchScorer())->score($this->stated(), [
+            'amount' => '1.00', 'reference' => 'nope', 'date' => '2026-02-31', 'bank' => 'zzz',
+        ]);
+        $this->assertSame(0.0, $result['score']);
+        $this->assertNull($result['ocr']['date']);
+    }
+
     public function test_injection_text_is_wrapped_as_untrusted_and_score_never_exceeds_100(): void
     {
         $scorer = new ReceiptMatchScorer();

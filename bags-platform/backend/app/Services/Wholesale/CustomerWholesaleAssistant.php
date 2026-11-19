@@ -16,7 +16,6 @@ use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\GeminiClient;
 use App\Services\Shared\SearchTerm;
-use App\Services\Shared\SettingService;
 use App\Services\Shared\SpokenQuantity;
 use App\Support\ArabicDigits;
 use Illuminate\Http\UploadedFile;
@@ -40,7 +39,6 @@ final class CustomerWholesaleAssistant
     public function __construct(
         private QuotationService $quotations,
         private WholesalePaymentNoticeService $notices,
-        private SettingService $settings,
         private WholesaleOutbox $outbox,
         private WholesaleQuickOrderService $quickOrder,
         private GeminiClient $gemini,
@@ -78,7 +76,7 @@ final class CustomerWholesaleAssistant
 
         $receipt = $this->parseReceiptText($text);
         if ($receipt !== null) {
-            return 'سجلت تحويل '.$receipt['amount'].' مرجع '.$receipt['reference'].($receipt['bank'] !== '' ? ' ('.$receipt['bank'].')' : '').'. أربطه بأقرب طلب؟ [تأكيد] [على الحساب]';
+            return 'فهمت بيانات التحويل: '.$receipt['amount'].' مرجع '.$receipt['reference'].($receipt['bank'] !== '' ? ' ('.$receipt['bank'].')' : '').'. لم يتم تسجيل أو اعتماد التحويل. ارفع الإيصال من بوابة الجملة لمراجعته.';
         }
 
         // Route price negotiations and rep requests to human sales reps.
@@ -183,9 +181,7 @@ final class CustomerWholesaleAssistant
             'verification_attempts' => 0,
         ])->save();
         $payload = ['channel_id' => $channel->id, 'expires_at' => $channel->verification_expires_at->timestamp];
-        if (! $this->settings->getBool('ai_wholesale_shadow_mode', true)) {
-            $payload['code'] = $code;
-        }
+        $payload['code'] = $code;
         $this->outbox->queue(
             'customer-otp:'.$channel->id.':'.$channel->verification_expires_at->timestamp,
             'customer_whatsapp',
@@ -238,20 +234,23 @@ final class CustomerWholesaleAssistant
         $statement = $this->notices->statement($customer);
         $count = count($statement['entries'] ?? []);
 
-        return 'كشف الحساب فيه '.$count.' حركة. PDF الكشف: /api/v1/wholesale/statement';
+        return 'كشف الحساب فيه '.$count.' حركة. افتح كشف الحساب من بوابة الجملة لتنزيل نسخة PDF.';
     }
 
     private function invoice(Customer $customer, string $text): string
     {
-        $number = ArabicDigits::normalize(trim(str_replace('فاتورة', '', $text)));
-        $order = Order::query()->where('customer_id', $customer->id)
-            ->where(fn ($q) => $q->where('order_number', $number)->orWhere('id', (int) $number))
-            ->first();
+        $number = trim(preg_replace('/^فاتورة\s*/u', '', $text) ?? '');
+        $normalizedNumber = ArabicDigits::normalize($number);
+        $orderQuery = Order::query()->where('customer_id', $customer->id)->where('order_number', $normalizedNumber);
+        if (preg_match('/\A[0-9]+\z/', $normalizedNumber) === 1) {
+            $orderQuery->orWhere(fn ($query) => $query->where('customer_id', $customer->id)->whereKey((int) $normalizedNumber));
+        }
+        $order = $orderQuery->first();
         if ($order === null) {
             return 'الفاتورة مش موجودة على الحساب ده.';
         }
 
-        return 'فاتورة '.$order->order_number.' جاهزة من بوابة الجملة. PDF: /api/v1/wholesale/invoices/'.$order->id.'/pdf';
+        return 'الفاتورة '.$order->order_number.' جاهزة. افتح قسم الفواتير في بوابة الجملة لتنزيل نسخة PDF.';
     }
 
     private function needsHandoff(string $text): bool

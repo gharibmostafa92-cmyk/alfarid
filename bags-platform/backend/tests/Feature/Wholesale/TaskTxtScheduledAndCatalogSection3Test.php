@@ -329,7 +329,7 @@ class TaskTxtScheduledAndCatalogSection3Test extends TestCase
     {
         $product = Product::factory()->create(['status' => 'published', 'sales_channel' => SalesChannel::Both]);
         $variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
-        $variant->update(['sku' => 'SKU-QO-MERGE', 'retail_price' => 200, 'wholesale_price' => 140, 'is_active' => true]);
+        $variant->update(['sku' => 'SKU-QO-MERGE', 'barcode' => 'BAR-QO-MERGE', 'retail_price' => 200, 'wholesale_price' => 140, 'is_active' => true]);
 
         DB::table('stock_levels')->insert([
             'branch_id' => $this->branch->id,
@@ -361,6 +361,11 @@ class TaskTxtScheduledAndCatalogSection3Test extends TestCase
         $this->assertEmpty($report2['added']);
         $this->assertCount(1, $report2['skipped']);
         $this->assertSame('insufficient_stock', $report2['skipped'][0]['reason']);
+
+        $lowercase = $quickOrder->importToCart($this->trader, [['sku' => 'sku-qo-merge', 'qty' => 1]]);
+        $this->assertCount(1, $lowercase['added']);
+        $barcode = $quickOrder->lookup($this->trader, [['sku' => '', 'barcode' => 'BAR-QO-MERGE', 'qty' => 1]]);
+        $this->assertTrue($barcode[0]['found']);
 
         // 3. Reorder a historical order where the item was bought at old price (90.00), while today's wholesale_price is 140.00
         $historicalOrder = Order::create([

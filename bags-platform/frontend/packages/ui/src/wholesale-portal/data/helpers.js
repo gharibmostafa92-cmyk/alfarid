@@ -1,6 +1,10 @@
 import { signedAttachmentUrl, allPages } from '@alfarid/api-client';
 
-export const num = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
+export const num = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const parsed = Number(v);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 const cairoCalendar = new Intl.DateTimeFormat('en', {
   timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
 });
@@ -42,7 +46,7 @@ export function apiError(e) {
 export async function saveBlob(promise, fallbackName) {
   const res = await promise;
   const signedUrl = await signedAttachmentUrl(res);
-  if (signedUrl) {
+  if (typeof signedUrl === 'string' && (/^https?:\/\//i.test(signedUrl) || (signedUrl.startsWith('/') && !signedUrl.startsWith('//')))) {
     const link = document.createElement('a');
     link.href = signedUrl;
     link.rel = 'noreferrer';

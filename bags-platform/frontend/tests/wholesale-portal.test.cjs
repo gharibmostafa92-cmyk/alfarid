@@ -24,6 +24,17 @@ function load(relative) {
 
 const root = 'packages/ui/src/wholesale-portal/data/';
 const mappers = load(`${root}mappers.js`);
+const helpers = load(`${root}helpers.js`);
+
+test('invalid numeric API values and empty cart totals stay safe', () => {
+  assert.equal(helpers.num('not-a-number'), null);
+  const cart = mappers.mapCart({ id: 4, items: [], totals: null });
+  assert.equal(cart.lines.length, 0);
+  assert.deepEqual(cart.totals, {
+    subtotal: null, pricing_discount: null, items_total: null,
+    coupon_discount: null, total: null, coupon_code: null,
+  });
+});
 
 test('invoice money is normalized before rendering and keeps the server invoice number', () => {
   const invoice = mappers.mapInvoice({ id: 72, invoice_number: 'INV-72', order_number: 'ORD-72',

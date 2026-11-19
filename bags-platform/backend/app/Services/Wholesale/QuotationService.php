@@ -9,6 +9,7 @@ use App\Services\Orders\OrderService;
 use App\Services\Pricing\PricingService;
 use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
+use App\Services\Auth\StaffAdministration;
 
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Wholesale\QuotationSource;
@@ -20,6 +21,7 @@ use App\Events\Wholesale\QuotationPriced;
 use App\Events\Wholesale\QuotationSubmitted;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\ProductVariant;
@@ -82,11 +84,11 @@ class QuotationService
      */
     public function update(Quotation $quotation, array $data): Quotation
     {
-        if ($quotation->status !== QuotationStatus::Draft) {
-            throw new BusinessException('لا يمكن تعديل عرض السعر إلا وهو مسودة.');
-        }
-
         return DB::transaction(function () use ($quotation, $data): Quotation {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+            if ($quotation->status !== QuotationStatus::Draft) {
+                throw new BusinessException('لا يمكن تعديل عرض السعر إلا وهو مسودة.');
+            }
             $quotation->update([
                 'customer_notes' => array_key_exists('customer_notes', $data) ? $data['customer_notes'] : $quotation->customer_notes,
             ]);
@@ -112,11 +114,11 @@ class QuotationService
      */
     public function deleteDraft(Quotation $quotation): void
     {
-        if ($quotation->status !== QuotationStatus::Draft) {
-            throw new BusinessException('لا يمكن حذف عرض السعر إلا وهو مسودة.');
-        }
-
         DB::transaction(function () use ($quotation): void {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+            if ($quotation->status !== QuotationStatus::Draft) {
+                throw new BusinessException('لا يمكن حذف عرض السعر إلا وهو مسودة.');
+            }
             $quotation->items()->delete();
             $quotation->delete();
         });
@@ -132,18 +134,20 @@ class QuotationService
      */
     public function submit(Quotation $quotation): Quotation
     {
-        if ($quotation->status !== QuotationStatus::Draft) {
-            throw new BusinessException('لا يمكن إرسال عرض السعر إلا من حالة المسودة.');
-        }
+        return DB::transaction(function () use ($quotation): Quotation {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+            if ($quotation->status !== QuotationStatus::Draft) {
+                throw new BusinessException('لا يمكن إرسال عرض السعر إلا من حالة المسودة.');
+            }
+            if ($quotation->items()->count() === 0) {
+                throw new BusinessException('لا يمكن إرسال عرض سعر بلا بنود.');
+            }
+            $quotation->update(['status' => QuotationStatus::Requested]);
+            $quotation = $quotation->load('items.variant.product');
+            DB::afterCommit(fn () => QuotationSubmitted::dispatch($quotation));
 
-        if ($quotation->items()->count() === 0) {
-            throw new BusinessException('لا يمكن إرسال عرض سعر بلا بنود.');
-        }
-
-        $quotation->update(['status' => QuotationStatus::Requested]);
-        QuotationSubmitted::dispatch($quotation);
-
-        return $quotation->load('items.variant.product');
+            return $quotation;
+        });
     }
 
     /**
@@ -168,6 +172,10 @@ class QuotationService
                 throw new BusinessException('لا يمكن تسعير عرض السعر إلا بعد إرساله من التاجر.');
             }
 
+            $before = ['status' => $quotation->status->value, 'valid_until' => $quotation->valid_until?->toDateString(),
+                'discount_amount' => $quotation->discount_amount, 'tax_amount' => $quotation->tax_amount,
+                'grand_total' => $quotation->grand_total,
+                'offered_unit_price' => $quotation->items()->orderBy('id')->pluck('offered_unit_price')->all()];
             foreach ($data['items'] ?? [] as $row) {
                 $item = $quotation->items()->whereKey($row['id'])->first();
 
@@ -198,7 +206,14 @@ class QuotationService
 
             $this->recalculate($quotation);
             $quotation = $quotation->load('items.variant.product');
-            QuotationPriced::dispatch($quotation);
+            $after = ['status' => $quotation->status->value, 'valid_until' => $quotation->valid_until?->toDateString(),
+                'discount_amount' => $quotation->discount_amount, 'tax_amount' => $quotation->tax_amount,
+                'grand_total' => $quotation->grand_total,
+                'offered_unit_price' => $quotation->items->pluck('offered_unit_price')->all()];
+            StaffAdministration::audit(isset($data['priced_by']) ? User::query()->find((int) $data['priced_by']) : null,
+                'quotation.priced', 'quotation', $quotation->id,
+                ['status', 'valid_until', 'discount_amount', 'tax_amount', 'grand_total', 'offered_unit_price'], $before, $after);
+            DB::afterCommit(fn () => QuotationPriced::dispatch($quotation));
 
             return $quotation;
         });
@@ -215,19 +230,14 @@ class QuotationService
      *
      * @throws BusinessException If quotation is expired, unpriced, or breaches customer credit limit.
      */
-    public function accept(Quotation $quotation): Quotation
+    public function accept(Quotation $quotation, ?int $addressId = null): Quotation
     {
         if ($quotation->status !== QuotationStatus::PricedByAdmin) {
             throw new BusinessException('لا يمكن قبول عرض السعر إلا بعد تسعير الإدارة له.');
         }
 
-        if ($quotation->valid_until !== null && $quotation->valid_until->lt(now()->startOfDay())) {
-            $quotation->update(['status' => QuotationStatus::Expired]);
-
-            throw new BusinessException('انتهت صلاحية عرض السعر هذا.');
-        }
-
-        return DB::transaction(function () use ($quotation): Quotation {
+        $expired = false;
+        $accepted = DB::transaction(function () use ($quotation, $addressId, &$expired): ?Quotation {
             // Re-fetch the row under a write lock and re-verify state inside the
             // transaction so two concurrent accepts serialize: the loser sees the
             // updated status instead of converting a second order.
@@ -237,14 +247,30 @@ class QuotationService
                 throw new BusinessException('لا يمكن قبول عرض السعر إلا بعد تسعير الإدارة له.');
             }
 
-            if ($quotation->valid_until !== null && $quotation->valid_until->lt(now()->startOfDay())) {
+            if ($quotation->valid_until !== null && $quotation->valid_until->lt(now((string) config('app.business_timezone', 'Africa/Cairo'))->startOfDay())) {
                 $quotation->update(['status' => QuotationStatus::Expired]);
+                $quotation = $quotation->load('items.variant.product');
+                $expired = true;
+                DB::afterCommit(fn () => QuotationExpired::dispatch($quotation));
 
-                throw new BusinessException('انتهت صلاحية عرض السعر هذا.');
+                return null;
             }
 
             $quotation->loadMissing(['customer', 'items.variant.product']);
             $customer = $quotation->customer;
+            $addressQuery = CustomerAddress::query()->where('customer_id', $customer->id);
+            $address = $addressId !== null
+                ? $addressQuery->whereKey($addressId)->first()
+                : $addressQuery->where('is_default', true)->orderBy('id')->first();
+            if ($address === null) {
+                throw new BusinessException('أضف عنوان توصيل افتراضي أو اختر عنوانًا قبل قبول عرض السعر.');
+            }
+            $addressParts = array_filter([
+                trim($address->address_line),
+                $address->building_no ? 'مبنى '.$address->building_no : null,
+                $address->floor_no ? 'دور '.$address->floor_no : null,
+                $address->apartment_no ? 'شقة '.$address->apartment_no : null,
+            ]);
 
             // Lock customer account row to serialize concurrent order placements and prevent credit limit race conditions.
             Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
@@ -266,6 +292,8 @@ class QuotationService
                 'guest_phone' => $customer->phone,
                 'guest_phone_normalized' => Customer::normalizePhone((string) $customer->phone),
                 'guest_email' => $customer->email,
+                'city_id' => $address->city_id,
+                'shipping_address_line' => implode(', ', $addressParts),
                 'status' => OrderStatus::Pending,
                 'payment_method' => 'credit',
                 'payment_status' => 'unpaid',
@@ -291,7 +319,9 @@ class QuotationService
                     'unit_price' => $item->offered_unit_price,
                     'discount_amount' => $discountShares[$i],
                     'tax_amount' => $taxShares[$i],
-                    'line_total' => $item->line_total,
+                    // OrderItem::line_total is the line value after discounts;
+                    // tax remains separately tracked in tax_amount.
+                    'line_total' => max(0, round((float) $item->line_total - (float) $discountShares[$i], 2)),
                 ]);
             }
 
@@ -315,11 +345,17 @@ class QuotationService
                 'converted_order_id' => $order->id,
             ]);
 
-            OrderCreated::dispatch($order->fresh());
-            QuotationAccepted::dispatch($quotation);
+            DB::afterCommit(fn () => OrderCreated::dispatch($order->fresh()));
+            DB::afterCommit(fn () => QuotationAccepted::dispatch($quotation));
 
             return $quotation->load(['items.variant.product', 'convertedOrder']);
         });
+
+        if ($expired) {
+            throw new BusinessException('انتهت صلاحية عرض السعر هذا.');
+        }
+
+        return $accepted ?? throw new BusinessException('تعذر قبول عرض السعر.');
     }
 
     /**
@@ -344,13 +380,15 @@ class QuotationService
      */
     public function reject(Quotation $quotation): Quotation
     {
-        if (! in_array($quotation->status, [QuotationStatus::Requested, QuotationStatus::PricedByAdmin], true)) {
-            throw new BusinessException('لا يمكن رفض عرض السعر في حالته الحالية.');
-        }
+        return DB::transaction(function () use ($quotation): Quotation {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+            if (! in_array($quotation->status, [QuotationStatus::Requested, QuotationStatus::PricedByAdmin], true)) {
+                throw new BusinessException('لا يمكن رفض عرض السعر في حالته الحالية.');
+            }
+            $quotation->update(['status' => QuotationStatus::Rejected]);
 
-        $quotation->update(['status' => QuotationStatus::Rejected]);
-
-        return $quotation->load('items.variant.product');
+            return $quotation->load('items.variant.product');
+        });
     }
 
     /**
@@ -363,18 +401,20 @@ class QuotationService
      */
     public function expire(Quotation $quotation): Quotation
     {
-        if ($quotation->status !== QuotationStatus::PricedByAdmin) {
-            throw new BusinessException('لا يمكن إنهاء صلاحية عرض السعر إلا بعد تسعيره.');
-        }
+        return DB::transaction(function () use ($quotation): Quotation {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+            if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+                throw new BusinessException('لا يمكن إنهاء صلاحية عرض السعر إلا بعد تسعيره.');
+            }
+            if ($quotation->valid_until !== null && $quotation->valid_until->gte(now((string) config('app.business_timezone', 'Africa/Cairo'))->startOfDay())) {
+                throw new BusinessException('عرض السعر ما زال ساري الصلاحية.');
+            }
+            $quotation->update(['status' => QuotationStatus::Expired]);
+            $quotation = $quotation->load('items.variant.product');
+            DB::afterCommit(fn () => QuotationExpired::dispatch($quotation));
 
-        if ($quotation->valid_until !== null && $quotation->valid_until->gte(now()->startOfDay())) {
-            throw new BusinessException('عرض السعر ما زال ساري الصلاحية.');
-        }
-
-        $quotation->update(['status' => QuotationStatus::Expired]);
-        QuotationExpired::dispatch($quotation);
-
-        return $quotation->load('items.variant.product');
+            return $quotation;
+        });
     }
 
     /**
@@ -384,18 +424,21 @@ class QuotationService
      */
     public function extendValidity(Quotation $quotation, string $validUntil): Quotation
     {
-        if ($quotation->status !== QuotationStatus::PricedByAdmin) {
-            throw new BusinessException('لا يمكن تمديد الصلاحية إلا لعرض مسعّر.');
-        }
-
-        $date = Carbon::parse($validUntil)->startOfDay();
-        if ($date->lt(now()->startOfDay())) {
+        $timezone = (string) config('app.business_timezone', 'Africa/Cairo');
+        $date = Carbon::parse($validUntil, $timezone)->startOfDay();
+        if ($date->lt(now($timezone)->startOfDay())) {
             throw new BusinessException('تاريخ الصلاحية لازم يكون النهارده أو بعد كده.');
         }
 
-        $quotation->update(['valid_until' => $date->toDateString()]);
+        return DB::transaction(function () use ($quotation, $date): Quotation {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+            if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+                throw new BusinessException('لا يمكن تمديد الصلاحية إلا لعرض مسعّر.');
+            }
+            $quotation->update(['valid_until' => $date->toDateString()]);
 
-        return $quotation->fresh(['items.variant.product']);
+            return $quotation->fresh(['items.variant.product']);
+        });
     }
 
     /**
@@ -459,14 +502,17 @@ class QuotationService
         }
 
         $short = false;
-        foreach ($quotation->items as $item) {
-            $available = (float) StockLevel::query()
-                ->where('product_variant_id', $item->product_variant_id)
-                ->sum(DB::raw('COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)'));
-            if ($available + 0.00001 < (float) $item->qty) {
+        $requiredByVariant = $quotation->items->groupBy('product_variant_id')->map(fn ($items) => (float) $items->sum('qty'));
+        $availableByVariant = StockLevel::query()->whereIn('product_variant_id', $requiredByVariant->keys())
+            ->groupBy('product_variant_id')
+            ->selectRaw('product_variant_id, SUM(COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)) AS available')
+            ->pluck('available', 'product_variant_id');
+        foreach ($requiredByVariant as $variantId => $required) {
+            $available = (float) ($availableByVariant[$variantId] ?? 0);
+            if ($available + 0.00001 < $required) {
                 $short = true;
-                $sku = $item->variant?->sku ?? '#'.$item->product_variant_id;
-                $warnings[] = "الصنف {$sku} متاح منه ".number_format($available, 2, '.', '').' والمطلوب '.number_format((float) $item->qty, 2, '.', '').'. القبول هيفشل لو مفيش توريد.';
+                $sku = $quotation->items->firstWhere('product_variant_id', $variantId)?->variant?->sku ?? '#'.$variantId;
+                $warnings[] = "الصنف {$sku} متاح منه ".number_format($available, 2, '.', '').' والمطلوب '.number_format($required, 2, '.', '').'. القبول هيفشل لو مفيش توريد.';
             }
         }
         if ($short) {

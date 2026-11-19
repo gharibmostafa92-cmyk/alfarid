@@ -42,8 +42,9 @@ class WholesaleQuickOrderService
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
 
         return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx): array {
-            $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
-            $variant = $variants->get($code);
+            $sku = trim((string) ($line['sku'] ?? ''));
+            $code = $sku !== '' ? $sku : trim((string) ($line['barcode'] ?? ''));
+            $variant = $variants->get($sku !== '' ? mb_strtoupper($sku) : $code);
             $qty = (float) $line['qty'];
 
             if ($variant === null) {
@@ -88,7 +89,7 @@ class WholesaleQuickOrderService
         // Consolidate duplicate codes within the input before running stock availability checks.
         $merged = [];
         foreach ($rows as $row) {
-            $sku = trim((string) $row['sku']);
+            $sku = mb_strtoupper(trim((string) $row['sku']));
             if ($sku === '') {
                 continue;
             }
@@ -209,7 +210,7 @@ class WholesaleQuickOrderService
      */
     private function findVariants(array $lines): Collection
     {
-        $skus = collect($lines)->pluck('sku')->filter()->unique()->all();
+        $skus = collect($lines)->pluck('sku')->filter()->map(fn ($sku) => mb_strtoupper(trim((string) $sku)))->unique()->values()->all();
         $barcodes = collect($lines)->pluck('barcode')->filter()->unique()->all();
 
         if ($skus === [] && $barcodes === []) {
@@ -221,7 +222,7 @@ class WholesaleQuickOrderService
             ->whereHas('product', fn ($q) => $q->where('status', 'published'))
             ->where(function ($q) use ($skus, $barcodes): void {
                 if ($skus !== []) {
-                    $q->orWhereIn('sku', $skus);
+                    $q->orWhereRaw('upper(sku) IN ('.implode(',', array_fill(0, count($skus), '?')).')', $skus);
                 }
                 if ($barcodes !== []) {
                     $q->orWhereIn('barcode', $barcodes);
@@ -231,7 +232,7 @@ class WholesaleQuickOrderService
 
         $map = collect();
         foreach ($variants as $variant) {
-            $map->put($variant->sku, $variant);
+            $map->put(mb_strtoupper($variant->sku), $variant);
             if ($variant->barcode !== null && $variant->barcode !== '') {
                 $map->put($variant->barcode, $variant);
             }

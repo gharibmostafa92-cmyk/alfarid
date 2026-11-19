@@ -21,10 +21,9 @@ return new class extends Migration
             ->chunkById(500, function ($rows): void {
                 DB::transaction(function () use ($rows): void {
                     DB::statement("SET LOCAL lock_timeout = '5s'");
-                    DB::statement('ALTER TABLE customer_wallet_transactions DISABLE TRIGGER wallet_immutable');
+                    DB::statement("SET LOCAL app.migration_bypass_immutable = 'on'");
                     DB::table('customer_wallet_transactions')->whereIn('id', $rows->pluck('id'))
                         ->where('type', 'opening')->update(['type' => 'adjustment']);
-                    DB::statement('ALTER TABLE customer_wallet_transactions ENABLE TRIGGER wallet_immutable');
                 });
             });
     }

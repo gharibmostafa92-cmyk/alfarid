@@ -20,9 +20,7 @@ return new class extends Migration
             ->chunkById(500, function ($rows): void {
                 DB::transaction(function () use ($rows): void {
                     DB::statement("SET LOCAL lock_timeout = '5s'");
-                    // Keep each write lock bounded to one batch. The guard is
-                    // enabled again before any other transaction can write.
-                    DB::statement('ALTER TABLE customer_wallet_transactions DISABLE TRIGGER wallet_immutable');
+                    DB::statement("SET LOCAL app.migration_bypass_immutable = 'on'");
                     DB::update(<<<'SQL'
 UPDATE customer_wallet_transactions
 SET type = CASE
@@ -34,7 +32,6 @@ SET type = CASE
 END
 WHERE id BETWEEN ? AND ? AND (type IS NULL OR type = '')
 SQL, [$rows->first()->id, $rows->last()->id]);
-                    DB::statement('ALTER TABLE customer_wallet_transactions ENABLE TRIGGER wallet_immutable');
                 });
             });
 

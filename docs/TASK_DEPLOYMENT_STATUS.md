@@ -1,11 +1,19 @@
 # task.txt — Deployment Status
 
 Source roadmap: `_archive_unused/tasks_execution/task.txt`
-Live Cloud Run revisions and the current audit are in [Task execution audit](TASKS_EXECUTION_AUDIT.md).
-Last deployed commit: `25ee590` (see `docs/.last-deployed`)
-Date: 2026-11-12
-Branch: `fixes/task-audit-roadmap` (unpushed; working tree has local roadmap fixes that are not deployed)
-Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes below resolve to the `started` bundles `repomix-system-kernel.xml`, `repomix-system-overview.xml`, `repomix-database-schema.xml` (regenerated 2026-11-11); backoffice UI files live in `repomix-subsystem-09-security-backoffice.xml`. The release checklist (migrations/env/queue/scheduler/build) is in [Task execution audit](TASKS_EXECUTION_AUDIT.md#deployed-vs-pending-deployment-2026-11-11).
+Status date: 2026-11-15
+Last deployed commit evidence: `25ee590` (`docs/.last-deployed`). This marker was not checked against live Cloud Run during this task.
+Current work: local only on `codex/complete-task-txt` in the Codex worktree; no server upload or deployment has been performed. All F01–F18 changes remain pending review and deployment.
+Repomix: this worktree currently has no `repomix/outputs/started` bundles and none of the configs targets `started`. The one requested started-sync run will be recorded below.
+The release checklist (migrations/env/queue/scheduler/build) and historical deployment notes are in [Task execution audit](TASKS_EXECUTION_AUDIT.md).
+
+## Current task.txt roadmap (local only)
+
+- F01–F18 were re-audited against the selected current source file and implemented or verified in this worktree. See `.superpowers/sdd/task.txt/progress.md` for red/green evidence and `.superpowers/sdd/task.txt/todo.md` for the completion checklist.
+- Deployment state: pending; no migration or code was applied to a production server.
+- New migration `2026_11_15_000001_allow_transaction_scoped_wallet_backfill_bypass.php` must be rehearsed on a disposable/staging database before any future deployment. It has not been run against production.
+
+## Historical deployment notes (superseded status snapshots follow)
 
 ## 1. Already Deployed on Server / Cloud
 

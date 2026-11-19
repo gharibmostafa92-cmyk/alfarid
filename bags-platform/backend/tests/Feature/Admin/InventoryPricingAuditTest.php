@@ -195,6 +195,9 @@ class InventoryPricingAuditTest extends TestCase
         $item = $this->api('POST', "price-lists/{$list->id}/items", [
             'product_variant_id' => $variant->id, 'price' => 10,
         ])->assertCreated()->assertJsonPath('data.min_qty', '1.0000')->json('data.id');
+        $this->assertDatabaseHas('staff_audit_logs', [
+            'actor_id' => $this->staff->id, 'action' => 'price_list_item.created', 'target_type' => 'price_list_item', 'target_id' => $item,
+        ]);
         $this->api('GET', "price-lists/{$other->id}/items/{$item}")->assertNotFound();
         $this->api('PATCH', "price-lists/{$other->id}/items/{$item}", ['price' => 1])->assertNotFound();
         $this->api('DELETE', "price-lists/{$other->id}/items/{$item}")->assertNotFound();

@@ -627,6 +627,7 @@ export const Checkout = () => {
     } catch (err) {
       const info = apiError(err);
       if (info.code === 'price_changed') {
+        idemKey.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
         setPrevTotal(preview.grand_total);
         try {
           const r = mapShippingOptions(await checkoutEndpoints.shippingOptions({ city_id: Number(f.city_id), payment_method: pay }, null));
@@ -637,6 +638,9 @@ export const Checkout = () => {
         setCreditErr(info.message);
         setStep('form');
       } else {
+        if (Object.keys(info.fields).length > 0) {
+          idemKey.current = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+        }
         setErrs(mapFieldErrors(info.fields));
         if (!Object.keys(info.fields).length) toast(info.message);
         setStep('form');

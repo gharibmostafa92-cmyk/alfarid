@@ -142,11 +142,15 @@ class ProductController extends Controller
 
         /** @var Customer $customer */
         $customer = $request->user();
-        $rows = $this->priceList->rows($customer);
-
         if ($validated['format'] === 'xlsx') {
+            $rows = $this->priceList->rows($customer);
             return Excel::download(new WholesalePriceListExport($rows), 'price-list.xlsx');
         }
+
+        if ($this->priceList->activeVariantCount() > 1500) {
+            throw new BusinessException('قائمة الأسعار كبيرة لتصدير PDF؛ اختر Excel للتصدير الكامل.');
+        }
+        $rows = $this->priceList->rows($customer);
 
         $validUntil = now()->addDays(30);
 

@@ -26,13 +26,19 @@ final class SpokenQuantity
         'تمانين' => 80, 'تسعين' => 90, 'ميه' => 100, 'ميت' => 100,
         'مايه' => 100, 'مائه' => 100, 'ميتين' => 200, 'الف' => 1000, 'دسته' => 12,
         'دستة' => 12, 'دست' => 12,
+        'تلتميه' => 300, 'ثلاثميه' => 300, 'ثلاثمائه' => 300,
+        'ربعميه' => 400, 'اربعمائه' => 400, 'خمسميه' => 500, 'خمسمائه' => 500,
+        'ستميه' => 600, 'ستمائه' => 600, 'سبعميه' => 700, 'سبعمائه' => 700,
+        'تمنميه' => 800, 'تمانميه' => 800, 'ثمانمائه' => 800,
+        'تسعميه' => 900, 'تسعمائه' => 900, 'الفين' => 2000, 'ألفين' => 2000,
+        'نص' => 0.5,
     ];
 
     /** @var list<string> Dozen spellings act as a ×12 multiplier, not an addition. */
     private const DOZENS = ['دسته', 'دستة', 'دست'];
 
     /** @var list<string> */
-    private const FILLER = ['قطعه', 'قطع', 'حبه', 'حبات', 'علبه', 'علب', 'كرتونه'];
+    private const FILLER = ['قطعه', 'قطعة', 'قطع', 'حبه', 'حبة', 'حبات', 'علبه', 'علبة', 'علب', 'كرتونه'];
 
     /**
      * Build regex alternation pattern for all spoken quantity and filler tokens.
@@ -57,7 +63,7 @@ final class SpokenQuantity
     {
         $normalized = ArabicDigits::normalize($text);
         $words = self::wordsPattern();
-        $cleaned = (string) preg_replace('/[\d.,]+|'.$words.'/u', '', $normalized);
+        $cleaned = (string) preg_replace('/(?<![A-Za-z0-9_-])[\d.,]+(?![A-Za-z0-9_-])|(?<!\p{L})(?:'.$words.')(?!\p{L})/u', '', $normalized);
 
         return trim((string) preg_replace('/\s+/u', ' ', $cleaned));
     }
@@ -84,6 +90,8 @@ final class SpokenQuantity
         if (isset(self::WORDS[$norm])) {
             return self::WORDS[$norm];
         }
+
+        $norm = str_replace(['احد عشر', 'اثنا عشر'], ['حداشر', 'اتناشر'], $norm);
 
         $spaced = str_replace(' و ', ' ', ' '.$norm.' ');
         $tokens = preg_split('/\s+/u', trim($spaced)) ?: [];

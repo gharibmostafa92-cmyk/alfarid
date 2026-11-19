@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Wholesale;
 
 use App\Enums\Wholesale\QuotationStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Wholesale\AcceptQuotationRequest;
 use App\Http\Requests\Wholesale\StoreQuotationRequest;
 use App\Http\Requests\Wholesale\UpdateQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;
@@ -72,9 +73,12 @@ class QuotationController extends Controller
         return (new QuotationResource($this->service->submit($this->ownQuotation($request, $quotation))))->response();
     }
 
-    public function accept(Request $request, int $quotation): JsonResponse
+    public function accept(AcceptQuotationRequest $request, int $quotation): JsonResponse
     {
-        return (new QuotationResource($this->service->accept($this->ownQuotation($request, $quotation))))->response();
+        return (new QuotationResource($this->service->accept(
+            $this->ownQuotation($request, $quotation),
+            $request->validated('address_id') === null ? null : (int) $request->validated('address_id'),
+        )))->response();
     }
 
     public function reject(Request $request, int $quotation): JsonResponse

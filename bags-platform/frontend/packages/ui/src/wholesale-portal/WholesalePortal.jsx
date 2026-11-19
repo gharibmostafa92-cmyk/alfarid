@@ -153,13 +153,20 @@ export function WholesalePortal({
   }, [forbidden, setCartState]);
 
   const addToCart = useCallback(async (lines) => {
+    let added = 0;
     try {
-      let last = null;
-      for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
-      if (last) setCartState(mapCart(last));
+      for (const l of lines) {
+        const updated = await cartEndpoints.add(l.variant_id, l.qty, null);
+        setCartState(mapCart(updated));
+        added++;
+      }
       toast('تمت الإضافة إلى سلة المشتريات بنجاح');
-    } catch (e) { toast(apiError(e).message); }
-  }, [toast, setCartState]);
+    } catch (e) {
+      await loadCart();
+      const message = apiError(e).message;
+      toast(added > 0 ? `تمت إضافة ${added} أصناف، وتعذرت إضافة الباقي: ${message}` : message);
+    }
+  }, [toast, setCartState, loadCart]);
 
   const applyCartResponse = useCallback((c) => {
     if (c) setCartState(mapCart(c));
