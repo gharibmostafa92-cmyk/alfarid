@@ -357,6 +357,8 @@ video {
     .theme-light {
       --bg-canvas: #f2eff3;
       --bg-card: #ffffff;
+      --header-surface: rgba(255, 255, 255, 0.84);
+      --nav-hover-bg: rgba(24, 21, 28, 0.05);
       --bg-subcard: #f5f2f6;
       --bg-subcard-hover: #ebe6ed;
       --seg-active-bg: #ffffff;
@@ -392,6 +394,8 @@ video {
     .theme-dark {
       --bg-canvas: #100d13;
       --bg-card: #17141a;
+      --header-surface: rgba(23, 20, 26, 0.84);
+      --nav-hover-bg: rgba(255, 255, 255, 0.07);
       --bg-subcard: #1c1920;
       --bg-subcard-hover: #25212a;
       --seg-active-bg: #26222c;
@@ -432,14 +436,26 @@ video {
     :host {
       margin: 0;
       padding: 0;
-      font-family: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: 'IBM Plex Sans Arabic', 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      font-feature-settings: "kern" 1, "liga" 1;
       background-color: var(--bg-canvas);
       color: var(--text-primary);
       overflow-x: clip;
     }
 
     h1, h2, h3, .font-display {
-      font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+      font-family: 'Cairo', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', 'Inter', sans-serif;
+    }
+
+    :host([dir="rtl"]) .v-shell-header,
+    [dir="rtl"] .v-shell-header {
+      font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Inter', system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+
+    [dir="rtl"] .v-shell-header .font-display {
+      font-family: 'Cairo', 'IBM Plex Sans Arabic', sans-serif;
+      letter-spacing: 0;
     }
 
     /* Live Theme Viewport & Underlay Snapshot for 100% True Circular Reveal */
@@ -1733,16 +1749,169 @@ video {
 }
 
 .v-touch-icon-btn {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 38px;
+  min-height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  transition: background-color 150ms ease, opacity 150ms ease, transform 100ms ease;
+  color: var(--text-primary);
+  transition: background-color 160ms ease, color 160ms ease, opacity 150ms ease, transform 100ms ease-out;
+}
+@media (hover: hover) and (pointer: fine) {
+  .v-touch-icon-btn:hover {
+    background-color: var(--nav-hover-bg);
+  }
 }
 .v-touch-icon-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.93);
+}
+.v-touch-icon-btn[aria-current="page"] {
+  background-color: var(--pill-active-bg);
+  color: var(--pill-active-text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.v-notif-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.v-notif-btn .v-notif-dot {
+  position: absolute;
+  top: 7px;
+  inset-inline-end: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background-color: var(--accent-orange);
+  box-shadow: 0 0 0 2px var(--bg-card);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), background-color 160ms ease;
+}
+.v-notif-btn:hover .v-notif-dot {
+  transform: scale(1.15);
+}
+.v-notif-btn[aria-current="page"] .v-notif-dot {
+  box-shadow: 0 0 0 2px var(--pill-active-bg);
+}
+
+.v-shell-header .v-pill-surface {
+  background-color: var(--header-surface);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.03);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .v-shell-header .v-pill-surface {
+    background-color: var(--bg-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+.v-header-storefront {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding-inline: 14px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-primary);
+  transition: background-color 160ms ease, transform 100ms ease-out, opacity 150ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .v-header-storefront:hover {
+    background-color: var(--bg-subcard);
+  }
+}
+.v-header-storefront:active {
+  transform: scale(0.96);
+}
+
+.v-nav-shell {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 9999px;
+}
+
+.v-nav-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  border-radius: 9999px;
+  padding: 1px;
+}
+.v-nav-track::-webkit-scrollbar {
+  display: none;
+}
+.v-nav-track[data-fade-left="true"][data-fade-right="true"] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 22px, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 22px, #000 calc(100% - 22px), transparent 100%);
+}
+.v-nav-track[data-fade-left="true"]:not([data-fade-right="true"]) {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 22px, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 22px, #000 100%);
+}
+.v-nav-track[data-fade-right="true"]:not([data-fade-left="true"]) {
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 22px), transparent 100%);
+}
+
+.v-nav-indicator {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0;
+  border-radius: 9999px;
+  background-color: var(--pill-active-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), width 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
+  will-change: transform, width;
+}
+
+.v-nav-scroll-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: background-color 150ms ease, color 150ms ease, opacity 180ms ease, transform 120ms ease-out;
+}
+@media (hover: hover) and (pointer: fine) {
+  .v-nav-scroll-btn:hover:not(:disabled) {
+    background-color: var(--nav-hover-bg);
+    color: var(--text-primary);
+  }
+}
+.v-nav-scroll-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+.v-nav-scroll-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 
 .v-action-cta {
@@ -1792,27 +1961,43 @@ video {
 }
 
 .v-shell-header .top-nav-btn {
-  padding-inline: 12px;
-  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding-inline: 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  background-color: transparent;
+  transition: color 180ms ease, background-color 160ms ease, transform 100ms ease-out;
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
 }
+@media (hover: hover) and (pointer: fine) {
+  .v-shell-header .top-nav-btn:not([aria-current="page"]):hover {
+    background-color: var(--nav-hover-bg);
+    color: var(--text-primary);
+  }
+}
 .v-shell-header .top-nav-btn:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 .v-shell-header .top-nav-btn[aria-current="page"] {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  color: var(--pill-active-text);
+  font-weight: 600;
 }
-
-@media (768px <= width < 1360px) {
-  .v-shell-header .top-nav-btn {
-    display: none;
-    padding-inline: 10px;
-  }
-  .v-shell-header .top-nav-btn:is([data-nav="overview"], [data-nav="orders"], [data-nav="inventory"], [data-nav="products"], [aria-current="page"]) {
-    display: block;
-  }
+.v-nav-track:not([data-indicator-ready="true"]) .top-nav-btn[aria-current="page"] {
+  background-color: var(--pill-active-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
 }
 
 /* P&L Bar touch & focus tooltip visibility */

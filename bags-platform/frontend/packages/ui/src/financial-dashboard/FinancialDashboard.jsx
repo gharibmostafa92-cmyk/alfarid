@@ -33,8 +33,11 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
   const hostRef = useRef(null);
   const viewportRef = useRef(null);
   const underlayRef = useRef(null);
+  const navTrackRef = useRef(null);
   const timers = useRef({ toast: null, copied: null, wipe: null });
   const [shadowRoot, setShadowRoot] = useState(null);
+  const [navScrollState, setNavScrollState] = useState({ overflow: false, canScrollLeft: false, canScrollRight: false });
+  const [navIndicator, setNavIndicator] = useState({ x: 0, width: 0, visible: false });
   const [state, setState] = useState(() => {
     const s = structuredClone(initialState);
     try {
@@ -65,7 +68,7 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
     if (!fonts) {
       fonts = document.createElement('link');
       fonts.rel = 'stylesheet';
-      fonts.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      fonts.href = 'https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
       fonts.setAttribute('data-vortix-fonts', '');
       document.head.appendChild(fonts);
     }
@@ -99,6 +102,76 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
       element.style.animation = '';
     });
   }, [shadowRoot, counterEpoch]);
+
+  useLayoutEffect(() => {
+    const track = navTrackRef.current;
+    if (!track) return;
+
+    const measure = () => {
+      const trackRect = track.getBoundingClientRect();
+      const buttons = [...track.querySelectorAll('.top-nav-btn')];
+      let minLeft = Infinity;
+      let maxRight = -Infinity;
+      for (const btn of buttons) {
+        const r = btn.getBoundingClientRect();
+        if (r.left < minLeft) minLeft = r.left;
+        if (r.right > maxRight) maxRight = r.right;
+      }
+      const overflow = track.scrollWidth > track.clientWidth + 2;
+      const canScrollLeft = overflow && minLeft < trackRect.left - 2;
+      const canScrollRight = overflow && maxRight > trackRect.right + 2;
+      setNavScrollState(prev =>
+        prev.overflow === overflow && prev.canScrollLeft === canScrollLeft && prev.canScrollRight === canScrollRight
+          ? prev
+          : { overflow, canScrollLeft, canScrollRight }
+      );
+
+      const activeBtn = track.querySelector('.top-nav-btn[aria-current="page"]');
+      if (activeBtn) {
+        const nextX = activeBtn.offsetLeft;
+        const nextWidth = activeBtn.offsetWidth;
+        setNavIndicator(prev =>
+          prev.visible && prev.x === nextX && prev.width === nextWidth
+            ? prev
+            : { x: nextX, width: nextWidth, visible: true }
+        );
+      } else {
+        setNavIndicator(prev => (prev.visible ? { ...prev, visible: false } : prev));
+      }
+    };
+
+    measure();
+    const activeBtn = track.querySelector('.top-nav-btn[aria-current="page"]');
+    if (activeBtn) {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      activeBtn.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', inline: 'center', block: 'nearest' });
+    }
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(track);
+    track.addEventListener('scroll', measure, { passive: true });
+    document.fonts?.ready?.then(measure);
+    return () => {
+      ro.disconnect();
+      track.removeEventListener('scroll', measure);
+    };
+  }, [shadowRoot, currentView, catalogActive, categoriesActive, catalogNav.length, hasLiveOverview]);
+
+  function scrollNavBy(delta) {
+    const track = navTrackRef.current;
+    if (!track) return;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    track.scrollBy({ left: delta, behavior: reducedMotion ? 'auto' : 'smooth' });
+  }
+
+  function handleNavWheel(event) {
+    const track = navTrackRef.current;
+    if (!track || track.scrollWidth <= track.clientWidth + 2) return;
+    if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && event.deltaY !== 0) {
+      event.preventDefault();
+      track.scrollLeft += event.deltaY;
+    }
+  }
 
   useEffect(() => {
     if (!modal || !shadowRoot) return;
@@ -408,21 +481,53 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
     {shadowRoot && createPortal(<><style>{dashboardStyles}</style><>{" "}<div id="theme-wipe-overlay" className="hidden" ref={underlayRef}></div>{" "}<div id="v-toast" role="status" aria-live="polite" className={'fixed bottom-6 right-6 z-50 pointer-events-none transition-all duration-300 ' + (toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2')}>{" "}<div className="px-4 py-2.5 rounded-full shadow-lg text-xs font-medium flex items-center gap-2" style={{
       "background": "var(--pill-active-bg)",
       "color": "var(--pill-active-text)"
-    }}>{" "}<span id="v-toast-dot" className="w-2 h-2 rounded-full bg-[#e0491f]"></span>{" "}<span id="v-toast-text">{toast || "Action completed"}</span>{" "}</div>{" "}</div>{" "}<div id="app-viewport" className={state.darkMode ? 'theme-dark' : 'theme-light'} ref={viewportRef}>{" "}<div className="v-shell-container max-w-[1360px] mx-auto px-4 sm:px-7 pt-5 pb-8">{" "}<header dir="rtl" className="v-shell-header flex items-center justify-between gap-4 mb-6">{" "}<button id="brand-home-btn" type="button" className="v-pill-surface rounded-full p-1.5 flex items-center gap-2.5 shadow-xs hover:opacity-95 transition" style={{ paddingInlineEnd: 20, minHeight: 48 }} onClick={() => switchView('overview')}>{" "}<div className="w-9 h-9 rounded-full flex items-center justify-center shadow-inner" style={{
+    }}>{" "}<span id="v-toast-dot" className="w-2 h-2 rounded-full bg-[#e0491f]"></span>{" "}<span id="v-toast-text">{toast || "Action completed"}</span>{" "}</div>{" "}</div>{" "}<div id="app-viewport" className={state.darkMode ? 'theme-dark' : 'theme-light'} ref={viewportRef}>{" "}<div className="v-shell-container max-w-[1360px] mx-auto px-4 sm:px-7 pt-5 pb-8">{" "}<header dir="rtl" className="v-shell-header flex items-center justify-between gap-3 sm:gap-4 mb-6">{" "}<button id="brand-home-btn" type="button" className="v-pill-surface rounded-full p-1.5 flex items-center gap-2.5 hover:opacity-95 transition" style={{ paddingInlineEnd: 18, minHeight: 48 }} onClick={() => switchView('overview')}>{" "}<div className="w-9 h-9 rounded-full flex items-center justify-center shadow-inner" style={{
             "background": "radial-gradient(circle at 30% 25%, #ff8a65 0%, #e0491f 75%)"
-          }}>{" "}<BrandLogo className="w-6 h-6" fallback={<svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">{" "}<path d="M5 5l7 14 7-14" />{" "}</svg>} />{" "}</div>{" "}<span dir="auto" className="font-display font-bold text-[15px] tracking-tight" style={{
-            "color": "var(--text-primary)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{branding.name}</span>{" "}</button>{" "}<nav aria-label="Primary Navigation" dir={hasLiveOverview ? "rtl" : "ltr"} style={{ minWidth: 0, flex: '1 1 0%', overflowX: 'auto' }} className="v-pill-surface rounded-full p-1.5 hidden md:flex items-center gap-1 shadow-xs">{" "}<button type="button" data-nav="overview" aria-current={currentView === 'overview' ? 'page' : undefined} onClick={() => switchView('overview')} style={navStyle('overview')} className={"top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150" + (currentView === 'overview' ? ' font-semibold shadow-xs' : '')}>{hasLiveOverview ? 'الرئيسية' : 'Overview'}</button>{" "}{catalogNav.map(item => <button key={item.id} type="button" data-nav={item.id} aria-current={catalogActive === item.id ? 'page' : undefined} onClick={item.onOpen} style={navStyle(item.id)} className={"top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150" + (catalogActive === item.id ? ' font-semibold shadow-xs' : '')}>{item.label}</button>)}{onOpenCategories && <button type="button" data-nav="categories" aria-current={categoriesActive ? 'page' : undefined} onClick={onOpenCategories} style={navStyle('categories')} className={"top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150" + (categoriesActive ? ' font-semibold shadow-xs' : '')}>الأقسام</button>}{" "}</nav>{" "}<div className="v-header-tools flex items-center gap-2 sm:gap-3">{storefrontUrl && <a href={storefrontUrl} target="_blank" rel="noopener noreferrer" className="v-pill-surface rounded-full whitespace-nowrap px-3 py-2 text-xs" style={{ color: 'var(--text-primary)' }}>عرض المتجر</a>}{" "}<div className="v-pill-surface rounded-full px-2 py-1 flex items-center gap-1 sm:gap-2 shadow-xs">{" "}{hasLiveOverview && <button type="button" className="v-desktop-menu v-touch-icon-btn" aria-label="كل الأقسام" aria-haspopup="dialog" aria-expanded={modal === 'navigation'} aria-controls="v-modal-backdrop" onClick={() => setModal('navigation')}><NavigationIcon type="more" /></button>}{!hasLiveOverview && <button type="button" id="top-search-btn" title="Quick Search" aria-label="Quick Search" className="v-touch-icon-btn hover:opacity-75 transition" style={{
+          }}>{" "}<BrandLogo className="w-6 h-6" fallback={<svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">{" "}<path d="M5 5l7 14 7-14" />{" "}</svg>} />{" "}</div>{" "}<span dir="auto" className="font-display font-bold text-[15px]" style={{
+            "color": "var(--text-primary)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{branding.name}</span>{" "}</button>{" "}<nav aria-label="Primary Navigation" dir={hasLiveOverview ? "rtl" : "ltr"} className="v-nav-shell v-pill-surface hidden md:flex">
+            {navScrollState.overflow && (
+              <button type="button" className="v-nav-scroll-btn" aria-label={hasLiveOverview ? "التمرير لليمين" : "Scroll right"} disabled={!navScrollState.canScrollRight} onClick={() => scrollNavBy(200)}>
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+              </button>
+            )}
+            <div
+              ref={navTrackRef}
+              className="v-nav-track"
+              data-fade-left={navScrollState.canScrollLeft ? "true" : undefined}
+              data-fade-right={navScrollState.canScrollRight ? "true" : undefined}
+              data-indicator-ready={navIndicator.visible ? "true" : undefined}
+              onWheel={handleNavWheel}
+            >
+              <span
+                aria-hidden="true"
+                className="v-nav-indicator"
+                style={{
+                  opacity: navIndicator.visible ? 1 : 0,
+                  width: navIndicator.width,
+                  transform: `translate3d(${navIndicator.x}px, 0, 0)`,
+                }}
+              />
+              <button type="button" data-nav="overview" aria-current={currentView === 'overview' ? 'page' : undefined} onClick={() => switchView('overview')} className="top-nav-btn">{hasLiveOverview ? 'الرئيسية' : 'Overview'}</button>
+              {catalogNav.map(item => (
+                <button key={item.id} type="button" data-nav={item.id} aria-current={catalogActive === item.id ? 'page' : undefined} onClick={item.onOpen} className="top-nav-btn">{item.label}</button>
+              ))}
+              {onOpenCategories && (
+                <button type="button" data-nav="categories" aria-current={categoriesActive ? 'page' : undefined} onClick={onOpenCategories} className="top-nav-btn">الأقسام</button>
+              )}
+            </div>
+            {navScrollState.overflow && (
+              <button type="button" className="v-nav-scroll-btn" aria-label={hasLiveOverview ? "التمرير لليسار" : "Scroll left"} disabled={!navScrollState.canScrollLeft} onClick={() => scrollNavBy(-200)}>
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+              </button>
+            )}
+          </nav>{" "}<div className="v-header-tools flex items-center gap-2 sm:gap-2.5">{storefrontUrl && <a href={storefrontUrl} target="_blank" rel="noopener noreferrer" className="v-pill-surface v-header-storefront"><span>عرض المتجر</span><svg className="w-3.5 h-3.5 opacity-65 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg></a>}{" "}<div className="v-pill-surface rounded-full p-1 flex items-center gap-0.5 sm:gap-1" style={{ minHeight: 44 }}>{" "}{hasLiveOverview && <button type="button" className="v-desktop-menu v-touch-icon-btn" title="كل الأقسام" aria-label="كل الأقسام" aria-haspopup="dialog" aria-expanded={modal === 'navigation'} aria-controls="v-modal-backdrop" onClick={() => setModal('navigation')}><NavigationIcon type="more" /></button>}{!hasLiveOverview && <button type="button" id="top-search-btn" title="Quick Search" aria-label="Quick Search" className="v-touch-icon-btn hover:opacity-75 transition" style={{
               "color": "var(--text-primary)"
             }} onClick={() => {
               switchView('overview');
               requestAnimationFrame(() => shadowRoot?.getElementById('activity-search-input')?.focus());
-            }}>{" "}<svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{" "}<circle cx="11" cy="11" r="7"></circle>{" "}<path strokeLinecap="round" d="M20 20l-3.5-3.5"></path>{" "}</svg>{" "}</button>}{" "}<button type="button" id="top-notif-btn" title="Notifications" aria-label="Notifications" className="v-touch-icon-btn relative hover:opacity-75 transition" style={{
+            }}>{" "}<svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{" "}<circle cx="11" cy="11" r="7"></circle>{" "}<path strokeLinecap="round" d="M20 20l-3.5-3.5"></path>{" "}</svg>{" "}</button>}{" "}<button type="button" id="top-notif-btn" title={hasLiveOverview ? 'الإشعارات' : 'Notifications'} aria-label={hasLiveOverview ? 'الإشعارات' : 'Notifications'} aria-current={catalogActive === 'notifications' ? 'page' : undefined} className="v-touch-icon-btn v-notif-btn relative" onClick={onOpenNotifications || (() => showToast('2 new reward offers available'))}>{" "}<svg width="16" height="16" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true">{" "}<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path>{" "}<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>{" "}</svg>{" "}{!hasLiveOverview && <span className="v-notif-dot"></span>}{" "}</button>{" "}{!hasLiveOverview && <button type="button" id="top-help-btn" title="Help Center" aria-label="Help Center" className="v-touch-icon-btn hover:opacity-75 transition" style={{
               "color": "var(--text-primary)"
-            }} onClick={onOpenNotifications || (() => showToast('2 new reward offers available'))}>{" "}<svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{" "}<path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-5-5.9V4a1 1 0 10-2 0v1.1A6 6 0 006 11v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>{" "}</svg>{" "}{!hasLiveOverview && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#e0491f]" style={{
-                "boxShadow": "0 0 0 2px var(--bg-card)"
-              }}></span>}{" "}</button>{" "}{!hasLiveOverview && <button type="button" id="top-help-btn" title="Help Center" aria-label="Help Center" className="v-touch-icon-btn hover:opacity-75 transition" style={{
-              "color": "var(--text-primary)"
-            }} onClick={() => switchView('messages')}>{" "}<svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{" "}<circle cx="12" cy="12" r="9"></circle>{" "}<path strokeLinecap="round" strokeLinejoin="round" d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01"></path>{" "}</svg>{" "}</button>}{" "}</div>{" "}{hasLiveOverview ? (account && <div id="profile-pill-btn" className="v-header-account v-pill-surface rounded-full px-3 py-2" style={{ minWidth: 0, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={account.email}><span dir="auto" style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{account.name}</span></div>) : <button type="button" id="profile-pill-btn" className="v-pill-surface rounded-full p-1.5 flex items-center gap-2.5 shadow-xs hover:opacity-95 transition" style={{ paddingInlineEnd: 14, textAlign: 'start', minHeight: 48 }} onClick={() => showToast('Code XR · hello@codexr.studio')}>{" "}<div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-[#f4e3d7] border border-black/5 shrink-0">{" "}<BrandLogo className="w-6 h-6" fallback={<svg viewBox="0 0 64 64" className="w-full h-full">{" "}<rect width="64" height="64" fill="#f3dfd1" />{" "}<path d="M12 64c2-11 10-16 20-16s18 5 20 16H12z" fill="#18151c" />{" "}<path d="M27 48l5 8 5-8z" fill="#ffffff" />{" "}<circle cx="32" cy="28" r="11" fill="#e0b193" />{" "}<path d="M21 26c0-8 5-13 11-13s11 5 11 13c-2-3-5-4-11-4s-9 1-11 4z" fill="#231c18" />{" "}<rect x="24" y="25" width="6.5" height="4.5" rx="1.5" fill="none" stroke="#18151c" strokeWidth="1.6" />{" "}<rect x="33.5" y="25" width="6.5" height="4.5" rx="1.5" fill="none" stroke="#18151c" strokeWidth="1.6" />{" "}<line x1="30.5" y1="27" x2="33.5" y2="27" stroke="#18151c" strokeWidth="1.6" />{" "}<path d="M22.5 30c.5 6 4.5 10 9.5 10s9-4 9.5-10c-2.5 1.5-5.5 2.5-9.5 2.5s-7-1-9.5-2.5z" fill="#231c18" />{" "}<rect x="29.5" y="34" width="5" height="2" rx="1" fill="#e0b193" />{" "}</svg>} />{" "}</div>{" "}<div className="leading-tight hidden sm:block">{" "}<div className="text-[13px] font-semibold tracking-tight" style={{
+            }} onClick={() => switchView('messages')}>{" "}<svg className="w-[17px] h-[17px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{" "}<circle cx="12" cy="12" r="9"></circle>{" "}<path strokeLinecap="round" strokeLinejoin="round" d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01"></path>{" "}</svg>{" "}</button>}{" "}</div>{" "}{hasLiveOverview ? (account && <div id="profile-pill-btn" className="v-header-account v-pill-surface rounded-full p-1.5 flex items-center gap-2" style={{ minWidth: 0, maxWidth: 190, minHeight: 44, paddingInlineEnd: 14 }} title={account.email}><span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: "var(--bg-subcard)", color: "var(--text-primary)" }} aria-hidden="true">{account.name?.trim()?.charAt(0) || 'A'}</span><span dir="auto" style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{account.name}</span></div>) : <button type="button" id="profile-pill-btn" className="v-pill-surface rounded-full p-1.5 flex items-center gap-2.5 hover:opacity-95 transition" style={{ paddingInlineEnd: 14, textAlign: 'start', minHeight: 48 }} onClick={() => showToast('Code XR · hello@codexr.studio')}>{" "}<div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-[#f4e3d7] border border-black/5 shrink-0">{" "}<BrandLogo className="w-6 h-6" fallback={<svg viewBox="0 0 64 64" className="w-full h-full">{" "}<rect width="64" height="64" fill="#f3dfd1" />{" "}<path d="M12 64c2-11 10-16 20-16s18 5 20 16H12z" fill="#18151c" />{" "}<path d="M27 48l5 8 5-8z" fill="#ffffff" />{" "}<circle cx="32" cy="28" r="11" fill="#e0b193" />{" "}<path d="M21 26c0-8 5-13 11-13s11 5 11 13c-2-3-5-4-11-4s-9 1-11 4z" fill="#231c18" />{" "}<rect x="24" y="25" width="6.5" height="4.5" rx="1.5" fill="none" stroke="#18151c" strokeWidth="1.6" />{" "}<rect x="33.5" y="25" width="6.5" height="4.5" rx="1.5" fill="none" stroke="#18151c" strokeWidth="1.6" />{" "}<line x1="30.5" y1="27" x2="33.5" y2="27" stroke="#18151c" strokeWidth="1.6" />{" "}<path d="M22.5 30c.5 6 4.5 10 9.5 10s9-4 9.5-10c-2.5 1.5-5.5 2.5-9.5 2.5s-7-1-9.5-2.5z" fill="#231c18" />{" "}<rect x="29.5" y="34" width="5" height="2" rx="1" fill="#e0b193" />{" "}</svg>} />{" "}</div>{" "}<div className="leading-tight hidden sm:block">{" "}<div className="text-[13px] font-semibold tracking-tight" style={{
                 "color": "var(--text-primary)"
               }}>Code XR</div>{" "}<div className="text-[11px]" style={{
                 "color": "var(--text-secondary)"
