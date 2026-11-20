@@ -1,7 +1,7 @@
 'use client';
 
 import '@/styles/checkout.css';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { storeEndpoints } from '@alfarid/api-client';
 import { formatStorePrice } from '@alfarid/utils';
@@ -14,6 +14,7 @@ import { ShippingSection } from './ShippingSection';
 import { DeliverySection } from './DeliverySection';
 import { PaymentSection } from './PaymentSection';
 import { OrderSummary, type SuggestionCard } from './OrderSummary';
+import { trackEcommerce } from '@/lib/analytics/ecommerce';
 
 const steps = [
   { label: 'بيانات', targetId: 'checkout-section-contact' },
@@ -39,6 +40,18 @@ export function SophieCheckoutPage({
   const [mobileBagOpen, setMobileBagOpen] = useState(false);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [acceptanceError, setAcceptanceError] = useState(false);
+  const checkoutTracked = useRef(false);
+
+  useEffect(() => {
+    if (checkoutTracked.current || vm.cartLoading || !vm.items.length) return;
+    checkoutTracked.current = true;
+    trackEcommerce('begin_checkout', {
+      currency: 'EGP',
+      value: vm.items.reduce((total, item) => total + (item.price ?? 0) * item.quantity, 0),
+      items: vm.items.map((item) => ({ item_id: String(item.variantId), item_name: item.name,
+        ...(item.price !== null ? { price: item.price } : {}), quantity: item.quantity })),
+    });
+  }, [vm.cartLoading, vm.items]);
 
   useEffect(() => {
     let cancelled = false;

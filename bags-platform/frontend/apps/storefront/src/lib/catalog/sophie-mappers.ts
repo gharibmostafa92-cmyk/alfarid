@@ -129,7 +129,7 @@ export function toMegaDepartments(tree: StoreCategory[]) {
     out[root.slug] = {
       name: pick(root.name_en, root.name_ar), slug: root.slug, image: root.image,
       col1, col2, col3,
-      href: STORE_ROUTES.shop({ category: root.slug }),
+      href: STORE_ROUTES.category(root.slug),
     };
   });
   return out;

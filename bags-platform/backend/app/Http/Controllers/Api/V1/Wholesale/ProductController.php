@@ -16,12 +16,12 @@ use App\Services\Pricing\PricingService;
 use App\Services\Shared\SearchTerm;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePriceListService;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Maatwebsite\Excel\Facades\Excel;
+use Mpdf\Mpdf;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -168,12 +168,22 @@ class ProductController extends Controller
 
         $validUntil = now()->addDays(30);
 
-        return Pdf::loadView('pdfs.wholesale_price_list', [
+        $pdf = new Mpdf([
+            'default_font' => 'dejavusanscondensed',
+            'tempDir' => storage_path('framework/cache/wholesale-pdf'),
+        ]);
+        $pdf->WriteHTML(view('pdfs.wholesale_price_list', [
             'company_name' => (string) $this->settings->get('company_name', 'VARYA'),
             'customer' => $customer,
             'rows' => $rows,
             'valid_until' => $validUntil,
             'generated_at' => now(),
-        ])->download('price-list.pdf');
+        ])->render());
+
+        return response($pdf->OutputBinaryData(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="price-list.pdf"',
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 }

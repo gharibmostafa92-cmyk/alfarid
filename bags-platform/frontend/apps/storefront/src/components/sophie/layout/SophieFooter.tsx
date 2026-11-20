@@ -7,6 +7,7 @@ import { BrandLogo, useBranding } from '@alfarid/ui/branding';
 import { safeMailtoHref, safeTelHref } from '@/lib/core/safe-href';
 import { useStoreLang } from '@/providers/store-lang-provider';
 import { LEGAL_POLICY_LINKS, getLegalPolicyHref } from '@/lib/legal-policy-links';
+import { analyticsConfigured } from '@/lib/analytics/ecommerce';
 
 export function SophieFooter() {
   const { branding } = useBranding();
@@ -160,6 +161,7 @@ export function SophieFooter() {
                   </Link>
                 </li>
               ))}
+              {analyticsConfigured && <li><button type="button" className="inline-flex min-h-[44px] items-center text-[#a4abba] hover:text-[#1bc6cf]" onClick={() => window.dispatchEvent(new Event('open-analytics-settings'))}>{isAr ? 'إعدادات التحليلات' : 'Analytics settings'}</button></li>}
             </ul>
           </nav>
 

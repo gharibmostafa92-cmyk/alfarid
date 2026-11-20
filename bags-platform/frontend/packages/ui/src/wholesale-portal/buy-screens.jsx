@@ -103,7 +103,7 @@ export const Dashboard = () => {
 };
 
 /* ---------- 7. Catalog ---------- */
-export const Catalog = () => {
+export const Catalog = ({ productImageUrl } = {}) => {
   const { addToCart, toast } = useApp();
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
@@ -156,7 +156,7 @@ export const Catalog = () => {
                 const prices = p.variants.map((x) => x.price).filter((x) => x != null);
                 return (
                   <tr key={p.id}>
-                    <td><div className="prod-cell"><Thumb sm /><div><div className="prod-name">{p.name_ar}</div><div className="prod-en">{p.name_en}</div></div></div></td>
+                    <td><div className="prod-cell"><Thumb sm src={productImageUrl?.(p.image)} /><div><div className="prod-name">{p.name_ar}</div><div className="prod-en">{p.name_en}</div></div></div></td>
                     <td><span className="num strong">{p.variants.length}</span> <span className="soft small">{p.variants.map((x) => x.label).join(' · ')}</span></td>
                     <td><span className="strike num">{fmt(p.base)}</span></td>
                     <td className="strong num">{prices.length > 1 && Math.min(...prices) !== Math.max(...prices) ? 'من ' : ''}{prices.length ? fmt(Math.min(...prices)) : '—'}</td>
@@ -171,7 +171,7 @@ export const Catalog = () => {
         </DataBoundary>
       </section>
       <p className="note mt-16"><i className="fa-solid fa-circle-info" />السعر النهائي لكل بند يتحسب في السلة حسب الكمية والشريحة المطبقة وقت الطلب.</p>
-      {open && <VariantModal product={open} onClose={() => setOpen(null)} onAdd={async (lines) => {
+      {open && <VariantModal product={open} imageSrc={productImageUrl?.(open.image)} onClose={() => setOpen(null)} onAdd={async (lines) => {
         const ok = await addToCart(lines.map((l) => ({ variant_id: l.v.id, sku: l.v.sku, qty: l.qty })));
         if (ok) setOpen(null);
       }} />}
@@ -179,7 +179,7 @@ export const Catalog = () => {
   );
 };
 
-export const VariantModal = ({ product, onClose, onAdd }) => {
+export const VariantModal = ({ product, imageSrc, onClose, onAdd }) => {
   const [qty, setQty] = useState(Object.fromEntries(product.variants.map((v) => [v.id, 0])));
   const [busy, setBusy] = useState(false);
   const lines = product.variants.filter((v) => qty[v.id] > 0).map((v) => ({ v: { ...v, product }, qty: qty[v.id] }));
@@ -195,7 +195,7 @@ export const VariantModal = ({ product, onClose, onAdd }) => {
     }
   };
   return (
-    <Modal wide title={product.name_ar} onClose={() => { if (!busy) onClose(); }} icon={<Thumb sm />}
+    <Modal wide title={product.name_ar} onClose={() => { if (!busy) onClose(); }} icon={<Thumb sm src={imageSrc} />}
       foot={<><span className="muted small" style={{ marginInlineEnd: 'auto' }}>تقديري: <Money v={total} strong /></span>
         <button className="btn-pill" onClick={onClose} disabled={busy}>إلغاء</button>
         <button className="btn-pill is-dark" disabled={!lines.length || over || busy} onClick={submit}>{busy ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة للسلة {lines.length > 0 && <span className="num">({lines.reduce((a, l) => a + l.qty, 0)})</span>}</button></>}>
@@ -567,7 +567,7 @@ export const Cart = () => {
 /* ---------- 11. Checkout ---------- */
 const FIELD_MAP = { recipient_name: 'name', recipient_phone: 'phone', recipient_email: 'email', city_id: 'city', shipping_address_line: 'address', shipping_notes: 'notes' };
 
-export const Checkout = () => {
+export const Checkout = ({ terms } = {}) => {
   const { cart, cartApi, go, toast, account, loadCart, refreshAccount, setLastOrder } = useApp();
   const initialApi = useApi(async () => {
     const [addresses, cities] = await Promise.all([accountEndpoints.addresses(), checkoutEndpoints.cities()]);
@@ -588,6 +588,8 @@ export const Checkout = () => {
   const [prevTotal, setPrevTotal] = useState(null);
   const [previewState, setPreviewState] = useState('loading');
   const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [acceptedTermsVersion, setAcceptedTermsVersion] = useState(null);
+  const needsConsent = terms && acceptedTermsVersion !== terms.version;
   const submitting = useRef(false);
   const idemKey = useRef(typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
 
@@ -636,7 +638,7 @@ export const Checkout = () => {
   };
 
   const submit = async () => {
-    if (submitting.current) return;
+    if (submitting.current || needsConsent) return;
     const e = {};
     if (!String(f.name).trim()) e.name = 'اسم المستلم مطلوب.';
     if (!String(f.phone).trim()) e.phone = 'رقم موبايل المستلم مطلوب.';
@@ -653,6 +655,7 @@ export const Checkout = () => {
       city_id: Number(f.city_id), shipping_address_line: f.address, shipping_notes: f.notes || undefined,
       shipping_option_key: ship || options[0]?.key || 'standard',
       payment_method: pay, expected_total: preview.grand_total,
+      ...(terms ? { legal_policy_version: acceptedTermsVersion } : {}),
     };
     try {
       const res = await checkoutEndpoints.place(payload, null, idemKey.current);
@@ -762,7 +765,14 @@ export const Checkout = () => {
           <div className="sum-row"><span>الضريبة</span><strong className="num">{fmt(preview?.tax ?? 0)}</strong></div>
           {Number(preview?.cod_fee ?? 0) > 0 && <div className="sum-row"><span>رسوم التحصيل</span><strong className="num">{fmt(preview.cod_fee)}</strong></div>}
           <div className="sum-total"><span>الإجمالي النهائي</span><span className="num">{fmt(preview?.grand_total)}</span></div>
-          <button className="btn-block mt-24" disabled={overCredit || (pay === 'wallet' && walletShort) || !lines.length || step === 'submitting' || !preview || previewState !== 'ready' || !methods.includes(pay)} onClick={submit}>{step === 'submitting' ? <><span className="spin" /> جاري إتمام الطلب…</> : step === 'changed' ? 'تأكيد الإجمالي الجديد وإتمام الطلب' : 'إتمام الطلب'}</button>
+          {terms && (
+            <label className="row mt-16">
+              <input type="checkbox" checked={!needsConsent} disabled={step === 'submitting'}
+                onChange={event => setAcceptedTermsVersion(event.target.checked ? terms.version : null)} />
+              <span>أوافق على <a href={terms.href} target="_blank" rel="noopener noreferrer">الشروط والأحكام</a></span>
+            </label>
+          )}
+          <button className="btn-block mt-24" disabled={needsConsent || overCredit || (pay === 'wallet' && walletShort) || !lines.length || step === 'submitting' || !preview || previewState !== 'ready' || !methods.includes(pay)} onClick={submit}>{step === 'submitting' ? <><span className="spin" /> جاري إتمام الطلب…</> : step === 'changed' ? 'تأكيد الإجمالي الجديد وإتمام الطلب' : 'إتمام الطلب'}</button>
           <p className="note mt-16"><i className="fa-solid fa-lock" />الأسعار والإجمالي النهائي بيتحسبوا من الخادم لحظة التأكيد.</p>
         </aside>
       </div>

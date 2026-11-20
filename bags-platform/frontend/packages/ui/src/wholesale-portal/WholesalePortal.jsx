@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import './portal.css';
-import './auth.css';
 import { AppCtx } from './context';
 import { authEndpoints, cartEndpoints, wholesaleEndpoints, defaultApiClient } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
@@ -116,7 +114,7 @@ class PortalErrorBoundary extends React.Component {
 }
 
 /**
- * @param {{ initialScreen?: string, initialId?: number|null, onLogout?: (() => unknown)|null, onEnter?: (() => unknown)|null, onForbidden?: (() => unknown)|null, onForgotSubmit?: ((login: string) => Promise<unknown>)|null, onResetSubmit?: ((login: string, token: string, password: string, confirmation: string) => Promise<unknown>)|null, brandName?: string }} props
+ * @param {{ initialScreen?: string, initialId?: number|null, onLogout?: (() => unknown)|null, onEnter?: (() => unknown)|null, onForbidden?: (() => unknown)|null, onForgotSubmit?: ((login: string) => Promise<unknown>)|null, onResetSubmit?: ((login: string, token: string, password: string, confirmation: string) => Promise<unknown>)|null, brandName?: string, productImageUrl?: (source: string|null|undefined) => string, checkoutTerms?: { version: string, href: string } }} props
  */
 export function WholesalePortal({
   initialScreen = 'dashboard',
@@ -127,6 +125,8 @@ export function WholesalePortal({
   onForgotSubmit = null,
   onResetSubmit = null,
   brandName = 'VARYA',
+  productImageUrl,
+  checkoutTerms,
 }) {
   const [route, setRoute] = useState(() => {
     const r = readRoute(initialScreen);
@@ -306,13 +306,13 @@ export function WholesalePortal({
       case 'dashboard':
         return <Dashboard />;
       case 'catalog':
-        return <Catalog />;
+        return <Catalog productImageUrl={productImageUrl} />;
       case 'quick':
         return <QuickOrder />;
       case 'cart':
         return <Cart />;
       case 'checkout':
-        return <Checkout />;
+        return <Checkout terms={checkoutTerms} />;
       case 'success':
       case 'orderSuccess':
         return <OrderSuccess />;

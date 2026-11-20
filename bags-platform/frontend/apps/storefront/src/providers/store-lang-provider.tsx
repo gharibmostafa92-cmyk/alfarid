@@ -15,15 +15,15 @@ interface StoreLangContextValue {
 }
 
 const StoreLangContext = createContext<StoreLangContextValue>({
-  lang: 'en',
-  dir: 'ltr',
-  isAr: false,
+  lang: 'ar',
+  dir: 'rtl',
+  isAr: true,
   setLang: () => {},
   toggleLang: () => {},
 });
 
 export function StoreLangProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<StoreLang>('en');
+  const [lang, setLangState] = useState<StoreLang>('ar');
 
   useEffect(() => {
     try {

@@ -29,7 +29,7 @@ export function DesignShowcaseContent() {
 
   // Data
   const showcaseQ = useStoreShowcase();
-  const items = useMemo(() => (showcaseQ.data ?? []).map(toDetailVM), [showcaseQ.data]);
+  const items = useMemo(() => (showcaseQ.data ?? []).map((product) => toDetailVM(product)), [showcaseQ.data]);
   const gridQ = useStoreProducts({ sort: 'featured', per_page: 12 });
   const gridCards = useMemo(() => (gridQ.data?.pages[0]?.data ?? []).map(toCardVM), [gridQ.data]);
   const categoriesQ = useStoreCategories();

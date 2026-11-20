@@ -6,5 +6,5 @@ namespace App\Support;
 
 final class StorefrontLegalPolicyVersion
 {
-    public const CURRENT = '2026-11-20-v1';
+    public const CURRENT = '2026-11-20-v2';
 }

@@ -55,11 +55,11 @@ export interface ProductDetailVM {
 const sizeOf = (size: string | null, cap: string | null) =>
   size && cap ? `${size} (${cap})` : size || cap || null;
 
-export function toDetailVM(p: StoreProduct): ProductDetailVM {
+export function toDetailVM(p: StoreProduct, lang: 'en' | 'ar' = 'en'): ProductDetailVM {
   const variants: VariantVM[] = p.variants.map((v) => ({
     id: v.id, sku: v.sku,
     colorKey: (pick(v.color_name_en, v.color_name_ar) || v.color_hex || 'default').toLowerCase(),
-    colorLabel: pick(v.color_name_en, v.color_name_ar) || 'Default', hex: v.color_hex,
+    colorLabel: pick(v.color_name_en, v.color_name_ar, lang) || (lang === 'ar' ? 'الافتراضي' : 'Default'), hex: v.color_hex,
     sizeLabel: sizeOf(v.size, v.capacity), price: toNum(v.price), oldPrice: toNum(v.old_price),
     inStock: v.in_stock, maxQty: Math.max(0, Math.floor(v.max_qty ?? 0)), images: v.images.map((i) => ({ url: i.url, thumb: i.thumb })),
   }));
@@ -67,9 +67,9 @@ export function toDetailVM(p: StoreProduct): ProductDetailVM {
   const sizes = [...new Set(variants.map((v) => v.sizeLabel).filter((s): s is string => !!s))];
   const images = p.images.length ? p.images : p.image ? [{ id: 0, url: p.image, thumb: p.image }] : [];
   return {
-    id: p.id, slug: p.slug, name: pick(p.name_en, p.name_ar),
-    categoryLabel: pick(p.category?.name_en, p.category?.name_ar), categorySlug: p.category?.slug ?? null,
-    desc: pick(p.description_en, p.description_ar), material: pick(p.material_en, p.material_ar),
+    id: p.id, slug: p.slug, name: pick(p.name_en, p.name_ar, lang),
+    categoryLabel: pick(p.category?.name_en, p.category?.name_ar, lang), categorySlug: p.category?.slug ?? null,
+    desc: pick(p.description_en, p.description_ar, lang), material: pick(p.material_en, p.material_ar, lang),
     warrantyMonths: p.warranty_months,
     images: images.map((i) => ({ url: i.url, thumb: i.thumb })),
     colors, sizes, variants, fallbackPrice: toNum(p.price),

@@ -178,6 +178,8 @@ class WholesalePortalFeaturesTest extends TestCase
 
         $pdf = $this->asTrader()->get('/api/v1/wholesale/price-list/export?format=pdf');
         $pdf->assertOk();
+        $pdf->assertHeader('Content-Type', 'application/pdf')
+            ->assertHeader('Content-Disposition', 'attachment; filename="price-list.pdf"');
         $this->assertStringStartsWith('%PDF', $pdf->getContent());
     }
 

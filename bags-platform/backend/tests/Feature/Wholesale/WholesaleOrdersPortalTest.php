@@ -320,6 +320,7 @@ class WholesaleOrdersPortalTest extends TestCase
         ])->assertOk();
 
         $this->asTrader($this->token)->postJson('/api/v1/store/checkout', [
+            ...$this->checkoutRecipient(),
             'city_id' => $city->id,
             'shipping_address_line' => 'عنوان الاختبار',
             'payment_method' => 'credit',
@@ -337,6 +338,7 @@ class WholesaleOrdersPortalTest extends TestCase
         ])->assertOk();
 
         $payload = [
+            ...$this->checkoutRecipient(),
             'city_id' => $city->id,
             'shipping_address_line' => 'عنوان الاختبار',
             'payment_method' => 'credit',
@@ -358,6 +360,7 @@ class WholesaleOrdersPortalTest extends TestCase
         ])->assertOk();
 
         $this->asTrader($this->token)->postJson('/api/v1/store/checkout', [
+            ...$this->checkoutRecipient(),
             'city_id' => $city->id,
             'shipping_address_line' => 'عنوان الاختبار',
             'payment_method' => 'credit',
@@ -376,11 +379,21 @@ class WholesaleOrdersPortalTest extends TestCase
         ])->assertOk();
 
         $this->asTrader($this->token)->postJson('/api/v1/store/checkout', [
+            ...$this->checkoutRecipient(),
             'city_id' => $city->id,
             'shipping_address_line' => 'عنوان الاختبار',
             'payment_method' => 'credit',
         ], ['Idempotency-Key' => 'test-within-limit-1'])
             ->assertCreated()
             ->assertJsonStructure(['data' => ['id']]);
+    }
+
+    private function checkoutRecipient(): array
+    {
+        return [
+            'recipient_name' => $this->trader->name,
+            'recipient_phone' => $this->trader->phone,
+            'legal_policy_version' => \App\Support\StorefrontLegalPolicyVersion::CURRENT,
+        ];
     }
 }

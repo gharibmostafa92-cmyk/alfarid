@@ -83,6 +83,8 @@ class SupplierPortalTest extends TestCase
 
     private function login(string $email = 'portal-a@example.com', string $password = 'password123')
     {
+        $this->flushHeaders();
+        \Illuminate\Support\Facades\Auth::forgetGuards();
         return $this->postJson('/api/v1/supplier/auth/login', [
             'email' => $email, 'password' => $password,
         ]);
@@ -173,6 +175,7 @@ class SupplierPortalTest extends TestCase
         $this->makePo($this->supplierA, PurchaseOrderStatus::SentToSupplier);
         $accepted = $this->makePo($this->supplierA, PurchaseOrderStatus::SupplierAccepted);
         $otherPo = $this->makePo($this->supplierB, PurchaseOrderStatus::SentToSupplier);
+        $draft = $this->makePo($this->supplierA, PurchaseOrderStatus::Draft);
         SupplierPayment::factory()->for($this->supplierA)->create(['amount' => 300]);
         SupplierPayment::factory()->for($this->supplierA)->create(['amount' => 200]);
 
@@ -192,6 +195,7 @@ class SupplierPortalTest extends TestCase
 
         // أمر مورد آخر: غير موجود أصلًا في عالم هذا المستخدم
         $this->withToken($token)->getJson("/api/v1/supplier/purchase-orders/{$otherPo->id}")->assertNotFound();
+        $this->withToken($token)->getJson("/api/v1/supplier/purchase-orders/{$draft->id}")->assertNotFound();
         $this->withToken($token)->postJson("/api/v1/supplier/purchase-orders/{$otherPo->id}/accept")->assertNotFound();
         $this->withToken($token)->getJson("/api/v1/supplier/purchase-orders/{$accepted->id}")
             ->assertOk()->assertJsonPath('data.id', $accepted->id);

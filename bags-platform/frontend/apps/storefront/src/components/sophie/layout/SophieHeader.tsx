@@ -572,7 +572,7 @@ export function SophieHeader() {
                         {[dept.col1, dept.col2, dept.col3].flat().map((group) => (
                           <div key={group.slug} className="bg-gray-50/70 rounded-lg p-2.5">
                             <Link
-                              href={STORE_ROUTES.shop({ category: group.slug })}
+                              href={STORE_ROUTES.category(group.slug)}
                               onClick={() => setMobileMenuOpen(false)}
                               className="block py-1.5 text-gray-900 hover:text-[#4f7d88] font-semibold text-[13.5px]"
                             >
@@ -582,7 +582,7 @@ export function SophieHeader() {
                               {group.links.map((link) => (
                                 <Link
                                   key={link.slug}
-                                  href={STORE_ROUTES.shop({ category: link.slug })}
+                                  href={STORE_ROUTES.category(link.slug)}
                                   onClick={() => setMobileMenuOpen(false)}
                                   className="flex items-center justify-between py-2 px-2 rounded-md text-gray-600 hover:text-[#4f7d88] hover:bg-white text-[13px] transition-colors"
                                 >

@@ -358,15 +358,21 @@ class Task3SupplierAuditTest extends TestCase
         $portalToken = $portalUser->createToken('supplier', ['supplier'])->plainTextToken;
 
         Auth::forgetGuards();
-        $this->withToken($portalToken)
-            ->withHeaders(['Idempotency-Key' => (string) Str::uuid()])
+        $key = (string) Str::uuid();
+        $submit = fn () => $this->withToken($portalToken)
+            ->withHeaders(['Idempotency-Key' => $key])
             ->post("/api/v1/supplier/purchase-orders/{$po['id']}/deliveries", [
                 'delivery_date' => now()->toDateString(),
                 'items' => [['purchase_order_item_id' => $po['items'][0]['id'], 'shipped_qty' => 1]],
-                'invoice_file' => UploadedFile::fake()->create('invoice.pdf', 10, 'application/pdf'),
-            ])
-            ->assertCreated();
+                'invoice_file' => UploadedFile::fake()->createWithContent('invoice.pdf', "%PDF-1.4\n%%EOF\n"),
+            ])->assertCreated();
 
+        $deliveryId = $submit()->json('data.id');
+        $submit()->assertJsonPath('data.id', $deliveryId);
+        $this->withToken($portalToken)->getJson("/api/v1/supplier/deliveries?purchase_order_id={$po['id']}")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $deliveryId);
+        $this->withToken($portalToken)->getJson("/api/v1/supplier/deliveries/{$deliveryId}/invoice?signed=1")
+            ->assertOk()->assertJsonStructure(['url']);
         $this->assertNotNull(DB::table('supplier_deliveries')->value('invoice_file_path'));
     }
 

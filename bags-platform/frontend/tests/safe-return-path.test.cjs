@@ -19,7 +19,16 @@ function load(relative) {
   return compiled.exports;
 }
 
-const { safeReturnPath } = load('apps/storefront/src/lib/orders/safe-return-path.ts');
+const { safeReturnPath, authenticatedReturnPath } = load('apps/storefront/src/lib/orders/safe-return-path.ts');
+
+test('authenticated wholesale sessions cannot be redirected into the retail storefront', () => {
+  assert.equal(authenticatedReturnPath('wholesale_pending', '/wholesale/application-status', '/checkout'), '/wholesale/application-status');
+  assert.equal(authenticatedReturnPath('wholesale_pending', '/wholesale/application-status', '/wholesale/orders'), '/wholesale/application-status');
+  assert.equal(authenticatedReturnPath('wholesale', '/wholesale', '/shop'), '/wholesale');
+  assert.equal(authenticatedReturnPath('wholesale', '/wholesale', '/wholesale/orders'), '/wholesale/orders');
+  assert.equal(authenticatedReturnPath('retail', '/shop', '/checkout'), '/checkout');
+  assert.equal(authenticatedReturnPath('supplier', '/supplier', '/shop'), '/supplier');
+});
 
 // task.txt (28): كل الحالات الخطرة ترجع null.
 const dangerous = [

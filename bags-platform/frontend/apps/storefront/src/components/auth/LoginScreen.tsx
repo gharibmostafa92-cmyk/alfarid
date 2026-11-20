@@ -12,7 +12,7 @@ import { AccountForm, type AuthView } from './AccountForm';
 import { createSessionNonce } from './session-nonce';
 import { StorefrontLogo } from '@/components/StorefrontLogo';
 import { useAuthMe } from '@/hooks/use-auth-me';
-import { safeReturnPath } from '@/lib/orders/safe-return-path';
+import { authenticatedReturnPath, safeReturnPath } from '@/lib/orders/safe-return-path';
 import { useStoreLang } from '@/providers/store-lang-provider';
 
 /**
@@ -170,8 +170,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     const destination = me.data?.redirect?.destination;
     const home = safeReturnPath(me.data?.redirect?.path ?? null, ['/wholesale', '/supplier', '/account']);
     if (!home) return;
-    const allowed = destination === 'wholesale' ? ['/wholesale'] : destination === 'supplier' ? ['/supplier'] : [];
-    router.replace(safeReturnPath(params.get('redirect'), allowed) ?? home);
+    router.replace(authenticatedReturnPath(destination, home, params.get('redirect')));
   }, [checkingWeb, me.data, me.error, params, router, token]);
 
   // Translations

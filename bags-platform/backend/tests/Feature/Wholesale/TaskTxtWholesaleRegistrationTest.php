@@ -45,7 +45,7 @@ class TaskTxtWholesaleRegistrationTest extends TestCase
             'tax_number' => '555666777',
             'commercial_register' => '112233',
             'documents' => [
-                UploadedFile::fake()->create('commercial_register.pdf', 150, 'application/pdf'),
+                UploadedFile::fake()->createWithContent('commercial_register.pdf', "%PDF-1.4\n%%EOF\n"),
                 UploadedFile::fake()->image('tax_card.jpg'),
             ],
             'document_types' => ['commercial_register', 'tax_card'],
@@ -61,6 +61,23 @@ class TaskTxtWholesaleRegistrationTest extends TestCase
         $this->withToken($token)->postJson('/api/v1/wholesale/auth/documents', ['document' => $file])
             ->assertUnprocessable()->assertJsonValidationErrors('document');
         $this->assertSame(0, $customer->documents()->count());
+    }
+
+    public function test_pending_trader_can_upload_a_replacement_with_the_original_document_type(): void
+    {
+        $trader = Customer::factory()->wholesale()->create();
+        $token = $trader->createToken('documents')->plainTextToken;
+        $id = $this->withToken($token)->withHeader('Accept', 'application/json')
+            ->post('/api/v1/wholesale/auth/documents', [
+                'document' => UploadedFile::fake()->image('replacement-tax-card.jpg'),
+                'document_type' => 'tax_card',
+            ])->assertCreated()->json('data.id');
+
+        $this->withToken($token)->getJson('/api/v1/wholesale/auth/application-status')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.documents.0.id', $id)
+            ->assertJsonPath('data.documents.0.document_type', 'tax_card');
     }
 
     public function test_document_reupload_enforces_per_customer_limit(): void
@@ -152,21 +169,18 @@ class TaskTxtWholesaleRegistrationTest extends TestCase
         $this->assertSame([], Storage::disk('r2')->allFiles());
     }
 
-    public function test_r2_move_failure_rolls_back_customer_and_cleans_up_staged_files(): void
+    public function test_r2_write_failure_rolls_back_customer_and_cleans_up_uploaded_files(): void
     {
         $fakeDisk = Storage::disk('r2');
         $proxy = new class($fakeDisk)
         {
+            private int $writes = 0;
+
             public function __construct(private readonly object $inner) {}
 
             public function putFileAs(string $path, mixed $file, string $name): string|false
             {
-                return $this->inner->putFileAs($path, $file, $name);
-            }
-
-            public function move(string $from, string $to): bool
-            {
-                return false;
+                return ++$this->writes === 2 ? false : $this->inner->putFileAs($path, $file, $name);
             }
 
             public function delete(string|array $paths): bool
@@ -198,10 +212,10 @@ class TaskTxtWholesaleRegistrationTest extends TestCase
                     'tax_number' => '111',
                     'commercial_register' => '222',
                 ],
-                [UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf')],
-                ['commercial_register'],
+                [UploadedFile::fake()->image('register.jpg'), UploadedFile::fake()->image('tax.jpg')],
+                ['commercial_register', 'tax_card'],
             );
-            $this->fail('Expected RuntimeException when R2 move fails.');
+            $this->fail('Expected RuntimeException when the second document upload fails.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('تعذر حفظ مستند العميل', $e->getMessage());
         }

@@ -114,6 +114,7 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
   const response = await defaultApiClient.post<RegistrationResponse>(
     wholesale ? '/api/v1/wholesale/auth/register' : '/api/v1/store/auth/register', body,
     { headers: {
+      ...(wholesale ? { 'Content-Type': undefined } : {}),
       ...(!wholesale && session ? { 'X-Cart-Session': session } : {}),
     } },
   );

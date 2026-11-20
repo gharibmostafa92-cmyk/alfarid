@@ -37,7 +37,7 @@ class WholesaleRegistrationTest extends TestCase
             'tax_number' => '123456789',
             'commercial_register' => '987654',
             'documents' => [
-                UploadedFile::fake()->create('register.pdf', 200, 'application/pdf'),
+                UploadedFile::fake()->createWithContent('register.pdf', "%PDF-1.4\n%%EOF\n"),
                 UploadedFile::fake()->image('tax-card.jpg'),
             ],
             'document_types' => ['commercial_register', 'tax_card'],

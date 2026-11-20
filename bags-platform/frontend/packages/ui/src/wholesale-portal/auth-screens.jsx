@@ -30,7 +30,7 @@ export const AuthFrame = ({ children, wide, brandName = 'VARYA' }) => (
 const DOC_ST = { verified: 'approved' };
 
 /* ---------- 4. Application status ---------- */
-export const ApplicationStatus = ({ onLogout, onEnter, brandName }) => {
+export const ApplicationStatus = ({ onLogout, onEnter, brandName, passwordHref = '' }) => {
   const [entering, setEntering] = useState(false);
   const [enterError, setEnterError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -42,7 +42,7 @@ export const ApplicationStatus = ({ onLogout, onEnter, brandName }) => {
   // Map document rejection notes from rejected_documents array by document ID.
   const notes = Object.fromEntries((d?.rejected_documents || []).map((doc) => [doc.id, doc.review_note]));
   const docs = (d?.documents || []).map((doc) => ({
-    id: doc.id, name: doc.original_name, type: DOC_TYPE[doc.document_type] || doc.document_type, status: DOC_ST[doc.status] || doc.status, note: notes[doc.id] || null,
+    id: doc.id, name: doc.original_name, documentType: doc.document_type, type: DOC_TYPE[doc.document_type] || doc.document_type, status: DOC_ST[doc.status] || doc.status, note: notes[doc.id] || null,
   }));
   const reason = status === 'rejected' ? d?.rejection_reason : status === 'suspended' ? d?.suspension_reason : null;
   const enter = async () => {
@@ -129,9 +129,7 @@ export const ApplicationStatus = ({ onLogout, onEnter, brandName }) => {
                         const fd = new FormData();
                         fd.append('document', file);
                         const rejectedDoc = docs.find((x) => x.status === 'rejected');
-                        if (rejectedDoc?.document_type || rejectedDoc?.type) {
-                          fd.append('document_type', rejectedDoc.document_type || rejectedDoc.type);
-                        }
+                        if (rejectedDoc?.documentType) fd.append('document_type', rejectedDoc.documentType);
                         await wholesaleEndpoints.uploadDocument(fd);
                         api.reload();
                       } catch (err) {
@@ -152,6 +150,7 @@ export const ApplicationStatus = ({ onLogout, onEnter, brandName }) => {
             ? <button type="button" className="pill-btn-primary" disabled={entering} onClick={enter}>الدخول إلى بوابة الجملة</button>
             : <button type="button" className="pill-btn-primary" onClick={api.reload}>تحديث حالة الطلب</button>}
           <div className="luxury-bottom-switch" style={{ marginTop: 4 }}>
+            {passwordHref && <a className="luxury-switch-link" href={passwordHref}>تغيير كلمة المرور</a>}
             <button type="button" className="luxury-switch-link" onClick={onLogout}>تسجيل الخروج</button>
           </div>
         </div>

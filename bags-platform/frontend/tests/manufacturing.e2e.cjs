@@ -8,9 +8,13 @@ const os = require('node:os');
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
     await context.addInitScript(() => localStorage.setItem('backoffice_token', 'manufacturing-test-only'));
-    let permissions = ['*'];
+    let permissions = ['inventory.view', 'inventory.adjust', 'products.view_cost', 'customers.view', 'customers.create', 'customers.update', 'customers.approve'];
     const receipts = [], dealers = [], requests = [], errors = [];
     const meta = rows => ({ current_page: 1, last_page: 1, per_page: 15, total: rows.length, from: rows.length ? 1 : null, to: rows.length || null });
+    await context.route('**/api/v1/auth/me', route => route.fulfill({ json: {
+      actor: { type: 'staff' }, redirect: { path: '/dashboard' },
+      data: { id: 1, name: 'مدير المصنع', is_active: true, roles: [{ name: 'staff' }], permissions },
+    } }));
     await context.route('**/api/v1/admin/**', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
       requests.push({ p, method });
@@ -27,14 +31,23 @@ const os = require('node:os');
       if (p.endsWith('/customers') && method === 'POST') {
         const data = req.postDataJSON();
         assert.equal(data.type, 'wholesale'); assert.equal(data.status, 'pending');
-        dealers.push({ ...data, id: 5, credit_limit: data.credit_limit || '0', documents: [] });
+        dealers.push({ ...data, id: 5, credit_limit: data.credit_limit || '0', documents: [], updated_at: '2026-10-23T10:00:00Z' });
         return route.fulfill({ status: 201, json: { data: dealers[0] } });
       }
       if (p.endsWith('/customers')) {
         assert.equal(url.searchParams.get('business_only'), '1');
         return route.fulfill({ json: { data: dealers, meta: meta(dealers) } });
       }
-      if (p.endsWith('/customers/5')) return route.fulfill({ json: { data: dealers[0] } });
+      if (p.endsWith('/customers/5')) {
+        if (method === 'PUT') {
+          const data = req.postDataJSON();
+          if (data.expected_updated_at !== dealers[0].updated_at) {
+            return route.fulfill({ status: 422, json: { message: 'Expected current customer timestamp' } });
+          }
+          dealers[0].credit_limit = data.credit_limit;
+        }
+        return route.fulfill({ json: { data: dealers[0] } });
+      }
       if (p.endsWith('/categories')) return route.fulfill({ json: { data: [] } });
       return route.fulfill({ json: { data: [], meta: meta([]) } });
     });
@@ -65,6 +78,13 @@ const os = require('node:os');
     await page.getByLabel('اسم الشركة أو المحل', { exact: true }).fill('تجارة الحقائب');
     await page.getByRole('button', { name: 'حفظ البيانات', exact: true }).click();
     await page.getByRole('cell', { name: 'أحمد تاجر الجملة تجارة الحقائب', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'فتح الحساب', exact: true }).click();
+    await page.getByLabel('حد البيع الآجل بالجنيه', { exact: true }).fill('15000');
+    const saved = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/customers/5'));
+    await page.getByRole('button', { name: 'حفظ البيانات', exact: true }).click();
+    assert.equal((await saved).status(), 200);
+    assert.equal(dealers[0].credit_limit, '15000');
+    await page.getByRole('button', { name: 'حفظ البيانات', exact: true }).waitFor({ state: 'hidden' });
     await page.screenshot({ path: path.join(os.tmpdir(), 'manufacturing-dealers-mobile.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 1440, height: 1050 });
     await page.screenshot({ path: path.join(os.tmpdir(), 'manufacturing-dealers-desktop.png'), fullPage: true, animations: 'disabled' });
@@ -74,7 +94,7 @@ const os = require('node:os');
     await page.getByRole('heading', { name: 'استلام الإنتاج', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'تأكيد استلام الإنتاج', exact: true }).count(), 0);
     assert.deepEqual(errors, []);
-    console.log('PASS: production receipt, dealer creation, read-only permissions, desktop/mobile, no resale requests or runtime errors');
+    console.log('PASS: production receipt, dealer creation and credit limit update, read-only permissions, desktop/mobile, no resale requests or runtime errors');
     console.log('Screenshots: ' + os.tmpdir());
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

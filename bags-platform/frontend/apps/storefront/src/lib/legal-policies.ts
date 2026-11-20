@@ -326,12 +326,34 @@ const legalPoliciesV1: LegalPolicy[] = [
   },
 ];
 
+const legalPoliciesV2 = legalPoliciesV1.map((policy) => {
+  if (policy.id !== 'cookies' && policy.id !== 'privacy') return policy;
+  return {
+    ...policy,
+    sections: [...policy.sections.map((section) => policy.id === 'cookies' && section.heading === 'Your choices' ? {
+      ...section,
+      paragraphs: ['You can block or remove browser storage through your browser settings. Some store functions may not work as expected if essential storage is blocked. You can also change your analytics choice using Analytics settings in the store footer.'],
+      paragraphsAr: ['يمكنك حظر مساحة تخزين المتصفح أو حذفها من إعداداته. وقد لا تعمل بعض وظائف المتجر كما ينبغي عند حظر التخزين الضروري. ويمكنك تغيير اختيار التحليلات من إعدادات التحليلات في أسفل المتجر.'],
+    } : section), {
+      heading: 'Optional store analytics',
+      headingAr: 'تحليلات المتجر الاختيارية',
+      paragraphs: [
+        'If configured, Google Analytics measures product views, cart additions, checkout starts and completed orders after you allow analytics. It receives product and transaction information and a page address without query parameters. The store does not send your name, phone number, email or delivery address in these events. The browser stores your analytics choice and up to 100 order numbers to avoid recording the same purchase twice. You can change your choice using Analytics settings in the store footer.',
+      ],
+      paragraphsAr: [
+        'عند تفعيل الخدمة وموافقتك، يقيس Google Analytics مشاهدات المنتجات وإضافتها للسلة وبدء الشراء والطلبات المكتملة. يتلقى بيانات المنتج والطلب وعنوان الصفحة بدون معاملات الرابط. لا يرسل المتجر اسمك أو رقم هاتفك أو بريدك الإلكتروني أو عنوان التوصيل في هذه الأحداث. يحفظ المتصفح اختيارك وحتى ١٠٠ رقم طلب لتجنب تسجيل الشراء أكثر من مرة. يمكنك تغيير اختيارك من إعدادات التحليلات في أسفل المتجر.',
+      ],
+    }],
+  };
+});
+
 /**
  * Published policy copies are immutable by version. Add a new entry for any
  * future change instead of editing an existing published entry.
  */
 export const LEGAL_POLICY_VERSIONS: Readonly<Record<string, readonly LegalPolicy[]>> = Object.freeze({
   '2026-11-20-v1': Object.freeze(legalPoliciesV1),
+  '2026-11-20-v2': Object.freeze(legalPoliciesV2),
 });
 
 const currentPolicies = LEGAL_POLICY_VERSIONS[LEGAL_POLICY_VERSION];

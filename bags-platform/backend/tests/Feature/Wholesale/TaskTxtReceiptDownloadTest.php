@@ -105,7 +105,7 @@ class TaskTxtReceiptDownloadTest extends TestCase
             'receipt_file_path' => "wholesale_payment_notices/{$this->trader->id}/does-not-exist.jpg",
         ]);
 
-        $this->asTrader()->get("/api/v1/wholesale/payment-notices/{$missingFileNotice->id}/receipt")
+        $this->asTrader()->get("/api/v1/wholesale/payment-notices/{$missingFileNotice->id}/receipt?verify=1")
             ->assertNotFound();
     }
 

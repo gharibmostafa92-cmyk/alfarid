@@ -5,6 +5,7 @@ node_modules
 
 # Next.js build
 .next/
+.next-seo-test/
 out/
 
 # Vite build

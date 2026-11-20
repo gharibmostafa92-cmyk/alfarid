@@ -8,5 +8,6 @@ const qs = (q?: Query) => {
 export const STORE_ROUTES = {
   home: '/',
   shop: (q?: Query) => `/shop${qs(q)}`,
-  product: (slug: string) => `/shop${qs({ product: slug })}`,
+  category: (slug: string) => `/categories/${encodeURIComponent(slug)}`,
+  product: (slug: string) => `/products/${encodeURIComponent(slug)}`,
 };

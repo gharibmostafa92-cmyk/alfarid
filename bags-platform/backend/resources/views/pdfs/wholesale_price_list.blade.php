@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <style>
-    body { font-family: 'DejaVu Sans', sans-serif; font-size: 11px; color: #222; }
+    body { font-size: 11px; color: #222; }
     .header { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 12px; }
     .company { font-size: 20px; font-weight: bold; }
     .meta { color: #555; margin-top: 4px; }
@@ -14,16 +14,16 @@
 </style>
 </head>
 <body>
-    <div class="header">
+    <div class="header" dir="rtl">
         <div class="company">{{ $company_name }}</div>
         <div class="meta">
             قائمة أسعار الجملة — التاجر: {{ $customer->company_name ?: $customer->name }}
-            | صالحة حتى: {{ $valid_until->toDateString() }}
-            | تاريخ الإصدار: {{ $generated_at->toDateString() }}
+            | صالحة حتى: <bdi dir="ltr">{{ $valid_until->toDateString() }}</bdi>
+            | تاريخ الإصدار: <bdi dir="ltr">{{ $generated_at->toDateString() }}</bdi>
         </div>
     </div>
 
-    <table>
+    <table dir="ltr">
         <thead>
             <tr>
                 <th>SKU</th>
@@ -39,7 +39,7 @@
                 <tr>
                     <td>{{ $row['sku'] }}</td>
                     <td>{{ $row['barcode'] }}</td>
-                    <td>{{ $row['product_name'] }}</td>
+                    <td dir="rtl">{{ $row['product_name'] }}</td>
                     <td class="num">{{ $row['base_price'] !== null ? number_format($row['base_price'], 2) : '—' }}</td>
                     <td class="num">{{ $row['wholesale_price'] !== null ? number_format($row['wholesale_price'], 2) : '—' }}</td>
                     <td>

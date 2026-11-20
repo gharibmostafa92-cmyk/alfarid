@@ -139,7 +139,7 @@ class WholesalePortalTest extends TestCase
         $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept")->assertUnprocessable();
 
         $itemId = Quotation::findOrFail($id)->items()->first()->id;
-        $this->asAdmin()->postJson("/api/v1/admin/quotations/{$id}/price", [
+        $priced = $this->asAdmin()->postJson("/api/v1/admin/quotations/{$id}/price", [
             'items' => [['id' => $itemId, 'offered_unit_price' => 90]],
             'discount_amount' => 10,
             'valid_until' => now()->addDays(30)->toDateString(),
@@ -151,7 +151,13 @@ class WholesalePortalTest extends TestCase
         $this->assertDatabaseHas('staff_audit_logs', ['action' => 'quotation.priced', 'target_type' => 'quotation', 'target_id' => $id]);
 
         // القبول يحوّل العرض تلقائيًا إلى طلب مؤكد آجل بنفس الأسعار المتفق عليها
-        $response = $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept")
+        $revision = $priced->json('data.revision');
+        $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept", [
+            'expected_revision' => $revision + 1,
+        ])->assertConflict();
+        $response = $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept", [
+            'expected_revision' => $revision,
+        ])
             ->assertOk()->assertJsonPath('data.status', 'converted_to_order');
 
         $orderId = $response->json('data.converted_order_id');
@@ -160,12 +166,13 @@ class WholesalePortalTest extends TestCase
         $this->assertSame('credit', $order->payment_method);
         $this->assertSame('unpaid', $order->payment_status);
         $this->assertSame('confirmed', $order->status->value);
-        $this->assertSame('170.00', $order->grand_total);
+        $expectedTotal = bcadd('170.00', (string) $order->shipping_cost, 2);
+        $this->assertSame($expectedTotal, $order->grand_total);
         $this->assertSame('90.00', $order->items()->first()->unit_price);
 
         // الطلب الآجل الجديد يظهر في مديونية التاجر
         $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
-            ->assertOk()->assertJsonPath('data.outstanding_balance', '170.00');
+            ->assertOk()->assertJsonPath('data.outstanding_balance', $expectedTotal);
     }
 
     public function test_quotation_reject_and_expired_accept_guard(): void
@@ -275,6 +282,8 @@ class WholesalePortalTest extends TestCase
         $this->creditOrder(1000); // Other debt must not mask the already-paid linked order.
         $noticeId = $this->submitNotice(['order_id' => $order->id, 'amount' => 400]);
         $order->update(['payment_status' => 'paid']);
+        $outstandingBeforeReview = $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->json('data.outstanding_balance');
 
         $this->asAdmin()->postJson('/api/v1/admin/payment-notices/'.$noticeId.'/approve', [])
             ->assertUnprocessable()->assertJsonPath('message', 'الطلب المرتبط تم سداده بالفعل؛ لا يمكن اعتماد إشعار السداد.');
@@ -282,7 +291,7 @@ class WholesalePortalTest extends TestCase
         $this->assertDatabaseCount('treasury_transactions', 0);
         $this->assertSame('0.00', $treasury->fresh()->current_balance);
         $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
-            ->assertOk()->assertJsonPath('data.outstanding_balance', '1000.00');
+            ->assertOk()->assertJsonPath('data.outstanding_balance', $outstandingBeforeReview);
     }
 
     #[TestWith([false])]
@@ -335,14 +344,17 @@ class WholesalePortalTest extends TestCase
         $this->assertSame('0.00', $drawer->fresh()->current_balance);
     }
 
-    public function test_notice_approval_above_outstanding_debt_is_rejected(): void
+    public function test_unlinked_notice_above_outstanding_debt_records_the_remainder_as_advance_credit(): void
     {
-        $this->bankTreasury();
+        $treasury = $this->bankTreasury();
         $this->creditOrder(1000);
         $noticeId = $this->submitNotice(['amount' => 1500]);
 
-        $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertUnprocessable();
-        $this->assertDatabaseCount('treasury_transactions', 0);
+        $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertOk();
+        $this->assertDatabaseCount('treasury_transactions', 1);
+        $this->assertSame('1500.00', $treasury->fresh()->current_balance);
+        $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->assertJsonPath('data.outstanding_balance', '-500.00');
     }
 
     public function test_cancel_blocked_with_approved_notice_and_credit_survives_explicit_cancel(): void

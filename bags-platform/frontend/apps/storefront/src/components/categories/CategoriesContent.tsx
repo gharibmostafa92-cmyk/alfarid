@@ -12,11 +12,21 @@ import { findCategory, pick, priceRangeLabel, toCardVM, type CatalogCardVM } fro
 import { rollupCategoryProductCount } from '@/lib/catalog/sophie-mappers';
 import { ProductExperience } from '@/components/products/ProductExperience';
 import { StoreImage } from '../StoreImage';
+import { STORE_ROUTES } from '@/lib/orders/store-routes';
+import { useStoreLang } from '@/providers/store-lang-provider';
 
 const ALL_COLOR_BG = 'linear-gradient(135deg, #ef4444, #3b82f6, #10b981)';
+const SORT_AR: Record<CatalogFilterState['sort'], string> = {
+  featured: 'المختارة', newest: 'الأحدث', best_selling: 'الأكثر مبيعًا',
+  price_asc: 'السعر من الأقل للأعلى', price_desc: 'السعر من الأعلى للأقل', name: 'الاسم',
+};
+const OCCASION_AR: Record<StoreOccasion, string> = {
+  casual: 'يومي', work: 'الشغل', weekend: 'نهاية الأسبوع', evening: 'السهرات',
+};
 
 export function CategoriesContent() {
   const sp = useSearchParams();
+  const { lang, isAr } = useStoreLang();
   const router = useRouter();
   const pathname = usePathname();
   const filters = useMemo(() => parseFilters(new URLSearchParams(sp.toString())), [sp]);
@@ -27,7 +37,7 @@ export function CategoriesContent() {
     router.replace(`${pathname}${buildSearch({ ...filters, ...patch })}`, { scroll: false });
   const resetFilters = () => router.replace(pathname, { scroll: false });
   const openProduct = (slug: string) => {
-    router.push(`${pathname}${buildSearch(filters, { product: slug })}`);
+    router.push(`${STORE_ROUTES.product(slug)}${buildSearch(filters)}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const closeProduct = () => router.push(`${pathname}${buildSearch(filters)}`, { scroll: false });
@@ -81,7 +91,11 @@ export function CategoriesContent() {
   const productQ = useStoreProduct(productSlug);
   const similarQ = useSimilarProducts(productSlug);
 
-  const cards = useMemo(() => (productsQ.data?.pages ?? []).flatMap((p) => p.data).map(toCardVM), [productsQ.data]);
+  const cards = useMemo(() => (productsQ.data?.pages ?? []).flatMap((p) => p.data).map((product) => ({
+    ...toCardVM(product),
+    name: pick(product.name_en, product.name_ar, lang),
+    categoryLabel: pick(product.category?.name_en, product.category?.name_ar, lang),
+  })), [productsQ.data, lang]);
   const total = productsQ.data?.pages[0]?.meta.total ?? 0;
   const roots = categoriesQ.data ?? [];
   const allCount = roots.reduce((t, c) => t + rollupCategoryProductCount(c), 0);
@@ -134,12 +148,12 @@ export function CategoriesContent() {
               <i className={isWishlisted ? 'fa-solid fa-heart' : 'fa-regular fa-heart'} style={{ color: isWishlisted ? '#e11d48' : '' }} />
             </button>
           </div>
-          <Link href={`${pathname}${buildSearch(filters, { product: card.slug })}`} aria-label={card.name}>
+          <Link href={`${STORE_ROUTES.product(card.slug)}${buildSearch(filters)}`} aria-label={card.name}>
             <StoreImage src={card.img ?? DEFAULT_HERO.img} className="" alt={card.name} loading="lazy" />
           </Link>
         </div>
         <p className="product-category-tag">{card.categoryLabel}</p>
-        <h3 className="product-name"><Link href={`${pathname}${buildSearch(filters, { product: card.slug })}`}>{card.name}</Link></h3>
+        <h3 className="product-name"><Link href={`${STORE_ROUTES.product(card.slug)}${buildSearch(filters)}`}>{card.name}</Link></h3>
         <p className="product-price">
           {card.oldPriceLabel && <span className="old-price">{card.oldPriceLabel}</span>}
           {card.priceLabel}
@@ -155,8 +169,8 @@ export function CategoriesContent() {
     </>;
   }
 
-  const heroTitle = activeCat ? { light: 'SHOP', bold: pick(activeCat.node.name_en, activeCat.node.name_ar).toUpperCase() } : { light: DEFAULT_HERO.light, bold: DEFAULT_HERO.bold };
-  const heroDesc = activeCat ? (pick(activeCat.node.description_en, activeCat.node.description_ar) || DEFAULT_HERO.desc) : DEFAULT_HERO.desc;
+  const heroTitle = activeCat ? { light: isAr ? 'تسوق' : 'SHOP', bold: pick(activeCat.node.name_en, activeCat.node.name_ar, lang).toUpperCase() } : { light: isAr ? 'تشكيلة' : DEFAULT_HERO.light, bold: isAr ? 'الشنط' : DEFAULT_HERO.bold };
+  const heroDesc = activeCat ? pick(activeCat.node.description_en, activeCat.node.description_ar, lang) : (isAr ? 'تصفح الشنط المتاحة واختار الموديل المناسب ليومك.' : DEFAULT_HERO.desc);
   const heroImg = activeCat?.node.image ?? DEFAULT_HERO.img;
 
   return (
@@ -168,18 +182,18 @@ export function CategoriesContent() {
           <section className="cat-hero-banner">
             <div className="cat-hero-text">
               <div className="cat-breadcrumbs">
-                <Link href="/">HOME</Link> &nbsp;/&nbsp; <Link href="/shop">SHOP</Link> &nbsp;/&nbsp;{' '}
+                <Link href="/">{isAr ? 'الرئيسية' : 'HOME'}</Link> &nbsp;/&nbsp; <Link href="/shop">{isAr ? 'المتجر' : 'SHOP'}</Link> &nbsp;/&nbsp;{' '}
                 {activeCat ? (
                   <span className="active">
                     {activeCat.path.map((c, i) => (
                       <span key={c.slug}>
                         {i > 0 && ' / '}
-                        <Link href={`${pathname}?category=${c.slug}`}>{pick(c.name_en, c.name_ar).toUpperCase()}</Link>
+                        <Link href={`${pathname}?category=${c.slug}`}>{pick(c.name_en, c.name_ar, lang).toUpperCase()}</Link>
                       </span>
                     ))}
                   </span>
                 ) : (
-                  <span className="active">BAG COLLECTION</span>
+                  <span className="active">{isAr ? 'تشكيلة الشنط' : 'BAG COLLECTION'}</span>
                 )}
               </div>
               <h1 className="cat-hero-title">
@@ -212,10 +226,10 @@ export function CategoriesContent() {
                     aria-expanded={isSidebarOpen}
                   >
                     <i className="fa-solid fa-sliders" />
-                    <span>{isSidebarOpen ? 'Hide Filters' : 'Show Filters'}</span>
+                    <span>{isSidebarOpen ? (isAr ? 'إخفاء الفلاتر' : 'Hide Filters') : (isAr ? 'عرض الفلاتر' : 'Show Filters')}</span>
                   </button>
                   <span className="filter-count-badge">
-                    Showing <AnimatedNumber value={total} /> pieces
+                    {isAr ? 'عدد المنتجات ' : 'Showing '}<AnimatedNumber value={total} /> {isAr ? '' : 'pieces'}
                   </span>
                 </div>
 
@@ -225,7 +239,7 @@ export function CategoriesContent() {
                     className={`cat-pill ${filters.category === null ? 'active' : ''}`}
                     onClick={() => updateFilters({ category: null })}
                   >
-                    All Bags
+                    {isAr ? 'كل الشنط' : 'All Bags'}
                   </button>
                   {roots.map((c) => (
                     <button
@@ -233,14 +247,14 @@ export function CategoriesContent() {
                       className={`cat-pill ${filters.category === c.slug ? 'active' : ''}`}
                       onClick={() => updateFilters({ category: c.slug })}
                     >
-                      {pick(c.name_en, c.name_ar)}
+                      {pick(c.name_en, c.name_ar, lang)}
                     </button>
                   ))}
                 </div>
 
                 <div className="toolbar-right">
                   <div className="sort-wrap">
-                    <span>Sort by</span>
+                    <span>{isAr ? 'الترتيب' : 'Sort by'}</span>
                     <select
                       aria-label="Sort products"
                       className="sort-select"
@@ -248,7 +262,7 @@ export function CategoriesContent() {
                       onChange={(e) => updateFilters({ sort: e.target.value as CatalogFilterState['sort'] })}
                     >
                       {SORT_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
+                        <option key={o.value} value={o.value}>{isAr ? SORT_AR[o.value] : o.label}</option>
                       ))}
                     </select>
                   </div>
@@ -261,9 +275,9 @@ export function CategoriesContent() {
                   <div className="filter-sidebar-inner">
                     <div className="sidebar-header">
                       <div className="sidebar-header-left">
-                        <span className="sidebar-title">Refine By</span>
+                        <span className="sidebar-title">{isAr ? 'تصفية حسب' : 'Refine By'}</span>
                         <button className="btn-reset-filters" onClick={resetFilters}>
-                          Reset All
+                          {isAr ? 'مسح الفلاتر' : 'Reset All'}
                         </button>
                       </div>
                       <button
@@ -283,13 +297,13 @@ export function CategoriesContent() {
 
                     {/* Category Filter */}
                     <div className="filter-group">
-                      <div className="group-heading">Categories</div>
+                      <div className="group-heading">{isAr ? 'التصنيفات' : 'Categories'}</div>
                       <div className="filter-list">
                         <button type="button"
                           className={`filter-item ${filters.category === null ? 'active' : ''}`}
                           onClick={() => updateFilters({ category: null })}
                         >
-                          <span>All Collections</span>
+                          <span>{isAr ? 'كل التصنيفات' : 'All Collections'}</span>
                           <span className="count"><AnimatedNumber value={allCount} /></span>
                         </button>
                         {roots.map((c) => (
@@ -298,7 +312,7 @@ export function CategoriesContent() {
                               className={`filter-item ${filters.category === c.slug ? 'active' : ''}`}
                               onClick={() => updateFilters({ category: c.slug })}
                             >
-                              <span>{pick(c.name_en, c.name_ar)}</span>
+                              <span>{pick(c.name_en, c.name_ar, lang)}</span>
                               <span className="count"><AnimatedNumber value={c.products_count} /></span>
                             </button>
                             {(c.children ?? []).map((child) => (
@@ -308,7 +322,7 @@ export function CategoriesContent() {
                                 style={{ paddingLeft: 12 }}
                                 onClick={() => updateFilters({ category: child.slug })}
                               >
-                                <span>{pick(child.name_en, child.name_ar)}</span>
+                                <span>{pick(child.name_en, child.name_ar, lang)}</span>
                                 <span className="count"><AnimatedNumber value={child.products_count} /></span>
                               </button>
                             ))}
@@ -319,7 +333,7 @@ export function CategoriesContent() {
 
                     {/* Occasion Filter */}
                     <div className="filter-group">
-                      <div className="group-heading">Occasion</div>
+                      <div className="group-heading">{isAr ? 'الاستخدام' : 'Occasion'}</div>
                       <div className="filter-list">
                         {(facetsQ.data?.occasions ?? []).map((o) => {
                           const checked = filters.occasions.includes(o.id);
@@ -327,7 +341,7 @@ export function CategoriesContent() {
                             <label key={o.id} className="checkbox-label">
                               <input type="checkbox" checked={checked} onChange={() => toggleOccasion(o.id)} />
                               <span className="custom-box">{checked ? '✓' : ''}</span>
-                              {OCCASION_LABELS[o.id]} <span className="count">{o.count}</span>
+                              {isAr ? OCCASION_AR[o.id] : OCCASION_LABELS[o.id]} <span className="count">{o.count}</span>
                             </label>
                           );
                         })}
@@ -336,7 +350,7 @@ export function CategoriesContent() {
 
                     {/* Color Palette */}
                     <div className="filter-group">
-                      <div className="group-heading">Color Palette</div>
+                      <div className="group-heading">{isAr ? 'الألوان' : 'Color Palette'}</div>
                       <div className="color-swatches-grid">
                         <button
                           className={`swatch-btn ${filters.color === null ? 'active' : ''}`}
@@ -344,17 +358,17 @@ export function CategoriesContent() {
                           title="All"
                         >
                           <span className="swatch-circle" style={{ background: ALL_COLOR_BG }} />
-                          <span className="swatch-name">All</span>
+                          <span className="swatch-name">{isAr ? 'الكل' : 'All'}</span>
                         </button>
                         {(facetsQ.data?.colors ?? []).map((c) => (
                           <button
                             key={c.id}
                             className={`swatch-btn ${filters.color === c.id ? 'active' : ''}`}
                             onClick={() => toggleColor(c.id)}
-                            title={pick(c.name_en, c.name_ar)}
+                            title={pick(c.name_en, c.name_ar, lang)}
                           >
                             <span className="swatch-circle" style={{ background: c.hex ?? '#ccc' }} />
-                            <span className="swatch-name">{pick(c.name_en, c.name_ar)} <span className="count">{c.count}</span></span>
+                            <span className="swatch-name">{pick(c.name_en, c.name_ar, lang)} <span className="count">{c.count}</span></span>
                           </button>
                         ))}
                       </div>
@@ -362,7 +376,7 @@ export function CategoriesContent() {
 
                     {/* Price Range */}
                     <div className="filter-group">
-                      <div className="group-heading">Price Range</div>
+                      <div className="group-heading">{isAr ? 'السعر' : 'Price Range'}</div>
                       <div className="filter-list">
                         <label className="checkbox-label">
                           <input
@@ -373,7 +387,7 @@ export function CategoriesContent() {
                           <span className="custom-box">
                             {filters.priceMin === null && filters.priceMax === null ? '✓' : ''}
                           </span>
-                          <span>All Prices</span>
+                          <span>{isAr ? 'كل الأسعار' : 'All Prices'}</span>
                         </label>
                         {(facetsQ.data?.price_ranges ?? []).map((r) => {
                           const isActive = filters.priceMin === r.min && filters.priceMax === r.max;
@@ -412,10 +426,10 @@ export function CategoriesContent() {
                       ))
                     ) : productsQ.isError ? (
                       <div className="no-results" style={{ display: 'block' }}>
-                        <h3>COULDN&apos;T LOAD PRODUCTS</h3>
-                        <p>Something went wrong while fetching the collection. Please try again.</p>
+                        <h3>{isAr ? 'تعذر تحميل المنتجات' : "COULDN'T LOAD PRODUCTS"}</h3>
+                        <p>{isAr ? 'حاول مرة تانية.' : 'Something went wrong while fetching the collection. Please try again.'}</p>
                         <button className="btn-filter-toggle" onClick={() => productsQ.refetch()}>
-                          Retry
+                          {isAr ? 'إعادة المحاولة' : 'Retry'}
                         </button>
                       </div>
                     ) : (
@@ -425,10 +439,10 @@ export function CategoriesContent() {
                     {/* Empty State */}
                     {!productsQ.isPending && !productsQ.isError && cards.length === 0 && (
                       <div className="no-results" style={{ display: 'block' }}>
-                        <h3>NO BAGS FOUND</h3>
-                        <p>We couldn&apos;t find any bags matching your filter criteria.</p>
+                        <h3>{isAr ? 'مفيش شنط مطابقة' : 'NO BAGS FOUND'}</h3>
+                        <p>{isAr ? 'جرّب تغير الفلاتر عشان تشوف منتجات تانية.' : "We couldn't find any bags matching your filter criteria."}</p>
                         <button className="btn-filter-toggle" onClick={resetFilters}>
-                          Reset All Filters
+                          {isAr ? 'مسح الفلاتر' : 'Reset All Filters'}
                         </button>
                       </div>
                     )}
@@ -439,7 +453,7 @@ export function CategoriesContent() {
                       disabled={productsQ.isFetchingNextPage}
                       onClick={() => productsQ.fetchNextPage()}
                     >
-                      {productsQ.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                      {productsQ.isFetchingNextPage ? (isAr ? 'جاري التحميل…' : 'Loading…') : (isAr ? 'عرض المزيد' : 'Load more')}
                     </button>
                   )}
                 </div>

@@ -61,7 +61,7 @@ test('all filters round trip through a product link and API parameters preserve 
   assert.deepEqual(query.toApiParams(state), { category: 'demo-backpacks', color: 'noir', price_min: 800,
     price_max: 1500, occasions: ['work', 'casual'], search: 'a & b', in_stock: 1, on_sale: 1, sort: 'price_asc', per_page: 24 });
   assert.deepEqual(query.toFacetParams(state), { category: 'demo-backpacks', occasions: ['work', 'casual'], search: 'a & b', in_stock: 1, on_sale: 1 });
-  assert.equal(STORE_ROUTES.product('bag & leather'), '/shop?product=bag+%26+leather');
+  assert.equal(STORE_ROUTES.product('bag & leather'), '/products/bag%20%26%20leather');
   assert.equal(STORE_ROUTES.shop({ sort: 'newest' }), '/shop?sort=newest');
 });
 

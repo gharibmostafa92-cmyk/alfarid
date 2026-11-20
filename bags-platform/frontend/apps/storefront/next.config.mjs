@@ -31,6 +31,7 @@ if (!mediaDestination) mediaDestination = `${mediaApi.origin}/storage/:path*`;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(process.env.STOREFRONT_SEO_TEST === '1' ? { distDir: '.next-seo-test' } : {}),
   ...(process.env.STOREFRONT_STANDALONE === '1' ? {
     output: 'standalone',
     outputFileTracingRoot: resolve(import.meta.dirname, '../..'),

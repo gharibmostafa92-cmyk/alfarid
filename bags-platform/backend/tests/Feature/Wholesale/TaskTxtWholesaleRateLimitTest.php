@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Models\Customer;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
@@ -28,12 +27,16 @@ class TaskTxtWholesaleRateLimitTest extends TestCase
         $this->seed(SettingSeeder::class);
     }
 
-    public function test_registration_and_document_upload_routes_carry_throttle_while_portal_notices_and_import_await_owner_decision(): void
+    public function test_registration_uploads_and_heavy_wholesale_endpoints_are_throttled(): void
     {
-        $routes = collect(RouteFacade::getRoutes()->getRoutes())->keyBy(fn (Route $r) => $r->uri());
+        $routes = collect(RouteFacade::getRoutes()->getRoutes());
+        $middleware = fn (string $method, string $path): array => $routes
+            ->first(fn (Route $route): bool => $route->uri() === 'api/v1/wholesale/'.$path
+                && in_array($method, $route->methods(), true))
+            ?->gatherMiddleware() ?? [];
 
-        $registerMiddleware = $routes->get('api/v1/wholesale/auth/register')?->gatherMiddleware() ?? [];
-        $docsMiddleware = $routes->get('api/v1/wholesale/auth/documents')?->gatherMiddleware() ?? [];
+        $registerMiddleware = $middleware('POST', 'auth/register');
+        $docsMiddleware = $middleware('POST', 'auth/documents');
 
         $this->assertTrue(collect($registerMiddleware)->contains(fn (string $m) => str_contains($m, 'customer-registration')));
         $this->assertTrue(collect($docsMiddleware)->contains(fn (string $m) => str_contains($m, 'customer-registration')));
@@ -45,20 +48,8 @@ class TaskTxtWholesaleRateLimitTest extends TestCase
         }
         $this->postJson('/api/v1/wholesale/auth/register', [])->assertStatus(429);
 
-        // Documented in task.txt item 31 (owner decision pending):
-        // payment-notices and quick-order/import do not attach a dedicated
-        // route-level throttle; the generous M5 api-base ceiling is their
-        // only throttle.
-        $noticesMiddleware = $routes->get('api/v1/wholesale/payment-notices')?->gatherMiddleware() ?? [];
-        $importMiddleware = $routes->get('api/v1/wholesale/quick-order/import')?->gatherMiddleware() ?? [];
-
-        $isDedicated = fn ($m) => is_string($m) && (str_contains($m, 'ThrottleRequests') || (str_starts_with($m, 'throttle:') && $m !== 'throttle:api-base'));
-        $hasDedicatedNoticeThrottle = collect($noticesMiddleware)->contains($isDedicated);
-        $hasDedicatedImportThrottle = collect($importMiddleware)->contains($isDedicated);
-
-        $this->assertFalse($hasDedicatedNoticeThrottle);
-        $this->assertFalse($hasDedicatedImportThrottle);
-        $this->assertTrue(collect($noticesMiddleware)->contains('throttle:api-base'));
-        $this->assertTrue(collect($importMiddleware)->contains('throttle:api-base'));
+        foreach ([['POST', 'payment-notices'], ['POST', 'quick-order/import'], ['GET', 'price-list/export']] as [$method, $path]) {
+            $this->assertContains('throttle:wholesale-heavy', $middleware($method, $path));
+        }
     }
 }

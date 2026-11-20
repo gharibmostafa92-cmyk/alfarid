@@ -11,7 +11,7 @@ function loadService(cartMerged, options = {}) {
   loaded.filename = filename;
   loaded.require = name => {
     if (name === '@alfarid/api-client') return {
-      defaultApiClient: { post: async (...args) => {
+      defaultApiClient: options.apiClient ?? { post: async (...args) => {
         calls.push(['post', ...args]);
         return { data: { token: 'new-token', data: {}, cart_merged: cartMerged } };
       } },
@@ -75,6 +75,25 @@ test('wholesale registration preserves the guest cart session', async () => {
   assert.ok(calls.some(call => call[0] === 'session'));
   assert.ok(calls.some(call => call[0] === 'restore' && call[1] === 'guest-session'));
   assert.ok(!calls.some(call => call[0] === 'clear'));
+});
+
+test('wholesale registration sends actual files as multipart data', async () => {
+  const requireApi = Module.createRequire(path.resolve(__dirname, '../packages/api-client/package.json'));
+  const axios = requireApi('axios');
+  let sent;
+  const apiClient = axios.create({
+    headers: { 'Content-Type': 'application/json' },
+    adapter: async config => {
+      sent = config;
+      return { data: { token: 'new-token', data: {} }, status: 201, statusText: 'Created', headers: {}, config };
+    },
+  });
+  const { service } = loadService(undefined, { apiClient });
+  const file = new File(['document'], 'register.pdf', { type: 'application/pdf' });
+  await service.registerWeb({ name: 'Trader', phone: '01012345678', password: 'password123456' }, true, [file]);
+  assert.ok(sent.data instanceof FormData);
+  assert.equal(sent.data.get('documents[]').name, 'register.pdf');
+  assert.notEqual(sent.headers.get('Content-Type'), 'application/json');
 });
 
 test('retail registration preserves the guest cart when the server omits cart_merged', async () => {

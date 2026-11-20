@@ -72,7 +72,10 @@ export function DealersPage() {
         for (const key of ['phone', 'company_name', 'tax_number', 'commercial_register']) payload[key] = draft[key];
         payload.email = draft.email || null;
         if (draft.password) payload.password = draft.password;
-        if (can('customers.approve')) payload.credit_limit = draft.credit_limit;
+        if (can('customers.approve')) {
+          payload.credit_limit = draft.credit_limit;
+          if (draft.id) payload.expected_updated_at = draft.updated_at;
+        }
       }
       if (draft.id) await api.put(base + '/customers/' + draft.id, payload);
       else await api.post(base + '/customers', { ...payload, type: draft.type, status: 'pending' });

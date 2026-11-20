@@ -12,7 +12,7 @@ import { SophieHeader } from './sophie/layout/SophieHeader';
 export type ShellLayout = 'storefront' | 'bare' | 'portal';
 
 const STORE_EXACT = new Set(['/', '/account']);
-const STORE_PREFIXES = ['/shop', '/categories', '/design', '/showcase', '/cart', '/checkout', '/account', '/orders', '/security', '/legal'];
+const STORE_PREFIXES = ['/shop', '/categories', '/products', '/guides', '/bags-wholesale', '/design', '/showcase', '/cart', '/checkout', '/account', '/orders', '/security', '/legal'];
 const BARE_PREFIXES = ['/auth', '/wholesale', '/supplier'];
 
 const matches = (pathname: string, prefix: string) =>

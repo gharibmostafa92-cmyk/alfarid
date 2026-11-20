@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { pagerItems } from './data/helpers';
 
 /* Shared primitives — mirror @alfarid/ui + sophie.css patterns. */
@@ -146,7 +146,16 @@ export const Qty = ({ value, onChange, min = 0 }) => (
   </div>
 );
 
-export const Thumb = ({ sm }) => <div className={`thumb${sm ? ' sm' : ''}`} aria-hidden="true"><i className="fa-solid fa-bag-shopping" /></div>;
+export function Thumb({ sm, src }) {
+  const [failedSrc, setFailedSrc] = useState(null);
+  return (
+    <div className={`thumb${sm ? ' sm' : ''}`} aria-hidden="true">
+      {src && src !== failedSrc
+        ? <img src={src} alt="" loading="lazy" decoding="async" onError={() => setFailedSrc(src)} />
+        : <i className="fa-solid fa-bag-shopping" />}
+    </div>
+  );
+}
 
 export const Seg = ({ options, value, onChange }) => (
   <div className="seg" role="tablist">

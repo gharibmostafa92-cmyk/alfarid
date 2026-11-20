@@ -80,7 +80,7 @@ test('relative API urls do not throw and Turnstile stays on script-src', () => {
         static next() { return new Response(null, { status: 200 }); }
       } },
     });
-    const response = middleware({ nextUrl: { pathname: '/shop', origin: 'https://shop.test', hostname: 'shop.test' } });
+    const response = middleware({ nextUrl: { pathname: '/shop', origin: 'https://shop.test', hostname: 'shop.test', searchParams: new URLSearchParams() } });
     const csp = response.headers.get('content-security-policy');
     assert.match(csp, /https:\/\/challenges\.cloudflare\.com/);
     assert.match(csp, /'nonce-/);
@@ -191,7 +191,7 @@ test('root categories with direct products remain navigable without fabricated s
   const result = toMegaDepartments([{ slug: 'bags', name_en: 'Bags', products_count: 3, image: null, children: [] },
     { slug: 'empty', name_en: 'Empty', products_count: 0, children: [] }]);
   assert.deepEqual(Object.keys(result), ['bags']);
-  assert.equal(result.bags.href, '/shop?category=bags');
+  assert.equal(result.bags.href, '/categories/bags');
   assert.equal(result.bags.col1[0].links[0].slug, 'bags');
   assert.equal(result.bags.col1[0].links[0].count, 3);
 });

@@ -28,6 +28,27 @@ function resolveEnvUrl(raw: string | undefined, base: string): URL {
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  if (pathname === '/shop' || pathname === '/categories') {
+    const product = request.nextUrl.searchParams.get('product');
+    if (product && !product.includes('/') && !product.includes('\\')) {
+      const destination = request.nextUrl.clone();
+      destination.pathname = '/products/' + encodeURIComponent(product);
+      destination.searchParams.delete('product');
+      destination.searchParams.delete('category');
+      return NextResponse.redirect(destination, 308);
+    }
+  }
+  if (pathname === '/categories') {
+    const category = request.nextUrl.searchParams.get('category');
+    const destination = request.nextUrl.clone();
+    if (category && !category.includes('/') && !category.includes('\\')) {
+      destination.pathname = '/categories/' + encodeURIComponent(category);
+      destination.searchParams.delete('category');
+    } else {
+      destination.pathname = '/shop';
+    }
+    return NextResponse.redirect(destination, 308);
+  }
   if (pathname === '/store-media' || pathname.startsWith('/store-media/')) {
     const segments = pathname.slice('/store-media/'.length).split('/');
     for (const segment of segments) {
@@ -55,7 +76,7 @@ export function middleware(request: NextRequest) {
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' https: data: blob:" + (development ? ` http://localhost:8000 http://127.0.0.1:8000${api.protocol === 'http:' ? ` ${api.origin}` : ''}` : ''),
-    `connect-src 'self' ${api.origin} ${socket}${sentryIngest ? ` ${sentryIngest}` : ''}${development ? ' ws: wss:' : ''}`,
+    `connect-src 'self' ${api.origin} ${socket} https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com${sentryIngest ? ` ${sentryIngest}` : ''}${development ? ' ws: wss:' : ''}`,
     `frame-src 'self' ${office.origin} https://challenges.cloudflare.com`,
     "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; ');
@@ -63,6 +84,9 @@ export function middleware(request: NextRequest) {
   headers.set('x-nonce', nonce);
   headers.set('Content-Security-Policy', csp);
   const response = NextResponse.next({ request: { headers } });
+  if (['/account', '/auth', '/cart', '/checkout', '/orders', '/security', '/supplier', '/wholesale'].some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
+  )) response.headers.set('X-Robots-Tag', 'noindex');
   response.headers.set('Content-Security-Policy', csp);
   // Private documents can be retained by the browser but must be revalidated.
   // Shared caches must never replay HTML with a per-response CSP nonce.

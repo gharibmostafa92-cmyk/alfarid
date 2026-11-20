@@ -252,6 +252,7 @@ textarea.line-input { resize: vertical; min-height: 84px; line-height: 1.8; }
 /* thumbs */
 .thumb { width: 64px; height: 72px; background: #e4e9ed; display: flex; align-items: center; justify-content: center; border-radius: 2px; color: #a9b6bf; font-size: 22px; flex-shrink: 0; }
 .thumb.sm { width: 44px; height: 50px; font-size: 16px; }
+.thumb img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
 .prod-cell { display: flex; gap: 14px; align-items: center; min-width: 0; }
 .prod-name { font-weight: 600; color: var(--ink); font-size: 13.5px; }
 .prod-en { font-family: 'Poppins', sans-serif; font-size: 11.5px; color: var(--soft); direction: ltr; text-align: right; }

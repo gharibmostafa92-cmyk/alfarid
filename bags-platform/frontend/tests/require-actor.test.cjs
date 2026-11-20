@@ -29,6 +29,5 @@ test('unified login clears the guest cart on the server merge flag alone', () =>
 
 test('LoginScreen restores channel deep links for wholesale and supplier destinations', () => {
   const source = fs.readFileSync(loginPath, 'utf8');
-  assert.match(source, /\['\/wholesale'\]/);
-  assert.match(source, /\['\/supplier'\]/);
+  assert.match(source, /authenticatedReturnPath\(destination, home, params\.get\('redirect'\)\)/);
 });

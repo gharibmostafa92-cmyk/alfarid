@@ -29,6 +29,11 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
     const cart = () => ({ id: 10, items: items.map(i => ({ ...i, base_price: '60.00', available: true, max_qty: 0, priced: true })),
       totals: { subtotal: '360.00', pricing_discount: '60.00', items_total: '300.00', coupon_discount: '0.00', total: '300.00' } });
     const meta = { current_page: 1, last_page: 1, per_page: 20, total: 1 };
+    const productImage = '/images/wholesale-e2e.png';
+    await context.route('**' + productImage, route => route.fulfill({
+      contentType: 'image/png',
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aSl0AAAAASUVORK5CYII=', 'base64'),
+    }));
     await context.route('**/api/v1/**', async route => {
       const req = route.request(), url = new URL(req.url()), pathname = url.pathname, method = req.method();
       const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*',
@@ -40,9 +45,14 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       if (pathname.endsWith('/branding')) return data({ name: 'VARYA', logo: null });
       if (pathname.endsWith('/auth/login')) return json({ ...session(), token: 'wholesale-e2e-token', cart_merged: true });
       if (pathname.endsWith('/auth/me')) return json(session());
-      if (pathname.endsWith('/application-status')) return data({ ...member(), rejection_reason: null,
+      if (pathname.endsWith('/auth/documents') && method === 'POST') {
+        const upload = req.postDataBuffer()?.toString() ?? '';
+        if (!/name="document_type"\r\n\r\ntax_card\r\n/.test(upload)) return fail(422, 'Invalid document type');
+        return route.fulfill({ status: 201, headers, json: { data: { id: 2, status: 'pending' } } });
+      }
+      if (pathname.endsWith('/application-status')) return data({ ...member(), rejection_reason: status === 'rejected' ? 'الصورة غير واضحة' : null,
         approved_at: status === 'approved' ? '2026-11-01' : null,
-        documents: [{ original_name: 'tax.pdf', document_type: 'tax_card', status: 'verified' }] });
+        documents: [{ id: 1, original_name: 'tax.pdf', document_type: 'tax_card', status: status === 'rejected' ? 'rejected' : 'verified' }] });
       if (pathname.endsWith('/dashboard')) {
         if (failDashboard) return fail(503, 'Dashboard unavailable');
         return data({ credit_limit: '250000.00', used_credit: '300.00', available_credit: '249700.00',
@@ -84,7 +94,8 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       if (pathname.endsWith('/wholesale/orders')) return json({ data: [order], meta });
       if (pathname.endsWith('/products')) {
         if (forbiddenProducts) return fail(403, 'Approved wholesalers only', 'wholesale_not_approved');
-        return json({ data: [], meta: { ...meta, total: 0 } });
+        return json({ data: [{ id: 1, name: 'حقيبة الكتالوج', image: productImage, variants: [] },
+          { id: 2, name: 'حقيبة بدون صورة', image: null, variants: [] }], meta: { ...meta, total: 2 } });
       }
       if (pathname.endsWith('/account/returns') && method === 'POST') throw new Error('Invalid images must never reach the server');
       return data([]);
@@ -123,6 +134,20 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       await page.getByRole('heading', { name: 'Dashboard', exact: true }).waitFor();
     });
     const nav = name => page.locator('.wp-side').getByText(name, { exact: true }).click();
+    await check('catalog product photos load and missing photos keep the placeholder', async () => {
+      await nav('الكتالوج');
+      const pictured = page.getByRole('row').filter({ hasText: 'حقيبة الكتالوج' });
+      await pictured.locator('.thumb img').waitFor({ timeout: 8000 });
+      await page.waitForFunction(() => document.querySelector('.cat-tbl .thumb img')?.naturalWidth > 0);
+      assert.equal(await pictured.locator('.thumb img').getAttribute('src'), productImage);
+      const missing = page.getByRole('row').filter({ hasText: 'حقيبة بدون صورة' });
+      await missing.locator('.thumb .fa-bag-shopping').waitFor();
+      await pictured.getByRole('button', { name: 'اختيار الكمية' }).click();
+      const dialog = page.getByRole('dialog');
+      assert.equal(await dialog.locator('.thumb img').getAttribute('src'), productImage);
+      await dialog.getByRole('button', { name: 'إلغاء', exact: true }).click();
+      await nav('لوحة التحكم');
+    });
     const verifyWidths = async (screen) => {
       for (const width of [320, 390, 768, 1024, 1440, 1920]) {
         await page.setViewportSize({ width, height: 900 });
@@ -177,6 +202,8 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       const place = page.getByRole('button', { name: 'إتمام الطلب', exact: true });
       await place.waitFor();
       await verifyWidths('Checkout');
+      assert.equal(await place.isDisabled(), true);
+      await page.getByRole('checkbox', { name: /أوافق على الشروط والأحكام/ }).check();
       await page.waitForFunction(() => !document.querySelector('.wp-wrap > .grid-2 aside .btn-block')?.disabled);
       await page.locator('select').selectOption('2');
       assert.equal(await place.isDisabled(), true);
@@ -189,6 +216,7 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       assert(submissions[0].key && submissions[1].key);
       assert.notEqual(submissions[0].key, submissions[1].key);
       assert.equal(submissions[1].body.expected_total, 320);
+      assert.equal(submissions[1].body.legal_policy_version, '2026-11-20-v2');
       await page.reload();
       await page.getByText('ORD-E2E-72', { exact: true }).waitFor();
       await page.getByRole('button', { name: 'فتح الطلب', exact: true }).click();
@@ -243,6 +271,16 @@ const output = path.resolve(__dirname, '../../../test-results/wholesale-portal')
       assert.equal(await page.locator('input[name=password]').count(), 0);
     });
     assert.deepEqual(errors, [], 'No browser runtime errors');
+    await check('re-uploading a rejected tax card sends the API document type', async () => {
+      status = 'rejected';
+      await page.reload();
+      await page.getByText('الصورة غير واضحة', { exact: false }).waitFor();
+      const upload = page.waitForResponse(response => response.url().endsWith('/auth/documents') && response.request().method() === 'POST');
+      await page.locator('input[type=file]').setInputFiles({
+        name: 'tax-replacement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+      });
+      assert.equal((await upload).status(), 201);
+    });
     await page.screenshot({ path: path.join(output, 'dashboard.png'), fullPage: true });
     console.log(`${results.length} wholesale browser scenarios passed`);
   } finally {

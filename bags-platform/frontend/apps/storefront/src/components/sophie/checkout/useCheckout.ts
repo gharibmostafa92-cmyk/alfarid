@@ -20,6 +20,7 @@ import { rememberGuestOrder } from '@/lib/orders/guest-orders';
 import { normalizePhone } from '@/services/phone-format';
 import { cartFingerprint, pendingOwnerMatches, resolveAttemptOwner } from './pending-checkout';
 import { lastOrderReceipt } from './last-order-receipt';
+import { trackEcommerce } from '@/lib/analytics/ecommerce';
 
 export interface SavedAddressItem {
   id: number;
@@ -647,6 +648,12 @@ export function useCheckout() {
           keyRef.current,
         ),
       );
+      try {
+        trackEcommerce('purchase', {
+          currency: 'EGP', transaction_id: res.data.order_number, value: res.data.items.reduce((sum, item) => sum + Number(item.unit_price) * Number(item.qty), 0),
+          items: res.data.items.map((item) => ({ item_id: String(item.product_variant_id), item_name: item.product_name, price: Number(item.unit_price), quantity: Number(item.qty) })),
+        });
+      } catch { /* A measurement failure must not change the checkout result. */ }
       if (attemptOwner === 'guest') rememberGuestOrder(res.data.order_number);
       try {
         const {

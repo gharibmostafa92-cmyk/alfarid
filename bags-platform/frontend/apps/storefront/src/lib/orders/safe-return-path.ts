@@ -19,3 +19,18 @@ export function safeReturnPath(value: string | null, allowedRoots: readonly stri
     return url.pathname + url.search + url.hash;
   } catch { return null; }
 }
+
+/** Keep an existing session within its own portal when honoring a return URL. */
+export function authenticatedReturnPath(destination: string | undefined, home: string, requested: string | null): string {
+  if (destination === 'wholesale_pending') return home;
+  if (destination === 'wholesale' || destination === 'supplier') {
+    const root = destination === 'wholesale' ? '/wholesale' : '/supplier';
+    const candidate = safeReturnPath(requested, [root]);
+    if (candidate) {
+      const pathname = new URL(candidate, 'https://store.invalid').pathname.toLowerCase();
+      if (pathname === root || pathname.startsWith(`${root}/`)) return candidate;
+    }
+    return home;
+  }
+  return safeReturnPath(requested) ?? home;
+}

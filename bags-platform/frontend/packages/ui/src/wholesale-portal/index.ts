@@ -1,3 +1,6 @@
+import './portal.css';
+import './auth.css';
+
 export { WholesalePortal } from './WholesalePortal';
 export * from './context';
 export * from './data/constants';

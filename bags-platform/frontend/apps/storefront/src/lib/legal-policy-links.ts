@@ -1,6 +1,6 @@
 import type { LegalPolicyId } from './legal-policies';
 
-export const LEGAL_POLICY_VERSION = '2026-11-20-v1';
+export const LEGAL_POLICY_VERSION = '2026-11-20-v2';
 
 export function getLegalPolicyHref(slug: string, version = LEGAL_POLICY_VERSION): string {
   return '/legal/' + version + '/' + slug;

@@ -123,7 +123,7 @@ export function SophieMegaDropdown({
           <div key={`group-${gIdx}`} className="mega-group">
             <h4 className="mega-group-title">
               <Link
-                href={STORE_ROUTES.shop({ category: group.slug })}
+                href={STORE_ROUTES.category(group.slug)}
                 aria-current={currentCategory === group.slug ? 'page' : undefined}
                 onClick={(e) => handleCategoryClick(e, group.slug)}
               >
@@ -134,7 +134,7 @@ export function SophieMegaDropdown({
               {group.links.map((link, lIdx) => (
                 <li key={`link-${lIdx}`}>
                   <Link
-                    href={STORE_ROUTES.shop({ category: link.slug })}
+                    href={STORE_ROUTES.category(link.slug)}
                     aria-current={currentCategory === link.slug ? 'page' : undefined}
                     className="mega-link"
                     onClick={(e) => handleCategoryClick(e, link.slug)}

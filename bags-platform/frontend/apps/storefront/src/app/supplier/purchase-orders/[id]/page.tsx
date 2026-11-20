@@ -15,6 +15,8 @@ export default function SupplierOrderPage() {
   const [refreshRequired, setRefreshRequired] = useState(false);
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState('');
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const invoiceInput = useRef<HTMLInputElement>(null);
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const key = useRef<string | null>(null);
 
@@ -91,12 +93,14 @@ export default function SupplierOrderPage() {
 
     key.current ??= crypto.randomUUID();
     await mutate(
-      () => supplierPortalApi.createDelivery(orderId, { delivery_date: date, items }, key.current!),
+      () => supplierPortalApi.createDelivery(orderId, { delivery_date: date, items, invoice_file: invoiceFile ?? undefined }, key.current!),
       'تم تسجيل إشعار التوريد.',
       'تعذر تسجيل التوريد. تحقق من الكميات وحاول مرة أخرى.',
       () => {
         key.current = null;
         setQuantities({});
+        setInvoiceFile(null);
+        if (invoiceInput.current) invoiceInput.current.value = '';
       },
     );
   };
@@ -178,6 +182,20 @@ export default function SupplierOrderPage() {
                   onChange={(event) => {
                     key.current = null;
                     setDate(event.target.value);
+                  }}
+                />
+              </label>
+              <label className="my-3 block">
+                فاتورة المورد (اختياري)
+                <input
+                  ref={invoiceInput}
+                  className="block"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  disabled={busy || refreshRequired}
+                  onChange={(event) => {
+                    key.current = null;
+                    setInvoiceFile(event.target.files?.[0] ?? null);
                   }}
                 />
               </label>

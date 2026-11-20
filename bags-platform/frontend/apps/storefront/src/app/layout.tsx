@@ -8,6 +8,7 @@ import { StoreBrandingProvider } from '@/providers/store-branding-provider';
 import { StoreLangProvider } from '@/providers/store-lang-provider';
 import { NonceProvider } from '@/providers/csp-nonce';
 import { getServerBranding, getServerBrandingResult } from '@/lib/core/server-branding';
+import { AnalyticsConsent } from '@/components/AnalyticsConsent';
 
 const oswald = Oswald({ weight: ['300', '400', '500', '600', '700'], subsets: ['latin'], display: 'swap', variable: '--font-oswald' });
 const poppins = Poppins({ weight: ['300', '400', '500', '600', '700'], subsets: ['latin'], display: 'swap', variable: '--font-poppins' });
@@ -41,7 +42,7 @@ export default async function RootLayout({
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   const { branding, fromFallback } = await getServerBrandingResult();
   return (
-    <html lang="en" dir="ltr" className={`${oswald.variable} ${poppins.variable} ${cairo.variable}`}>
+    <html lang="ar" dir="rtl" className={`${oswald.variable} ${poppins.variable} ${cairo.variable}`}>
       <head>
         {nonce ? <meta property="csp-nonce" content={nonce} /> : null}
         <link
@@ -52,7 +53,7 @@ export default async function RootLayout({
       <body className="min-h-screen bg-white text-[#111111] antialiased overflow-x-clip selection:bg-[#159a8c]/15 selection:text-[#111111]">
         <NonceProvider nonce={nonce}>
           <StoreBrandingProvider initialBranding={branding} fromFallback={fromFallback}><StoreLangProvider><QueryProvider>
-            <StorefrontShell>{children}</StorefrontShell>
+            <StorefrontShell>{children}</StorefrontShell><AnalyticsConsent />
           </QueryProvider></StoreLangProvider></StoreBrandingProvider>
         </NonceProvider>
       </body>

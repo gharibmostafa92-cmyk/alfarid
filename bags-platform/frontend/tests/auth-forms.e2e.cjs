@@ -16,6 +16,12 @@ const response = (route, data, status = 200, headers = {}) => route.fulfill({
   const browser = await chromium.launch({ headless: true, channel: process.env.E2E_BROWSER_CHANNEL || 'msedge' });
   const run = async (name, test) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await context.addInitScript(origin => {
+      if (window.location.origin !== origin) return;
+      if (localStorage.getItem('varya_store_lang') === null) localStorage.setItem('varya_store_lang', 'ar');
+    }, web);
+    await context.route(api + '/api/v1/store/auth/registration-options', route =>
+      response(route, { data: { phone_verification_required: false, turnstile_site_key: null } }));
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', err => errors.push(err.message));
@@ -154,16 +160,19 @@ const response = (route, data, status = 200, headers = {}) => route.fulfill({
     });
     await run('Wholesale registration uploads documents as multipart and opens pending status', async page => {
       let multipart;
+      const customer = { id: 125, name: 'Wholesale Form Test', company_name: 'Test Business', type: 'wholesale', status: 'pending' };
       await page.route(api + '/api/v1/wholesale/auth/register', route => {
         assert.match(route.request().headers()['content-type'], /multipart\/form-data; boundary=/);
         multipart = route.request().postDataBuffer().toString();
-        return response(route, { token: 'wholesale-test-token', data: { id: 125, name: 'Wholesale Form Test', status: 'pending' } }, 201);
+        return response(route, { token: 'wholesale-test-token', data: customer }, 201);
       });
-      await page.route(api + '/api/v1/wholesale/auth/application-status', route => response(route, { data: { status: 'pending', rejection_reason: null } }));
+      await page.route(api + '/api/v1/wholesale/auth/application-status', route => response(route, {
+        data: { ...customer, documents: [{ id: 1, original_name: 'register.pdf', document_type: 'commercial_register', status: 'pending' }] },
+      }));
       await page.route(api + '/api/v1/auth/me', route => response(route, {
         actor: { type: 'customer', subtype: 'wholesale_pending' },
         redirect: { destination: 'wholesale_pending', path: '/wholesale/application-status' },
-        data: { id: 125, name: 'Wholesale Form Test', type: 'retail', status: 'pending' },
+        data: customer,
       }));
       await open(page); await choose(page, 'تسجيل كتاجر جملة'); await basicDetails(page);
       await choose(page, 'التالي: بيانات النشاط');
@@ -173,7 +182,12 @@ const response = (route, data, status = 200, headers = {}) => route.fulfill({
       await page.locator('input[name=documents]').setInputFiles({ name: 'register.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nTest document') });
       await choose(page, 'إرسال طلب التسجيل');
       await page.waitForURL(web + '/wholesale/application-status');
-      await page.getByText('الحالة: pending', { exact: true }).waitFor();
+      await page.locator('.as-status').getByText('قيد المراجعة', { exact: true }).waitFor();
+      await page.getByText('Test Business', { exact: true }).waitFor();
+      await page.getByText('register.pdf', { exact: true }).waitFor();
+      assert.equal(await page.locator('.auth-card').evaluate(card => getComputedStyle(card).display), 'grid');
+      await page.reload();
+      await page.getByRole('button', { name: 'تحديث حالة الطلب', exact: true }).waitFor();
       assert.ok(multipart.includes('name="company_name"'));
       assert.ok(multipart.includes('name="documents[]"; filename="register.pdf"'));
       assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('alfarid_web_auth')).state.destination), 'wholesale_pending');
