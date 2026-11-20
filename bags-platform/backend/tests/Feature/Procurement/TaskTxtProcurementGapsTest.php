@@ -18,6 +18,7 @@ use App\Models\SupplierUser;
 use App\Models\User;
 use App\Models\WebhookLog;
 use App\Services\Orders\OrderService;
+use App\Services\Pos\TreasuryService;
 use App\Services\Procurement\SupplierFinanceService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -56,7 +57,7 @@ class TaskTxtProcurementGapsTest extends TestCase
 
         $this->withToken($token)->getJson('/api/v1/admin/suppliers')->assertStatus(410);
         $this->withToken($token)->getJson('/api/v1/admin/reports/suppliers')->assertStatus(410);
-        $this->getJson('/api/v1/store/brands')->assertStatus(410);
+        $this->getJson('/api/v1/store/brands')->assertOk();
         $this->getJson('/api/v1/store/brands/any-slug')->assertStatus(404);
         $this->postJson('/api/v1/supplier/auth/login', ['email' => 'a@b.c', 'password' => 'password123'])->assertStatus(410);
 
@@ -79,7 +80,7 @@ class TaskTxtProcurementGapsTest extends TestCase
     {
         $actor = User::factory()->create();
         $actor->assignRole('Super Admin');
-        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-SAFE', 'type' => 'main_safe', 'is_active' => true], $actor, '5000');
+        $treasury = app(TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-SAFE', 'type' => 'main_safe', 'is_active' => true], $actor, '5000');
         $supplier = Supplier::factory()->create(['opening_balance' => 100, 'current_balance' => 100]);
         $service = app(SupplierFinanceService::class);
 
@@ -131,7 +132,7 @@ class TaskTxtProcurementGapsTest extends TestCase
         $this->travelTo('2026-06-01 12:00:00');
         $actor = User::factory()->create();
         $actor->assignRole('Super Admin');
-        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-FUTURE', 'type' => 'main_safe', 'is_active' => true], $actor, '100');
+        $treasury = app(TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-FUTURE', 'type' => 'main_safe', 'is_active' => true], $actor, '100');
         $supplier = Supplier::factory()->create(['opening_balance' => 80, 'current_balance' => 80]);
         $service = app(SupplierFinanceService::class);
         $service->createPayment([
@@ -150,7 +151,7 @@ class TaskTxtProcurementGapsTest extends TestCase
     {
         $actor = User::factory()->create();
         $actor->assignRole('Super Admin');
-        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-RANDOM', 'type' => 'main_safe', 'is_active' => true], $actor, '10000');
+        $treasury = app(TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-RANDOM', 'type' => 'main_safe', 'is_active' => true], $actor, '10000');
         $service = app(SupplierFinanceService::class);
         for ($sample = 0; $sample < 8; $sample++) {
             $opening = round(10 + ($sample * 1.37), 2);
@@ -209,17 +210,17 @@ class TaskTxtProcurementGapsTest extends TestCase
         $admin = User::factory()->create();
         $admin->assignRole('Super Admin');
         $supplier = Supplier::factory()->create(['current_balance' => 40]);
-        $treasury = app(\App\Services\Pos\TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-API', 'type' => 'main_safe', 'is_active' => true], $admin, '100');
+        $treasury = app(TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'GAP-API', 'type' => 'main_safe', 'is_active' => true], $admin, '100');
         $this->exerciseHistoricalResale();
 
         $token = $admin->createToken('pay')->plainTextToken;
         $payload = [
-                'supplier_id' => $supplier->id,
-                'treasury_id' => $treasury->id,
-                'amount' => 10,
-                'payment_method' => 'cash',
-                'payment_date' => '2026-04-01',
-            ];
+            'supplier_id' => $supplier->id,
+            'treasury_id' => $treasury->id,
+            'amount' => 10,
+            'payment_method' => 'cash',
+            'payment_date' => '2026-04-01',
+        ];
 
         $first = $this->withToken($token)->postJson('/api/v1/admin/supplier-payments', $payload)->assertCreated();
         $second = $this->withToken($token)->postJson('/api/v1/admin/supplier-payments', [

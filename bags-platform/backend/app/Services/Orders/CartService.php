@@ -430,7 +430,6 @@ class CartService
     {
         $cart->loadMissing('items.variant.product');
         $this->pruneDanglingItems($cart);
-        $cart->loadMissing('items.variant.product');
         $purchasableIds = $this->retailVariants()->whereIn('id', $cart->items->pluck('product_variant_id'))->pluck('id')->all();
         $context = $this->pricing->contextFor($customer, $cart->items->pluck('product_variant_id')->all());
         $lines = [];
@@ -673,14 +672,14 @@ class CartService
             return;
         }
 
-        $cart->load(['items.variant' => fn ($query) => $query->withTrashed()]);
-        foreach ($cart->items as $item) {
+        $cart->loadMissing('items.variant');
+        foreach ($cart->items as $index => $item) {
             $variant = $item->variant;
             if ($variant === null || $variant->trashed()) {
                 $item->delete();
+                $cart->items->forget($index);
             }
         }
-        $cart->unsetRelation('items');
     }
 
     /**

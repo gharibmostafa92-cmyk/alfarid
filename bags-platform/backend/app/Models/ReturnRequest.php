@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Orders\RefundMethod;
+use App\Enums\Orders\ReturnReasonType;
 use App\Enums\Orders\ReturnStatus;
 use Database\Factories\ReturnRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -31,6 +32,7 @@ class ReturnRequest extends Model
         'refund_method',
         'total_refund_amount',
         'reason',
+        'reason_type',
         'admin_notes',
         'refund_reference',
         'approved_by',
@@ -50,6 +52,7 @@ class ReturnRequest extends Model
         return [
             'status' => ReturnStatus::class,
             'refund_method' => RefundMethod::class,
+            'reason_type' => ReturnReasonType::class,
             'total_refund_amount' => 'decimal:2',
             'approved_at' => 'datetime',
             'received_at' => 'datetime',

@@ -1,5 +1,6 @@
 'use client';
 
+import '@/styles/checkout.css';
 import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -12,6 +13,7 @@ import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
 import { StoreImage } from '@/components/StoreImage';
 import { shouldTrackInstapay } from '@/components/sophie/checkout/last-order-receipt';
+import { getLegalPolicyHref } from '@/lib/legal-policy-links';
 
 export default function CheckoutSuccessPage() {
   return (
@@ -125,7 +127,7 @@ function CheckoutSuccessContent() {
   const trackingUrl = orderNumber ? `/orders/${encodeURIComponent(orderNumber)}/track` : null;
 
   return (
-    <main id="main-content" tabIndex={-1} className="min-h-screen bg-[radial-gradient(ellipse_at_top,#e8e6e3,#cfcdca)]">
+    <main id="main-content" tabIndex={-1} className="checkout-success-printable min-h-screen bg-[radial-gradient(ellipse_at_top,#e8e6e3,#cfcdca)]">
       <div className="px-4 py-8 sm:px-6 sm:py-12 lg:py-16">
         {loading || !visibleOrder ? (
           <section dir="rtl" className="mx-auto max-w-lg rounded-2xl bg-[#f4f4f2] p-8 text-center text-neutral-900" aria-busy={loading}>
@@ -183,6 +185,16 @@ function CheckoutSuccessContent() {
                   <div><dt className="text-xs text-neutral-600">حالة الطلب</dt><dd>{getStatusLabel(OrderStatusLabelsAr, status)}</dd></div>
                 </dl>
 
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-neutral-100 pt-3 text-xs">
+                  {visibleOrder.subtotal !== undefined && <div><dt className="text-neutral-600">قيمة المنتجات</dt><dd>{formatStorePrice(Number(visibleOrder.subtotal))}</dd></div>}
+                  {visibleOrder.discount_amount !== undefined && Number(visibleOrder.discount_amount) > 0 && (
+                    <div><dt className="text-neutral-600">الخصم{visibleOrder.coupon_code ? ` (${visibleOrder.coupon_code})` : ''}</dt><dd>− {formatStorePrice(Number(visibleOrder.discount_amount))}</dd></div>
+                  )}
+                  {visibleOrder.shipping_cost !== undefined && <div><dt className="text-neutral-600">الشحن</dt><dd>{formatStorePrice(Number(visibleOrder.shipping_cost))}</dd></div>}
+                  {visibleOrder.cod_fee !== undefined && Number(visibleOrder.cod_fee) > 0 && <div><dt className="text-neutral-600">رسوم الدفع</dt><dd>{formatStorePrice(Number(visibleOrder.cod_fee))}</dd></div>}
+                  {visibleOrder.tax_amount !== undefined && Number(visibleOrder.tax_amount) > 0 && <div><dt className="text-neutral-600">الضريبة</dt><dd>{formatStorePrice(Number(visibleOrder.tax_amount))}</dd></div>}
+                </dl>
+
                 {stage >= 0 && (
                   <ol aria-label="مراحل الطلب" className="mb-4 space-y-2 border-y border-neutral-100 py-3 text-sm">
                     {['استلام الطلب', 'التجهيز', 'الشحن', 'التسليم'].map((label, index) => {
@@ -210,6 +222,22 @@ function CheckoutSuccessContent() {
                 </details>
               </div>
 
+              {visibleOrder.legal_policy_version && (
+                <nav aria-label="السياسات المرتبطة بالطلب" className="mt-4 rounded-xl bg-white/80 p-4 text-xs text-neutral-700">
+                  <p className="mb-2 font-semibold">نسخة السياسات عند الشراء: <span dir="ltr">{visibleOrder.legal_policy_version}</span></p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-2 underline underline-offset-2">
+                    <Link href={getLegalPolicyHref('terms-and-conditions', visibleOrder.legal_policy_version)}>الشروط والأحكام</Link>
+                    <Link href={getLegalPolicyHref('privacy-policy', visibleOrder.legal_policy_version)}>الخصوصية</Link>
+                    <Link href={getLegalPolicyHref('returns-refunds-exchanges', visibleOrder.legal_policy_version)}>الإرجاع والاسترداد</Link>
+                    <Link href={getLegalPolicyHref('shipping-delivery', visibleOrder.legal_policy_version)}>الشحن</Link>
+                    <Link href={getLegalPolicyHref('payment-billing', visibleOrder.legal_policy_version)}>الدفع والفواتير</Link>
+                  </div>
+                  {visibleOrder.legal_accepted_at && (
+                    <p className="mt-2 text-neutral-600">وقت الموافقة: <time dateTime={visibleOrder.legal_accepted_at}>{new Date(visibleOrder.legal_accepted_at).toLocaleString('ar-EG')}</time></p>
+                  )}
+                </nav>
+              )}
+
               {instapay && <InstaPayInstructions key={instapay.expires_at} details={instapay} className="mt-4 space-y-2 rounded-xl bg-[#e9e9e6] p-4 text-sm" />}
               {transferError && !instapay && (
                 <div role="alert" className="mt-4 space-y-2 rounded-xl bg-[#e9e9e6] p-4 text-sm">
@@ -220,7 +248,8 @@ function CheckoutSuccessContent() {
                 </div>
               )}
 
-              <div className="mt-4 grid gap-2 text-center text-sm font-semibold">
+              <div className="checkout-success-actions mt-4 grid gap-2 text-center text-sm font-semibold">
+                <button type="button" onClick={() => window.print()} className="rounded-lg border border-neutral-300 px-4 py-3 hover:bg-white">حفظ أو طباعة تأكيد الطلب</button>
                 {trackingUrl && <Link href={trackingUrl} className="rounded-lg bg-neutral-900 px-4 py-3 text-white hover:bg-neutral-800">تتبع طلبك</Link>}
                 <Link href="/shop" className="rounded-lg border border-neutral-300 px-4 py-3 hover:bg-white">كمّل تسوق</Link>
               </div>

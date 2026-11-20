@@ -143,6 +143,8 @@ class CheckoutShippingContractTest extends TestCase
                             }
                             $before = Order::query()->count();
                             $order = $this->withToken($token)->postJson('/api/v1/store/checkout', [
+                                'recipient_name' => $this->customer->name,
+                                'recipient_phone' => $this->customer->phone,
                                 'city_id' => $this->city->id,
                                 'shipping_address_line' => 'شارع الاختبار',
                                 'payment_method' => $payment,
@@ -173,6 +175,8 @@ class CheckoutShippingContractTest extends TestCase
         $this->variant->update(['retail_price' => 140]);
 
         $this->withToken($token)->postJson('/api/v1/store/checkout', [
+            'recipient_name' => $this->customer->name,
+            'recipient_phone' => $this->customer->phone,
             'city_id' => $this->city->id,
             'shipping_address_line' => 'شارع',
             'payment_method' => 'cod',
@@ -276,6 +280,8 @@ class CheckoutShippingContractTest extends TestCase
         $this->assertSame(array_keys($sample['data']['options'][0]), array_keys($preview['options'][0]));
 
         $order = $this->withToken($token)->postJson('/api/v1/store/checkout', [
+            'recipient_name' => $this->customer->name,
+            'recipient_phone' => $this->customer->phone,
             'city_id' => $this->city->id,
             'shipping_address_line' => 'شارع',
             'payment_method' => 'wallet',

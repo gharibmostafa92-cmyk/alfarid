@@ -39,6 +39,12 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     });
 });
 
+Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('notifications')->name('notifications.')->group(function (): void {
+    Route::get('/', [NotificationController::class, 'index'])->name('index');
+    Route::post('{id}/read', [NotificationController::class, 'markAsRead'])->whereUuid('id')->name('read');
+    Route::post('read-all', [NotificationController::class, 'readAll'])->name('read-all');
+});
+
 Route::get('branding', [BrandingController::class, 'show'])->middleware(['throttle:store-branding', ProtectStorefrontCaching::class])->name('branding');
 
 // Storefront catalog browsing (accessible by guests and authenticated customers)

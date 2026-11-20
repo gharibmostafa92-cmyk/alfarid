@@ -32,6 +32,7 @@ use App\Services\Pricing\CouponService;
 use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
+use App\Support\StorefrontLegalPolicyVersion;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Model;
@@ -78,7 +79,7 @@ class OrderService
     /**
      * Converts a customer or guest cart into a pending order with reserved inventory.
      *
-     * @param  array{recipient_name?: string|null, recipient_phone?: string|null, recipient_email?: string|null, city_id?: int|null, shipping_address_line?: string|null, shipping_notes?: string|null, payment_method?: string|null, channel?: string, idempotency_key?: string|null, expected_total?: float|int|string|null}  $data
+     * @param  array{recipient_name?: string|null, recipient_phone?: string|null, recipient_email?: string|null, city_id?: int|null, shipping_address_line?: string|null, shipping_notes?: string|null, payment_method?: string|null, channel?: string, idempotency_key?: string|null, expected_total?: float|int|string|null, legal_policy_version?: string|null}  $data
      */
     public function createFromCart(Cart $cart, array $data, ?Customer $customer = null): Order
     {
@@ -151,6 +152,16 @@ class OrderService
                 if ($existing !== null) {
                     return $this->assertMatchingIdempotentReplay($existing, $data, $cart, $customer);
                 }
+            }
+
+            if (($data['channel'] ?? 'store') === 'store'
+                && ($data['legal_policy_version'] ?? null) !== StorefrontLegalPolicyVersion::CURRENT) {
+                throw new BusinessException(
+                    'يرجى مراجعة الشروط والأحكام وقبول النسخة الحالية قبل إتمام الطلب.',
+                    [],
+                    422,
+                    'legal_consent_required',
+                );
             }
 
             // Lock cart row and fetch fresh items so concurrent checkouts cannot double-process the same cart.
@@ -313,6 +324,8 @@ class OrderService
                 'cod_fee' => $codFee,
                 'tax_amount' => $taxAmount,
                 'grand_total' => $grandTotal,
+                'legal_policy_version' => $data['legal_policy_version'] ?? null,
+                'legal_accepted_at' => isset($data['legal_policy_version']) ? now() : null,
             ]);
 
             // Distribute tax and effective coupon discounts across line items using the largest remainder method.
@@ -429,6 +442,7 @@ class OrderService
             || trim((string) ($data['recipient_name'] ?? $customer?->name)) !== trim((string) $existing->guest_name)
             || trim((string) ($data['recipient_email'] ?? $customer?->email)) !== trim((string) $existing->guest_email)
             || Customer::normalizePhone((string) ($data['recipient_phone'] ?? $customer?->phone)) !== $storedPhone
+            || ($data['legal_policy_version'] ?? null) !== $existing->legal_policy_version
             || $this->expectedTotalChanged($data, (float) $existing->grand_total);
 
         $existing->loadMissing('items');

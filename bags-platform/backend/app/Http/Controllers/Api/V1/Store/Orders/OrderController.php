@@ -12,6 +12,7 @@ use App\Http\Resources\Store\Orders\TrackOrderResource;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Services\Orders\OrderService;
+use App\Services\Orders\ReturnService;
 use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\RateLimiter;
  */
 class OrderController extends Controller
 {
-    public function __construct(private readonly OrderService $orders) {}
+    public function __construct(private readonly OrderService $orders, private readonly ReturnService $returns) {}
 
     /**
      * Look up public order progress by order number and phone number verification.
@@ -84,7 +85,7 @@ class OrderController extends Controller
 
         $orders = Order::query()
             ->where('customer_id', $customer->id)
-            ->with(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media'])
+            ->with(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media', 'city', 'shipments'])
             ->latest('id')
             ->paginate(15);
 
@@ -106,6 +107,7 @@ class OrderController extends Controller
             ->firstOrFail();
 
         $order->setAttribute('instapay', app(StorePaymentPolicy::class)->instapayInstructions($order));
+        $order->setAttribute('return_quantities', $this->returns->availableReturnQuantities($order, $customer));
 
         return OrderResource::make($order);
     }
@@ -134,6 +136,6 @@ class OrderController extends Controller
         $order = $this->orders->changeStatus($order, OrderStatus::Cancelled, $customer, 'ألغاه العميل من حسابه',
             $cancellableOrAlreadyCancelled);
 
-        return OrderResource::make($order->loadMissing(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media']));
+        return OrderResource::make($order->loadMissing(['items.variant.product' => fn ($q) => $q->withTrashed()->with('media'), 'items.variant.media', 'city', 'shipments']));
     }
 }

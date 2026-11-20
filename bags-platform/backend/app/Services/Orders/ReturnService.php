@@ -10,6 +10,7 @@ use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\RefundMethod;
+use App\Enums\Orders\ReturnReasonType;
 use App\Enums\Orders\ReturnStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
@@ -64,16 +65,22 @@ class ReturnService
     /**
      * Submits a new return request for a delivered order within the allowed return window.
      *
-     * @param  array{reason: string, refund_method?: string|null, items: list<array{order_item_id: int, requested_qty: float|int|string, item_reason?: string|null, attachments?: list<UploadedFile>}>}  $data
+     * @param  array{reason: string, reason_type?: string|null, refund_method?: string|null, items: list<array{order_item_id: int, requested_qty: float|int|string, item_reason?: string|null, attachments?: list<UploadedFile>}>}  $data
      */
     public function createReturnRequest(Order $order, array $data, ?Customer $customer = null): ReturnRequest
     {
         if ($data['items'] === []) {
             throw new BusinessException('طلب الإرجاع يجب أن يتضمن بندًا واحدًا على الأقل.');
         }
+        $reasonType = isset($data['reason_type'])
+            ? ReturnReasonType::tryFrom((string) $data['reason_type'])
+            : ReturnReasonType::ChangeOfMind;
+        if ($reasonType === null) {
+            throw new BusinessException('نوع سبب الإرجاع غير معروف.');
+        }
         // Lightweight pre-flight check before uploading attachments to R2.
         $preflightOrder = Order::query()->findOrFail($order->id);
-        $this->assertOrderEligibleForReturn($preflightOrder, $customer);
+        $this->assertOrderEligibleForReturn($preflightOrder, $customer, $reasonType);
 
         $uploads = [];
         foreach ($data['items'] as $item) {
@@ -81,11 +88,11 @@ class ReturnService
                 $uploads[] = [$file, self::ATTACHMENT_DIRECTORY];
             }
         }
-        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer): ReturnRequest {
+        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer, $reasonType): ReturnRequest {
             // Lock order row to serialize concurrent return requests against line item quantities.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
-            $this->assertOrderEligibleForReturn($order, $customer);
+            $this->assertOrderEligibleForReturn($order, $customer, $reasonType);
 
             // Aggregate duplicate return lines for the same order item before validating ceilings.
             $lines = [];
@@ -103,15 +110,10 @@ class ReturnService
                 throw new BusinessException('أحد البنود المطلوب إرجاعها لا يتبع هذا الطلب.');
             }
 
+            $reserved = $this->reservedReturnQuantities(array_keys($lines));
             foreach ($lines as $orderItemId => $line) {
                 $orderItem = $orderItems->get($orderItemId);
-                // Active return requests (excluding rejected/cancelled) count against remaining returnable quantity.
-                $previouslyRequested = (float) ReturnRequestItem::query()
-                    ->where('order_item_id', $orderItemId)
-                    ->join('return_requests', 'return_requests.id', '=', 'return_request_items.return_request_id')
-                    ->whereNotIn('return_requests.status', [ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value])
-                    ->selectRaw("COALESCE(SUM(CASE WHEN return_requests.status IN ('received', 'refunded') THEN received_good_qty + received_damaged_qty WHEN return_requests.status = 'approved' THEN approved_qty ELSE requested_qty END), 0) as total")
-                    ->value('total');
+                $previouslyRequested = (float) ($reserved[$orderItemId] ?? 0);
                 if (round($previouslyRequested + $line['qty'], 4) > round((float) $orderItem->qty, 4)) {
                     throw new BusinessException("كمية الإرجاع للصنف ({$orderItem->sku_snapshot}) تتجاوز الكمية المشتراة بعد احتساب مرتجعات سابقة.");
                 }
@@ -125,6 +127,7 @@ class ReturnService
                 'refund_method' => $data['refund_method'] ?? null,
                 'total_refund_amount' => 0,
                 'reason' => $data['reason'],
+                'reason_type' => $reasonType,
             ]);
 
             foreach ($lines as $orderItemId => $line) {
@@ -575,7 +578,49 @@ class ReturnService
         });
     }
 
-    private function assertOrderEligibleForReturn(Order $order, ?Customer $customer): void
+    /**
+     * Return the available whole-unit quantities for an order in the customer portal.
+     *
+     * @return array<int, int>
+     */
+    public function availableReturnQuantities(Order $order, Customer $customer): array
+    {
+        try {
+            $this->assertOrderEligibleForReturn($order, $customer, ReturnReasonType::DefectOrMismatch);
+        } catch (BusinessException) {
+            return [];
+        }
+
+        $items = $order->items;
+        $reserved = $this->reservedReturnQuantities($items->modelKeys());
+
+        return $items->mapWithKeys(function (OrderItem $item) use ($reserved): array {
+            $remaining = round((float) $item->qty - (float) ($reserved[$item->id] ?? 0), 4);
+
+            return [$item->id => max(0, (int) floor($remaining))];
+        })->all();
+    }
+
+    /**
+     * @param  list<int>  $orderItemIds
+     * @return array<int, numeric-string|float|int>
+     */
+    private function reservedReturnQuantities(array $orderItemIds): array
+    {
+        return ReturnRequestItem::query()
+            ->whereIn('order_item_id', $orderItemIds)
+            ->join('return_requests', 'return_requests.id', '=', 'return_request_items.return_request_id')
+            ->whereNotIn('return_requests.status', [ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value])
+            ->selectRaw("order_item_id, COALESCE(SUM(CASE WHEN return_requests.status IN ('received', 'refunded') THEN received_good_qty + received_damaged_qty WHEN return_requests.status = 'approved' THEN approved_qty ELSE requested_qty END), 0) as total")
+            ->groupBy('order_item_id')
+            ->pluck('total', 'order_item_id')->all();
+    }
+
+    private function assertOrderEligibleForReturn(
+        Order $order,
+        ?Customer $customer,
+        ReturnReasonType $reasonType = ReturnReasonType::ChangeOfMind,
+    ): void
     {
         if ($customer !== null && (int) $order->customer_id !== (int) $customer->id) {
             throw new BusinessException('هذا الطلب لا يخص حسابك.', [], 403);
@@ -588,21 +633,20 @@ class ReturnService
             throw new BusinessException('مرتجعات نقطة البيع تُنفَّذ من مسار POS لمنع تكرار الرد بين مسارين.');
         }
 
-        $this->assertWithinReturnWindow($order);
+        $this->assertWithinReturnWindow($order, $reasonType);
     }
 
     /**
      * Validates that the return request is submitted within the configured days since delivery.
      */
-    private function assertWithinReturnWindow(Order $order): void
+    private function assertWithinReturnWindow(Order $order, ReturnReasonType $reasonType): void
     {
-        $windowDays = (int) $this->settings->get('return_window_days', 14);
-        if ($windowDays === 0) {
-            throw new BusinessException('الإرجاع متوقف من إعدادات المتجر.');
-        }
-        if ($windowDays < 0) {
+        $configuredWindow = (int) $this->settings->get('return_window_days', 14);
+        if ($configuredWindow < 0) {
             return;
         }
+        $legalMinimum = $reasonType === ReturnReasonType::DefectOrMismatch ? 30 : 14;
+        $windowDays = max($configuredWindow, $legalMinimum);
 
         $deliveredAt = $order->statusHistories()
             ->where('to_status', OrderStatus::Delivered->value)

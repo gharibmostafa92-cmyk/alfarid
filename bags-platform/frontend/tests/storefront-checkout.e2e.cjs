@@ -2,8 +2,8 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const base = process.env.STOREFRONT_URL || 'http://localhost:3000';
-const output = path.resolve(__dirname, '../../../test-results/storefront-checkout');
+const base = process.env.STOREFRONT_URL || 'http://localhost:3001';
+const output = process.env.E2E_SCREENSHOT_DIR || path.resolve(__dirname, '../../../test-results/storefront-checkout');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const category = { id: 1, slug: 'bags', name_en: 'Bags', name_ar: 'حقائب', image: null, products_count: 1, children: [] };
 const product = { id: 1, slug: 'everyday', name_en: 'Everyday Bag', name_ar: 'حقيبة', category, image: null,
@@ -22,6 +22,7 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
       page.setDefaultTimeout(20000);
       const errors = [], submissions = [], quotes = [];
       page.on('pageerror', e => errors.push(e.message));
+      await context.addInitScript(() => localStorage.setItem('varya_store_lang', 'en'));
       let cartItems = [{ ...line }], coupon = null, failCities = true, phase = 'field', categoryReads = 0;
       let authed = false, extraCategory = false;
       const member = { id: 8, name: 'Checkout Member', phone: '01012345679', email: 'member@example.test', wallet_balance: '125.00' };
@@ -39,6 +40,7 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
         if (url.pathname.endsWith('/auth/me')) return route.fulfill({ headers, json: { data: member, redirect: { path: '/shop', destination: 'retail' } } });
         if (url.pathname.endsWith('/account/addresses')) return ok([{ id: 1, city_id: 2, address_line: 'Saved shipping address', is_default: true }]);
         if (url.pathname.endsWith('/account/orders')) return ok([receipt]);
+        if (url.pathname.endsWith(`/account/orders/${receipt.order_number}`)) return ok(receipt);
         if (url.pathname.endsWith('/categories')) { categoryReads++; return ok(extraCategory ? [category, { ...category, id: 2, slug: 'travel', name_en: 'Travel' }] : [category]); }
         if (url.pathname.endsWith('/cities')) {
           if (failCities) { failCities = false; return fail(503, { message: 'Cities offline' }); }
@@ -75,7 +77,14 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
         if (url.pathname.endsWith('/track')) return ok({ order_number: receipt.order_number, status: 'pending', items: receipt.items, status_history: [] });
         return ok([]);
       });
-      await page.goto(`${base}/checkout`, { waitUntil: 'domcontentloaded' });
+      const cartLoaded = page.waitForResponse(response => response.url().endsWith('/cart/items') && response.request().method() === 'GET').catch(() => null);
+      const cartPage = await page.goto(`${base}/cart`, { waitUntil: 'domcontentloaded' });
+      assert.equal(cartPage.status(), 200);
+      assert.ok((await cartLoaded)?.ok(), 'Cart API returned a successful response');
+      await page.getByRole('heading', { name: 'Shopping Cart (2)', exact: true }).waitFor();
+      await page.getByText(line.product_name, { exact: true }).waitFor();
+      await page.getByRole('link', { name: 'Proceed to Checkout' }).click();
+      await page.waitForURL('**/checkout');
       await page.getByText('تعذّر تحميل المدن.', { exact: false }).waitFor();
       await page.getByRole('button', { name: 'إعادة المحاولة', exact: true }).click();
       await page.locator('#chk-city option[value="2"]').waitFor({ state: 'attached' });
@@ -83,8 +92,10 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
       await page.locator('#chk-phone').fill('01012345678');
       await page.locator('#chk-street').fill('شارع طويل لاختبار العنوان، عمارة ١٢');
       await page.locator('[name="agreeTerms"]').check();
-      await page.locator('#chk-city').selectOption('1');
-      await page.waitForRequest(req => req.url().endsWith('/shipping-options') && req.postDataJSON().city_id === 1);
+      await Promise.all([
+        page.waitForRequest(req => req.url().endsWith('/shipping-options') && req.postDataJSON().city_id === 1),
+        page.locator('#chk-city').selectOption('1'),
+      ]);
       await page.locator('#chk-city').selectOption('2');
       await page.waitForFunction(() => document.querySelector('#summary-total')?.textContent.includes('470'));
       await sleep(1000);
@@ -131,15 +142,16 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
       await page.getByText('الأسعار اتحدثت، راجع الإجمالي واضغط إتمام الطلب تاني.', { exact: true }).waitFor();
       await page.waitForFunction(() => !document.querySelector('#pay-place-order-btn').disabled);
       await page.locator('#pay-place-order-btn').click();
-      await page.getByText('تعذّر تأكيد نتيجة الطلب.', { exact: false }).waitFor();
+      await page.getByText('طلبات كثيرة في وقت قصير.', { exact: false }).waitFor();
       await page.locator('#pay-place-order-btn').click();
+      await page.getByText('تعذّر تأكيد نتيجة الطلب.', { exact: false }).waitFor();
       await page.waitForFunction(() => document.querySelector('#pay-place-order-btn')?.textContent === 'إعادة المحاولة');
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByText('في محاولة طلب سابقة لم يتم تأكيدها.', { exact: false }).waitFor();
       assert.equal(await page.locator('#chk-phone').isDisabled(), true);
       await page.locator('#pay-place-order-btn').click();
       await page.waitForURL('**/checkout/success?order=ORD-INTEGRATION');
-      await page.getByRole('heading', { name: 'تم استلام طلبك!' }).waitFor();
+      await page.getByRole('heading', { name: 'تم استلام طلبك بنجاح!' }).waitFor();
       assert.notEqual(submissions[0].key, submissions[1].key);
       assert.notEqual(submissions[1].key, submissions[2].key);
       assert.equal(submissions[2].key, submissions[3].key);
@@ -147,14 +159,14 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
       assert.deepEqual(submissions[3].body, submissions[4].body);
       assert.equal(submissions[4].body.expected_total, 470);
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.getByRole('heading', { name: 'تم استلام طلبك!' }).waitFor();
+      await page.getByRole('heading', { name: 'تم استلام طلبك بنجاح!' }).waitFor();
       await page.screenshot({ path: path.join(output, `${mobile ? 'mobile' : 'desktop'}-success.png`), fullPage: true });
       await page.evaluate(() => sessionStorage.removeItem('last_order'));
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.getByRole('link', { name: 'تتبع طلبك' }).click();
       await page.getByPlaceholder('رقم موبايل الطلب').fill('01012345679');
       await page.getByRole('button', { name: 'تتبع الطلب' }).click();
-      await page.getByText('pending', { exact: true }).waitFor();
+      await page.getByRole('region', { name: 'تفاصيل تتبع الطلب' }).getByText(receipt.order_number, { exact: true }).waitFor();
       if (!mobile) {
         // Revalidate expired menu data without reloading the application.
         await page.goto(`${base}/checkout`);
@@ -186,13 +198,14 @@ const line = { id: 1, product_id: 1, product_variant_id: 10, product_name: 'Ever
         phase = 'cap'; await page.locator('#pay-place-order-btn').click();
         await page.getByText('لديك طلبات معلّقة كثيرة؛ أكملها أو ألغِها قبل طلب جديد.', { exact: true }).waitFor();
         phase = 'success';
+        await page.waitForFunction(() => !document.querySelector('#pay-place-order-btn').disabled);
         await page.evaluate(() => { const original = Storage.prototype.setItem; Storage.prototype.setItem = function(key, value) {
           if (key === 'last_order') throw new DOMException('Blocked storage', 'SecurityError'); return original.call(this, key, value);
         }; });
         const before = submissions.length;
         await page.evaluate(() => { const button = document.querySelector('#pay-place-order-btn'); button.click(); button.click(); });
         await page.waitForURL('**/checkout/success?order=ORD-INTEGRATION');
-        await page.getByRole('heading', { name: 'تم استلام طلبك!' }).waitFor();
+        await page.getByRole('heading', { name: 'تم استلام طلبك بنجاح!' }).waitFor();
         assert.equal(submissions.length, before + 1);
         console.log('authenticated: profile keyboard/wallet, saved address, cache expiry, safe spotlight quick-add, pending cap, double submit, blocked receipt storage passed');
       }

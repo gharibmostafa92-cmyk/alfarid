@@ -15,7 +15,6 @@ class ManufacturingBusiness
     {
         if ($request->is('api/v1/supplier', 'api/v1/supplier/*',
             'api/v1/admin/brands', 'api/v1/admin/brands/*',
-            'api/v1/store/brands',
             'api/v1/admin/suppliers', 'api/v1/admin/suppliers/*',
             'api/v1/admin/supplier-*', 'api/v1/admin/purchase-*',
             'api/v1/admin/reports/suppliers')) {

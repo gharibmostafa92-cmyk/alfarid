@@ -50,6 +50,7 @@ class StorefrontCatalogTest extends TestCase
         Banner::factory()->create(['title' => 'مستقبلي', 'starts_at' => now()->addDay()]);
         Banner::factory()->create(['title' => 'منتهي', 'ends_at' => now()->subDay()]);
         Banner::factory()->create(['title' => 'معطل', 'is_active' => false]);
+        Banner::factory()->create(['title' => 'بلا صورة', 'image_path' => '']);
         $old = $this->product(['sales_count' => 50]);
         $new = $this->product();
         $discounted = $this->product();
@@ -63,10 +64,10 @@ class StorefrontCatalogTest extends TestCase
         $this->assertContains($discounted->id, collect($response->json('data.discounted_products'))->pluck('id')->all());
         $this->assertSame(3, collect($response->json('data.latest_products'))->count()); // المسودة مستبعدة
 
-        // الكاش: منتج أحدث يُنشأ بعد أول طلب لا يظهر حتى انتهاء الخمس دقائق
+        // A newly published product is visible after the catalog changes.
         $this->product();
         $again = $this->getJson('/api/v1/store/home')->assertOk();
-        $this->assertSame(3, collect($again->json('data.latest_products'))->count());
+        $this->assertSame(4, collect($again->json('data.latest_products'))->count());
         Cache::forget('store_home_data:v2');
         $fresh = $this->getJson('/api/v1/store/home')->assertOk();
         $this->assertSame(4, collect($fresh->json('data.latest_products'))->count());
@@ -91,7 +92,10 @@ class StorefrontCatalogTest extends TestCase
         $this->assertSame(1, $categories->json('data.0.children.0.products_count'));
 
         // مصانع المنتجات تنشئ علامات إضافية — نتحقق من الحضور/الغياب لا العدد الكلي
-        $this->getJson('/api/v1/store/brands')->assertStatus(410);
+        $brands = $this->getJson('/api/v1/store/brands')->assertOk();
+        $brandIds = collect($brands->json('data'))->pluck('id')->all();
+        $this->assertContains($activeBrand->id, $brandIds);
+        $this->assertNotContains($inactiveBrand->id, $brandIds);
         $cities = $this->getJson('/api/v1/store/cities')->assertOk()->assertJsonCount(1, 'data');
         $this->assertSame('60.00', $cities->json('data.0.shipping_cost'));
     }
@@ -208,5 +212,95 @@ class StorefrontCatalogTest extends TestCase
         $response = $this->getJson('/api/v1/store/products')->assertOk();
         $card = collect($response->json('data'))->firstWhere('id', $product->id);
         $this->assertNull($card['price']);
+    }
+
+    public function test_catalog_query_validation_and_missing_category(): void
+    {
+        $this->getJson('/api/v1/store/products?category=nonexistent-slug')->assertOk()->assertJsonCount(0, 'data');
+        foreach (['/api/v1/store/products', '/api/v1/store/catalog/filters'] as $url) {
+            $this->getJson($url.'?brand=1')->assertUnprocessable()->assertJsonValidationErrors('brand');
+            $this->getJson($url.'?search=a')->assertUnprocessable()->assertJsonValidationErrors('search');
+            $this->getJson($url.'?price_min=100&price_max=50')->assertUnprocessable()->assertJsonValidationErrors('price_max');
+            $this->getJson($url.'?occasions[]=bogus')->assertUnprocessable()->assertJsonValidationErrors('occasions.0');
+            $this->getJson($url.'?occasions[]=work&occasions[]=casual&occasions[]=evening&occasions[]=travel&occasions[]=work')
+                ->assertUnprocessable()->assertJsonValidationErrors('occasions');
+        }
+    }
+
+    public function test_home_personalized_prices_are_private_and_discounted_cards_are_bounded(): void
+    {
+        $group = CustomerGroup::create(['name' => 'VIP', 'code' => 'vip', 'discount_percentage' => 10]);
+        for ($i = 0; $i < 12; $i++) {
+            $this->product([], ['retail_price' => 1000]);
+        }
+        $product = $this->product([], ['retail_price' => 1000]);
+        $guest = $this->getJson('/api/v1/store/home')->assertOk();
+        $this->assertSame(1000.0, (float) collect($guest->json('data.latest_products'))->firstWhere('id', $product->id)['price']);
+        $customer = Customer::factory()->create(['customer_group_id' => $group->id]);
+        $token = $customer->createToken('store-token')->plainTextToken;
+        Auth::forgetGuards();
+        $response = $this->withToken($token)->getJson('/api/v1/store/home')->assertOk();
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $this->assertStringContainsString('private', $response->headers->get('Cache-Control'));
+        $this->assertSame(900.0, (float) collect($response->json('data.latest_products'))->firstWhere('id', $product->id)['price']);
+        $discounted = $response->json('data.discounted_products');
+        $this->assertCount(12, $discounted);
+        foreach ($discounted as $card) {
+            $this->assertNotNull($card['price']);
+            $this->assertNotNull($card['discount_percentage']);
+        }
+    }
+
+    public function test_categories_and_brands_exclude_inactive_entries_and_are_ordered(): void
+    {
+        $root = Category::factory()->create(['parent_id' => null, 'sort_order' => 2]);
+        $first = Category::factory()->create(['parent_id' => null, 'sort_order' => 1]);
+        $child = Category::factory()->create(['parent_id' => $root->id]);
+        $inactive = Category::factory()->create(['parent_id' => $root->id, 'is_active' => false]);
+        $hidden = Category::factory()->create(['parent_id' => $inactive->id]);
+        $visibleProduct = $this->product(['category_id' => $child->id]);
+        $hiddenProduct = $this->product(['category_id' => $hidden->id]);
+        $tree = $this->getJson('/api/v1/store/categories')->assertOk()->json('data');
+        $this->assertSame([$first->id, $root->id], collect($tree)->pluck('id')->all());
+        $this->assertSame([$child->id], collect($tree[1]['children'])->pluck('id')->all());
+        $this->assertNull($tree[1]['parent_id']);
+        $this->assertSame($root->id, $tree[1]['children'][0]['parent_id']);
+        $this->assertSame(1, $tree[1]['active_products_count']);
+        $this->assertSame(1, $tree[1]['products_count']);
+        $products = $this->getJson('/api/v1/store/products?category='.$root->slug)->assertOk()->json('data');
+        $ids = collect($products)->pluck('id')->all();
+        $this->assertContains($visibleProduct->id, $ids);
+        $this->assertNotContains($hiddenProduct->id, $ids);
+        Brand::query()->update(['is_active' => false]);
+        $later = Brand::factory()->create(['is_active' => true, 'sort_order' => 2, 'name_ar' => 'أ']);
+        $second = Brand::factory()->create(['is_active' => true, 'sort_order' => 1, 'name_ar' => 'ب']);
+        $earlier = Brand::factory()->create(['is_active' => true, 'sort_order' => 1, 'name_ar' => 'أ']);
+        $brands = $this->getJson('/api/v1/store/brands')->assertOk()->json('data');
+        $this->assertSame([$earlier->id, $second->id, $later->id], collect($brands)->pluck('id')->all());
+    }
+
+    public function test_stock_filter_excludes_receiving_and_damaged_locations_and_sale_filter_uses_discount(): void
+    {
+        $hidden = $this->product();
+        foreach (['receiving', 'damaged'] as $type) {
+            $location = Location::factory()->create(['type' => $type]);
+            StockLevel::forceCreate(['product_variant_id' => $hidden->variants->first()->id, 'branch_id' => $location->branch_id,
+                'location_id' => $location->id, 'on_hand' => 5, 'reserved' => 0, 'damaged' => 0]);
+        }
+        $sale = $this->product([], ['compare_at_price' => 1500]);
+        $this->stock($sale->variants->first(), 3);
+        $stock = $this->getJson('/api/v1/store/products?in_stock=1')->assertOk()->json('data');
+        $this->assertSame([$sale->id], collect($stock)->pluck('id')->all());
+        $sales = $this->getJson('/api/v1/store/products?on_sale=1')->assertOk()->json('data');
+        $this->assertSame([$sale->id], collect($sales)->pluck('id')->all());
+    }
+
+    public function test_search_matches_arabic_names_and_ignores_inactive_variant_skus(): void
+    {
+        $product = $this->product(['name_ar' => 'حقيبة مميزة']);
+        ProductVariant::factory()->create(['product_id' => $product->id, 'sku' => 'HIDDEN-ABC-987', 'is_active' => false]);
+        $result = $this->getJson('/api/v1/store/products?search='.urlencode('حقيبة'))->assertOk()->json('data');
+        $this->assertContains($product->id, collect($result)->pluck('id')->all());
+        $this->getJson('/api/v1/store/products?search=HIDDEN-ABC-987')->assertOk()->assertJsonCount(0, 'data');
     }
 }

@@ -57,6 +57,8 @@ export interface AdminOrder {
   status: OrderStatus;
   payment_status: PaymentStatus;
   payment_method: PaymentMethod;
+  legal_policy_version?: string | null;
+  legal_accepted_at?: string | null;
   requires_refund: boolean;
   needs_attention: boolean;
   cod_fee?: string | null;
@@ -143,6 +145,7 @@ export interface ReturnRequest {
   refund_method: RefundMethod | null;
   total_refund_amount: string | null;
   reason: string | null;
+  reason_type?: 'change_of_mind' | 'defect_or_mismatch' | null;
   admin_notes: string | null;
   refund_reference: string | null;
   approved_by: number | null;
@@ -169,6 +172,7 @@ export interface ReturnStats {
 export interface StoreReturnPayload {
   order_id: number;
   reason: string;
+  reason_type?: 'change_of_mind' | 'defect_or_mismatch';
   refund_method?: RefundMethod | null;
   items: { order_item_id: number; requested_qty: number; item_reason?: string }[];
 }

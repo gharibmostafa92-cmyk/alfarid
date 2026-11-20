@@ -181,7 +181,8 @@ export type CheckoutPaymentMethod = 'cod' | 'wallet' | 'bank_transfer' | 'credit
 export interface CheckoutPayload {
   recipient_name?: string; recipient_phone?: string; recipient_email?: string;
   city_id: number; shipping_address_line: string; shipping_notes?: string;
-  expected_total?: number; payment_method: CheckoutPaymentMethod;
+    expected_total?: number; payment_method: CheckoutPaymentMethod;
+    legal_policy_version: string;
 }
 
 export interface StoreOrderItem {
@@ -195,12 +196,33 @@ export interface InstapayDetails { address: string; amount: string; expires_at: 
 export interface StoreOrder {
   id: number; order_number: string; channel: string; status: string;
   payment_method: string; payment_status: string;
+  legal_policy_version?: string | null; legal_accepted_at?: string | null;
   instapay?: InstapayDetails | null;
   recipient_name: string | null; recipient_phone: string | null;
   city_id: number | null; shipping_address_line: string | null;
+  shipping_city?: { name_ar: string; name_en: string | null } | null;
+  shipments?: { id: number; status: string }[];
+  return_quantities?: Record<number, number>;
   subtotal: number | string; discount_amount: number | string; coupon_code: string | null;
   shipping_cost: number | string; cod_fee: number | string; tax_amount: number | string; grand_total: number | string;
   items: StoreOrderItem[]; created_at: string;
+}
+
+export interface StoreReturnRequest {
+  id: number;
+  return_number: string;
+    reason_type?: 'change_of_mind' | 'defect_or_mismatch' | null;
+  order_number?: string | null;
+  status: string;
+  reason: string;
+  created_at: string | null;
+  total_refund_amount: number | string;
+  items: {
+    id: number;
+    product_name: string | null;
+    sku: string | null;
+    requested_qty: number | string;
+  }[];
 }
 
 export interface CheckoutResponse { data: StoreOrder; payment_url: string | null; message: string }
@@ -225,6 +247,8 @@ export interface CartCouponResponse { cart: StoreCart; coupon_discount: number }
 export interface TrackOrderResponse {
   instapay?: InstapayDetails;
   order_number: string; status: string;
+  legal_policy_version?: string | null;
+  legal_accepted_at?: string | null;
   payment_status?: string;
   items: Array<{ id?: number; product_name: string; qty: number }>;
   status_history: Array<{ id?: number; status: string; at: string }>;

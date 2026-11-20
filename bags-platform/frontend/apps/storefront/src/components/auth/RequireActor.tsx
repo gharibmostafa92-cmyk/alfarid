@@ -77,7 +77,7 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
       if (redirect) router.replace(redirect);
     } else if (verifiedToken === token && (!destination || !allowKey.split(',').includes(destination))) router.replace(home ?? '/');
   }, [hydrated, token, verifiedToken, destination, home, allowKey, pathname, router]);
-  if (hydrated && token && verificationFailed) return <div role="alert">تعذر التحقق من الجلسة. <button type="button" onClick={() => { void refetch(); }}>إعادة المحاولة</button></div>;
+  if (hydrated && token && verificationFailed) return <div role="alert" className="mx-auto my-8 max-w-md rounded-xl border border-rose-200 bg-rose-50 p-4 text-center text-sm text-rose-900">تعذر تحميل بيانات الحساب. <button type="button" className="underline font-semibold" onClick={() => { void refetch(); }}>إعادة المحاولة</button></div>;
   if (!hydrated || !token || verifiedToken !== token || !destination || !allow.includes(destination)) return null;
   return <>{children}</>;
 }

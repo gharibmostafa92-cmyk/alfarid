@@ -2,9 +2,12 @@
 
 import '@/styles/checkout.css';
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { storeEndpoints } from '@alfarid/api-client';
 import { formatStorePrice } from '@alfarid/utils';
 import { toCardVM } from '@/lib/catalog/catalog-mappers';
+import { useStoreLang } from '@/providers/store-lang-provider';
+import { getLegalPolicyHref } from '@/lib/legal-policy-links';
 import { useCheckout } from './useCheckout';
 import { ContactSection } from './ContactSection';
 import { ShippingSection } from './ShippingSection';
@@ -31,8 +34,11 @@ export function SophieCheckoutPage({
   onOrderPlaced?: (orderData: unknown) => void;
 }) {
   const vm = useCheckout();
+  const { isAr } = useStoreLang();
   const [suggestions, setSuggestions] = useState<SuggestionCard[]>([]);
   const [mobileBagOpen, setMobileBagOpen] = useState(false);
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false);
+  const [acceptanceError, setAcceptanceError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +94,16 @@ export function SophieCheckoutPage({
       return;
     }
     scrollToSection('checkout-section-payment');
+  };
+
+  const submitOrder = () => {
+    if (!acceptedPolicies) {
+      setAcceptanceError(true);
+      document.getElementById('checkout-legal-acceptance')?.focus();
+      return;
+    }
+    setAcceptanceError(false);
+    vm.submit();
   };
 
   return (
@@ -243,11 +259,51 @@ export function SophieCheckoutPage({
               </div>
             )}
 
+            <div className="checkout-legal-consent">
+              <label htmlFor="checkout-legal-acceptance">
+                <input
+                  id="checkout-legal-acceptance"
+                  type="checkbox"
+                  checked={acceptedPolicies}
+                  aria-invalid={acceptanceError}
+                  aria-describedby={acceptanceError ? 'checkout-legal-error' : undefined}
+                  onChange={(event) => {
+                    setAcceptedPolicies(event.target.checked);
+                    if (event.target.checked) setAcceptanceError(false);
+                  }}
+                />
+                <span>
+                  {isAr ? (
+                    <>
+                      أوافق على <Link href={getLegalPolicyHref('terms-and-conditions')} target="_blank" rel="noreferrer">الشروط والأحكام</Link>، وقد اطلعت على{' '}
+                      <Link href={getLegalPolicyHref('privacy-policy')} target="_blank" rel="noreferrer">سياسة الخصوصية</Link> و
+                      <Link href={getLegalPolicyHref('returns-refunds-exchanges')} target="_blank" rel="noreferrer">سياسة الاسترجاع</Link> و
+                      <Link href={getLegalPolicyHref('shipping-delivery')} target="_blank" rel="noreferrer">الشحن</Link> و
+                      <Link href={getLegalPolicyHref('payment-billing')} target="_blank" rel="noreferrer">الدفع والفواتير</Link>.
+                    </>
+                  ) : (
+                    <>
+                      I agree to the <Link href={getLegalPolicyHref('terms-and-conditions')} target="_blank" rel="noreferrer">Terms &amp; Conditions</Link> and acknowledge the{' '}
+                      <Link href={getLegalPolicyHref('privacy-policy')} target="_blank" rel="noreferrer">Privacy Policy</Link>,{' '}
+                      <Link href={getLegalPolicyHref('returns-refunds-exchanges')} target="_blank" rel="noreferrer">Returns Policy</Link>,{' '}
+                      <Link href={getLegalPolicyHref('shipping-delivery')} target="_blank" rel="noreferrer">Shipping Policy</Link>, and{' '}
+                      <Link href={getLegalPolicyHref('payment-billing')} target="_blank" rel="noreferrer">Payment Policy</Link>.
+                    </>
+                  )}
+                </span>
+              </label>
+              {acceptanceError && (
+                <p id="checkout-legal-error" role="alert">
+                  {isAr ? 'يرجى الموافقة على الشروط قبل إتمام الطلب.' : 'Please agree to the terms before placing your order.'}
+                </p>
+              )}
+            </div>
+
             <button
               type="button"
               className="btn-place-order checkout-submit-btn"
               id="pay-place-order-btn"
-              onClick={() => vm.submit()}
+              onClick={submitOrder}
               disabled={!vm.canSubmit}
             >
               {vm.submitting ? (
@@ -297,7 +353,7 @@ export function SophieCheckoutPage({
             <button
               type="button"
               className="btn-place-order"
-              onClick={() => vm.submit()}
+              onClick={submitOrder}
               disabled={!vm.canSubmit}
             >
               {vm.submitting

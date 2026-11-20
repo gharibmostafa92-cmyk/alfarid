@@ -137,7 +137,6 @@ class ManufacturingBusinessTest extends TestCase
 
         $endpoints = [
             ['GET', 'admin/brands'], ['POST', 'admin/brands'], ['PUT', 'admin/brands/1'], ['DELETE', 'admin/brands/1'],
-            ['GET', 'store/brands'],
             ['GET', 'admin/suppliers'], ['POST', 'admin/suppliers'], ['PUT', 'admin/suppliers/1'], ['DELETE', 'admin/suppliers/1'],
             ['POST', 'admin/suppliers/1/users'], ['PUT', 'admin/suppliers/1/users/1'],
             ['GET', 'admin/purchase-orders'], ['POST', 'admin/purchase-orders'], ['PUT', 'admin/purchase-orders/1'],

@@ -1,5 +1,6 @@
 import { createApiClient, defaultApiClient as apiClient } from '../axios-instance';
 import { API_ENDPOINTS } from './constants';
+import type { StoreReturnPayload } from './operations/orders';
 import type {
   CartCouponResponse,
   CheckoutPayload,
@@ -16,6 +17,7 @@ import type {
   StoreProduct,
   StoreProductCard,
   StoreProductListParams,
+  StoreReturnRequest,
   TrackOrderResponse,
 } from '../types';
 
@@ -93,8 +95,10 @@ export const accountEndpoints = {
   cancelOrder: (id: number) => apiClient.post<{ data: StoreOrder }>(`/api/v1/store/account/orders/${id}/cancel`).then((r) => r.data.data),
   order: (number: string) => apiClient.get<{ data: StoreOrder }>(`/api/v1/store/account/orders/${encodeURIComponent(number)}`).then((r) => r.data.data),
   wallet: (page = 1, filters: { direction?: 'credit' | 'debit'; type?: string; from?: string; to?: string } = {}) => apiClient.get<{ balance: number | string; transactions: { data: Array<{ id: number; type: string; type_label?: string | null; amount: number | string; balance_after: number | string; reference_type: string | null; reference_id: number | null; reference_label?: string | null; created_at: string }>; current_page: number; last_page: number; total: number } }>('/api/v1/store/account/wallet', { params: { page, ...filters } }).then((r) => r.data),
-  returns: (page = 1) => apiClient.get<{ data: unknown[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/v1/store/account/returns?page=${page}`).then((r) => r.data),
-  returnDetail: (id: number) => apiClient.get<{ data: unknown }>(`/api/v1/store/account/returns/${id}`).then((r) => r.data.data),
-  createReturn: (fd: FormData) => apiClient.post<{ data: { id: number } }>('/api/v1/store/account/returns', fd).then((r) => r.data.data),
+  returns: (page = 1) => apiClient.get<{ data: StoreReturnRequest[]; meta: { current_page: number; last_page: number; total: number } }>('/api/v1/store/account/returns', { params: { page } }).then((r) => r.data),
+  returnDetail: (id: number) => apiClient.get<{ data: StoreReturnRequest }>(`/api/v1/store/account/returns/${id}`).then((r) => r.data.data),
+  createReturn: (payload: StoreReturnPayload | FormData) => apiClient.post<{ data: StoreReturnRequest }>('/api/v1/store/account/returns', payload,
+    payload instanceof FormData ? { headers: { 'Content-Type': undefined } } : undefined,
+  ).then((r) => r.data.data),
   addresses: () => apiClient.get<{ data: Array<{ id: number; city_id: number; city_name_ar: string | null; city_name_en: string | null; address_line: string; is_default: boolean }> }>('/api/v1/store/account/addresses').then((r) => r.data.data),
 };

@@ -99,6 +99,27 @@ export async function persistProduct(
         { catalogProductId: next.id },
       );
     }
+    // Published products are checked against persisted variant prices when the
+    // sales channel changes. Save newly required prices before expanding it.
+    if (next.status === "published" && next.basic.channel !== original.basic.channel) {
+      const needsRetail = next.basic.channel !== "wholesale" && original.basic.channel === "wholesale";
+      const needsWholesale = next.basic.channel !== "retail" && original.basic.channel === "retail";
+      for (const row of next.rows) {
+        const old = original.rows?.find((item: any) => item.serverId === row.serverId);
+        if (!old || old.status !== "active") continue;
+        const prices: Record<string, string> = {};
+        if (needsRetail && !Number(old.retail) && Number(row.retail) > 0) prices.retail_price = row.retail;
+        if (needsWholesale && !Number(old.wholesale) && Number(row.wholesale) > 0) prices.wholesale_price = row.wholesale;
+        if (!Object.keys(prices).length) continue;
+        const version = row.lock_version ?? old.lock_version;
+        const saved = await variantRequest(row, () => variantsApi.update(next.id, row.serverId, {
+          ...prices,
+          ...(version !== undefined ? { expected_version: version } : {}),
+        }));
+        row.lock_version = saved.lock_version;
+        onState({ ...next });
+      }
+    }
     let updated;
     try {
       updated = await productsApi.update(next.id, {

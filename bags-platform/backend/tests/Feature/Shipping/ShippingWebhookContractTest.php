@@ -14,6 +14,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
@@ -507,11 +508,13 @@ class ShippingWebhookContractTest extends TestCase
             ->assertExactJson(['received' => false, 'message' => 'invalid signature']);
 
         $logCount = WebhookLog::query()->count();
+        Log::spy();
         $over = str_repeat('b', 262145);
         $this->postRaw('/api/v1/webhooks/shipping/bosta', $over, hash_hmac('sha256', $over, self::SECRET))
             ->assertStatus(413)
             ->assertExactJson(['received' => false, 'message' => 'payload too large']);
-        $this->assertSame($logCount, WebhookLog::query()->count());
+        Log::shouldHaveReceived('warning')->once()->with('Oversized webhook payload rejected.', ['webhook_type' => 'shipping']);
+        $this->assertDatabaseCount('webhook_logs', $logCount);
     }
 
     public function test_random_company_codes_are_throttled(): void

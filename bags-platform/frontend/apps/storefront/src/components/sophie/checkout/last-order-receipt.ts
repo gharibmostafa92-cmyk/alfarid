@@ -3,6 +3,14 @@ export interface LastOrderInput {
   status: string;
   payment_method: string;
   payment_status: string;
+  legal_policy_version?: string | null;
+  legal_accepted_at?: string | null;
+  subtotal?: unknown;
+  discount_amount?: unknown;
+  coupon_code?: string | null;
+  shipping_cost?: unknown;
+  cod_fee?: unknown;
+  tax_amount?: unknown;
   grand_total: unknown;
   items: unknown;
   recipient_phone?: string | null;
@@ -15,6 +23,14 @@ export function lastOrderReceipt(data: LastOrderInput, attemptOwner: string | nu
     status: data.status,
     payment_method: data.payment_method,
     payment_status: data.payment_status,
+    legal_policy_version: data.legal_policy_version,
+    legal_accepted_at: data.legal_accepted_at,
+    subtotal: data.subtotal,
+    discount_amount: data.discount_amount,
+    coupon_code: data.coupon_code,
+    shipping_cost: data.shipping_cost,
+    cod_fee: data.cod_fee,
+    tax_amount: data.tax_amount,
     grand_total: data.grand_total,
     items: data.items,
     recipient_phone: attemptOwner === 'guest' ? data.recipient_phone : undefined,

@@ -5,6 +5,7 @@ import './globals.css';
 import { QueryProvider } from '../providers/query-provider';
 import { StorefrontShell } from '@/components/StorefrontShell';
 import { StoreBrandingProvider } from '@/providers/store-branding-provider';
+import { StoreLangProvider } from '@/providers/store-lang-provider';
 import { NonceProvider } from '@/providers/csp-nonce';
 import { getServerBranding, getServerBrandingResult } from '@/lib/core/server-branding';
 
@@ -24,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: `${branding.name} | Bag Collection`,
     applicationName: branding.name,
-    icons: branding.logo ? { icon: branding.logo } : undefined,
+    icons: { icon: '/favicon-transparent.png' },
     description: `المتجر الإلكتروني لـ ${branding.name} للحقائب والمصنوعات الجلدية`,
     openGraph: { siteName: branding.name, title: `${branding.name} | Bag Collection` },
   };
@@ -50,9 +51,9 @@ export default async function RootLayout({
       </head>
       <body className="min-h-screen bg-white text-[#111111] antialiased overflow-x-clip selection:bg-[#159a8c]/15 selection:text-[#111111]">
         <NonceProvider nonce={nonce}>
-          <StoreBrandingProvider initialBranding={branding} fromFallback={fromFallback}><QueryProvider>
+          <StoreBrandingProvider initialBranding={branding} fromFallback={fromFallback}><StoreLangProvider><QueryProvider>
             <StorefrontShell>{children}</StorefrontShell>
-          </QueryProvider></StoreBrandingProvider>
+          </QueryProvider></StoreLangProvider></StoreBrandingProvider>
         </NonceProvider>
       </body>
     </html>

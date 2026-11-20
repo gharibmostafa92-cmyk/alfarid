@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Store\Orders;
 
 use App\Enums\Orders\RefundMethod;
+use App\Enums\Orders\ReturnReasonType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -27,6 +28,7 @@ class StoreReturnRequest extends FormRequest
         return [
             'order_id' => ['required', 'integer'],
             'reason' => ['required', 'string', 'max:2000'],
+            'reason_type' => ['required', Rule::enum(ReturnReasonType::class)],
             'refund_method' => ['nullable', Rule::enum(RefundMethod::class)],
             'items' => ['required', 'array', 'min:1', 'max:50'],
             'items.*.order_item_id' => ['required', 'integer', 'distinct'],

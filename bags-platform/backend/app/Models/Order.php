@@ -61,6 +61,8 @@ class Order extends Model
         'cash_amount',
         'card_amount',
         'exchange_credit',
+        'legal_policy_version',
+        'legal_accepted_at',
     ];
 
     protected function casts(): array
@@ -81,6 +83,7 @@ class Order extends Model
             'needs_attention' => 'boolean',
             'due_at' => 'datetime',
             'returned_at' => 'datetime',
+            'legal_accepted_at' => 'datetime',
         ];
     }
 

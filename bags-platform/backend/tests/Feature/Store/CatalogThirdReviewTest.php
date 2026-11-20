@@ -259,7 +259,7 @@ class CatalogThirdReviewTest extends TestCase
         $this->assertSame([$variant->product_id], Cache::get('store:showcase:ids:6'));
     }
 
-    public function test_facets_cache_normalized_search_and_execute_at_most_three_queries_on_cold_miss(): void
+    public function test_search_facets_bypass_shared_cache_and_execute_at_most_three_queries(): void
     {
         config(['cache.default' => 'third_review', 'cache.stores.third_review' => ['driver' => 'array']]);
         $product = Product::factory()->published()->create(['name_en' => 'Midnight Tote Bag', 'occasions' => ['work']]);
@@ -293,7 +293,7 @@ class CatalogThirdReviewTest extends TestCase
             DB::disableQueryLog();
         }
         $this->assertSame($first, $second);
-        $this->assertCount(0, array_filter($warmQueries, fn ($q) => str_contains($q['query'], 'GROUP BY LOWER(color_name_en)') || str_contains($q['query'], 'occasion_scope') || str_contains($q['query'], 'price_scope')));
+        $this->assertNotEmpty(array_filter($warmQueries, fn ($q) => str_contains($q['query'], 'occasion_scope') || str_contains($q['query'], 'price_scope')));
     }
 
     public function test_catalog_pagination_caps_page_at_100(): void
@@ -314,7 +314,7 @@ class CatalogThirdReviewTest extends TestCase
         $product->addMedia(UploadedFile::fake()->image('bag.jpg'))->toMediaCollection('images');
         $variant = $this->variant($product, 1200);
 
-        $catKey = 'store:categories:v1:'.app()->getLocale();
+        $catKey = 'store:categories:v1:en';
         $this->getJson('/api/v1/store/categories')->assertOk()->assertJsonFragment(['name_en' => 'Initial Cat']);
         $this->getJson('/api/v1/store/catalog/filters')->assertOk()->assertJsonPath('data.total', 1);
         $this->getJson('/api/v1/store/home')->assertOk();

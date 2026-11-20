@@ -28,6 +28,7 @@ class ReturnRequestResource extends JsonResource
             'refund_method' => $this->refund_method?->value,
             'total_refund_amount' => $this->total_refund_amount,
             'reason' => $this->reason,
+            'reason_type' => $this->reason_type?->value,
             'refund_reference' => $this->refund_reference,
             'approved_at' => $this->approved_at?->toIso8601String(),
             'received_at' => $this->received_at?->toIso8601String(),

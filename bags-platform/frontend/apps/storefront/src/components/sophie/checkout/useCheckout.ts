@@ -12,6 +12,7 @@ import {
   type CheckoutPayload,
 } from '@alfarid/api-client';
 import { getCartSession, useCartStore } from '@/stores/cart-store';
+import { LEGAL_POLICY_VERSION } from '@/lib/legal-policy-links';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from '@/hooks/use-auth-hydrated';
 import { viewerKey } from '@/lib/core/viewer-key';
@@ -207,7 +208,7 @@ export function useCheckout() {
   const items = useCartStore((s) => s.items);
   const cartLoading = useCartStore((s) => s.loading);
   const cartBusy = useCartStore((s) => s.busy);
-  const cartError = useCartStore((s) => s.error);
+  const cartError = useCartStore((s) => s.errorSource === 'coupon' ? null : s.error);
   const totals = useCartStore((s) => s.totals);
   const couponCode = useCartStore((s) => s.couponCode);
   const loadCart = useCartStore((s) => s.loadCart);
@@ -618,6 +619,7 @@ export function useCheckout() {
           shipping_notes: form.notes.trim() || undefined,
           payment_method: form.paymentMethod,
           expected_total: liveQuote!.preview!.grand_total,
+          legal_policy_version: LEGAL_POLICY_VERSION,
         },
         session: getCartSession(),
       };
@@ -647,9 +649,14 @@ export function useCheckout() {
       );
       if (attemptOwner === 'guest') rememberGuestOrder(res.data.order_number);
       try {
-        const { order_number, status, payment_method, payment_status, grand_total, items, recipient_phone, instapay } = res.data;
+        const {
+          order_number, status, payment_method, payment_status, legal_policy_version, legal_accepted_at,
+          subtotal, discount_amount, coupon_code, shipping_cost, cod_fee, tax_amount, grand_total,
+          items, recipient_phone, instapay,
+        } = res.data;
         sessionStorage.setItem('last_order', JSON.stringify(lastOrderReceipt({
-          order_number, status, payment_method, payment_status, grand_total, items,
+          order_number, status, payment_method, payment_status, legal_policy_version, legal_accepted_at,
+          subtotal, discount_amount, coupon_code, shipping_cost, cod_fee, tax_amount, grand_total, items,
           recipient_phone, instapay,
         }, attemptOwner)));
       } catch {

@@ -397,6 +397,7 @@ class CheckoutReservationReviewTest extends TestCase
         // التاجر غير الموقّع merchant_order_id
         $order = Order::factory()->create([
             'status' => 'pending', 'payment_status' => 'unpaid', 'grand_total' => 250,
+            'payment_method' => 'card',
             'gateway_order_id' => '55',
         ]);
         $obj = [
@@ -423,6 +424,9 @@ class CheckoutReservationReviewTest extends TestCase
             json_encode(['obj' => $obj], JSON_THROW_ON_ERROR),
         );
         $send(array_replace($obj, ['amount_cents' => 24999]), $sign())->assertForbidden();
+        $this->assertDatabaseHas('webhook_logs', [
+            'provider' => 'payment:paymob', 'status' => 'invalid_signature', 'payload' => null,
+        ]);
         $send(array_replace($obj, ['pending' => true]), $sign(pending: true))
             ->assertOk()->assertJsonPath('ignored', true);
         $this->assertSame('unpaid', $order->fresh()->payment_status);

@@ -763,3 +763,98 @@
       transition: none;
     }
   }
+
+.promo-section { margin: 22px 0 26px; }
+.promo-section .promo-row { margin: 0; }
+.promo-error {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-inline-start: 3px solid #b45345;
+  border-radius: 4px;
+  background: #fdf3f1;
+  color: #81392f;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: start;
+}
+.checkout-legal-consent {
+  margin: 18px 0 14px;
+  padding: 14px 16px;
+  border: 1px solid #e1e5e8;
+  border-radius: 4px;
+  background: #fff;
+  color: #545c68;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.checkout-privacy-notice {
+  margin: 14px 0 5px;
+  color: #68717c;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.checkout-privacy-notice a {
+  color: #117e85;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.checkout-legal-consent label {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  cursor: pointer;
+}
+.checkout-legal-consent input {
+  width: 19px;
+  height: 19px;
+  margin: 3px 0 0;
+  accent-color: #148f96;
+  cursor: pointer;
+}
+.checkout-legal-consent a {
+  color: #117e85;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.checkout-legal-consent p {
+  margin: 8px 0 0 31px;
+  color: #8b3228;
+  font-size: 12px;
+}
+.checkout-legal-consent:focus-within {
+  border-color: #148f96;
+}
+@media (max-width: 767px) {
+  .promo-section { margin: 14px 0 18px; }
+  .checkout-legal-consent { margin-block: 14px 12px; padding: 12px; }
+}
+
+@media print {
+  .store-header-shell,
+  .site-footer-wrap,
+  .checkout-success-actions {
+    display: none !important;
+  }
+
+  .checkout-success-printable {
+    min-height: 0 !important;
+    background: #fff !important;
+  }
+
+  .checkout-success-printable > div {
+    padding: 0 !important;
+  }
+
+  .checkout-success-printable article {
+    grid-template-columns: minmax(0, 1fr) !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+  }
+
+  .checkout-success-printable figure {
+    display: none !important;
+  }
+}

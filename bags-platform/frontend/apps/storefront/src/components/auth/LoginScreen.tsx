@@ -13,6 +13,7 @@ import { createSessionNonce } from './session-nonce';
 import { StorefrontLogo } from '@/components/StorefrontLogo';
 import { useAuthMe } from '@/hooks/use-auth-me';
 import { safeReturnPath } from '@/lib/orders/safe-return-path';
+import { useStoreLang } from '@/providers/store-lang-provider';
 
 /**
  * Recovery token from the URL. SMS links carry the raw secret in the
@@ -42,7 +43,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     window.addEventListener('hashchange', readToken);
     return () => window.removeEventListener('hashchange', readToken);
   }, [view, params]);
-  const [lang, setLang] = useState<'en' | 'ar'>('ar');
+  const { lang, setLang } = useStoreLang();
   const [showPassword, setShowPassword] = useState(false);
 
   // Form states
@@ -99,18 +100,17 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     if (!guardSession) return;
     if (completedProbe.current === probeAttempt) return;
 
-    try {
-      const key = 'alfarid_staff_session_check';
-      const marker = new URLSearchParams(window.location.hash.slice(1)).get('staff-guest');
-      const pending = sessionStorage.getItem(key);
-      if (marker && marker === pending) {
-        sessionStorage.removeItem(key);
-        window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
-        completedProbe.current = probeAttempt;
-        setProbing(false);
-        return;
-      }
+    let cancelled = false;
+    let iframe: HTMLIFrameElement | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
+    const finishProbe = () => {
+      if (cancelled) return;
+      completedProbe.current = probeAttempt;
+      setProbing(false);
+    };
+
+    try {
       const nonce = createSessionNonce();
       if (!nonce) throw new Error('Session check requires secure randomness');
       const configuredOffice = process.env.NEXT_PUBLIC_BACKOFFICE_URL?.trim();
@@ -124,32 +124,41 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       check.hash = new URLSearchParams({
         nonce,
         origin: window.location.origin,
-        page: window.location.pathname,
-        search: window.location.search,
       }).toString();
-      sessionStorage.setItem(key, nonce);
-      window.location.replace(check.href);
+
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== office.origin) return;
+        const data = event.data as { type?: string; nonce?: string; authenticated?: boolean; path?: string | null } | null;
+        if (!data || data.type !== 'alfarid:staff-session' || data.nonce !== nonce) return;
+        if (data.authenticated && (data.path === '/dashboard' || data.path === '/pos')) {
+          cancelled = true;
+          window.location.replace(`${office.origin}${data.path}`);
+          return;
+        }
+        finishProbe();
+      };
+
+      window.addEventListener('message', onMessage);
+      iframe = document.createElement('iframe');
+      iframe.src = check.href;
+      iframe.title = 'session';
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.style.display = 'none';
+      iframe.onerror = finishProbe;
+      document.body.appendChild(iframe);
+      timeoutId = setTimeout(finishProbe, 1000);
+
+      return () => {
+        cancelled = true;
+        window.removeEventListener('message', onMessage);
+        if (timeoutId) clearTimeout(timeoutId);
+        iframe?.remove();
+      };
     } catch {
-      setProbeFailed(true);
+      finishProbe();
+      return undefined;
     }
   }, [guardSession, probeAttempt]);
-
-  useEffect(() => {
-    if (!guardSession || probing || isSubmitting || navigating) return;
-    const recheck = () => {
-      if (document.visibilityState !== 'visible') return;
-      setProbing(true);
-      setProbeFailed(false);
-      retryProbe((attempt) => attempt + 1);
-    };
-    const restored = (event: PageTransitionEvent) => { if (event.persisted) recheck(); };
-    document.addEventListener('visibilitychange', recheck);
-    window.addEventListener('pageshow', restored);
-    return () => {
-      document.removeEventListener('visibilitychange', recheck);
-      window.removeEventListener('pageshow', restored);
-    };
-  }, [guardSession, probing, isSubmitting, navigating]);
 
   useEffect(() => {
     if (!checkingWeb || useAuthStore.getState().token !== token) return;
@@ -299,9 +308,6 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                 onClick={() => setView('login')}
               >
                 <StorefrontLogo className="w-[100px] h-10" />
-                <span className="luxury-brand-tag">
-                  {branding.name}
-                </span>
               </button>
 
               <button

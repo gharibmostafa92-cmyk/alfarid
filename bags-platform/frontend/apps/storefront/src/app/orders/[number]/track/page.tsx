@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { getStatusLabel, OrderStatusLabelsAr, PaymentStatusLabelsAr } from '@alfarid/utils';
 import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
+import { getLegalPolicyHref } from '@/lib/legal-policy-links';
 
 
 
@@ -85,9 +86,16 @@ export default function TrackOrderPage() {
     setError('');
     try {
       setResult(await checkoutEndpoints.track(number.trim(), phone.trim()));
-    } catch {
+    } catch (failure) {
       // Uniform error message masks whether the order number or phone mismatched to prevent enumeration.
-      setError('لم نلاقي طلب بالرقم ورقم الموبايل دول.');
+      const status = (failure as { response?: { status?: number } } | null)?.response?.status;
+      if (status === 404 || status === 422) {
+        setError('تعذر التحقق من بيانات الطلب. يرجى مراجعة رقم الطلب ورقم الهاتف المستخدم عند الشراء، ثم المحاولة مرة أخرى.');
+      } else if (status === 429) {
+        setError('يرجى الانتظار قليلًا قبل إعادة محاولة تتبع الطلب.');
+      } else {
+        setError('خدمة تتبع الطلبات غير متاحة مؤقتًا. يرجى المحاولة مرة أخرى لاحقًا.');
+      }
       setResult(null);
     } finally {
       setBusy(false);
@@ -182,6 +190,22 @@ export default function TrackOrderPage() {
                   <span>{PaymentStatusLabelsAr[result.payment_status]}</span>
                 )}
               </div>
+
+              {result.legal_policy_version && (
+                <nav aria-label="السياسات المرتبطة بالطلب" className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-700">
+                  <p className="mb-2 font-semibold">نسخة السياسات عند الشراء: <span dir="ltr">{result.legal_policy_version}</span></p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-2 underline underline-offset-2">
+                    <Link href={getLegalPolicyHref('terms-and-conditions', result.legal_policy_version)}>الشروط والأحكام</Link>
+                    <Link href={getLegalPolicyHref('privacy-policy', result.legal_policy_version)}>الخصوصية</Link>
+                    <Link href={getLegalPolicyHref('returns-refunds-exchanges', result.legal_policy_version)}>الإرجاع والاسترداد</Link>
+                    <Link href={getLegalPolicyHref('shipping-delivery', result.legal_policy_version)}>الشحن</Link>
+                    <Link href={getLegalPolicyHref('payment-billing', result.legal_policy_version)}>الدفع والفواتير</Link>
+                  </div>
+                  {result.legal_accepted_at && (
+                    <p className="mt-2 text-slate-500">وقت الموافقة: <time dateTime={result.legal_accepted_at}>{new Date(result.legal_accepted_at).toLocaleString('ar-EG')}</time></p>
+                  )}
+                </nav>
+              )}
 
               {result.instapay && (
                 <InstaPayInstructions key={result.order_number} details={result.instapay} />

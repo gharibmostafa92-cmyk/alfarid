@@ -51,6 +51,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
     <div
       className="hero-wrapper relative overflow-hidden bg-[#dfe5e9]"
       id="top"
+      dir="ltr"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setFocused(true)}
@@ -79,7 +80,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
         </div>
       )}
       {!isLoading && !fallback && (
-        <div className="absolute inset-0" aria-hidden="true">
+        <div className={`absolute inset-0 ${hasText ? 'hero-banner-with-copy' : ''}`} aria-hidden="true">
           <StoreImage
             key={`${slide.id}:${slide.image}`}
             src={slide.image}
@@ -115,28 +116,28 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
           ) : (
             <>
               {hasText && (
-                <div className="max-w-[430px] w-full z-10 text-center lg:text-left mt-3 sm:mt-6 lg:mt-0 break-words">
+                <div className={`hero-copy ${fallback ? 'hero-copy-fallback' : 'hero-copy-banner'} z-10`}>
                   {kicker && (
-                    <p dir="auto" className="font-[var(--font-oswald)] text-[12px] sm:text-[13px] font-medium tracking-[0.8px] uppercase text-[#111] mb-2">
+                    <p dir="auto" className="hero-copy-kicker">
                       {kicker}
                     </p>
                   )}
                   {(headline || bold) && (
-                    <h1 dir="auto" className="font-[var(--font-oswald)] uppercase leading-[1.04] mb-4">
+                    <h1 dir="auto" className="hero-copy-title">
                       {headline && (
-                        <span className="block text-[clamp(2rem,8vw,2.75rem)] sm:text-[54px] font-light tracking-[1px] text-[#111]">
+                        <span className="hero-copy-heading">
                           {headline}
                         </span>
                       )}
                       {bold && (
-                        <span className="block text-[clamp(2.2rem,8.8vw,3rem)] sm:text-[58px] font-bold tracking-[1px] text-[#111]">
+                        <span className="hero-copy-heading hero-copy-heading-bold">
                           {bold}
                         </span>
                       )}
                     </h1>
                   )}
                   {description && (
-                    <p dir="auto" className="text-[13.5px] sm:text-[14px] leading-[1.65] text-[#222] mb-6 sm:mb-7 font-[var(--font-poppins)] max-w-[38ch] mx-auto lg:mx-0">
+                    <p dir="auto" className="hero-copy-description">
                       {description}
                     </p>
                   )}
@@ -144,7 +145,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
                     <a
                       href={href}
                       {...external}
-                      className="inline-flex items-center justify-center min-h-[46px] w-full min-[380px]:w-auto bg-black text-white font-[var(--font-oswald)] text-[12px] font-medium tracking-[1px] uppercase px-9 py-3.5 hover:bg-[#2c2c2c] active: scale-[0.99] transition-all"
+                      className="hero-copy-action"
                     >
                       {label}
                     </a>

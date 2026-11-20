@@ -37,6 +37,7 @@ interface CartState {
   busy: boolean;
   loading: boolean;
   error: string | null;
+  errorSource: 'coupon' | 'cart' | null;
   serverTotal: number;
   totals: CartTotals | null;
   couponCode: string | null;
@@ -94,9 +95,9 @@ export const useCartStore = create<CartState>((set, get) => {
       couponCode: cart.totals.coupon_code,
     });
   };
-  const run = (operation: () => Promise<StoreCart>, mutation: boolean, guard?: () => boolean): Promise<boolean> => {
+  const run = (operation: () => Promise<StoreCart>, mutation: boolean, guard?: () => boolean, errorSource: 'coupon' | 'cart' = 'cart'): Promise<boolean> => {
     const owner = identity();
-    if (get().identity !== owner) set({ items: [], serverTotal: 0, totals: { ...emptyTotals }, couponCode: null, identity: owner, error: null });
+    if (get().identity !== owner) set({ items: [], serverTotal: 0, totals: { ...emptyTotals }, couponCode: null, identity: owner, error: null, errorSource: null });
     if (mutation) {
       pendingMutations += 1;
       set({ busy: true });
@@ -105,7 +106,7 @@ export const useCartStore = create<CartState>((set, get) => {
       if (owner !== identity()) return false;
       // Re-validate against the latest cart state once the queue/lock has settled.
       if (guard && !guard()) return false;
-      set({ busy: mutation || pendingMutations > 0, loading: !mutation, error: null });
+      set({ busy: mutation || pendingMutations > 0, loading: !mutation, error: null, errorSource: null });
       try {
         const cart = await operation();
         if (owner !== identity()) return false;
@@ -117,7 +118,7 @@ export const useCartStore = create<CartState>((set, get) => {
       } catch (error) {
         if (owner === identity()) {
           const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
-          set({ error: message || 'تعذّر تحديث السلة. يرجى المحاولة مرة أخرى.' });
+          set({ error: message || 'تعذّر تحديث السلة. يرجى المحاولة مرة أخرى.', errorSource });
         }
         return false;
       }
@@ -137,11 +138,11 @@ export const useCartStore = create<CartState>((set, get) => {
           } catch (e) {
             const name = (e as Error)?.name;
             if (name === 'AbortError' || name === 'TimeoutError') {
-              set({ error: 'تعذّر تحديث السلة بسبب بطء الاستجابة. حاول مجددًا.' });
+              set({ error: 'تعذّر تحديث السلة بسبب بطء الاستجابة. حاول مجددًا.', errorSource });
               return false;
             }
             if (name === 'SecurityError' || name === 'NotSupportedError') return execute();
-            set({ error: 'تعذّر تحديث السلة. يرجى المحاولة مرة أخرى.' });
+            set({ error: 'تعذّر تحديث السلة. يرجى المحاولة مرة أخرى.', errorSource });
             return false;
           }
         }
@@ -155,7 +156,7 @@ export const useCartStore = create<CartState>((set, get) => {
     return task;
   };
   return {
-    items: [], busy: false, loading: false, error: null, serverTotal: 0,
+    items: [], busy: false, loading: false, error: null, errorSource: null, serverTotal: 0,
     totals: null, couponCode: null, identity: 'guest',
     loadCart: () => run(() => cartEndpoints.get(session()), false),
     addItem: (variantId, quantity) => {
@@ -179,14 +180,14 @@ export const useCartStore = create<CartState>((set, get) => {
       return run(() => cartEndpoints.update(id, qty, session()), true, () => {
         const item = get().items.find((item) => item.id === id);
         if (qty > 0 && item && qty > item.available) {
-          set({ error: `الكمية المطلوبة غير متوفرة. الحد الأقصى المتاح هو ${item.available}.` });
+          set({ error: `الكمية المطلوبة غير متوفرة. الحد الأقصى المتاح هو ${item.available}.`, errorSource: 'cart' });
           return false;
         }
         return true;
       });
     },
     clearCart: () => run(() => cartEndpoints.clear(session()), true),
-    applyCoupon: (code) => run(() => cartEndpoints.applyCoupon(code, session()).then((res) => res.cart), true),
+    applyCoupon: (code) => run(() => cartEndpoints.applyCoupon(code, session()).then((res) => res.cart), true, undefined, 'coupon'),
     removeCoupon: () => run(() => cartEndpoints.removeCoupon(session()), true),
     total: () => get().serverTotal,
   };
@@ -200,5 +201,5 @@ export function resetCartIdentity({ preserveSharedStorage = false } = {}) {
     try { localStorage.removeItem('pending_checkout'); } catch { /* Storage may be blocked. */ }
   }
   try { sessionStorage.removeItem('last_order'); sessionStorage.removeItem('pending_checkout'); } catch { /* Storage may be blocked. */ }
-  useCartStore.setState({ items: [], serverTotal: 0, totals: null, couponCode: null, error: null, identity: identity() });
+  useCartStore.setState({ items: [], serverTotal: 0, totals: null, couponCode: null, error: null, errorSource: null, identity: identity() });
 }

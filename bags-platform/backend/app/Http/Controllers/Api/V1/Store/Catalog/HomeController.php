@@ -108,9 +108,10 @@ class HomeController extends Controller
             return collect();
         }
 
-        // BannerLinkResolver attaches request-derived attributes. Never mutate the
-        // model instances held by a shared in-memory cache (Octane/array cache).
-        return ($banners instanceof Collection ? $banners : collect($banners))
-            ->map(static fn (Banner $banner): Banner => clone $banner);
+        // Load fresh models so URL resolution only changes this request's banners.
+        return Banner::query()
+            ->whereKey($ids)
+            ->orderBy('sort_order')->orderBy('id')
+            ->get();
     }
 }

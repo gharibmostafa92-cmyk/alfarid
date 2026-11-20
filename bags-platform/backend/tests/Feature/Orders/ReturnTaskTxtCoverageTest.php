@@ -32,6 +32,7 @@ use Database\Seeders\ReturnPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\RunsConcurrentAuditJobs;
@@ -67,10 +68,14 @@ class ReturnTaskTxtCoverageTest extends TestCase
         $this->receiving = Location::factory()->create(['branch_id' => $this->branch->id, 'type' => 'receiving']);
     }
 
-    protected function tearDown(): void
+    public function runDatabaseMigrations(): void
     {
-        $this->artisan('migrate:fresh', ['--force' => true]);
-        parent::tearDown();
+        // These fixtures must be visible to concurrent workers, and the full schema has irreversible migrations.
+        $this->refreshTestDatabase();
+        $this->beforeApplicationDestroyed(function (): void {
+            RefreshDatabaseState::$lazilyRefreshed = false;
+            RefreshDatabaseState::$migrated = false;
+        });
     }
 
     private function purchasableVariant(float $price = 100): ProductVariant
@@ -107,6 +112,8 @@ class ReturnTaskTxtCoverageTest extends TestCase
         ])->assertOk();
         Auth::forgetGuards();
         $orderId = $this->withToken($token)->postJson('/api/v1/store/checkout', [
+            'recipient_name' => $customer->name,
+            'recipient_phone' => '01012345678',
             'city_id' => $city->id, 'shipping_address_line' => 'عنوان العميل', 'payment_method' => 'cod',
         ])->assertCreated()->json('data.id');
 

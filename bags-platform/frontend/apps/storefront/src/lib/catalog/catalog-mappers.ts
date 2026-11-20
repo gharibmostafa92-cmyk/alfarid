@@ -1,7 +1,8 @@
 import type { StoreCategory, StoreProduct, StoreProductCard, StoreCatalogFilters } from '@alfarid/api-client';
 import { formatStorePrice, parseNumericAmount } from '@alfarid/utils';
 
-export const pick = (en?: string | null, ar?: string | null) => en?.trim() || ar?.trim() || '';
+export const pick = (en?: string | null, ar?: string | null, lang: 'en' | 'ar' = 'en') =>
+  lang === 'ar' ? ar?.trim() || en?.trim() || '' : en?.trim() || ar?.trim() || '';
 const toNum = (v: unknown) => {
   const n = parseNumericAmount(v as any, NaN);
   return Number.isFinite(n) ? n : null;

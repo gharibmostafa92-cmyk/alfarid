@@ -274,18 +274,22 @@ class SettingService
         return filter_var($this->get($key, $default), FILTER_VALIDATE_BOOLEAN);
     }
 
-    /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string} */
+    /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string, commercialRegister: ?string, taxNumber: ?string} */
     public function publicBranding(): array
     {
         // Read branding from in-memory settings to avoid repetitive database queries on public storefront hits.
         $company = $this->staticSettings()['company'] ?? [];
+        $tax = $this->staticSettings()['tax'] ?? [];
 
         return [
             'name' => trim((string) ($company['company_name'] ?? '')) ?: 'VARYA',
+            'legalName' => trim((string) ($company['legal_name'] ?? '')) ?: null,
             'logo' => $company['company_logo'] ?? null,
             'email' => $company['company_email'] ?? null,
             'phone' => $company['company_phone'] ?? null,
             'address' => $company['company_address'] ?? null,
+            'commercialRegister' => $company['commercial_register'] ?? null,
+            'taxNumber' => $tax['tax_number'] ?? null,
         ];
     }
 

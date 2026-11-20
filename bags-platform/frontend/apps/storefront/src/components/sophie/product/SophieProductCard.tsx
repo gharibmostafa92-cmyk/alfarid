@@ -6,6 +6,7 @@ import { formatStorePrice } from '@alfarid/utils';
 import { useCartStore } from '@/stores/cart-store';
 import { SophieBagPlaceholder } from './SophieBagPlaceholder';
 import { StoreImage } from '../../StoreImage';
+import { useStoreLang } from '@/providers/store-lang-provider';
 
 export interface SophieProduct {
   id: number;
@@ -24,6 +25,7 @@ export interface SophieProduct {
 }
 
 export function SophieProductCard({ product }: { product: SophieProduct }) {
+  const { isAr } = useStoreLang();
   const addItem = useCartStore((s) => s.addItem);
   const [added, setAdded] = useState(false);
   const addedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,7 +98,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
                 added ? 'bg-emerald-600 text-white' : 'bg-black text-white hover:bg-neutral-800'
               }`}
             >
-              {adding ? 'Adding…' : added ? '✓ Added' : '+ Add to Cart'}
+              {adding ? (isAr ? 'جارٍ الإضافة…' : 'Adding…') : added ? (isAr ? '✓ تمت الإضافة' : '✓ Added') : (isAr ? '+ أضف للسلة' : '+ Add to Cart')}
             </button>
           </div>
         )}

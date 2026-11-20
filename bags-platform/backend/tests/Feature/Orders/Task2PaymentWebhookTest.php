@@ -19,6 +19,7 @@ use App\Services\Orders\OrderService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -63,12 +64,14 @@ class Task2PaymentWebhookTest extends TestCase
         $this->assertSame('failed', WebhookLog::query()->latest('id')->first()->status);
     }
 
-    public function test_oversized_body_is_rejected_without_a_webhook_log(): void
+    public function test_oversized_body_is_rejected_and_logged_without_the_payload(): void
     {
-        $this->postWebhook(['padding' => str_repeat('x', 256 * 1024)])
+        Log::spy();
+        $this->postJson('/api/v1/webhooks/payment/paymob', ['padding' => str_repeat('x', 256 * 1024)])
             ->assertStatus(413);
 
-        $this->assertSame(0, WebhookLog::query()->count());
+        Log::shouldHaveReceived('warning')->once()->with('Oversized webhook payload rejected.', ['webhook_type' => 'payment']);
+        $this->assertDatabaseCount('webhook_logs', 0);
     }
 
     public function test_successive_stripe_refunds_on_the_same_charge_are_all_processed(): void

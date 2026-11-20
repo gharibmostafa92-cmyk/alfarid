@@ -2,13 +2,13 @@
 
 namespace Tests\Feature\Store;
 
-use App\Enums\Customer\CustomerType;
 use App\Enums\Catalog\ProductStatus;
+use App\Enums\Customer\CustomerType;
 use App\Enums\Orders\SalesChannel;
 use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Banner;
-use App\Models\Brand;
 use App\Models\Branch;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
@@ -18,8 +18,8 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\Auth\CustomerPasswordReset;
+use App\Notifications\Channels\CustomerSmsChannel;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Pricing\PricingService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -233,19 +233,19 @@ class CustomerStoreReviewTest extends TestCase
         $this->assertCount(0, $brandQueries);
     }
 
-    public function test_retired_brands_do_not_load_media_and_category_media_queries_do_not_grow_per_record(): void
+    public function test_brand_and_category_media_queries_do_not_grow_per_record(): void
     {
         Brand::factory()->create();
         $queries = [];
         DB::listen(function ($event) use (&$queries): void {
             $queries[] = $event->sql;
         });
-        $this->getJson('/api/v1/store/brands')->assertStatus(410);
-        $this->assertCount(0, $queries);
+        $this->getJson('/api/v1/store/brands')->assertOk();
+        $baselineBrands = count($queries);
         Brand::factory()->count(15)->create();
         $queries = [];
-        $this->getJson('/api/v1/store/brands')->assertStatus(410);
-        $this->assertCount(0, $queries);
+        $this->getJson('/api/v1/store/brands')->assertOk();
+        $this->assertSame($baselineBrands, count($queries));
         Category::factory()->create();
         $queries = [];
         $this->getJson('/api/v1/store/categories')->assertOk();

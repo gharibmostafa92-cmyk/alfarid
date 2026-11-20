@@ -2,10 +2,13 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useStoreLang } from '@/providers/store-lang-provider';
+import { getLegalPolicyHref } from '@/lib/legal-policy-links';
 import type { CheckoutVM } from './useCheckout';
 
 export function ContactSection({ vm }: { vm: CheckoutVM }) {
   const { form, set, blur, visibleErrors } = vm;
+  const { isAr } = useStoreLang();
   return (
     <div className="checkout-block" id="checkout-section-contact">
       <div className="checkout-block-header">
@@ -22,6 +25,13 @@ export function ContactSection({ vm }: { vm: CheckoutVM }) {
           </p>
         )}
       </div>
+
+      <p className="checkout-privacy-notice">
+        {isAr ? 'نستخدم بيانات التواصل والتوصيل لتأكيد طلبك وتنفيذه. ' : 'We use your contact and delivery details to confirm and fulfil your order. '}
+        <Link href={getLegalPolicyHref('privacy-policy')} target="_blank" rel="noreferrer">
+          {isAr ? 'اقرأ إشعار الخصوصية' : 'Read the privacy notice'}
+        </Link>
+      </p>
 
       <h3 className="checkout-subheading">Personal Information</h3>
       <div className="checkout-fields-grid">

@@ -49,7 +49,7 @@ class WebhookTest extends TestCase
         config(['webhooks.payment.testpay' => [
             'secret' => self::PAY_SECRET,
             'signature_header' => 'X-Webhook-Signature',
-            // WH-M8: بوابة الاختبار لا ترسل مبالغ — تعلن ذلك صراحةً تحت الافتراضي الصارم الجديد
+            // This legacy test gateway can omit payment amounts. Monetary events still require currency.
             'require_amount' => false,
         ]]);
         $this->staff = User::factory()->create();
@@ -224,13 +224,13 @@ class WebhookTest extends TestCase
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_pay_1', 'order_number' => $order->order_number,
-            'status' => 'paid', 'amount' => $total,
+            'status' => 'paid', 'amount' => $total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
 
         $reserved = (string) $this->level($variant->id)->reserved;
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_pay_2', 'order_number' => $order->order_number,
-            'status' => 'paid', 'amount' => $total,
+            'status' => 'paid', 'amount' => $total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
 
         $order = $order->fresh();
@@ -250,19 +250,19 @@ class WebhookTest extends TestCase
         // A refund only applies to captured money: pay first, then refund.
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_pay_before_refund', 'order_number' => $order->order_number,
-            'status' => 'paid', 'amount' => $total,
+            'status' => 'paid', 'amount' => $total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_refund_1', 'order_number' => $order->order_number, 'status' => 'refunded',
-            'amount_refunded' => (float) $order->grand_total,
+            'amount_refunded' => (float) $order->grand_total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
         $this->assertSame('refunded', $order->fresh()->payment_status);
 
         // البوابات لا تضمن ترتيب التسليم: paid متأخر يجب ألا يقلب مستردًا إلى paid.
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_pay_late', 'order_number' => $order->order_number,
-            'status' => 'paid', 'amount' => $total,
+            'status' => 'paid', 'amount' => $total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
 
         $order = $order->fresh();
@@ -282,7 +282,7 @@ class WebhookTest extends TestCase
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_refund_2', 'order_number' => $order->order_number, 'status' => 'refunded',
-            'amount_refunded' => (float) $order->grand_total,
+            'amount_refunded' => (float) $order->grand_total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
@@ -302,14 +302,14 @@ class WebhookTest extends TestCase
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_pay_3', 'order_number' => $order->order_number,
-            'status' => 'paid', 'amount' => $total,
+            'status' => 'paid', 'amount' => $total, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
         $this->assertSame('paid', $order->fresh()->payment_status);
 
         // استرداد 10 جنيهات من طلب أكبر يجب ألا يعلّم الطلب كله refunded.
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_refund_partial', 'order_number' => $order->order_number,
-            'status' => 'refunded', 'amount_refunded' => 10.0,
+            'status' => 'refunded', 'amount_refunded' => 10.0, 'currency' => 'EGP',
         ], self::PAY_SECRET)->assertOk();
 
         $order = $order->fresh();

@@ -5,9 +5,12 @@ import Link from 'next/link';
 import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { BrandLogo, useBranding } from '@alfarid/ui/branding';
 import { safeMailtoHref, safeTelHref } from '@/lib/core/safe-href';
+import { useStoreLang } from '@/providers/store-lang-provider';
+import { LEGAL_POLICY_LINKS, getLegalPolicyHref } from '@/lib/legal-policy-links';
 
 export function SophieFooter() {
   const { branding } = useBranding();
+  const { isAr } = useStoreLang();
   const mailtoHref = safeMailtoHref(branding.email);
   const telHref = safeTelHref(branding.phone);
   return (
@@ -54,20 +57,24 @@ export function SophieFooter() {
             {/* Column 1: ABOUT US */}
             <div>
               <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
-                ABOUT US
+                {isAr ? 'من نحن' : 'ABOUT US'}
               </h4>
               <p className="text-[12.5px] leading-[1.78] text-[#a4abba] mb-3.5">
-                {branding.name} crafts contemporary ladies backpacks, structured leather totes, and anti-theft travel companions designed for effortless everyday elegance.
+                {isAr
+                  ? `تقدم ${branding.name} حقائب ظهر نسائية عصرية، وحقائب يد جلدية، ورفاق سفر أنيقين ومقاومين للسرقة للاستخدام اليومي.`
+                  : `${branding.name} crafts contemporary ladies backpacks, structured leather totes, and anti-theft travel companions designed for effortless everyday elegance.`}
               </p>
               <p className="text-[12.5px] leading-[1.78] text-[#a4abba]">
-                Every silhouette blends water-resistant materials, ergonomic comfort, and refined hardware to elevate your daily commute and weekend escapes.
+                {isAr
+                  ? 'كل تصميم يجمع بين الخامات المقاومة للماء والراحة العملية والتفاصيل الراقية لرحلاتك وتنقلاتك اليومية.'
+                  : 'Every silhouette blends water-resistant materials, ergonomic comfort, and refined hardware to elevate your daily commute and weekend escapes.'}
               </p>
             </div>
 
             {/* Column 2: ADDRESS */}
             <div>
               <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
-                ADDRESS
+                {isAr ? 'العنوان' : 'ADDRESS'}
               </h4>
               <ul className="space-y-4 text-[12.5px] leading-[1.65]">
                 {mailtoHref && <li className="flex items-start gap-3.5">
@@ -90,32 +97,32 @@ export function SophieFooter() {
             {/* Column 3: COMPANY */}
             <div>
               <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
-                COMPANY
+                {isAr ? 'الشركة' : 'COMPANY'}
               </h4>
               <ul className="space-y-2.5 text-[12.5px]">
                 <li>
                   <Link href="/" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
-                    <span className="text-[#6c7383]">&rsaquo;</span> Home
+                    <span className="text-[#6c7383]">&rsaquo;</span> {isAr ? 'الرئيسية' : 'Home'}
                   </Link>
                 </li>
                 <li>
                   <Link href={STORE_ROUTES.shop({ sort: 'best_selling' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
-                    <span className="text-[#6c7383]">&rsaquo;</span> Best Sellers
+                    <span className="text-[#6c7383]">&rsaquo;</span> {isAr ? 'الأكثر مبيعاً' : 'Best Sellers'}
                   </Link>
                 </li>
                 <li>
                   <Link href={STORE_ROUTES.shop()} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
-                    <span className="text-[#6c7383]">&rsaquo;</span> Collections &amp; Accessories
+                    <span className="text-[#6c7383]">&rsaquo;</span> {isAr ? 'المجموعات والإكسسوارات' : 'Collections & Accessories'}
                   </Link>
                 </li>
                 <li>
                   <Link href={STORE_ROUTES.shop({ sort: 'newest' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
-                    <span className="text-[#6c7383]">&rsaquo;</span> New Arrivals
+                    <span className="text-[#6c7383]">&rsaquo;</span> {isAr ? 'وصل حديثاً' : 'New Arrivals'}
                   </Link>
                 </li>
                 <li>
                   <Link href="/wholesale" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
-                    <span className="text-[#6c7383]">&rsaquo;</span> Wholesale Portal
+                    <span className="text-[#6c7383]">&rsaquo;</span> {isAr ? 'بوابة الجملة' : 'Wholesale Portal'}
                   </Link>
                 </li>
                 <li>
@@ -136,6 +143,25 @@ export function SophieFooter() {
               </p>
             </div>
           </div>
+
+          <nav className="border-t border-[#272c3a] pt-6 mb-8" aria-label={isAr ? 'سياسات المتجر' : 'Store policies'}>
+            <h4 className="font-[var(--font-oswald)] text-[14px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-3">
+              {isAr ? 'السياسات' : 'STORE POLICIES'}
+            </h4>
+            <ul className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-[12px]">
+              {LEGAL_POLICY_LINKS.map((policy) => (
+                <li key={policy.id}>
+                  <Link
+                    href={getLegalPolicyHref(policy.slug)}
+                    className="inline-flex min-h-[44px] items-center gap-2 text-[#a4abba] hover:text-[#1bc6cf] transition-colors"
+                  >
+                    <span className="text-[#6c7383]" aria-hidden="true">&rsaquo;</span>
+                    {isAr ? policy.titleAr : policy.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
 
           {/* Social Icons Horizontal Divider */}
           <div className="flex items-center justify-center gap-5 max-w-[780px] mx-auto mb-9 before:content-[''] before:flex-1 before:h-[1px] before:bg-[#272c3a] after:content-[''] after:flex-1 after:h-[1px] after:bg-[#272c3a]">
@@ -200,9 +226,11 @@ export function SophieFooter() {
               <span dir="auto" className="break-words">{branding.name}</span>
             </div>
             <p className="text-[11px] leading-[1.65] text-[#5c6272] max-w-[420px]">
-              Copyright &copy; {new Date().getFullYear()} {branding.name}. All rights reserved.<br />
+              {isAr
+                ? `جميع الحقوق محفوظة © ${new Date().getFullYear()} AKGROUP.`
+                : `Copyright © ${new Date().getFullYear()} AKGROUP. All rights reserved.`}<br />
               <a href="#top" className="text-[#a4abba] hover:text-[#1bc6cf] transition-colors">
-                {branding.name}
+                AKGROUP
               </a>
             </p>
           </div>

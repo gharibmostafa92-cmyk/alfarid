@@ -16,6 +16,7 @@ import { toProfileVM } from '@/lib/catalog/sophie-mappers';
 import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { StorefrontLogo } from '@/components/StorefrontLogo';
 import { useBranding } from '@alfarid/ui/branding';
+import { useStoreLang } from '@/providers/store-lang-provider';
 
 export function SophieHeader() {
   const pathname = usePathname();
@@ -24,6 +25,7 @@ export function SophieHeader() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const { branding } = useBranding();
+  const { lang, isAr, toggleLang } = useStoreLang();
   const [cartOpen, setCartOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -206,7 +208,7 @@ export function SophieHeader() {
     <>
       <header
         data-store-header
-        className="store-header flex items-center justify-between gap-2 py-3 sm:py-5 lg:py-6 relative z-30"
+        className="store-header flex items-center justify-between gap-4 py-3 sm:py-4 lg:py-5 relative z-30"
         onMouseLeave={handleScheduleCloseMega}
         onMouseEnter={handleCancelCloseMega}
       >
@@ -215,19 +217,19 @@ export function SophieHeader() {
           href="/"
           title={branding.name}
           aria-label={branding.name}
-          className="flex items-center min-w-0 min-h-[44px]"
+          className="flex items-center shrink-0 min-h-[44px]"
         >
-          <StorefrontLogo className="w-[100px] h-10 sm:w-[120px] sm:h-12" />
+          <StorefrontLogo className="w-[100px] h-10 sm:w-[116px] sm:h-11" />
         </Link>
 
         {/* Desktop Navigation */}
-        <nav aria-label="Main navigation" className="hidden lg:flex items-center gap-7 xl:gap-8 font-[var(--font-oswald)] text-[13px] font-medium tracking-wide uppercase">
+        <nav aria-label="Main navigation" className={`hidden lg:flex items-center gap-6 xl:gap-8 text-[13px] font-medium ${isAr ? 'font-[var(--font-cairo)] tracking-normal' : 'font-[var(--font-oswald)] tracking-wide uppercase'}`}>
           <Link
             href="/"
             aria-current={pathname === '/' ? 'page' : undefined}
             className="py-2 transition-colors hover:text-[#4f7d88]"
           >
-            Home
+            {isAr ? 'الرئيسية' : 'Home'}
           </Link>
 
           {/* Shop with Mega Dropdown */}
@@ -250,7 +252,7 @@ export function SophieHeader() {
               onKeyDown={openFromKeyboard}
               className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors flex items-center gap-1.5"
             >
-              Shop
+              {isAr ? 'التسوق' : 'Shop'}
               <svg
                 className={`w-2.5 h-2.5 text-gray-500 transition-transform ${megaOpen ? 'rotate-180' : ''}`}
                 fill="none"
@@ -282,7 +284,7 @@ export function SophieHeader() {
               onKeyDown={openFromKeyboard}
               className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors flex items-center gap-1.5"
             >
-              Categories
+              {isAr ? 'الأقسام' : 'Categories'}
               <svg
                 className={`w-2.5 h-2.5 text-gray-500 transition-transform ${megaOpen ? 'rotate-180' : ''}`}
                 fill="none"
@@ -299,26 +301,26 @@ export function SophieHeader() {
             href={STORE_ROUTES.shop({ on_sale: 1 })}
             className="py-2 text-[#c93b2e] hover:text-[#a82e23] transition-colors uppercase font-medium"
           >
-            Offers
+            {isAr ? 'العروض' : 'Offers'}
           </Link>
 
           <Link href={STORE_ROUTES.shop({ sort: 'newest' })} className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
-            New Arrivals
+            {isAr ? 'وصل حديثاً' : 'New Arrivals'}
           </Link>
 
           {mounted && !isAuthed && (
             <Link href="/orders/track" className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
-              Track Order
+              {isAr ? 'تتبع الطلب' : 'Track Order'}
             </Link>
           )}
         </nav>
 
         {/* Right Icons: Search, Profile Dropdown / Sign in, Cart, Mobile Menu Toggle */}
-        <div className="flex items-center gap-1 sm:gap-2.5 lg:gap-4 text-[15px] text-black shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2.5 lg:gap-3 text-[15px] text-black shrink-0">
           {/* Search Trigger */}
           <button
             type="button"
-            aria-label="Search"
+            aria-label={isAr ? 'بحث' : 'Search'}
             aria-expanded={searchOpen}
             onClick={() => setSearchOpen(!searchOpen)}
             className="w-11 h-11 inline-flex items-center justify-center rounded-full hover:bg-gray-100 hover:text-[#4f7d88] transition-colors"
@@ -333,13 +335,13 @@ export function SophieHeader() {
           {!mounted ? (
             <span className="hidden sm:inline-block w-9 h-9 rounded-full bg-gray-100 animate-pulse" aria-hidden />
           ) : isAuthed ? (
-            <SophieProfileDropdown user={toProfileVM(user, destination)} onSelectAction={handleProfileAction} />
+            <SophieProfileDropdown user={toProfileVM(user, destination, lang)} onSelectAction={handleProfileAction} />
           ) : (
             <Link
               href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
               className="font-[var(--font-oswald)] text-[13px] uppercase tracking-wide hover:text-[#4f7d88] px-2 py-2 min-h-[44px] hidden sm:inline-flex items-center transition-colors"
             >
-              Sign in
+              {isAr ? 'تسجيل الدخول' : 'Sign in'}
             </Link>
           )}
 
@@ -347,18 +349,33 @@ export function SophieHeader() {
           <button
             type="button"
             onClick={() => setCartOpen(true)}
-            className="flex items-center gap-1.5 hover:bg-gray-100 hover:text-[#4f7d88] transition-colors px-2 py-2 min-h-[44px] rounded-full relative"
-            aria-label="Shopping Cart"
+            className="w-11 h-11 inline-flex items-center justify-center hover:bg-gray-100 hover:text-[#4f7d88] transition-colors rounded-full relative"
+            aria-label={isAr ? 'سلة التسوق' : 'Shopping Cart'}
           >
-            <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-            </svg>
-            <span
-              data-cart-count
-              className="bg-black text-white font-[var(--font-poppins)] text-[10px] font-semibold min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center"
-            >
-              {mounted ? cartCount : 0}
+            <span className="relative inline-flex items-center justify-center">
+              <svg className="w-[19px] h-[19px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
+              <span
+                data-cart-count
+                className="absolute -top-1.5 -end-2 bg-black text-white font-[var(--font-poppins)] text-[10px] font-semibold min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center ring-2 ring-white leading-none"
+              >
+                {mounted ? cartCount : 0}
+              </span>
             </span>
+          </button>
+
+          {/* Desktop Language Switcher (far edge, separated from cart) */}
+          <span className="hidden lg:inline-block h-4 w-px bg-gray-200 mx-0.5" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={toggleLang}
+            aria-label={isAr ? 'Switch to English' : 'التبديل إلى العربية'}
+            title={isAr ? 'Switch to English' : 'التبديل إلى العربية'}
+            lang={isAr ? 'en' : 'ar'}
+            className="hidden lg:inline-flex items-center justify-center min-h-[36px] px-2.5 rounded-md border border-gray-200 text-[11px] font-semibold tracking-wider text-gray-700 hover:border-[#4f7d88] hover:text-[#4f7d88] transition-colors"
+          >
+            {isAr ? 'EN' : 'AR'}
           </button>
 
           {/* Mobile Menu Toggle Button */}
@@ -588,19 +605,19 @@ export function SophieHeader() {
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center justify-between py-3 px-2 rounded-lg text-[#c93b2e] hover:bg-red-50/60"
                 >
-                  <span>Offers</span>
+                  <span>{isAr ? 'العروض' : 'Offers'}</span>
                 </Link>
                 <Link
                   href={STORE_ROUTES.shop({ sort: 'newest' })}
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center justify-between py-3 px-2 rounded-lg text-gray-800 hover:text-[#4f7d88] hover:bg-gray-50"
                 >
-                  <span>New Arrivals</span>
+                  <span>{isAr ? 'وصل حديثاً' : 'New Arrivals'}</span>
                 </Link>
                 {mounted && !isAuthed && (
                   <Link href="/orders/track" onClick={() => setMobileMenuOpen(false)}
                     className="flex items-center justify-between rounded-lg px-2 py-3 text-gray-800 hover:bg-gray-50">
-                    Track Order
+                    {isAr ? 'تتبع الطلب' : 'Track Order'}
                   </Link>
                 )}
               </div>
@@ -610,13 +627,21 @@ export function SophieHeader() {
             <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center gap-3 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
               <button
                 type="button"
+                onClick={toggleLang}
+                lang={isAr ? 'en' : 'ar'}
+                className="min-h-[46px] px-4 rounded-lg border border-gray-300 bg-white text-gray-900 text-xs font-semibold hover:bg-gray-100 transition-colors"
+              >
+                {isAr ? 'EN' : 'AR'}
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   setCartOpen(true);
                 }}
                 className="flex-1 min-h-[46px] rounded-lg border border-gray-300 bg-white text-gray-900 font-[var(--font-oswald)] text-xs uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors"
               >
-                <span>Cart ({mounted ? cartCount : 0})</span>
+                <span>{isAr ? `السلة (${mounted ? cartCount : 0})` : `Cart (${mounted ? cartCount : 0})`}</span>
               </button>
             </div>
           </div>

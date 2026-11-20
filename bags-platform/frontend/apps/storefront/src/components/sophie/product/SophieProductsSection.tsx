@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { SophieProduct, SophieProductCard } from './SophieProductCard';
 import { safeStoreHref } from '@/lib/core/safe-href';
+import { useStoreLang } from '@/providers/store-lang-provider';
 
 interface SophieProductsSectionProps {
   id?: string;
@@ -26,6 +27,7 @@ export function SophieProductsSection({
   className = 'py-12 sm:py-16 pb-10',
   isLoading = false,
 }: SophieProductsSectionProps) {
+  const { isAr } = useStoreLang();
   const safeViewMoreHref = safeStoreHref(viewMoreHref);
   if (!isLoading && products.length === 0) return null;
   return (
@@ -86,7 +88,7 @@ export function SophieProductsSection({
                 href={safeViewMoreHref}
                 className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
               >
-                VIEW MORE
+                {isAr ? 'عرض المزيد' : 'VIEW MORE'}
               </Link>
             ) : (
               <a

@@ -98,4 +98,10 @@ class SentryTelemetryTest extends TestCase
         $this->get('/up')->assertOk();
         $this->getJson('/api/v1/route-that-does-not-exist')->assertNotFound();
     }
+
+    public function test_reporting_a_database_failure_accepts_the_sdk_scope(): void
+    {
+        $this->assertNull(config('sentry.dsn'));
+        SentryTelemetry::captureDatabaseUnavailable('57014');
+    }
 }

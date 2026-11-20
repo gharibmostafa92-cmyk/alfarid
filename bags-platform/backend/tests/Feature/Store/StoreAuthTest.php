@@ -173,10 +173,11 @@ class StoreAuthTest extends TestCase
 
                 $mail = $notification->toMail($customer);
                 $this->assertSame('emails.customer.welcome', $mail->view);
-                $rendered = view($mail->view, $mail->viewData)->render();
+                $rendered = app(\Illuminate\Contracts\Mail\Mailer::class)->render($mail->view, $mail->viewData);
                 $this->assertStringContainsString('ELEVATE<br>EVERY JOURNEY.', $rendered);
                 $this->assertStringContainsString('SHOP COLLECTION', $rendered);
                 $this->assertStringContainsString('@varya', $rendered);
+                $this->assertSame(4, substr_count($rendered, 'src="data:image/jpeg;base64,'));
 
                 return true;
             }

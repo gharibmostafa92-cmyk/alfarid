@@ -208,3 +208,16 @@ test('resetting cart identity clears the guest session, pending checkout and rec
   assert.deepEqual(useCartStore.getState().items, []);
   assert.equal(useCartStore.getState().identity, 'guest');
 });
+
+test('coupon failures are identified separately from cart failures', async () => {
+  const store = load({
+    applyCoupon: async () => { throw { response: { data: { message: 'كود غير صالح' } } }; },
+    get: async () => { throw { response: { data: { message: 'تعذر تحميل السلة' } } }; },
+  });
+  assert.equal(await store.getState().applyCoupon('BAD'), false);
+  assert.equal(store.getState().error, 'كود غير صالح');
+  assert.equal(store.getState().errorSource, 'coupon');
+  assert.equal(await store.getState().loadCart(), false);
+  assert.equal(store.getState().error, 'تعذر تحميل السلة');
+  assert.equal(store.getState().errorSource, 'cart');
+});

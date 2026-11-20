@@ -39,6 +39,7 @@ export function OrderSummary({
   } = vm;
   const [overrides, setOverrides] = useState<Record<number, number>>({});
   const [promoBusy, setPromoBusy] = useState(false);
+  const [promoError, setPromoError] = useState('');
   const changing = useRef(false);
 
   const preview = quote?.preview ?? null;
@@ -72,14 +73,12 @@ export function OrderSummary({
   const submitPromo = async () => {
     const code = promoInput.trim();
     if (!code || promoBusy) return;
+    setPromoError('');
     setPromoBusy(true);
     const ok = await applyCoupon(code);
     setPromoBusy(false);
     if (!ok) {
-      setBanner({
-        kind: 'error',
-        text: useCartStore.getState().error || 'كود الخصم غير صالح أو منتهي.',
-      });
+      setPromoError(useCartStore.getState().error || 'تعذّر تطبيق الكود. تأكد منه وحاول مرة تانية.');
     } else {
       setPromoInput('');
     }
@@ -273,6 +272,7 @@ export function OrderSummary({
           </span>
         </div>
       ) : (
+        <div className="promo-section">
         <div className="promo-row">
           <div className="line-input-wrap" style={{ flex: 1 }}>
             <label htmlFor="promo-code-input" className="sr-only">
@@ -286,7 +286,9 @@ export function OrderSummary({
               dir="ltr"
               enterKeyHint="send"
               value={promoInput}
-              onChange={(e) => setPromoInput(e.target.value)}
+              aria-invalid={!!promoError}
+              aria-describedby={promoError ? "promo-error" : undefined}
+              onChange={(e) => { setPromoInput(e.target.value); setPromoError(''); }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -304,6 +306,8 @@ export function OrderSummary({
           >
             {promoBusy ? '...' : 'APPLY'}
           </button>
+        </div>
+        {promoError && <p className="promo-error" id="promo-error" role="alert" dir="rtl">{promoError}</p>}
         </div>
       )}
 

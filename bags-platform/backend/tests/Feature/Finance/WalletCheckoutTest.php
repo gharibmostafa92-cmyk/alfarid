@@ -66,7 +66,13 @@ class WalletCheckoutTest extends TestCase
 
     private function payload(): array
     {
-        return ['city_id' => $this->city->id, 'shipping_address_line' => 'عنوان العميل', 'payment_method' => 'wallet'];
+        return [
+            'recipient_name' => $this->customer->name,
+            'recipient_phone' => $this->customer->phone,
+            'city_id' => $this->city->id,
+            'shipping_address_line' => 'عنوان العميل',
+            'payment_method' => 'wallet',
+        ];
     }
 
     public function test_checkout_debits_wallet_atomically_and_retry_returns_same_paid_order(): void

@@ -137,8 +137,9 @@ test('editing a scoped promotion sends selected backend IDs instead of clearing 
 test('unlimited per-customer coupon use remains zero on save', async () => {
   let payload;
   const { CouponForm } = loadView({ couponsApi: { update: async (id, body) => { payload = body; return { id }; } } });
-  await saveForm(CouponForm({ row: { id: 1, code: 'ANY', type: 'percent', perCust: 0, active: true }, onClose() {} }));
+  await saveForm(CouponForm({ row: { id: 1, code: 'ANY', type: 'percent', perCust: 0, to: '2026-11-20', active: true }, onClose() {} }));
   assert.equal(payload.usage_limit_per_customer, 0);
+  assert.equal(payload.ends_at, '2026-11-20 23:59:59');
 });
 test('editing a brand preserves both descriptions and uses the existing multipart update method', async () => {
   let payload;

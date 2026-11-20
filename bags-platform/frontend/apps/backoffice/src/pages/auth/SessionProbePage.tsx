@@ -107,12 +107,12 @@ export default function SessionProbePage() {
     <main dir="rtl" className="grid min-h-screen place-content-center p-6 text-center">
       {failed ? (
         <div role="alert">
-          <p>تعذر التحقق من الجلسة الحالية.</p>
+          <p>تعذر الاتصال، يرجى المحاولة مرة أخرى.</p>
           <button type="button" onClick={() => { setFailed(false); setAttempt((n) => n + 1); }}>
             إعادة المحاولة
           </button>
         </div>
-      ) : <p role="status">جارٍ التحقق من الجلسة</p>}
+      ) : <p role="status">Loading...</p>}
     </main>
   );
 }

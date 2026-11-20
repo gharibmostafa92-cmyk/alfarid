@@ -22,6 +22,8 @@ class AdminOrderResource extends JsonResource
             'status' => $this->status,
             'payment_method' => $this->payment_method,
             'payment_status' => $this->payment_status,
+            'legal_policy_version' => $this->legal_policy_version,
+            'legal_accepted_at' => $this->legal_accepted_at,
             'requires_refund' => (bool) $this->requires_refund,
             'needs_attention' => (bool) $this->needs_attention,
             'cod_fee' => $this->cod_fee,

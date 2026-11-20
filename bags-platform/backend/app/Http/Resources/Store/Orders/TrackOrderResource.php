@@ -29,6 +29,8 @@ class TrackOrderResource extends JsonResource
             'order_number' => $this->order_number,
             'status' => $this->status,
             'payment_status' => $this->payment_status,
+            'legal_policy_version' => $this->legal_policy_version,
+            'legal_accepted_at' => $this->legal_accepted_at,
             'instapay' => $this->when($instapay !== null, $instapay),
             'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item): array => [
                 'id' => $item->id,

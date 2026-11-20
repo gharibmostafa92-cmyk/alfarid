@@ -33,6 +33,11 @@ class OrderTrackRateLimitTest extends TestCase
     public function test_five_track_failures_block_only_that_ip_until_the_global_cap(): void
     {
         $number = 'TRACK-F11-IP';
+        Order::factory()->create([
+            'order_number' => $number,
+            'guest_phone' => '01000000000',
+            'guest_phone_normalized' => '01000000000',
+        ]);
         $path = "/api/v1/store/orders/{$number}/track?phone=01012345678";
 
         foreach (range(1, 5) as $attempt) {
@@ -43,7 +48,8 @@ class OrderTrackRateLimitTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.10'])
             ->getJson($path)
-            ->assertTooManyRequests();
+            ->assertTooManyRequests()
+            ->assertJsonPath('message', 'محاولات كثيرة لتتبع هذا الطلب؛ حاول لاحقًا.');
 
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.20'])
             ->getJson($path)

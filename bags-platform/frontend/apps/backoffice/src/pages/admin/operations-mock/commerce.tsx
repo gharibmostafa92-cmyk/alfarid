@@ -1607,7 +1607,7 @@ export function CouponForm({ row, onClose, onSaved }: { row: CouponRow | null; o
       min_order_amount: Number(f.v.min || 0),
       usage_limit: (f.v.total as string) === '' ? null : Number(f.v.total),
       usage_limit_per_customer: (f.v.perCust as string) === '' ? 0 : Number(f.v.perCust),
-      starts_at: (f.v.from as string) || null, ends_at: (f.v.to as string) || null, is_active: !!f.v.active,
+      starts_at: (f.v.from as string) || null, ends_at: f.v.to ? String(f.v.to) + ' 23:59:59' : null, is_active: !!f.v.active,
     };
     const r = await run(() => (row ? couponsApi.update(row.id, body) : couponsApi.create(body)),
       { toast, success: 'تم الحفظ', onFieldErrors: (e) => f.setErrors(mapErrors(e, { max_discount_amount: 'maxDisc', min_order_amount: 'min', usage_limit: 'total', usage_limit_per_customer: 'perCust', starts_at: 'from', ends_at: 'to' })) });

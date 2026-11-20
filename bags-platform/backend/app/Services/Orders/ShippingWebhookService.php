@@ -188,7 +188,11 @@ class ShippingWebhookService
                 }
             }
             if ($status === ShipmentStatus::Delivered) {
-                if ($order !== null && $order->status === OrderStatus::Shipped) {
+                // Keep the order-level delivery clock at the last active parcel.
+                // Return eligibility currently uses the order's Delivered timestamp,
+                // so marking it on an earlier parcel could shorten the window for
+                // items arriving in a later replacement/split shipment.
+                if ($order !== null && $order->status === OrderStatus::Shipped && ! $this->hasNewerActiveShipment($shipment)) {
                     try {
                         // Nested transaction is a savepoint. A constraint failure inside
                         // changeStatus aborts only that savepoint, so the order can still

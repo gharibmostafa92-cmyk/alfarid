@@ -5,13 +5,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AccountMenu } from './auth/AccountMenu';
 import { useBranding } from '@alfarid/ui/branding';
+import { useStoreLang } from '@/providers/store-lang-provider';
 import { useCartSync } from '@/hooks/use-cart-sync';
 import { SophieHeader } from './sophie/layout/SophieHeader';
 
 export type ShellLayout = 'storefront' | 'bare' | 'portal';
 
 const STORE_EXACT = new Set(['/', '/account']);
-const STORE_PREFIXES = ['/shop', '/categories', '/design', '/showcase', '/checkout', '/account', '/orders'];
+const STORE_PREFIXES = ['/shop', '/categories', '/design', '/showcase', '/cart', '/checkout', '/account', '/orders', '/security', '/legal'];
 const BARE_PREFIXES = ['/auth', '/wholesale', '/supplier'];
 
 const matches = (pathname: string, prefix: string) =>
@@ -33,8 +34,14 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   useCartSync();
   const [cartMergeWarning, setCartMergeWarning] = useState('');
   const { branding } = useBranding();
+  const { lang, dir } = useStoreLang();
   const pathname = usePathname();
   const layout = shellLayoutFor(pathname);
+  useEffect(() => {
+    if (layout !== 'storefront') return;
+    document.documentElement.lang = lang;
+    document.documentElement.dir = dir;
+  }, [layout, lang, dir]);
   const [loginNotice, setLoginNotice] = useState<'ar' | 'en' | null>(null);
   useEffect(() => {
     if (matches(pathname, '/auth')) {
@@ -75,7 +82,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
 
   if (layout === 'storefront') {
     return (
-      <div className={`store-page-shell${matches(pathname, '/checkout') ? ' is-checkout' : ''}`}>
+      <div dir={dir} lang={lang} className={`store-page-shell${matches(pathname, '/checkout') ? ' is-checkout' : ''}`}>
         <a href="#main-content" className="skip-to-content">
           Skip to main content
         </a>

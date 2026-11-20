@@ -100,6 +100,8 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
         ])->assertOk();
         Auth::forgetGuards();
         $orderId = $this->withToken($token)->postJson('/api/v1/store/checkout', [
+            'recipient_name' => $customer->name,
+            'recipient_phone' => '01012345678',
             'city_id' => $city->id, 'shipping_address_line' => 'عنوان العميل', 'payment_method' => 'cod',
         ])->assertCreated()->json('data.id');
 
@@ -137,6 +139,18 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
         $this->giveStock($variant, 10);
         $customer = Customer::factory()->create();
         $order = $this->deliveredOrder($customer, $variant, 2);
+        $orderItemId = $order->items->firstOrFail()->id;
+        $orderUrl = '/api/v1/store/account/orders/'.$order->order_number;
+
+        Auth::forgetGuards();
+        $this->withToken($this->customerToken($customer))->getJson('/api/v1/store/account/orders')
+            ->assertOk()->assertJsonPath('data.0.shipping_address_line', 'عنوان العميل')
+            ->assertJsonPath('data.0.items.0.id', $orderItemId)
+            ->assertJsonCount(1, 'data.0.shipments');
+
+        Auth::forgetGuards();
+        $this->withToken($this->customerToken($customer))->getJson($orderUrl)
+            ->assertOk()->assertJsonPath('data.return_quantities.'.$orderItemId, 2);
 
         // 1) العميل ينشئ مرتجعًا مع صورة.
         Auth::forgetGuards();
@@ -150,6 +164,10 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
         ])->assertCreated()->json('data');
         $returnId = (int) $created['id'];
         $itemId = (int) $created['items'][0]['id'];
+
+        Auth::forgetGuards();
+        $this->withToken($this->customerToken($customer))->getJson($orderUrl)
+            ->assertOk()->assertJsonPath('data.return_quantities.'.$orderItemId, 0);
 
         // الصورة مخزنة تحت return_requests/items/{uuid}/ وموجودة على القرص.
         $stored = ReturnRequest::findOrFail($returnId)->items()->firstOrFail()->attachments;
