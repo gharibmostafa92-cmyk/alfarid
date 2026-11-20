@@ -16,6 +16,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use PHPUnit\Framework\Attributes\TestWith;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -230,6 +231,30 @@ class UnifiedLoginTest extends TestCase
         $this->authed('get', '/api/v1/pos/bootstrap', $token)
             ->assertForbidden()->assertJsonPath('code', 'pos_branch_unavailable');
         $this->authed('post', '/api/v1/auth/logout', $token)->assertNoContent();
+    }
+
+    public function test_granting_stocktake_counting_keeps_staff_in_pos(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $staff = $this->makeStaff('counter@example.test', 'secret123', true, $branch->id);
+        $role = $this->staffRole('pos-counter');
+        $role->givePermissionTo(Permission::findOrCreate('pos.access', 'staff'));
+        $staff->assignRole($role);
+
+        $token = $staff->createToken('existing-pos-session', ['pos'])->plainTextToken;
+        $role->givePermissionTo(Permission::findOrCreate('stocktakes.update', 'staff'));
+
+        $login = $this->login(['login' => $staff->email, 'password' => 'secret123'])
+            ->assertOk()->assertJsonPath('redirect.path', '/pos');
+        $this->authed('get', '/api/v1/auth/me', $token)
+            ->assertOk()->assertJsonPath('redirect.path', '/pos')
+            ->assertJsonFragment(['permissions' => ['pos.access', 'stocktakes.update']]);
+        Auth::forgetGuards();
+        $exchange = $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $login->json('handoff_code')])
+            ->assertOk()->assertJsonPath('redirect.path', '/pos');
+
+        $this->assertSame(['pos'], $staff->tokens()->latest('id')->firstOrFail()->abilities);
+        $this->authed('get', '/api/v1/admin/me', $exchange->json('token'))->assertForbidden();
     }
 
     public function test_staff_without_roles_is_forbidden_and_inactive_staff_is_forbidden(): void

@@ -31,8 +31,7 @@ final class LoginDestinationResolver
             if ($roles->isEmpty()) {
                 throw new BusinessException('حسابك غير مرتبط بأي صلاحية. تواصل مع الإدارة.', [], 403);
             }
-            // task3 C1: a Super Admin (or any multi-permission account) is never
-            // POS-only. POS means the account holds nothing outside pos.*.
+            // Super Admin always starts in the backoffice.
             if ($actor->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
                 return ['app' => 'backoffice', 'path' => '/dashboard', 'destination' => 'admin'];
             }
@@ -40,11 +39,11 @@ final class LoginDestinationResolver
             $isCashierName = $firstRole === mb_strtolower(StaffRole::Cashier->value)
                 || $firstRole === 'cashier'
                 || $firstRole === 'كاشير';
-            // A single custom role that only carries pos.* permissions is POS-only
-            // too, but it must not swallow accounts that also hold admin rights.
+            // A single role with only POS permissions can start in POS.
+            // POS also uses stocktakes.update to record counts.
             $onlyPosPermissions = $actor->getAllPermissions()
-                ->every(fn ($permission) => str_starts_with($permission->name, 'pos.'));
-            // L-3: a cashier-named role that also carries non-pos permissions keeps admin access.
+                ->every(fn ($permission) => str_starts_with($permission->name, 'pos.') || $permission->name === 'stocktakes.update');
+            // A cashier role carrying admin permissions still starts in the backoffice.
             $isPosRole = $roles->count() === 1 && $onlyPosPermissions
                 && ($isCashierName || $actor->can('pos.access'));
             if ($isPosRole) {

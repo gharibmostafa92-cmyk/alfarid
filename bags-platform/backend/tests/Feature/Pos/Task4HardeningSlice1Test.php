@@ -147,8 +147,8 @@ class Task4HardeningSlice1Test extends TestCase
         $this->withToken($inactiveToken)->getJson('/api/v1/pos/bootstrap')->assertForbidden();
     }
 
-    public function test_low_01_supplier_token_minutes_defaults_to_720(): void
+    public function test_low_01_supplier_token_minutes_defaults_to_60_days(): void
     {
-        $this->assertSame(720, config('auth.supplier_token_minutes'));
+        $this->assertSame(86400, config('auth.supplier_token_minutes'));
     }
 }

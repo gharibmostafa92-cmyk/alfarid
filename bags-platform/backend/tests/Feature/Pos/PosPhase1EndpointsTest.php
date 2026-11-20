@@ -1025,6 +1025,9 @@ class PosPhase1EndpointsTest extends TestCase
 
     public function test_inventory_endpoints_incoming_transfers_sources_and_blind_stocktake(): void
     {
+        foreach (['transfers.create', 'transfers.view', 'transfers.receive', 'stocktakes.view'] as $permission) {
+            $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
+        }
         $warehouse = Branch::create([
             'name' => 'المخزن الرئيسي',
             'code' => 'WH-MAIN',

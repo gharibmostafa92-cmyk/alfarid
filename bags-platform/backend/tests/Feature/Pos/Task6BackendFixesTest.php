@@ -203,11 +203,11 @@ class Task6BackendFixesTest extends PosScenarioFixture
             ])->assertStatus(422);
         }
 
-        // Healthy and pending-review customers keep working.
+        // Only approved customers can shop; pending wholesale accounts await approval.
         $this->as($token)->postJson('/api/v1/pos/sales', $payload($approved->id), $this->idem())
             ->assertCreated();
         $this->as($token)->postJson('/api/v1/pos/sales', $payload($pending->id), $this->idem())
-            ->assertCreated();
+            ->assertUnprocessable();
     }
 
     public function test_f11_rejects_zero_grand_total_sales(): void

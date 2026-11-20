@@ -301,6 +301,8 @@ class Task9FixesTest extends PosScenarioFixture
         $this->assertNull(Customer::findOrFail($customerId)->password);
 
         // Unified login on passwordless POS customer fails safely with 401 (never crashes).
+        $this->flushHeaders();
+        \Illuminate\Support\Facades\Auth::forgetGuards();
         $this->postJson('/api/v1/auth/login', [
             'login' => '01098765432',
             'password' => 'anything',
@@ -354,8 +356,8 @@ class Task9FixesTest extends PosScenarioFixture
             'name' => 'مكرر الاسم',
             'phone' => '01012349988',
             'password' => null,
-            'type' => CustomerType::Wholesale,
-            'status' => CustomerStatus::Pending,
+            'type' => CustomerType::Retail,
+            'status' => CustomerStatus::Approved,
         ]);
 
         $holdKey = $this->idem();
@@ -383,15 +385,15 @@ class Task9FixesTest extends PosScenarioFixture
         $this->as($token)->getJson('/api/v1/pos/sales/held')
             ->assertOk()
             ->assertJsonPath('data.0.customer.id', $customer->id)
-            ->assertJsonPath('data.0.customer.type', 'wholesale')
-            ->assertJsonPath('data.0.customer.status', 'pending');
+            ->assertJsonPath('data.0.customer.type', 'retail')
+            ->assertJsonPath('data.0.customer.status', 'approved');
 
         // Resuming sets a soft lease (resumed_by / resumed_at) instead of deleting immediately.
         $resumed = $this->as($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")
             ->assertOk()
             ->assertJsonPath('data.customer.id', $customer->id)
-            ->assertJsonPath('data.customer.type', 'wholesale')
-            ->assertJsonPath('data.customer.status', 'pending');
+            ->assertJsonPath('data.customer.type', 'retail')
+            ->assertJsonPath('data.customer.status', 'approved');
         $this->assertNotNull($resumed->json('data.resumed_at'));
 
         $this->assertDatabaseHas('pos_held_sales', [

@@ -54,6 +54,7 @@ class OrderTotalFormulaTest extends PosScenarioFixture
             'recipient_phone' => '01012345678',
             'payment_method' => 'cod',
             'coupon_code' => $coupon->code,
+            'legal_policy_version' => \App\Support\StorefrontLegalPolicyVersion::CURRENT,
         ]);
 
         // 3 × 19.99 = 59.97, 33% = 19.7901 → 19.79 discount.

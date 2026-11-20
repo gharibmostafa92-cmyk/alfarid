@@ -33,6 +33,8 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
 
     private function login(array $overrides = [], bool $keepThrottle = false): \Illuminate\Testing\TestResponse
     {
+        $this->flushHeaders();
+        Auth::forgetGuards();
         // pos-login throttles 5/min per (lowercased) email: reset limiter state
         // between parity probes so each attempt is judged on credentials alone.
         if (! $keepThrottle) {

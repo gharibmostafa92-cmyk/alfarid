@@ -121,7 +121,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
 
     public function test_11_shift_middleware_matrix(): void
     {
-        // No branch: 403 without a machine code.
+        // No branch: the staff guard returns the branch-unavailable code.
         $noBranch = User::create([
             'name' => 'No Branch', 'email' => 'nobranch@example.com',
             'phone' => '+201055556666', 'password' => Hash::make('secret123'),
@@ -132,7 +132,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $noBranchToken = $noBranch->createToken('pos', ['pos'])->plainTextToken;
         $res = $this->withToken($noBranchToken)->postJson('/api/v1/pos/sales', $this->salePayload(100, 0, 1), $this->idem());
         $res->assertStatus(403);
-        $this->assertArrayNotHasKey('code', $res->json());
+        $res->assertJsonPath('code', 'pos_branch_unavailable');
 
         // No shift: 403 with no_open_shift.
         $lonely = $this->makeCashier('lonely@example.com', $this->branch->id, ['pos.access']);
