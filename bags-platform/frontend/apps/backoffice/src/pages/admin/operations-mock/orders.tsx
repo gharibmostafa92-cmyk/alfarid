@@ -377,11 +377,20 @@ export function OrderDetail({
   const terminal = next.length === 0;
   const canAllocate = ['confirmed', 'processing'].includes(order.status);
 
+  function orderHistoryActor(type: string | null, id: number | null) {
+    const kind = type?.split(/[\\/]/).pop()?.toLowerCase();
+    const label = kind === 'user' || kind === 'staff' || kind === 'admin' ? 'موظف'
+      : kind === 'customer' ? 'عميل'
+      : kind === 'supplieruser' || kind === 'supplier' ? 'مورد'
+      : kind == null || kind === 'system' ? 'النظام' : 'مستخدم';
+    return id == null ? label : `${label} #${id}`;
+  }
+
   const timeline = (order.status_history ?? []).map((h) => ({
     title: (ORDER_STATUS as any)[h.to_status]?.label ?? h.to_status,
     date: `${toDate(h.at)} ${toTime(h.at)}`,
     note: h.notes ?? undefined,
-    by: h.changed_by_type ? `${h.changed_by_type}${h.changed_by_id != null ? ` #${h.changed_by_id}` : ''}` : undefined,
+    by: orderHistoryActor(h.changed_by_type, h.changed_by_id),
     from: h.from_status,
     to: h.to_status,
   }));

@@ -2,14 +2,14 @@ import { authEndpoints } from '@alfarid/api-client';
 import { ChangePasswordForm } from '@alfarid/ui';
 import { useAuthStore } from '../../stores/auth.store';
 
-export function StaffPasswordPage({ channel, embedded = false }: { channel: 'admin' | 'pos'; embedded?: boolean }) {
+export function StaffPasswordPage({ channel, embedded = false, profileVersion, posDialog = false }: { channel: 'admin' | 'pos'; embedded?: boolean; profileVersion?: number; posDialog?: boolean }) {
   const { user, token, setUser } = useAuthStore();
   if (!token || !user) return null;
-  const version = user.version;
+  const version = user.version ?? profileVersion;
   if (version == null) return <p role="alert">حدّث الصفحة لتحميل بيانات حسابك.</p>;
   return <>
     {!embedded && <a href={channel === 'pos' ? '#/pos' : '#/dashboard'}>العودة</a>}
-    <ChangePasswordForm key={token} minimum={12} staff onSubmit={async ({ current_password, password }, signal) => {
+    <ChangePasswordForm key={token} minimum={12} staff variant={posDialog ? 'pos' : 'page'} onSubmit={async ({ current_password, password }, signal) => {
       const result = await authEndpoints.changeStaffPassword(channel, {
         current_password, password, expected_version: version,
       }, token, signal);

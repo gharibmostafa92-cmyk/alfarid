@@ -48,10 +48,14 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const [del, setDel] = useState<AdminRole | null>(null);
   const [roleQ, setRoleQ] = useState('');
   const appliedInitialRole = useRef<number | undefined>(undefined);
+  const passwordField = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (initialRoleId && roles.some(r => r.id === initialRoleId)) {
-      if (!isDirty) setSelId(initialRoleId);
+    if (initialRoleId && appliedInitialRole.current !== initialRoleId && roles.some(r => r.id === initialRoleId)) {
+      if (!isDirty) {
+        setSelId(initialRoleId);
+        appliedInitialRole.current = initialRoleId;
+      }
     }
   }, [initialRoleId, roles]);
 
@@ -136,6 +140,8 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
     if ((!draft.builtin || draft.isNew) && ['super admin', 'cashier'].includes(draft.name.normalize('NFKC').trim().toLowerCase())) { setNameError('هذا الاسم محجوز'); return; }
     if (grantsPermissions && !currentPassword) {
       setPasswordError('كلمة مرورك الحالية مطلوبة لمنح الصلاحيات');
+      passwordField.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      passwordField.current?.querySelector('input')?.focus({ preventScroll: true });
       return;
     }
     setSaving(true); setNameError(undefined); setPasswordError(undefined);
@@ -148,6 +154,10 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
       if (result.error.status === 422) {
         setNameError(result.error.fields.name?.[0]);
         setPasswordError(result.error.fields.current_password?.[0]);
+        if (result.error.fields.current_password?.[0]) {
+          passwordField.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          passwordField.current?.querySelector('input')?.focus({ preventScroll: true });
+        }
       }
       if (result.error.status === 404 || result.error.status === 409) reloadRoles();
       if (result.error.status !== 401) toast(result.error.message, 'err');
@@ -316,6 +326,14 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
               </div>
 
               {isSystem && <Notice tone="info" className="mt-4" icon="lock" title="دور النظام الأساسي">Super Admin يمتلك جميع الصلاحيات تلقائياً ولا يمكن تعديله أو حذفه.</Notice>}
+              {grantsPermissions && !isSystem && editable && (
+                <div ref={passwordField} className="mt-4">
+                  <Field label="كلمة مرورك الحالية" required error={passwordError}>
+                    <TextInput value={currentPassword} onChange={value => { setCurrentPassword(value); setPasswordError(undefined); }}
+                      type="password" dir="ltr" placeholder="أدخل كلمة مرور حسابك لتأكيد منح الصلاحيات" error={passwordError} />
+                  </Field>
+                </div>
+              )}
             </div>
 
             {permissionsQ.error?.status === 403 && <Notice tone="info">لا تملك صلاحية عرض قائمة الصلاحيات؛ صلاحيات الدور الحالي للقراءة فقط.</Notice>}
@@ -391,14 +409,6 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
         </div>
       </div>
 
-      {grantsPermissions && !isSystem && editable && (
-        <div className="px-6 pb-4">
-          <Field label="كلمة مرورك الحالية" required error={passwordError}>
-            <TextInput value={currentPassword} onChange={value => { setCurrentPassword(value); setPasswordError(undefined); }}
-              type="password" dir="ltr" placeholder="أدخل كلمة مرور حسابك" error={passwordError} />
-          </Field>
-        </div>
-      )}
       <StickyBar show={!!isDirty && !isSystem && editable} onSave={save} onReset={reset} saving={saving}
         message={draft?.isNew ? 'دور جديد غير محفوظ' : 'تغييرات غير محفوظة على الدور'} count={changeCount} />
 

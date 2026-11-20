@@ -12,7 +12,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const destination = useAuthStore((s) => s.destination);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isPosRoute = window.location.pathname === '/pos' || window.location.hash.split('?')[0] === '#/pos';
   const signingOut = useAuthStore((s) => s.signingOut);
   const [notice, setNotice] = useState<'ar' | 'en' | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -23,7 +24,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       return;
     }
     const controller = new AbortController();
-    setError(false);
+    setError(null);
     useAuthStore.getState().bootstrap(controller.signal)
       .then(() => { if (!controller.signal.aborted) setVerifiedToken(token); })
       .catch((err) => {
@@ -31,14 +32,20 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         if (useAuthStore.getState().token !== token) return;
         if (err?.response?.status === 403) {
           const reason = err.response.data?.code === 'pos_branch_unavailable' ? 'branch' : undefined;
-          void useAuthStore.getState().logoutRemote('unified', reason);
+          if (isPosRoute) {
+            setError(reason === 'branch'
+              ? 'لا يمكن فتح نقطة البيع. تأكد من ربط حسابك بفرع نشط.'
+              : 'تعذر التحقق من صلاحية دخول نقطة البيع. راجع مسؤول النظام.');
+          } else {
+            void useAuthStore.getState().logoutRemote('unified', reason);
+          }
         } else if (err?.response?.status === 401) {
           useAuthStore.getState().logout();
           window.location.replace(`${WEB_URL}/auth/login`);
-        } else setError(true);
+        } else setError('تعذر التحقق من الجلسة. تحقق من الاتصال وحاول مرة أخرى.');
       });
     return () => controller.abort();
-  }, [token, attempt, signingOut]);
+  }, [token, attempt, signingOut, isPosRoute]);
 
   useEffect(() => {
     if (!token || verifiedToken !== token || user?.must_change_password) return;
@@ -46,6 +53,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem('alfarid_login_notice');
     if (language === 'ar' || language === 'en') setNotice(language);
   }, [verifiedToken, token, user?.must_change_password]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   if (error && token) return (
     <div
@@ -77,7 +90,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         }}
       >
         <p style={{ margin: '0 0 20px', fontSize: '15px', lineHeight: 1.7, fontWeight: 500 }}>
-          تعذر التحقق من الجلسة. تحقق من الاتصال وحاول مرة أخرى.
+          {error}
         </p>
         <button
           type="button"
@@ -97,6 +110,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         >
           إعادة المحاولة
         </button>
+        {isPosRoute && <button type="button" className="mt-4 block w-full underline" onClick={() => void useAuthStore.getState().logoutRemote()}>تسجيل الخروج</button>}
       </div>
     </div>
   );
@@ -116,9 +130,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <RotateStaffPassword key={user.id} token={token} version={user.version} />;
   }
   return <>
-    {notice && <div role="status" lang={notice} dir={notice === 'ar' ? 'rtl' : 'ltr'} className="flex items-center justify-between gap-4 bg-emerald-50 px-4 py-2 text-emerald-950">
+    {notice && <div role="status" lang={notice} dir={notice === 'ar' ? 'rtl' : 'ltr'} className="fixed bottom-6 left-6 z-[9999] rounded-xl bg-emerald-950 px-5 py-3 text-sm text-white shadow-lg">
       {notice === 'ar' ? 'تم تسجيل الدخول بنجاح.' : 'You signed in successfully.'}
-      <button type="button" className="underline" onClick={() => setNotice(null)}>{notice === 'ar' ? 'إغلاق' : 'Dismiss'}</button>
     </div>}
     {children}
   </>;

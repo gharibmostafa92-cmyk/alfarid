@@ -7,10 +7,11 @@ export type PasswordFields = {
   password_confirmation: string;
 };
 
-export function ChangePasswordForm({ minimum, staff = false, lang = 'ar', onSubmit }: {
+export function ChangePasswordForm({ minimum, staff = false, lang = 'ar', variant = 'page', onSubmit }: {
   minimum: number;
   staff?: boolean;
   lang?: 'en' | 'ar';
+  variant?: 'page' | 'pos';
   onSubmit: (fields: PasswordFields, signal: AbortSignal) => Promise<void>;
 }) {
   const isAr = lang === 'ar';
@@ -123,6 +124,46 @@ export function ChangePasswordForm({ minimum, staff = false, lang = 'ar', onSubm
       inFlight.current = null;
       if (!request.signal.aborted) setPending(false);
     }
+  }
+
+  if (variant === 'pos') {
+    const hintId = `${baseId}-hint`;
+    const fields = [
+      { name: 'current_password', label: t.currentLabel, show: showCurrent, toggle: setShowCurrent, showLabel: t.showCurrent, hideLabel: t.hideCurrent, autoComplete: 'current-password', maxLength: 255 },
+      { name: 'password', label: t.newLabel, show: showNew, toggle: setShowNew, showLabel: t.showNew, hideLabel: t.hideNew, autoComplete: 'new-password', maxLength: 72 },
+      { name: 'password_confirmation', label: t.confirmLabel, show: showConfirm, toggle: setShowConfirm, showLabel: t.showConfirm, hideLabel: t.hideConfirm, autoComplete: 'new-password', maxLength: 72 },
+    ];
+
+    return (
+      <form className="pos-password-form" dir={isAr ? 'rtl' : 'ltr'} lang={lang} onSubmit={submit} aria-busy={pending}>
+        <fieldset disabled={pending}>
+          <legend>{t.title}</legend>
+          {fields.map((field) => (
+            <div className="pos-password-field" key={field.name}>
+              <label htmlFor={`${baseId}-${field.name}`}>{field.label}</label>
+              <div className="pos-password-control">
+                <input
+                  id={`${baseId}-${field.name}`}
+                  name={field.name}
+                  type={field.show ? 'text' : 'password'}
+                  autoComplete={field.autoComplete}
+                  maxLength={field.maxLength}
+                  aria-describedby={field.name === 'password' ? hintId : undefined}
+                  dir="ltr"
+                  required
+                />
+                <button type="button" onClick={() => field.toggle(!field.show)} aria-label={field.show ? field.hideLabel : field.showLabel}>
+                  {field.show ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                </button>
+              </div>
+              {field.name === 'password' && <p id={hintId}>{staff ? t.subtitleStaff : t.subtitleCustomer}</p>}
+            </div>
+          ))}
+          {message && <p className="pos-password-message" data-success={success} role={success ? 'status' : 'alert'}>{message}</p>}
+          <button className="btn btn-primary pos-password-save" type="submit">{pending ? t.saving : t.save}</button>
+        </fieldset>
+      </form>
+    );
   }
 
   const inputClass =

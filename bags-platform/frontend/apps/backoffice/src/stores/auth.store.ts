@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { authEndpoints, defaultApiClient, setAuthToken, setUnauthorizedHandler, resolveServiceUrl } from '@alfarid/api-client';
+import { authEndpoints, setAuthToken, setUnauthorizedHandler, resolveServiceUrl } from '@alfarid/api-client';
 import { toStaffUser } from './mappers';
 
 export interface StaffUser {
@@ -115,18 +115,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
 });
 
 if (typeof window !== 'undefined') {
-  defaultApiClient.interceptors.response.use(undefined, (error) => {
-    const { token, destination, logoutRemote } = useAuthStore.getState();
-    if (
-      token && destination === '/pos' &&
-      error?.config?.headers?.Authorization === `Bearer ${token}` &&
-      error?.config?.url?.startsWith('/api/v1/pos/') &&
-      error?.response?.status === 403 && error.response.data?.code === 'pos_branch_unavailable'
-    ) void logoutRemote('unified', 'branch');
-    return Promise.reject(error);
-  });
-
-
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage || (event.key !== 'backoffice_token' && event.key !== null)) return;
     const token = localStorage.getItem('backoffice_token');

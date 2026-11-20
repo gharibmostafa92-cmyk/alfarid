@@ -14,7 +14,7 @@ const queryClient = new QueryClient({
 });
 
 function PosPasswordSettings({ version, token, onVersion }: { version: number; token: string; onVersion: (version: number) => void }) {
-  return <ChangePasswordForm minimum={12} staff onSubmit={async ({ current_password, password }, signal) => {
+  return <ChangePasswordForm minimum={12} staff variant="pos" onSubmit={async ({ current_password, password }, signal) => {
     const result = await authEndpoints.changeStaffPassword('pos', {
       current_password, password, expected_version: version,
     }, token, signal);

@@ -52,10 +52,14 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     sessionStorage.removeItem('alfarid_login_notice');
     setLoginNotice(language === 'ar' || language === 'en' ? language : null);
   }, [pathname]);
+  useEffect(() => {
+    if (!loginNotice) return;
+    const timer = window.setTimeout(() => setLoginNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [loginNotice]);
   const signInNotice = loginNotice && (
-    <div role="status" lang={loginNotice} dir={loginNotice === 'ar' ? 'rtl' : 'ltr'} className="mx-auto my-3 flex max-w-5xl items-center justify-between gap-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+    <div role="status" lang={loginNotice} dir={loginNotice === 'ar' ? 'rtl' : 'ltr'} className="fixed bottom-6 left-6 z-[9999] rounded-xl bg-emerald-950 px-5 py-3 text-sm text-white shadow-lg">
       {loginNotice === 'ar' ? 'تم تسجيل الدخول بنجاح.' : 'You signed in successfully.'}
-      <button type="button" className="underline" onClick={() => setLoginNotice(null)}>{loginNotice === 'ar' ? 'إغلاق' : 'Dismiss'}</button>
     </div>
   );
 
