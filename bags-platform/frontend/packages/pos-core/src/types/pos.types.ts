@@ -41,6 +41,7 @@ export interface PosProduct {
   stock: number;
   reorder: number;
   h: number; // Hue for placeholder art
+  imageUrl?: string | null;
 }
 
 export interface Customer {

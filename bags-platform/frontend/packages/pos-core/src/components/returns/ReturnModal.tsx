@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, PImg, Api, Empty, Seg, Check, Search, useEsc } from '../ui/SharedUI';
+import { egp, fmt, PImg, Empty, Seg, Check, Search, useEsc } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import { proportionalRefundCents } from '../../lib/money';
@@ -229,13 +229,14 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
       dir="rtl"
       className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
     >
-      <div className="overlay" onClick={onClose} />
+      <div className="pos-overlay" onClick={onClose} />
       <div
-        className="modal"
+        className="pos-modal"
         style={{ width: 'min(920px, calc(100vw - 32px))' }}
         data-screen-label="07 Return & Exchange"
         role="dialog"
         aria-modal="true"
+        aria-label="مرتجع أو استبدال"
       >
         <div className="pop">
           <div
@@ -673,7 +674,6 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                   <span className="ms-auto display fs-20 fw-6 num">{egp(Math.abs(net))} ج</span>
                 </div>
               )}
-              <Api m="POST" path={`/pos/sales/${sale.id}/${mode}`} />
               <button
                 className="btn btn-primary btn-lg"
                 disabled={!canSubmit}

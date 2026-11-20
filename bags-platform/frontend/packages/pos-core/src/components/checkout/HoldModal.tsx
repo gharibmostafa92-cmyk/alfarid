@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, PImg, Api, Field, Modal } from '../ui/SharedUI';
+import { egp, fmt, PImg, Field, Modal } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { fromCents, toCents } from '../../lib/money';
 import type { PosCartLine, Customer } from '../../types/pos.types';
@@ -31,7 +31,6 @@ export function HoldModal({ open, onClose, onHold, cart, customer }: HoldModalPr
       footer={
         <>
           <span className="grow">
-            <Api m="POST" path="/pos/sales/hold" />
           </span>
           <button className="btn btn-secondary" onClick={onClose}>
             إلغاء

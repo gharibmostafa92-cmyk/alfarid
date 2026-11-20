@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, MoneyInput, normalizeMoneyDigits, Api } from '../ui/SharedUI';
+import { egp, fmt, MoneyInput, normalizeMoneyDigits } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import type { PosShift, Treasury, Branch, CashierUser } from '../../types/pos.types';
 import { normalizeError } from '../../lib/pos-error';
@@ -95,7 +95,7 @@ export function OpenShiftGate({ onOpened, accountSettings }: OpenShiftGateProps)
   return (
     <div className="gate" data-screen-label="01 Open Shift">
       <div className="gate-card" role="dialog" aria-modal="true" aria-label="فتح الوردية">
-        {accountSettings}
+        {accountSettings && <div className="pos-gate-account">{accountSettings}</div>}
         <div className="welcome">
           <div className="row gap-3" style={{ position: 'relative', zIndex: 1 }}>
             <span className="avatar">{cashier?.initials || 'أس'}</span>
@@ -255,7 +255,6 @@ export function OpenShiftGate({ onOpened, accountSettings }: OpenShiftGateProps)
             </span>
           </button>
           <div className="api-block center" style={{ justifyContent: 'center' }}>
-            <Api path="/api/v1/pos/shifts/current" /> <Api m="POST" path="/api/v1/pos/shifts/open" />
           </div>
         </div>
       </div>

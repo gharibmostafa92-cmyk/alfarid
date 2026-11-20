@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
-import { fmt, PImg, Api, Empty, Search, Field, cx } from '../ui/SharedUI';
+import { fmt, PImg, Empty, Search, Field, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { PosProduct, TransferSource, Branch } from '../../types/pos.types';
@@ -288,7 +288,6 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
         </button>
         {import.meta.env.DEV && (
           <div className="col gap-1">
-            <Api m="POST" path="/pos/transfer-requests" />
             <span className="perm">
               <Icon n="shield" s={11} />
               transfers.create · Idempotency-Key

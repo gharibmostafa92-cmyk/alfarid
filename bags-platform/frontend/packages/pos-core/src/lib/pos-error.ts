@@ -22,7 +22,9 @@ export function normalizeError(e: any): PosApiError {
   if (e instanceof PosApiError) return e;
   const r = e?.response;
   if (!r) return new PosApiError(0, 'انقطع الاتصال بالسيرفر', 'network', undefined, true);
-  const msg = r.data?.message ?? 'حدث خطأ غير متوقع';
+  let msg = r.data?.message ?? 'حدث خطأ غير متوقع';
+  if (r.data?.code === 'pos_branch_unavailable') msg = 'تأكد من ربط حسابك بفرع نشط لاستخدام نقطة البيع.';
+  else if (msg === 'User does not have the right permissions.') msg = 'حسابك لا يملك صلاحية تنفيذ هذه العملية.';
   if (r.status === 503) {
     const raw = r.headers?.["retry-after"] ?? r.headers?.["Retry-After"];
     const seconds = raw == null ? NaN : Number(raw);

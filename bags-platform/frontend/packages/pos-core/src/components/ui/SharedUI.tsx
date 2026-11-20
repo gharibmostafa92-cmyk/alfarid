@@ -90,7 +90,7 @@ export function PImg({
   size,
   children,
 }: {
-  p?: Partial<Pick<PosProduct, 'cat' | 'h'>> | null;
+  p?: Partial<Pick<PosProduct, 'cat' | 'h' | 'imageUrl'>> | null;
   size?: 'xs' | 'sm' | 'md';
   children?: ReactNode;
 }) {
@@ -117,17 +117,9 @@ export function PImg({
         w={1.4}
         style={{ position: 'relative', zIndex: 1 }}
       />
+      {p.imageUrl && <img src={p.imageUrl} alt="" loading="lazy" onError={(event) => { event.currentTarget.hidden = true; }} />}
       {children}
     </div>
-  );
-}
-
-export function Api({ m = 'GET', path }: { m?: 'GET' | 'POST' | 'PUT' | 'DELETE'; path: string }) {
-  return (
-    <span className="api">
-      <b className={m}>{m}</b>
-      {path}
-    </span>
   );
 }
 
@@ -648,9 +640,9 @@ export function Modal({
       className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
       dir="rtl"
     >
-      <div className="overlay" onClick={onClose} />
+      <div className="pos-overlay" onClick={onClose} />
       <div
-        className="modal"
+        className="pos-modal"
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -706,7 +698,7 @@ export function Drawer({
       className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
       dir="rtl"
     >
-      <div className="overlay" onClick={onClose} />
+      <div className="pos-overlay" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-modal="true" aria-label={title}>
         <div className="drawer-head">
           <div className="grow">
@@ -735,14 +727,16 @@ export function ToastHost({ children }: { children: ReactNode }) {
   const show = useCallback((text: string, tone: 'ok' | 'bad' = 'ok') => {
     setT({ text, tone, k: Date.now() });
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setT(null), 2600);
+    timer.current = setTimeout(() => setT(null), tone === 'bad' ? 5500 : 3000);
   }, []);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   return (
     <ToastCtx.Provider value={show}>
       {children}
       {t && (
-        <div key={t.k} className="toast" role="status">
+        <div key={t.k} dir="rtl" className="pos-toast" data-tone={t.tone}>
           <span
             style={{
               width: 20,
@@ -756,7 +750,8 @@ export function ToastHost({ children }: { children: ReactNode }) {
           >
             <Icon n={t.tone === 'bad' ? 'x' : 'check'} s={12} w={3} />
           </span>
-          {t.text}
+          <span role={t.tone === 'bad' ? 'alert' : 'status'}>{t.text}</span>
+          <button type="button" className="icon-btn" aria-label="إغلاق التنبيه" onClick={() => setT(null)}><Icon n="x" s={16} /></button>
         </div>
       )}
     </ToastCtx.Provider>

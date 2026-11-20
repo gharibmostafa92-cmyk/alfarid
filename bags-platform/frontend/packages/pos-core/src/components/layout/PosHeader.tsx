@@ -1,6 +1,5 @@
 import React from 'react';
 import { Icon } from '../ui/Icons';
-import { Kbd } from '../ui/SharedUI';
 import { isMockPos } from '../../services/pos-data-source';
 import type { AppScreen, Branch, CashierUser, PosShift } from '../../types/pos.types';
 
@@ -11,10 +10,10 @@ interface PosHeaderProps {
   cashier: CashierUser | null;
   shift: PosShift | null;
   onOpenCloseShift: () => void;
-  onOpenReturns?: () => void;
   isDark: boolean;
   onToggleDark: () => void;
   onLogout?: () => void;
+  accountSettings?: React.ReactNode;
   /** F-15: driven by the app's online listener — never a hardcoded "online". */
   isOnline?: boolean;
 }
@@ -26,10 +25,10 @@ export function PosHeader({
   cashier,
   shift,
   onOpenCloseShift,
-  onOpenReturns,
   isDark,
   onToggleDark,
   onLogout,
+  accountSettings,
   isOnline = true,
 }: PosHeaderProps) {
   return (
@@ -105,18 +104,6 @@ export function PosHeader({
           </button>
         )}
 
-        {onOpenReturns && (
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={onOpenReturns}
-            title="مرتجع / استبدال (F8)"
-          >
-            <Icon n="ret" s={14} />
-            <span>مرتجع</span>
-            <Kbd>F8</Kbd>
-          </button>
-        )}
-
         <button
           className="icon-btn"
           onClick={onToggleDark}
@@ -128,6 +115,7 @@ export function PosHeader({
 
         <div className="ph-sep" />
 
+        {accountSettings}
         <div className="row gap-2" style={{ fontSize: 13 }}>
           <span
             className="avatar"

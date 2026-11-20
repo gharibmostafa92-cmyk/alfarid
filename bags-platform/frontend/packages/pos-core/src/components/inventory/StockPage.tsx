@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
-import { fmt, Api, Empty, cx } from '../ui/SharedUI';
+import { fmt, Empty, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import type { Branch, PosStockRow } from '../../types/pos.types';
 
@@ -56,9 +56,6 @@ export function StockPage({ branch }: StockPageProps) {
             <h1>مخزون الفرع</h1>
             <p>أرصدة {branch?.name || 'الفرع'} لحظيًا — بدون مغادرة نقطة البيع.</p>
           </div>
-          {import.meta.env.DEV && (
-            <Api path={`/pos/stock?q=${q || '…'}&low_stock=${low}&per_page=20`} />
-          )}
         </div>
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="toolbar">

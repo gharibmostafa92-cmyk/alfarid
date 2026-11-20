@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, PImg, Api, Kbd, cx } from '../ui/SharedUI';
+import { egp, fmt, PImg, Kbd, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { normAr } from '../../lib/arabic';
 import { beepError } from '../../lib/sound';
@@ -171,9 +171,6 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd> تنقّل <Kbd>Enter</Kbd> إضافة
             </span>
-            <Api
-              path={`/pos/products/lookup?q=…${customer ? '&customer_id=' + customer.id : ''}`}
-            />
           </div>
         </div>
       )}

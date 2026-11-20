@@ -5,6 +5,7 @@ import { PosHeader } from './layout/PosHeader';
 import { Catalog } from './terminal/Catalog';
 import { Cart } from './terminal/Cart';
 import { OpenShiftGate } from './shift/OpenShiftGate';
+import { ExpenseModal } from './shift/ExpenseModal';
 import { CloseShiftModal } from './shift/CloseShiftModal';
 import { CheckoutModal } from './checkout/CheckoutModal';
 import { ThermalReceipt } from './checkout/ReceiptDone';
@@ -42,7 +43,8 @@ export interface PosAppProps {
 
 export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   const toast = useToast();
-  const [passwordOpen, setPasswordOpen] = useState(false);
+  const accountDialog = useRef<HTMLDialogElement>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('terminal');
   const [currentShift, setCurrentShift] = useState<PosShift | null>(null);
@@ -87,6 +89,8 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [isHoldOpen, setIsHoldOpen] = useState<boolean>(false);
   const [isHeldOpen, setIsHeldOpen] = useState<boolean>(false);
+  const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+  const canRecordExpense = hasPermission(cashier?.perms, 'pos.sales.create');
   const [isReturnOpen, setIsReturnOpen] = useState<boolean>(false);
   const [printReceipt, setPrintReceipt] = useState<ArchivedReceipt | null>(null);
   const resumingRef = useRef(false);
@@ -191,7 +195,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
       if (active) setStarting(false);
     }).catch((error: Error) => {
       if (!active) return;
-      setStartupError(error.message);
+      setStartupError(normalizeError(error).message);
       setStarting(false);
     });
     return () => {
@@ -236,7 +240,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
 
   // Hardware scanner: works even when the scan box is not focused.
   useEffect(() => {
-    if (!currentShift || currentScreen !== 'terminal' || isCheckoutOpen || isReturnOpen || isHoldOpen || isHeldOpen || closingShift || hasTabConflict) return;
+    if (!currentShift || currentScreen !== 'terminal' || isCheckoutOpen || isExpenseOpen || isReturnOpen || isHoldOpen || isHeldOpen || closingShift || hasTabConflict) return;
     const detect = createScanDetector({
       onScan: async (code) => {
         try {
@@ -254,7 +258,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
     });
     window.addEventListener('keydown', detect, true);
     return () => window.removeEventListener('keydown', detect, true);
-  }, [currentShift?.id, currentScreen, isCheckoutOpen, isReturnOpen, isHoldOpen, isHeldOpen, closingShift, hasTabConflict, handleAddToCart, toast]);
+  }, [currentShift?.id, currentScreen, isCheckoutOpen, isExpenseOpen, isReturnOpen, isHoldOpen, isHeldOpen, closingShift, hasTabConflict, handleAddToCart, toast]);
 
   // Pay waits for the current quote so the payment screen opens with a confirmed total.
   const handlePay = useCallback(async () => {
@@ -289,7 +293,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
       // F-12: rapid key runs are HID-scanner spew, not human typing.
       const rapidScannerKeys = isRapidScannerKey(Date.now(), lastKeyAt.current);
       lastKeyAt.current = Date.now();
-      if (!currentShift || isCheckoutOpen || closingShift || hasTabConflict) return;
+      if (!currentShift || isCheckoutOpen || isExpenseOpen || closingShift || hasTabConflict) return;
       const activeTag = (e.target as HTMLElement)?.tagName;
       const isInput = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
 
@@ -365,7 +369,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart, currentShift, currentScreen, isCheckoutOpen, closingShift, hasTabConflict, canRefund, handlePay, lastAdded, toast, cashier?.id]);
+  }, [cart, currentShift, currentScreen, isCheckoutOpen, isExpenseOpen, closingShift, hasTabConflict, canRefund, handlePay, lastAdded, toast, cashier?.id]);
 
   // Offer undo for 5s after a line is removed.
   const undoToastFor = useRef<number | null>(null);
@@ -530,7 +534,6 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
     posCartStore.getState().clearCart();
     setResumedHeldId(null);
     checkPendingSale();
-    toast('تم تسجيل الفاتورة بنجاح');
   };
 
   const handleClearCart = useCallback(() => {
@@ -553,14 +556,33 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   };
 
   const passwordSettings = cashier && renderPasswordSettings && (
-        <div>
-          <button type="button" aria-expanded={passwordOpen} onClick={() => setPasswordOpen((open) => !open)}>تغيير كلمة المرور</button>
-          {passwordOpen && renderPasswordSettings(cashier)}
-        </div>
-      );
+    <button className="btn btn-secondary btn-sm pos-account-trigger" type="button"
+      onClick={() => {
+        accountDialog.current?.showModal();
+        setAccountOpen(true);
+      }}>
+      إعدادات الحساب
+    </button>
+  );
 
   return (
     <div className={`app ${isDark ? 'theme-dark' : 'theme-light'}`} dir="rtl">
+      {cashier && renderPasswordSettings && (
+        <dialog ref={accountDialog} className="pos-account-dialog" onClose={() => setAccountOpen(false)} aria-labelledby="pos-account-title">
+          <header className="pos-account-header">
+            <div className="pos-account-identity">
+              <span className="pos-account-avatar" aria-hidden="true">{cashier.initials || <Icon n="users" s={20} />}</span>
+              <div>
+                <h2 id="pos-account-title">إعدادات الحساب</h2>
+                <p>{cashier.name}</p>
+              </div>
+            </div>
+            <button className="icon-btn" type="button" aria-label="إغلاق إعدادات الحساب"
+              onClick={() => accountDialog.current?.close()}><Icon n="x" s={18} /></button>
+          </header>
+          {accountOpen && renderPasswordSettings(cashier)}
+        </dialog>
+      )}
       {/* Multi-tab conflict overlay */}
       {hasTabConflict && (
         <div
@@ -689,6 +711,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
             <button className="btn btn-primary" onClick={() => setStartupAttempt((attempt) => attempt + 1)}>
               إعادة المحاولة
             </button>
+            {onLogout && <button className="btn btn-secondary" onClick={handleLogout}>تسجيل الخروج</button>}
           </div>
         </div>
       ) : !currentShift ? (
@@ -710,13 +733,30 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
               }
               setClosingShift(currentShift);
             }}
-            onOpenReturns={canRefund ? () => setIsReturnOpen(true) : undefined}
             isDark={isDark}
             onToggleDark={toggleTheme}
             onLogout={handleLogout}
+            accountSettings={passwordSettings}
           />
 
-          {passwordSettings}
+          {(canRecordExpense || canRefund) && (
+            <div className="pos-shift-actions" role="group" aria-label="إجراءات الوردية">
+              {canRecordExpense && <button className="btn btn-secondary btn-sm" onClick={() => setIsExpenseOpen(true)}>
+                <Icon n="cash" s={16} /> مصروف من الدرج
+              </button>}
+              {canRefund && <button className="btn btn-secondary btn-sm" onClick={() => setIsReturnOpen(true)}>
+                <Icon n="ret" s={16} /> مرتجع أو استبدال
+              </button>}
+            </div>
+          )}
+          {canRecordExpense && isExpenseOpen && <ExpenseModal
+            key={currentShift.id}
+            onClose={() => setIsExpenseOpen(false)}
+            onSaved={() => {
+              setIsExpenseOpen(false);
+              toast('تم تسجيل المصروف من الدرج');
+            }}
+          />}
 
           {currentScreen === 'terminal' && (
             <div className="sale">

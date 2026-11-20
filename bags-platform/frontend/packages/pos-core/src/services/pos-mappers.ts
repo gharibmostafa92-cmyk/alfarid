@@ -40,7 +40,8 @@ export const mapProduct = (p: any): PosProduct => ({
   wholesale: Number(p.wholesale_price ?? p.unit_price ?? 0),
   stock: Number(p.available ?? p.on_hand ?? 0),
   reorder: Number(p.reorder_point ?? 0),
-  h: (Number(p.id) * 47) % 360, // placeholder-art hue
+  h: (Number(p.id) * 47) % 360,
+  imageUrl: p.image_url ?? null,
 });
 
 const timeAr = (iso?: string) =>

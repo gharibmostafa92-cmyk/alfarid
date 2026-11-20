@@ -79,6 +79,8 @@ test('mapProduct composes name and numeric fields', () => {
   assert.equal(p.cat, '3');
   assert.equal(p.wholesale, 120);
   assert.equal(p.barcode, '');
+  assert.equal(mappers.mapProduct({ id: 3, image_url: 'https://example.test/bag.jpg' }).imageUrl, 'https://example.test/bag.jpg');
+  assert.equal(mappers.mapProduct({ id: 4 }).imageUrl, null);
 });
 
 test('mapHeld keeps serverId and items', () => {

@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, Kbd } from '../ui/SharedUI';
+import { egp, fmt } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { fromCents, toCents } from '../../lib/money';
 import { printReceipt } from '../../lib/print-receipt';
@@ -152,93 +152,32 @@ export function ReceiptDone({
   cashier,
 }: ReceiptDoneProps) {
   const receiptPreview = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onNew();
-      }
-    };
-    const t = setTimeout(() => window.addEventListener('keydown', h), 300);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('keydown', h);
-    };
-  }, [onNew]);
+
+  const payment = { cash: 'نقدي', card: 'بطاقة', mixed: 'نقدي وبطاقة' }[method];
 
   return (
-    <div className="grid" style={{ gridTemplateColumns: '1fr 360px' }}>
-      <div
-        className="col center"
-        style={{ padding: 36, gap: 18, alignItems: 'flex-start', justifyContent: 'center' }}
-      >
-        <span
-          style={{
-            width: 60,
-            height: 60,
-            borderRadius: 20,
-            background: 'var(--ok-bg)',
-            color: 'var(--ok)',
-            display: 'grid',
-            placeItems: 'center',
-          }}
-        >
-          <Icon n="check" s={30} w={2.4} />
-        </span>
-        <div>
-          <h2 className="fs-26">تم تسجيل البيع بنجاح</h2>
-          <p className="t-2" style={{ marginTop: 4 }}>
-            فاتورة <b className="num ltr t-1">{invoiceNumber}</b> — تم خصم المخزون وإيداع النقدية
-            بالدرج.
-          </p>
-        </div>
-        {method !== 'card' && (
-          <div className="change" style={{ width: '100%', maxWidth: 380 }}>
-            <span className="fs-13" style={{ opacity: 0.8 }}>
-              {method === 'cash' ? 'الفكة للعميل' : 'تم تحصيل نقدي'}
-            </span>
-            <span className="v">
-              {egp(method === 'cash' ? Math.max(0, change) : cashA)}{' '}
-              <small className="fs-13" style={{ opacity: 0.6 }}>
-                ج
-              </small>
-            </span>
-          </div>
-        )}
-        <div className="row gap-2">
-          <button className="btn btn-secondary btn-lg" onClick={() => printReceipt(receiptPreview.current?.querySelector('.receipt') ?? null)}>
-            <Icon n="printer" s={17} />
-            إعادة الطباعة
-          </button>
-          <button className="btn btn-primary btn-lg" autoFocus onClick={onNew}>
-            فاتورة جديدة <Kbd>Enter</Kbd>
+    <div className="pos-sale-done">
+      <div className="pos-sale-result">
+        <span className="pos-success-icon"><Icon n="check" s={24} w={2.4} /></span>
+        <h2>تم تسجيل البيع بنجاح</h2>
+        <p className="t-2">فاتورة <bdi className="num">{invoiceNumber}</bdi> · {payment}</p>
+        <dl className="pos-sale-amounts">
+          <div><dt>المبلغ المحصّل</dt><dd><bdi>{egp(total)}</bdi> ج.م</dd></div>
+          {method === 'cash' && <div><dt>الباقي للعميل</dt><dd><bdi>{egp(Math.max(0, change))}</bdi> ج.م</dd></div>}
+        </dl>
+        <div className="pos-dialog-actions">
+          <button className="btn btn-primary" autoFocus onClick={onNew}>فاتورة جديدة</button>
+          <button className="btn btn-secondary" onClick={() => printReceipt(receiptPreview.current?.querySelector('.receipt') ?? null)}>
+            <Icon n="printer" s={17} /> طباعة الإيصال
           </button>
         </div>
       </div>
-      <div
-        ref={receiptPreview}
-        style={{
-          background: 'var(--bg-sunken)',
-          padding: '28px 0 40px',
-          borderInlineStart: '1px solid var(--line)',
-        }}
-      >
-        <ThermalReceipt
-          invoiceNumber={invoiceNumber}
-          total={total}
-          method={method}
-          received={received}
-          change={change}
-          cashA={cashA}
-          cardA={cardA}
-          cart={cart}
-          customer={customer}
-          discount={discount}
-          notes={notes}
-          branch={branch}
-          cashier={cashier}
-        />
-      </div>
+      <details className="pos-receipt-details">
+        <summary>معاينة الإيصال</summary>
+        <div ref={receiptPreview} className="pos-receipt-preview">
+          <ThermalReceipt {...{ invoiceNumber, total, method, received, change, cashA, cardA, cart, customer, discount, notes, branch, cashier }} />
+        </div>
+      </details>
     </div>
   );
 }

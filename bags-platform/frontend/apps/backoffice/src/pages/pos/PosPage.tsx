@@ -10,7 +10,6 @@ import posCss from '@alfarid/pos-core/styles/pos.css?inline';
 /** Point of Sale page for authorized cashiers and stock counters. */
 export function PosPage() {
   const user = useAuthStore((s) => s.user);
-  const destination = useAuthStore((s) => s.destination);
   const logoutRemote = useAuthStore((s) => s.logoutRemote);
   const canPos = useCan('pos.access');
   const canCount = useCan('stocktakes.update');
@@ -45,10 +44,6 @@ export function PosPage() {
     };
   }, [mountFullPos]);
 
-  useEffect(() => {
-    if (user && !branchId && destination === '/pos') void logoutRemote('unified', 'branch');
-  }, [user, branchId, destination, logoutRemote]);
-
   if (!branchId) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
@@ -58,12 +53,22 @@ export function PosPage() {
     );
   }
 
-  if (!canPos || (!canCreateSales && !canCount)) {
+  if (!canPos) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
         <h1>غير مصرح</h1>
-        <p>تحتاج صلاحية دخول نقطة البيع وصلاحية البيع أو الجرد.</p>
+        <p>تحتاج صلاحية دخول نقطة البيع.</p>
       </div>
+    );
+  }
+
+  if (!canCreateSales && !canCount) {
+    return (
+      <main className="mx-auto max-w-lg space-y-4 p-6" dir="rtl">
+        <h1 className="text-xl font-semibold">نقطة البيع</h1>
+        <p role="status">حسابك يقدر يدخل نقطة البيع. لبدء وردية أو إجراء عملية بيع، اطلب صلاحية البيع من المسؤول.</p>
+        <button type="button" className="underline" onClick={() => void logoutRemote('unified')}>تسجيل الخروج</button>
+      </main>
     );
   }
 
@@ -80,7 +85,7 @@ export function PosPage() {
 
   return (
     <ToastHost>
-      <PosApp renderPasswordSettings={() => <StaffPasswordPage channel="pos" embedded />} onLogout={() => logoutRemote('unified')} />
+      <PosApp renderPasswordSettings={(cashier) => <StaffPasswordPage channel="pos" embedded posDialog profileVersion={cashier.version} />} onLogout={() => logoutRemote('unified')} />
     </ToastHost>
   );
 }

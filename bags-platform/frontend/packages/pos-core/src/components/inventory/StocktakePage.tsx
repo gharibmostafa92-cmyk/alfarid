@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Icon } from '../ui/Icons';
-import { fmt, PImg, Api, toAsciiNum, cx } from '../ui/SharedUI';
+import { fmt, PImg, toAsciiNum, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import { beepError } from '../../lib/sound';
@@ -377,7 +377,6 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                 )}
                 {import.meta.env.DEV && (
                   <div className="row gap-2">
-                    <Api m="POST" path={`/pos/stocktakes/${session.id}/scan`} />
                     <span className="fs-12 t-3 ltr mono">{'{ barcode, qty | qty_words }'}</span>
                   </div>
                 )}

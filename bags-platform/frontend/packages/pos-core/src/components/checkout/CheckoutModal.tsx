@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, PImg, Api, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
+import { egp, fmt, PImg, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
 import { ReceiptDone } from './ReceiptDone';
 import { pos } from '../../services/pos-data-source';
 import type { PosCartLine, Customer, Branch, CashierUser, QuoteResult } from '../../types/pos.types';
@@ -54,7 +54,6 @@ export function CheckoutModal({
   const [stage, setStage] = useState<'pay' | 'sending' | 'done'>('pay');
   const [retryStatus, setRetryStatus] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
-  const [idem, setIdem] = useState<string>('');
   const [receipt, setReceipt] = useState<ArchivedReceipt | null>(null);
 
   const isSubmittingRef = useRef(false);
@@ -76,7 +75,6 @@ export function CheckoutModal({
       setStage('pay');
       setRetryStatus('');
       setErrorMsg('');
-      setIdem('');
       setReceipt(null);
     }
   }, [open]);
@@ -170,7 +168,6 @@ export function CheckoutModal({
     try {
       const pendingManager = createPendingSaleManager({ owner: pendingOwner });
       const draft = pendingManager.prepare(payload);
-      setIdem(draft.key);
       const res = await pendingManager.executeWithRetry(
         draft.payload,
         draft.key,
@@ -228,13 +225,14 @@ export function CheckoutModal({
       dir="rtl"
       className={darkClass}
     >
-      <div className="overlay" onClick={() => stage === 'pay' && onClose()} />
+      <div className="pos-overlay" onClick={() => stage === 'pay' && onClose()} />
       <div
-        className="modal"
-        style={{ width: 'min(960px, calc(100vw - 32px))' }}
+        className="pos-modal pos-checkout"
+        style={{ width: stage === 'done' ? 'min(480px, calc(100vw - 32px))' : 'min(960px, calc(100vw - 32px))' }}
         data-screen-label="05 Checkout"
         role="dialog"
         aria-modal="true"
+        aria-label={stage === 'done' ? 'إيصال الدفع' : 'الدفع وطرق التحصيل'}
       >
         <div className="pop">
           {stage !== 'done' ? (
@@ -261,7 +259,7 @@ export function CheckoutModal({
                     </span>
                   )}
                 </div>
-                <div className="methods" role="radiogroup">
+                <div className="methods" role="group" aria-label="طريقة التحصيل">
                   {(
                     [
                       ['cash', 'نقدي', 'cash', 'F1'],
@@ -271,9 +269,9 @@ export function CheckoutModal({
                   ).map(([v, l, ic, k]) => (
                     <button
                       key={v}
-                      role="radio"
                       className="method"
-                      aria-checked={method === v}
+                      aria-pressed={method === v}
+                      disabled={stage === 'sending'}
                       onClick={() => setMethod(v)}
                     >
                       <Kbd>{k}</Kbd>
@@ -284,7 +282,7 @@ export function CheckoutModal({
                 </div>
 
                 {method === 'cash' && (
-                  <div className="grid" style={{ gridTemplateColumns: '1fr 220px', gap: 16 }}>
+                  <div className="co-cash">
                     <div className="col gap-3">
                       <span className="fs-13 fw-5">المبلغ المستلم من العميل</span>
                       <MoneyInput
@@ -385,7 +383,7 @@ export function CheckoutModal({
 
                 {method === 'mixed' && (
                   <div className="col gap-3">
-                    <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="co-mixed">
                       <div className="col gap-2">
                         <span className="fs-13 fw-5 row gap-2">
                           <Icon n="cash" s={16} />
@@ -433,7 +431,7 @@ export function CheckoutModal({
                         }}
                       />
                     </div>
-                    <div className="row between fs-12">
+                    <div className="row between wrap gap-2 fs-12">
                       <span className="row gap-3">
                         <span className="row gap-1">
                           <i
@@ -532,12 +530,12 @@ export function CheckoutModal({
                   />
                 </Field>
                 {errorMsg && (
-                  <div className="banner b-bad" style={{ margin: '8px 0' }}>
+                  <div className="banner b-bad" role="alert" style={{ margin: '8px 0' }}>
                     <Icon n="alert" s={16} />
                     {errorMsg}
                   </div>
                 )}
-                <div className="row gap-2" style={{ marginTop: 'auto' }}>
+                <div className="row gap-2 co-actions">
                   <button className="btn btn-secondary btn-lg" disabled={stage === 'sending'} onClick={onClose}>
                     رجوع
                   </button>
@@ -608,25 +606,6 @@ export function CheckoutModal({
                     <span>الإجمالي</span>
                     <span className="num fs-16">{egp(total)}</span>
                   </div>
-                </div>
-                <div
-                  className="col gap-2"
-                  style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}
-                >
-                  <Api m="POST" path="/api/v1/pos/sales" />
-                  <div className="fs-12 t-3">Idempotency-Key</div>
-                  <code
-                    className="mono"
-                    style={{
-                      fontSize: 10.5,
-                      direction: 'ltr',
-                      wordBreak: 'break-all',
-                      color: 'var(--text-2)',
-                    }}
-                  >
-                    {idem}
-                  </code>
-                  <div className="fs-12 t-3">يمنع تكرار الخصم عند الضغط المزدوج</div>
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Icon } from '../ui/Icons';
-import { fmt, PImg, Api, Empty, Status, toAsciiNum, cx } from '../ui/SharedUI';
+import { fmt, PImg, Empty, Status, toAsciiNum, cx } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { StockTransfer } from '../../types/pos.types';
@@ -223,7 +223,6 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
             </div>
             {import.meta.env.DEV && (
               <div className="row gap-2">
-                <Api m="POST" path={`/pos/transfers/${t.id}/receive`} />
                 <span className="perm">
                   <Icon n="shield" s={11} />
                   transfers.receive

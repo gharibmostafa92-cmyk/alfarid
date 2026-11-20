@@ -1,6 +1,6 @@
 import React from 'react';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, PImg, Api, Empty, Drawer } from '../ui/SharedUI';
+import { egp, fmt, PImg, Empty, Drawer } from '../ui/SharedUI';
 import { pos } from '../../services/pos-data-source';
 import type { PosHeldSale, Branch } from '../../types/pos.types';
 
@@ -31,7 +31,6 @@ export function HeldDrawer({
       sub={
         <span className="row gap-2">
           {fmt(held.length)} فاتورة في {branch?.name || 'الفرع'}{' '}
-          <Api path="/pos/sales/held" />
         </span>
       }
     >
