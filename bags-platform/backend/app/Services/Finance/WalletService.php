@@ -12,6 +12,7 @@ use App\Models\Order;
 use App\Models\ReturnRequest;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -60,20 +61,8 @@ class WalletService
      */
     public function record(int $customerId, float|string $amount, string $type, string $referenceType, int $referenceId, ?int $createdBy = null): CustomerWalletTransaction
     {
-        $referenceTypes = match (true) {
-            in_array($referenceType, self::ORDER_REFERENCES, true) => self::ORDER_REFERENCES,
-            in_array($referenceType, self::RETURN_REFERENCES, true) => self::RETURN_REFERENCES,
-            default => [$referenceType],
-        };
-
-        // Accept strings from BigDecimal callers and never round-trip through float:
-        // float($signed) already lost precision before this method was reached.
-        $signed = BigDecimal::of(is_string($amount) ? $amount : (string) $amount)
-            ->toScale(2, RoundingMode::HalfUp);
-        if ($signed->isZero() && in_array($type, ['checkout_payment', 'order_reversal', 'return_refund', 'adjustment'], true)) {
-            throw new BusinessException('مبلغ حركة المحفظة لا يمكن أن يكون صفرًا.', [], 422);
-        }
-        $this->assertAmountSign($type, $signed);
+        $referenceTypes = $this->resolveReferenceAliases($referenceType);
+        $signed = $this->parseSignedAmount($amount, $type);
 
         return DB::transaction(function () use ($customerId, $signed, $type, $referenceTypes, $referenceId, $createdBy): CustomerWalletTransaction {
             // F9: order-scoped refunds share one (reference, type) key per order, so a second
@@ -82,52 +71,125 @@ class WalletService
             if ($type === 'refund' && $referenceTypes === self::ORDER_REFERENCES) {
                 throw new BusinessException('استرداد المحفظة يتم عبر مستند تسوية فقط.', [], 422);
             }
-            // Lock customer row to serialize concurrent debits/credits on the same balance
+
+            // Lock customer row to serialize concurrent debits/credits on the same balance.
             $customer = Customer::query()->lockForUpdate()->findOrFail($customerId);
             if ($type === 'checkout_payment' && $customer->status !== CustomerStatus::Approved) {
                 throw new BusinessException('الدفع بالمحفظة يتطلب حساب عميل نشطًا.');
             }
-            // Idempotency is scoped to the customer: reference ids are only unique per table.
-            $existing = CustomerWalletTransaction::query()
-                ->where('customer_id', $customerId)
-                ->whereIn('reference_type', $referenceTypes)
-                ->where('reference_id', $referenceId)
-                ->where('type', $type)
-                ->first();
+
+            $existing = $this->findExistingOrFailIfConflict($customerId, $referenceTypes, $type, $referenceId, $signed);
             if ($existing !== null) {
-                // A replay of the identical event returns the original row. Legacy rows
-                // stored under the FQCN alias are still treated as a conflict so an
-                // alias retry cannot silently hide a different reference identity.
-                $sameReference = (string) $existing->reference_type === $referenceTypes[0];
-                if ($sameReference && BigDecimal::of((string) $existing->amount)->isEqualTo($signed)) {
-                    return $existing;
-                }
-                throw new BusinessException('حركة المحفظة مسجلة سابقًا.', [], 409);
+                return $existing;
             }
 
-            $balance = BigDecimal::of((string) $customer->wallet_balance)->plus($signed)->toScale(2);
-            if ($balance->isNegative()) {
-                throw new BusinessException('رصيد المحفظة لا يكفي قيمة الطلب كاملة.');
-            }
-            if ($balance->isGreaterThan('9999999999.99')) {
-                throw new BusinessException('رصيد المحفظة يتجاوز الحد المسموح.');
-            }
-            try {
-                $entry = CustomerWalletTransaction::create([
-                    'customer_id' => $customerId, 'type' => $type, 'amount' => (string) $signed,
-                    'balance_after' => (string) $balance, 'reference_type' => $referenceTypes[0],
-                    'reference_id' => $referenceId, 'created_by' => $createdBy,
-                ]);
-            } catch (\Illuminate\Database\QueryException $e) {
-                if ($e->getCode() === '23505' || str_contains($e->getMessage(), '23505') || str_contains($e->getMessage(), 'unique constraint')) {
-                    throw new BusinessException('حركة المحفظة مسجلة سابقًا.', [], 409);
-                }
-                throw $e;
-            }
+            $balance = $this->computeNextBalance($customer, $signed);
+            $entry = $this->createLedgerEntry($customerId, $type, $signed, $balance, $referenceTypes[0], $referenceId, $createdBy);
             $customer->forceFill(['wallet_balance' => (string) $balance])->save();
 
             return $entry;
         });
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function resolveReferenceAliases(string $referenceType): array
+    {
+        return match (true) {
+            in_array($referenceType, self::ORDER_REFERENCES, true) => self::ORDER_REFERENCES,
+            in_array($referenceType, self::RETURN_REFERENCES, true) => self::RETURN_REFERENCES,
+            default => [$referenceType],
+        };
+    }
+
+    private function parseSignedAmount(float|string $amount, string $type): BigDecimal
+    {
+        // Accept strings from BigDecimal callers and never round-trip through float:
+        // float($signed) already lost precision before this method was reached.
+        $signed = BigDecimal::of(is_string($amount) ? $amount : (string) $amount)
+            ->toScale(2, RoundingMode::HalfUp);
+
+        if ($signed->isZero() && in_array($type, ['checkout_payment', 'order_reversal', 'return_refund', 'adjustment'], true)) {
+            throw new BusinessException('مبلغ حركة المحفظة لا يمكن أن يكون صفرًا.', [], 422);
+        }
+
+        $this->assertAmountSign($type, $signed);
+
+        return $signed;
+    }
+
+    /**
+     * @param  list<string>  $referenceTypes
+     */
+    private function findExistingOrFailIfConflict(
+        int $customerId,
+        array $referenceTypes,
+        string $type,
+        int $referenceId,
+        BigDecimal $signed,
+    ): ?CustomerWalletTransaction {
+        // Idempotency is scoped to the customer: reference ids are only unique per table.
+        $existing = CustomerWalletTransaction::query()
+            ->where('customer_id', $customerId)
+            ->whereIn('reference_type', $referenceTypes)
+            ->where('reference_id', $referenceId)
+            ->where('type', $type)
+            ->first();
+
+        if ($existing === null) {
+            return null;
+        }
+
+        // A replay of the identical event returns the original row. Legacy rows
+        // stored under the FQCN alias are still treated as a conflict so an
+        // alias retry cannot silently hide a different reference identity.
+        $sameReference = (string) $existing->reference_type === $referenceTypes[0];
+        if ($sameReference && BigDecimal::of((string) $existing->amount)->isEqualTo($signed)) {
+            return $existing;
+        }
+
+        throw new BusinessException('حركة المحفظة مسجلة سابقًا.', [], 409);
+    }
+
+    private function computeNextBalance(Customer $customer, BigDecimal $signed): BigDecimal
+    {
+        $balance = BigDecimal::of((string) $customer->wallet_balance)->plus($signed)->toScale(2);
+        if ($balance->isNegative()) {
+            throw new BusinessException('رصيد المحفظة لا يكفي قيمة الطلب كاملة.');
+        }
+        if ($balance->isGreaterThan('9999999999.99')) {
+            throw new BusinessException('رصيد المحفظة يتجاوز الحد المسموح.');
+        }
+
+        return $balance;
+    }
+
+    private function createLedgerEntry(
+        int $customerId,
+        string $type,
+        BigDecimal $signed,
+        BigDecimal $balance,
+        string $referenceType,
+        int $referenceId,
+        ?int $createdBy,
+    ): CustomerWalletTransaction {
+        try {
+            return CustomerWalletTransaction::create([
+                'customer_id' => $customerId,
+                'type' => $type,
+                'amount' => (string) $signed,
+                'balance_after' => (string) $balance,
+                'reference_type' => $referenceType,
+                'reference_id' => $referenceId,
+                'created_by' => $createdBy,
+            ]);
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23505' || str_contains($e->getMessage(), '23505') || str_contains($e->getMessage(), 'unique constraint')) {
+                throw new BusinessException('حركة المحفظة مسجلة سابقًا.', [], 409);
+            }
+            throw $e;
+        }
     }
 
     private function assertAmountSign(string $type, BigDecimal $amount): void

@@ -21,6 +21,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -52,12 +53,7 @@ class PriceListService
             ->when($filters['search'] ?? null, fn ($q, $v) => $q->whereLike('name', SearchTerm::pattern($v), caseSensitive: false))
             ->orderByDesc('priority')
             ->orderByDesc('id')
-            ->paginate(
-                max(1, min(100, (int) ($filters['per_page'] ?? 15))),
-                ['*'],
-                'page',
-                isset($filters['page']) ? max(1, (int) $filters['page']) : null,
-            );
+            ->paginate($this->perPageFrom($filters), ['*'], 'page', $this->pageFrom($filters));
     }
 
     /**
@@ -134,15 +130,7 @@ class PriceListService
 
             $impactedFields = ['is_active', 'type', 'starts_at', 'ends_at', 'branch_id', 'priority'];
             if (array_intersect(array_keys($data), $impactedFields) !== []) {
-                $productIds = ProductVariant::query()->withTrashed()
-                    ->whereIn('id', $priceList->items()->select('product_variant_id'))
-                    ->distinct()
-                    ->pluck('product_id')
-                    ->map(fn ($id): int => (int) $id)
-                    ->all();
-                if ($productIds !== []) {
-                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
-                }
+                $this->dispatchRetailRefreshForProductIds($this->productIdsForPriceList($priceList));
             }
 
             return $priceList->load(['customer', 'customerGroup', 'branch']);
@@ -221,12 +209,7 @@ class PriceListService
         DB::transaction(function () use ($priceList, $user): void {
             $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             $this->assertListAccess($user, $locked);
-            $productIds = ProductVariant::query()->withTrashed()
-                ->whereIn('id', $locked->items()->select('product_variant_id'))
-                ->distinct()
-                ->pluck('product_id')
-                ->map(fn ($id): int => (int) $id)
-                ->all();
+            $productIds = $this->productIdsForPriceList($locked);
             $before = $locked->attributesToArray();
             $customerId = $locked->customer_id;
             $locked->delete();
@@ -234,9 +217,7 @@ class PriceListService
                 StaffAdministration::audit($user, 'price_list.deleted', 'price_list', $locked->id, array_keys($before), $before, [], []);
             }
             $this->invalidateCustomerCatalogContextById($customerId);
-            if ($productIds !== []) {
-                DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
-            }
+            $this->dispatchRetailRefreshForProductIds($productIds);
         });
     }
 
@@ -257,12 +238,7 @@ class PriceListService
             ->orderBy('product_variant_id')
             ->orderBy('min_qty')
             ->orderBy('id')
-            ->paginate(
-                max(1, min(100, (int) ($filters['per_page'] ?? 15))),
-                ['*'],
-                'page',
-                isset($filters['page']) ? max(1, (int) $filters['page']) : null,
-            );
+            ->paginate($this->perPageFrom($filters), ['*'], 'page', $this->pageFrom($filters));
     }
 
     /**
@@ -286,12 +262,7 @@ class PriceListService
             if ($user) {
                 StaffAdministration::audit($user, 'price_list_item.created', 'price_list_item', $item->id, array_keys($data), [], $item->only(array_keys($data)), []);
             }
-            if ($priceList->type === PriceListType::Retail) {
-                $productId = (int) ProductVariant::query()->withTrashed()->whereKey($item->product_variant_id)->value('product_id');
-                if ($productId > 0) {
-                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch([$productId]));
-                }
-            }
+            $this->dispatchRetailRefreshForVariant($priceList, (int) $item->product_variant_id);
             $this->bumpSharedPricingCatalog();
 
             return $item->load('variant.product');
@@ -327,12 +298,7 @@ class PriceListService
             if ($user) {
                 StaffAdministration::audit($user, 'price_list_item.updated', 'price_list_item', $item->id, array_keys($data), $before, $item->only(array_keys($data)), []);
             }
-            if ($lockedList->type === PriceListType::Retail) {
-                $productId = (int) ProductVariant::query()->withTrashed()->whereKey($item->product_variant_id)->value('product_id');
-                if ($productId > 0) {
-                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch([$productId]));
-                }
-            }
+            $this->dispatchRetailRefreshForVariant($lockedList, (int) $item->product_variant_id);
             $this->bumpSharedPricingCatalog();
 
             return $item->load('variant.product');
@@ -356,12 +322,7 @@ class PriceListService
             if ($user) {
                 StaffAdministration::audit($user, 'price_list_item.deleted', 'price_list_item', $item->id, array_keys($before), $before, [], []);
             }
-            if ($lockedList->type === PriceListType::Retail) {
-                $productId = (int) ProductVariant::query()->withTrashed()->whereKey($variantId)->value('product_id');
-                if ($productId > 0) {
-                    DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch([$productId]));
-                }
-            }
+            $this->dispatchRetailRefreshForVariant($lockedList, $variantId);
             $this->bumpSharedPricingCatalog();
         });
     }
@@ -379,9 +340,7 @@ class PriceListService
                 throw new BusinessException('أحد الأسعار بعد التعديل يتجاوز الحد المسموح.');
             }
 
-            $productIds = ProductVariant::query()->withTrashed()
-                ->whereIn('id', (clone $items)->select('product_variant_id'))
-                ->distinct()->pluck('product_id')->map(fn ($id) => (int) $id)->all();
+            $productIds = $this->productIdsForPriceList($locked);
             $itemCount = (clone $items)->count();
             $before = $itemCount <= 100
                 ? (clone $items)->get(['id', 'product_variant_id', 'min_qty', 'price'])->toArray()
@@ -393,9 +352,7 @@ class PriceListService
             $auditFields = $before !== null ? ['percent', 'count', 'items'] : ['percent', 'count'];
             $auditBefore = $before !== null ? ['items' => $before] : [];
             StaffAdministration::audit($user, 'price_list.percentage_applied', 'price_list', $locked->id, $auditFields, $auditBefore, ['percent' => $percent, 'count' => $updated], []);
-            if ($productIds !== []) {
-                DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
-            }
+            $this->dispatchRetailRefreshForProductIds($productIds);
             $this->bumpSharedPricingCatalog();
 
             return $updated;
@@ -481,10 +438,32 @@ class PriceListService
     public function importCsv(PriceList $priceList, UploadedFile $file, ?User $user = null, bool $dryRun = false): array
     {
         $this->assertListAccess($user, $priceList);
+
+        $rows = $this->parseCsvRows($file);
+        $variantIndex = $this->loadActiveVariantsForCsv($rows);
+        $report = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
+        if ($dryRun) {
+            $report['row_count'] = count($rows);
+        }
+
+        $valid = $this->validateCsvRows($rows, $variantIndex, $report);
+        $this->persistCsvImport($priceList, $valid, $user, $dryRun, $file, $report);
+
+        return $report;
+    }
+
+    /**
+     * Reads and validates CSV headers and row count bounds into normalized row arrays.
+     *
+     * @return list<array{line: int, variant_id: string, sku: string, price: string, min_qty: string, starts_at: ?string, ends_at: ?string}>
+     */
+    private function parseCsvRows(UploadedFile $file): array
+    {
         $handle = fopen($file->getRealPath(), 'r');
         if ($handle === false) {
             throw new BusinessException('تعذرت قراءة ملف الاستيراد.');
         }
+
         try {
             $header = fgetcsv($handle, escape: '');
             if ($header === false) {
@@ -496,6 +475,7 @@ class PriceListService
             if (count($index) !== count($columns) || ! isset($index['price']) || (! isset($index['variant_id']) && ! isset($index['sku']))) {
                 throw new BusinessException('يجب أن يحتوي الملف على price وsku أو variant_id، دون أعمدة مكررة.');
             }
+
             $rows = [];
             $line = 1;
             while (($row = fgetcsv($handle, escape: '')) !== false) {
@@ -509,61 +489,77 @@ class PriceListService
                 if (count($rows) >= 2000) {
                     throw new BusinessException('الحد الأقصى للاستيراد المتزامن 2000 صف؛ قسّم الملف إلى أجزاء أصغر.');
                 }
-                $get = fn (string $key) => isset($index[$key]) ? trim((string) ($row[$index[$key]] ?? '')) : '';
-                $rows[] = ['line' => $line, 'variant_id' => $get('variant_id'), 'sku' => $get('sku'),
-                    'price' => $get('price'), 'min_qty' => $get('min_qty') === '' ? '1' : $get('min_qty'),
+                $get = fn (string $key): string => isset($index[$key]) ? trim((string) ($row[$index[$key]] ?? '')) : '';
+                $rows[] = [
+                    'line' => $line,
+                    'variant_id' => $get('variant_id'),
+                    'sku' => $get('sku'),
+                    'price' => $get('price'),
+                    'min_qty' => $get('min_qty') === '' ? '1' : $get('min_qty'),
                     'starts_at' => $get('starts_at') === '' ? null : $get('starts_at'),
-                    'ends_at' => $get('ends_at') === '' ? null : $get('ends_at')];
+                    'ends_at' => $get('ends_at') === '' ? null : $get('ends_at'),
+                ];
             }
+
+            return $rows;
         } finally {
             fclose($handle);
         }
+    }
 
-        $ids = array_values(array_filter(array_map(fn ($row) => filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]), $rows)));
+    /**
+     * Preloads active variants referenced by CSV IDs or SKUs into lookup maps.
+     *
+     * @return array{byId: Collection, bySku: Collection, bySkuUpper: Collection}
+     */
+    private function loadActiveVariantsForCsv(array $rows): array
+    {
+        $ids = array_values(array_filter(array_map(
+            fn ($row) => filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]),
+            $rows,
+        )));
+
         $skus = [];
         $upperSkus = [];
         foreach ($rows as $row) {
             // Match SKUs case-insensitively to prevent import failures from casing discrepancies.
+            $unescaped = $this->unescapeCsvText($row['sku']);
             $skus[] = $row['sku'];
-            $skus[] = $this->unescapeCsvText($row['sku']);
+            $skus[] = $unescaped;
             $skus[] = strtoupper($row['sku']);
-            $skus[] = strtoupper($this->unescapeCsvText($row['sku']));
-            $upperSkus[] = strtoupper($this->unescapeCsvText($row['sku']));
+            $skus[] = strtoupper($unescaped);
+            $upperSkus[] = strtoupper($unescaped);
         }
         $upperSkus = array_values(array_unique(array_filter($upperSkus, fn ($sku) => $sku !== '')));
-        $variants = ProductVariant::query()->where('is_active', true)
-            ->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('sku', array_unique($skus))
-                ->when($upperSkus !== [], fn ($q) => $q->orWhereIn(DB::raw('UPPER(sku)'), $upperSkus)))->get();
-        $byId = $variants->keyBy('id');
-        $bySku = $variants->keyBy('sku');
-        $bySkuUpper = $variants->groupBy(fn (ProductVariant $variant) => strtoupper($variant->sku));
-        $report = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
-        if ($dryRun) {
-            $report['row_count'] = count($rows);
-        }
+
+        $variants = ProductVariant::query()
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereIn('id', $ids)
+                ->orWhereIn('sku', array_unique($skus))
+                ->when($upperSkus !== [], fn ($q) => $q->orWhereIn(DB::raw('UPPER(sku)'), $upperSkus)))
+            ->get();
+
+        return [
+            'byId' => $variants->keyBy('id'),
+            'bySku' => $variants->keyBy('sku'),
+            'bySkuUpper' => $variants->groupBy(fn (ProductVariant $variant) => strtoupper($variant->sku)),
+        ];
+    }
+
+    /**
+     * Validates each parsed CSV row, records row-level errors, and de-duplicates by (variant, min_qty).
+     */
+    private function validateCsvRows(array $rows, array $variantIndex, array &$report): array
+    {
         $valid = [];
         foreach ($rows as $row) {
             try {
-                $normalizedSku = $this->unescapeCsvText($row['sku']);
-                $foldedMatches = $bySkuUpper->get(strtoupper($normalizedSku));
-                $variant = $row['variant_id'] !== ''
-                    ? $byId->get(filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0)
-                    : ($bySku->get($row['sku']) ?? $bySku->get($normalizedSku)
-                        ?? ($foldedMatches?->count() === 1 ? $foldedMatches->first() : null));
-                if ($variant === null) {
-                    throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
-                }
-                if ($row['sku'] !== '') {
-                    $rowSku = strtoupper($this->unescapeCsvText($row['sku']));
-                    $matches = $rowSku === strtoupper($variant->sku) || $rowSku === strtoupper($this->csvText($variant->sku));
-                    if (! $matches) {
-                        throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
-                    }
-                }
+                $variant = $this->resolveCsvVariant($row, $variantIndex);
                 $validator = Validator::make($row, [
                     'price' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
                     'min_qty' => ['required', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
-                    'starts_at' => ['nullable', 'date'], 'ends_at' => ['nullable', 'date'],
+                    'starts_at' => ['nullable', 'date'],
+                    'ends_at' => ['nullable', 'date'],
                 ]);
                 if ($validator->fails()) {
                     throw new BusinessException($validator->errors()->first());
@@ -577,13 +573,51 @@ class PriceListService
                 $report['errors'][] = ['line' => $row['line'], 'message' => $exception->getMessage()];
             }
         }
+
         // De-duplicate same (variant, min_qty) lines in CSV payload with last-write-wins semantics.
         $deduped = [];
         foreach ($valid as $row) {
-            $deduped[$row['product_variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '')] = $row;
+            $deduped[$this->tierKey((int) $row['product_variant_id'], $row['min_qty'])] = $row;
         }
-        $valid = array_values($deduped);
 
+        return array_values($deduped);
+    }
+
+    private function resolveCsvVariant(array $row, array $variantIndex): ProductVariant
+    {
+        $normalizedSku = $this->unescapeCsvText($row['sku']);
+        $foldedMatches = $variantIndex['bySkuUpper']->get(strtoupper($normalizedSku));
+        $variant = $row['variant_id'] !== ''
+            ? $variantIndex['byId']->get(filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0)
+            : ($variantIndex['bySku']->get($row['sku']) ?? $variantIndex['bySku']->get($normalizedSku)
+                ?? ($foldedMatches?->count() === 1 ? $foldedMatches->first() : null));
+
+        if ($variant === null) {
+            throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
+        }
+
+        if ($row['sku'] !== '') {
+            $rowSku = strtoupper($normalizedSku);
+            $matches = $rowSku === strtoupper($variant->sku) || $rowSku === strtoupper($this->csvText($variant->sku));
+            if (! $matches) {
+                throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
+            }
+        }
+
+        return $variant;
+    }
+
+    /**
+     * Persists validated CSV rows in a transaction (or populates dry-run diff) and refreshes catalog snapshots.
+     */
+    private function persistCsvImport(
+        PriceList $priceList,
+        array $valid,
+        ?User $user,
+        bool $dryRun,
+        UploadedFile $file,
+        array &$report,
+    ): void {
         DB::transaction(function () use ($valid, $priceList, $user, $dryRun, &$report, $file): void {
             $locked = PriceList::query()
                 ->when(! $dryRun, fn ($query) => $query->lockForUpdate())
@@ -595,7 +629,7 @@ class PriceListService
                 ->where('price_list_id', $priceList->id)
                 ->whereIn('product_variant_id', array_column($valid, 'product_variant_id'))
                 ->get(['product_variant_id', 'min_qty', 'price'])
-                ->keyBy(fn ($item) => $item->product_variant_id.':'.number_format((float) $item->min_qty, 4, '.', ''));
+                ->keyBy(fn ($item) => $this->tierKey((int) $item->product_variant_id, $item->min_qty));
 
             $rows = [];
             if ($dryRun) {
@@ -603,7 +637,7 @@ class PriceListService
             }
             $now = now();
             foreach ($valid as $row) {
-                $key = $row['product_variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '');
+                $key = $this->tierKey((int) $row['product_variant_id'], $row['min_qty']);
                 $existing->has($key) ? $report['updated']++ : $report['created']++;
                 if ($dryRun) {
                     $report['diff'][] = [
@@ -637,20 +671,7 @@ class PriceListService
             foreach (array_chunk($rows, 500) as $chunk) {
                 PriceListItem::query()->upsert($chunk, ['price_list_id', 'product_variant_id', 'min_qty'], ['price', 'starts_at', 'ends_at', 'updated_at']);
             }
-            if ($user) {
-                if (count($rows) > 100) {
-                    $fileSha = $file->getRealPath() !== false ? @hash_file('sha256', $file->getRealPath()) : null;
-                    StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['count', 'created', 'updated', 'file_sha256'], [], [
-                        'count' => count($rows),
-                        'created' => $report['created'],
-                        'updated' => $report['updated'],
-                        'file_sha256' => $fileSha ?: null,
-                    ], []);
-                } else {
-                    StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['items', 'count'], ['items' => $existing->values()->toArray()], ['items' => $rows, 'count' => count($rows)], []);
-                }
-            }
-
+            $this->auditCsvImport($user, $locked, $rows, $existing, $report, $file);
             $this->bumpSharedPricingCatalog();
 
             // Query-builder upsert fires no Eloquent events, so the catalog
@@ -660,16 +681,89 @@ class PriceListService
                 ->whereIn('id', array_column($valid, 'product_variant_id'))
                 ->distinct()
                 ->pluck('product_id')
+                ->map(fn ($id): int => (int) $id)
                 ->all();
-            if ($productIds !== []) {
-                $ids = array_values(array_unique(array_map('intval', $productIds)));
-                DB::afterCommit(static function () use ($ids): void {
-                    RefreshCatalogRetailPrices::dispatch($ids);
-                });
-            }
+            $this->dispatchRetailRefreshForProductIds($productIds);
         });
+    }
 
-        return $report;
+    private function auditCsvImport(
+        ?User $user,
+        PriceList $locked,
+        array $rows,
+        Collection $existing,
+        array $report,
+        UploadedFile $file,
+    ): void {
+        if (! $user) {
+            return;
+        }
+
+        if (count($rows) > 100) {
+            $fileSha = $file->getRealPath() !== false ? @hash_file('sha256', $file->getRealPath()) : null;
+            StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['count', 'created', 'updated', 'file_sha256'], [], [
+                'count' => count($rows),
+                'created' => $report['created'],
+                'updated' => $report['updated'],
+                'file_sha256' => $fileSha ?: null,
+            ], []);
+
+            return;
+        }
+
+        StaffAdministration::audit($user, 'price_list.imported', 'price_list', $locked->id, ['items', 'count'], ['items' => $existing->values()->toArray()], ['items' => $rows, 'count' => count($rows)], []);
+    }
+
+    private function tierKey(int $variantId, string|float $minQty): string
+    {
+        return $variantId.':'.number_format((float) $minQty, 4, '.', '');
+    }
+
+    private function perPageFrom(array $filters): int
+    {
+        return max(1, min(100, (int) ($filters['per_page'] ?? 15)));
+    }
+
+    private function pageFrom(array $filters): ?int
+    {
+        return isset($filters['page']) ? max(1, (int) $filters['page']) : null;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function productIdsForPriceList(PriceList $priceList): array
+    {
+        return ProductVariant::query()
+            ->withTrashed()
+            ->whereIn('id', $priceList->items()->select('product_variant_id'))
+            ->distinct()
+            ->pluck('product_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+    }
+
+    private function dispatchRetailRefreshForVariant(PriceList $priceList, int $variantId): void
+    {
+        if ($priceList->type !== PriceListType::Retail) {
+            return;
+        }
+
+        $productId = (int) ProductVariant::query()->withTrashed()->whereKey($variantId)->value('product_id');
+        if ($productId > 0) {
+            $this->dispatchRetailRefreshForProductIds([$productId]);
+        }
+    }
+
+    /**
+     * @param  list<int>  $productIds
+     */
+    private function dispatchRetailRefreshForProductIds(array $productIds): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $productIds)));
+        if ($ids !== []) {
+            DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($ids));
+        }
     }
 
     /**

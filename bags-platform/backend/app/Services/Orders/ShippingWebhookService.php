@@ -72,10 +72,36 @@ class ShippingWebhookService
         if (preg_match('/\A[a-z0-9_-]{1,40}\z/', $companyCode) !== 1) {
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
+
         $provider = 'shipping:'.$companyCode;
-        // Pre-verification key uses raw body hash because unverified payload fields cannot be trusted
+        // Pre-verification key uses raw body hash because unverified payload fields cannot be trusted.
         $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
 
+        $verified = $this->verifyInboundRequest($companyCode, $provider, $preVerifyKey, $rawBody, $signature, $ip);
+        if (! $verified instanceof ShippingCompany) {
+            return $verified;
+        }
+
+        // Derive sanitized event identifier after cryptographic verification succeeds.
+        $eventId = $this->effectiveEventId($payload, $rawBody);
+        $log = $this->startLog($provider, $eventId, $payload, $ip, true);
+
+        return DB::transaction(fn (): array => $this->processVerifiedWebhook($provider, $payload, $log, $verified));
+    }
+
+    /**
+     * Validates payload size, carrier status, and HMAC signature before persisting full payloads.
+     *
+     * @return ShippingCompany|array{http: int, body: array<string, mixed>}
+     */
+    private function verifyInboundRequest(
+        string $companyCode,
+        string $provider,
+        string $preVerifyKey,
+        string $rawBody,
+        ?string $signature,
+        ?string $ip,
+    ): ShippingCompany|array {
         if (strlen($rawBody) > 262144) {
             $this->slimLog($provider, $preVerifyKey, 'rejected', 'payload too large', $ip);
 
@@ -83,141 +109,172 @@ class ShippingWebhookService
         }
 
         $company = ShippingCompany::query()
-            ->whereRaw('lower(code) = ?', [strtolower($companyCode)])
+            ->whereRaw('lower(code) = ?', [$companyCode])
             ->first();
         if ($company === null || ! $company->is_active) {
-            // Generic 403 response prevents carrier code enumeration via distinct HTTP response codes
+            // Generic 403 response prevents carrier code enumeration via distinct HTTP response codes.
             $this->slimLog($provider, $preVerifyKey, 'failed', 'شركة شحن غير معروفة أو معطّلة', $ip);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
-        // Validate HMAC signature exclusively using the carrier's designated webhook_secret
+        // Validate HMAC signature exclusively using the carrier's designated webhook_secret.
         $credentials = $company->api_credentials ?? [];
         $secret = $credentials['webhook_secret'] ?? null;
         if (! is_string($secret) || $secret === '' || ! $this->verifier->verify($secret, $rawBody, $signature)) {
-            $this->slimLog($provider, $preVerifyKey, 'invalid_signature',
-                (! is_string($secret) || $secret === '') ? 'لا يوجد webhook_secret مضبوط للشركة' : null, $ip);
+            $this->slimLog(
+                $provider,
+                $preVerifyKey,
+                'invalid_signature',
+                (! is_string($secret) || $secret === '') ? 'لا يوجد webhook_secret مضبوط للشركة' : null,
+                $ip,
+            );
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
-        // Derive sanitized event identifier after cryptographic verification succeeds
-        $eventId = $this->effectiveEventId($payload, $rawBody);
-        $log = $this->startLog($provider, $eventId, $payload, $ip, true);
+        return $company;
+    }
 
-        return DB::transaction(function () use ($provider, $payload, $log, $company): array {
-            DB::statement('SELECT pg_advisory_xact_lock(102, hashtext(?))', [$provider.':'.$log->event_id]);
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{http: int, body: array<string, mixed>}
+     */
+    private function processVerifiedWebhook(string $provider, array $payload, WebhookLog $log, ShippingCompany $company): array
+    {
+        DB::statement('SELECT pg_advisory_xact_lock(102, hashtext(?))', [$provider.':'.$log->event_id]);
 
-            if ($this->alreadyProcessed($provider, $log)) {
-                $log->update(['status' => 'duplicate']);
+        if ($this->alreadyProcessed($provider, $log)) {
+            $log->update(['status' => 'duplicate']);
 
-                return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+            return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+        }
+
+        $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number', 'data.tracking_number']);
+        $shipmentRef = $awb !== null
+            ? Shipment::query()->where('awb_number', (string) $awb)->where('shipping_company_id', $company->id)->first(['id', 'order_id'])
+            : null;
+        if ($shipmentRef === null) {
+            $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
+
+            return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
+        }
+
+        // Lock orders -> shipments in the same global order as ShipmentService to prevent deadlocks.
+        $order = Order::query()->lockForUpdate()->find($shipmentRef->order_id);
+        $shipment = Shipment::query()->whereKey($shipmentRef->id)->lockForUpdate()->first();
+        if ($shipment === null) {
+            $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
+
+            return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
+        }
+
+        $status = $this->mapStatus($payload);
+        if ($status === null) {
+            $log->update(['status' => 'ignored', 'error' => 'حالة شحن غير معروفة في الحمولة']);
+
+            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+        }
+
+        // Once a newer viable waybill exists, the old shipment is superseded.
+        // Ignore every status except Returned (which only annotates that old
+        // shipment); a stale Delivered event raises a review flag without
+        // settling or changing the order.
+        if ($this->hasNewerDeliveredOrActiveShipment($shipment) && $status !== ShipmentStatus::Returned) {
+            $deliveryWarning = $status === ShipmentStatus::Delivered;
+            if ($deliveryWarning && $order !== null) {
+                $order->update(['needs_attention' => true]);
+            }
+            $log->update([
+                'status' => 'ignored',
+                'error' => $deliveryWarning
+                    ? 'وصل بلاغ تسليم لبوليصة مستبدلة — يلزم التحقق من احتمال ازدواج التسليم'
+                    : 'وصل تحديث لبوليصة استُبدلت بأحدث منها — يُتجاهل',
+            ]);
+
+            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+        }
+
+        // Reject regressive status transitions or movements out of terminal states.
+        if (! $this->transitionAllowed($shipment->status, $status)) {
+            $log->update(['status' => 'ignored', 'error' => "حدث متأخر/متراجع: {$shipment->status->value} ← {$status->value}"]);
+
+            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+        }
+
+        $shipment->update(['status' => $status]);
+        ['failed' => $failed, 'note' => $note] = $this->applyShipmentStatusEffects($shipment, $order, $status);
+
+        $log->update(['status' => $failed ? 'failed' : 'processed', 'error' => $note]);
+
+        return ['http' => 200, 'body' => ['received' => true]];
+    }
+
+    /**
+     * @return array{failed: bool, note: ?string}
+     */
+    private function applyShipmentStatusEffects(Shipment $shipment, ?Order $order, ShipmentStatus $status): array
+    {
+        if ($status === ShipmentStatus::Returned) {
+            // Return notification marks order for attention unless a newer replacement shipment is active or delivered.
+            if ($order !== null && ! $this->hasNewerDeliveredOrActiveShipment($shipment) && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
+                $order->update(['needs_attention' => true]);
+
+                return ['failed' => false, 'note' => 'أبلغت شركة الشحن بمرتجع — بانتظار استلام المستودع الفعلي قبل إعادة البضاعة للمخزون'];
             }
 
-            $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number', 'data.tracking_number']);
-            $shipmentRef = $awb !== null
-                ? Shipment::query()->where('awb_number', (string) $awb)->where('shipping_company_id', $company->id)->first(['id', 'order_id'])
-                : null;
-            if ($shipmentRef === null) {
-                $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
+            return ['failed' => false, 'note' => null];
+        }
 
-                return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
+        if ($status === ShipmentStatus::Failed) {
+            // Mark order for staff review unless a newer replacement shipment is already active.
+            if ($order !== null && ! $this->hasNewerActiveShipment($shipment)) {
+                $order->update(['needs_attention' => true]);
+
+                return ['failed' => false, 'note' => 'فشلت البوليصة لدى شركة الشحن — يحتاج متابعة أو إصدار بوليصة بديلة'];
             }
 
-            // Lock orders -> shipments in the same global order as ShipmentService to prevent deadlocks.
-            $order = Order::query()->lockForUpdate()->find($shipmentRef->order_id);
-            $shipment = Shipment::query()->whereKey($shipmentRef->id)->lockForUpdate()->first();
-            if ($shipment === null) {
-                $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
+            return ['failed' => false, 'note' => 'بلاغ فشل لبوليصة استُبدلت بأحدث منها — يُتجاهل'];
+        }
 
-                return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
+        if ($status === ShipmentStatus::Delivered) {
+            // Keep the order-level delivery clock at the last active parcel.
+            // Return eligibility currently uses the order's Delivered timestamp,
+            // so marking it on an earlier parcel could shorten the window for
+            // items arriving in a later replacement/split shipment.
+            if ($order !== null && $order->status === OrderStatus::Shipped && ! $this->hasNewerActiveShipment($shipment)) {
+                return $this->deliverOrderFromShipment($order);
             }
+        }
 
-            $status = $this->mapStatus($payload);
-            if ($status === null) {
-                $log->update(['status' => 'ignored', 'error' => 'حالة شحن غير معروفة في الحمولة']);
+        return ['failed' => false, 'note' => null];
+    }
 
-                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+    /**
+     * @return array{failed: bool, note: ?string}
+     */
+    private function deliverOrderFromShipment(Order $order): array
+    {
+        try {
+            // Nested transaction is a savepoint. A constraint failure inside
+            // changeStatus aborts only that savepoint, so the order can still
+            // be flagged and the carrier event is not lost (25P02).
+            DB::transaction(function () use ($order): void {
+                $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
+            });
+
+            return ['failed' => false, 'note' => null];
+        } catch (Throwable $e) {
+            // Re-throw transient database exceptions so the webhook provider retries delivery.
+            if ($this->isTransient($e)) {
+                throw $e;
             }
+            // Non-transient errors flag the order for staff intervention without dropping the event.
+            $order->refresh();
+            $order->update(['needs_attention' => true]);
 
-            // Once a newer viable waybill exists, the old shipment is superseded.
-            // Ignore every status except Returned (which only annotates that old
-            // shipment); a stale Delivered event raises a review flag without
-            // settling or changing the order.
-            if ($this->hasNewerDeliveredOrActiveShipment($shipment) && $status !== ShipmentStatus::Returned) {
-                $deliveryWarning = $status === ShipmentStatus::Delivered;
-                if ($deliveryWarning && $order !== null) {
-                    $order->update(['needs_attention' => true]);
-                }
-                $log->update([
-                    'status' => 'ignored',
-                    'error' => $deliveryWarning
-                        ? 'وصل بلاغ تسليم لبوليصة مستبدلة — يلزم التحقق من احتمال ازدواج التسليم'
-                        : 'وصل تحديث لبوليصة استُبدلت بأحدث منها — يُتجاهل',
-                ]);
-
-                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
-            }
-
-            // Reject regressive status transitions or movements out of terminal states
-            if (! $this->transitionAllowed($shipment->status, $status)) {
-                $log->update(['status' => 'ignored', 'error' => "حدث متأخر/متراجع: {$shipment->status->value} ← {$status->value}"]);
-
-                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
-            }
-
-            $shipment->update(['status' => $status]);
-
-            $note = null;
-            $failed = false;
-            if ($status === ShipmentStatus::Returned) {
-                // Return notification marks order for attention unless a newer replacement shipment is active or delivered.
-                if ($order !== null && ! $this->hasNewerDeliveredOrActiveShipment($shipment) && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
-                    $order->update(['needs_attention' => true]);
-                    $note = 'أبلغت شركة الشحن بمرتجع — بانتظار استلام المستودع الفعلي قبل إعادة البضاعة للمخزون';
-                }
-            }
-            if ($status === ShipmentStatus::Failed) {
-                // Mark order for staff review unless a newer replacement shipment is already active
-                if ($order !== null && ! $this->hasNewerActiveShipment($shipment)) {
-                    $order->update(['needs_attention' => true]);
-                    $note = 'فشلت البوليصة لدى شركة الشحن — يحتاج متابعة أو إصدار بوليصة بديلة';
-                } else {
-                    $note = 'بلاغ فشل لبوليصة استُبدلت بأحدث منها — يُتجاهل';
-                }
-            }
-            if ($status === ShipmentStatus::Delivered) {
-                // Keep the order-level delivery clock at the last active parcel.
-                // Return eligibility currently uses the order's Delivered timestamp,
-                // so marking it on an earlier parcel could shorten the window for
-                // items arriving in a later replacement/split shipment.
-                if ($order !== null && $order->status === OrderStatus::Shipped && ! $this->hasNewerActiveShipment($shipment)) {
-                    try {
-                        // Nested transaction is a savepoint. A constraint failure inside
-                        // changeStatus aborts only that savepoint, so the order can still
-                        // be flagged and the carrier event is not lost (25P02).
-                        DB::transaction(function () use ($order): void {
-                            $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
-                        });
-                    } catch (Throwable $e) {
-                        // Re-throw transient database exceptions so the webhook provider retries delivery
-                        if ($this->isTransient($e)) {
-                            throw $e;
-                        }
-                        // Non-transient errors flag the order for staff intervention without dropping the event
-                        $order->refresh();
-                        $order->update(['needs_attention' => true]);
-                        $failed = true;
-                        $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
-                    }
-                }
-            }
-
-            $log->update(['status' => $failed ? 'failed' : 'processed', 'error' => $note]);
-
-            return ['http' => 200, 'body' => ['received' => true]];
-        });
+            return ['failed' => true, 'note' => 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage()];
+        }
     }
 
     /**
@@ -299,24 +356,29 @@ class ShippingWebhookService
      */
     private function rawStatus(array $payload): ?string
     {
-        $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
-        if (! is_scalar($raw)) {
+        $normalized = $this->normalizedRawStatus($payload);
+        if ($normalized === null) {
             return null;
         }
 
-        return $this->mapStatus($payload)?->value
-            ?? str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
+        return (self::STATUS_MAP[$normalized] ?? null)?->value ?? $normalized;
     }
 
     private function mapStatus(array $payload): ?ShipmentStatus
+    {
+        $normalized = $this->normalizedRawStatus($payload);
+
+        return $normalized !== null ? (self::STATUS_MAP[$normalized] ?? null) : null;
+    }
+
+    private function normalizedRawStatus(array $payload): ?string
     {
         $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
         if (! is_scalar($raw)) {
             return null;
         }
-        $key = str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
 
-        return self::STATUS_MAP[$key] ?? null;
+        return str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
     }
 
     /**
@@ -324,15 +386,11 @@ class ShippingWebhookService
      */
     private function hasNewerActiveShipment(Shipment $shipment): bool
     {
-        return Shipment::query()
-            ->where('order_id', $shipment->order_id)
-            ->where('id', '>', $shipment->id)
-            ->whereNotIn('status', [
-                ShipmentStatus::Failed->value,
-                ShipmentStatus::Returned->value,
-                ShipmentStatus::Delivered->value,
-            ])
-            ->exists();
+        return $this->hasNewerShipmentExcluding($shipment, [
+            ShipmentStatus::Failed->value,
+            ShipmentStatus::Returned->value,
+            ShipmentStatus::Delivered->value,
+        ]);
     }
 
     /**
@@ -340,13 +398,21 @@ class ShippingWebhookService
      */
     private function hasNewerDeliveredOrActiveShipment(Shipment $shipment): bool
     {
+        return $this->hasNewerShipmentExcluding($shipment, [
+            ShipmentStatus::Failed->value,
+            ShipmentStatus::Returned->value,
+        ]);
+    }
+
+    /**
+     * @param  list<string>  $excludedStatuses
+     */
+    private function hasNewerShipmentExcluding(Shipment $shipment, array $excludedStatuses): bool
+    {
         return Shipment::query()
             ->where('order_id', $shipment->order_id)
             ->where('id', '>', $shipment->id)
-            ->whereNotIn('status', [
-                ShipmentStatus::Failed->value,
-                ShipmentStatus::Returned->value,
-            ])
+            ->whereNotIn('status', $excludedStatuses)
             ->exists();
     }
 

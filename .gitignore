@@ -204,6 +204,7 @@ repomix-files.txt
 .superpowers/
 docs/superpowers/
 .human-tests/
+.clean-code/
 
 # ------------------------------------------
 # Ignore new archive files while keeping tracked copies

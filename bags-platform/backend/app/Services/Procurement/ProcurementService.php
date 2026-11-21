@@ -34,6 +34,7 @@ use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -278,34 +279,9 @@ class ProcurementService
     {
         return DB::transaction(function () use ($po, $data, $editor): PurchaseOrder {
             $po = $this->lockSupplierThenOrder($po);
-            $this->assertBranchAccess($editor, (int) $po->branch_id);
-            if (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id) {
-                $this->assertBranchAccess($editor, (int) $data['branch_id']);
-            }
-            if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
-                throw new BusinessException('لا يمكن تعديل أمر شراء إلا وهو مسودة أو بانتظار معالجة تعديلات المورد.');
-            }
-            // An empty payload must not overwrite last_modified_by and launder the
-            // separation-of-duties check in approvePurchaseOrder().
-            if (array_intersect([
-                'supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date',
-            ], array_keys($data)) === []) {
-                throw new BusinessException('لا يوجد تغيير صالح في أمر الشراء.');
-            }
-            if ($po->items()->where('received_qty', '>', 0)->exists()) {
-                throw new BusinessException('أمر شراء بدأ استلامه لا تُعدَّل بنوده.');
-            }
-            if ($po->deliveries()->exists()
-                && (isset($data['items'])
-                    || (isset($data['supplier_id']) && (int) $data['supplier_id'] !== (int) $po->supplier_id)
-                    || (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id))) {
-                throw new BusinessException('لا يمكن تغيير المورد أو الفرع أو البنود بعد تسجيل إشعار توريد.');
-            }
-            if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount'], array_keys($data)) !== []
-                && $po->invoices()->where('status', '!=', SupplierInvoiceStatus::Cancelled)->exists()) {
-                throw new BusinessException('لا يمكن تعديل شروط أمر شراء مرتبط بفاتورة غير ملغاة.');
-            }
-            // Modifying core commercial terms invalidates prior internal approval
+            $this->assertOrderUpdatable($po, $data, $editor);
+
+            // Modifying core commercial terms invalidates prior internal approval.
             if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date'], array_keys($data))) {
                 $data['approved_by'] = null;
             }
@@ -315,39 +291,22 @@ class ProcurementService
             if (isset($data['branch_id'])) {
                 $this->assertActiveBranch((int) $data['branch_id'], 'فرع الاستلام غير نشط.', true);
             }
+
             $attributes = array_intersect_key($data, array_flip([
                 'supplier_id', 'branch_id', 'expected_delivery_date', 'discount_amount', 'approved_by',
             ]));
             if (array_key_exists('discount_amount', $attributes)) {
                 $attributes['discount_amount'] = (string) BigDecimal::of((string) $attributes['discount_amount'])->toScale(2, RoundingMode::HalfUp);
             }
+
             $probe = clone $po;
             $probe->fill($attributes);
-
-            $itemsChanged = false;
-            if (isset($data['items'])) {
-                $existingItems = $po->items()->orderBy('product_variant_id')->get();
-                $newItems = collect($data['items'])->sortBy(fn ($it) => (int) $it['product_variant_id'])->values();
-                if ($existingItems->count() !== $newItems->count()) {
-                    $itemsChanged = true;
-                } else {
-                    foreach ($newItems as $idx => $newItem) {
-                        $existing = $existingItems[$idx];
-                        if ((int) $existing->product_variant_id !== (int) $newItem['product_variant_id']
-                            || BigDecimal::of((string) $newItem['ordered_qty'])->compareTo((string) $existing->ordered_qty) !== 0
-                            || BigDecimal::of((string) $newItem['unit_cost'])->compareTo((string) $existing->unit_cost) !== 0
-                            || BigDecimal::of((string) ($newItem['tax_rate'] ?? 0))->compareTo((string) $existing->tax_rate) !== 0
-                            || (string) ($newItem['notes'] ?? '') !== (string) ($existing->notes ?? '')) {
-                            $itemsChanged = true;
-                            break;
-                        }
-                    }
-                }
-            }
+            $itemsChanged = isset($data['items']) && $this->orderItemsDiffer($po, $data['items']);
 
             if (! $probe->isDirty() && ! $itemsChanged) {
                 throw new BusinessException('لا يوجد تغيير فعلي في أمر الشراء.');
             }
+
             $attributes['last_modified_by'] = $editor->id;
             $po->update($attributes);
             if ($itemsChanged) {
@@ -358,6 +317,59 @@ class ProcurementService
 
             return $po->fresh(['items']);
         });
+    }
+
+    private function assertOrderUpdatable(PurchaseOrder $po, array $data, User $editor): void
+    {
+        $this->assertBranchAccess($editor, (int) $po->branch_id);
+        if (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id) {
+            $this->assertBranchAccess($editor, (int) $data['branch_id']);
+        }
+        if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
+            throw new BusinessException('لا يمكن تعديل أمر شراء إلا وهو مسودة أو بانتظار معالجة تعديلات المورد.');
+        }
+        // An empty payload must not overwrite last_modified_by and launder the
+        // separation-of-duties check in approvePurchaseOrder().
+        if (array_intersect([
+            'supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date',
+        ], array_keys($data)) === []) {
+            throw new BusinessException('لا يوجد تغيير صالح في أمر الشراء.');
+        }
+        if ($po->items()->where('received_qty', '>', 0)->exists()) {
+            throw new BusinessException('أمر شراء بدأ استلامه لا تُعدَّل بنوده.');
+        }
+        if ($po->deliveries()->exists()
+            && (isset($data['items'])
+                || (isset($data['supplier_id']) && (int) $data['supplier_id'] !== (int) $po->supplier_id)
+                || (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id))) {
+            throw new BusinessException('لا يمكن تغيير المورد أو الفرع أو البنود بعد تسجيل إشعار توريد.');
+        }
+        if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount'], array_keys($data)) !== []
+            && $po->invoices()->where('status', '!=', SupplierInvoiceStatus::Cancelled)->exists()) {
+            throw new BusinessException('لا يمكن تعديل شروط أمر شراء مرتبط بفاتورة غير ملغاة.');
+        }
+    }
+
+    private function orderItemsDiffer(PurchaseOrder $po, array $newRawItems): bool
+    {
+        $existingItems = $po->items()->orderBy('product_variant_id')->get();
+        $newItems = collect($newRawItems)->sortBy(fn ($it) => (int) $it['product_variant_id'])->values();
+        if ($existingItems->count() !== $newItems->count()) {
+            return true;
+        }
+
+        foreach ($newItems as $idx => $newItem) {
+            $existing = $existingItems[$idx];
+            if ((int) $existing->product_variant_id !== (int) $newItem['product_variant_id']
+                || BigDecimal::of((string) $newItem['ordered_qty'])->compareTo((string) $existing->ordered_qty) !== 0
+                || BigDecimal::of((string) $newItem['unit_cost'])->compareTo((string) $existing->unit_cost) !== 0
+                || BigDecimal::of((string) ($newItem['tax_rate'] ?? 0))->compareTo((string) $existing->tax_rate) !== 0
+                || (string) ($newItem['notes'] ?? '') !== (string) ($existing->notes ?? '')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -681,211 +693,315 @@ class ProcurementService
         return DB::transaction(function () use ($po, $receivedItems, $locationId, $supplierDeliveryId, $actor): PurchaseOrder {
             $po = $this->lockSupplierThenOrder($po);
             $this->assertBranchAccess($actor, (int) $po->branch_id);
-            if (! in_array($po->status, [
-                PurchaseOrderStatus::SentToSupplier,
-                PurchaseOrderStatus::SupplierAccepted,
-                PurchaseOrderStatus::PartiallyReceived,
-            ], true)) {
-                throw new BusinessException("لا يمكن استلام بضاعة لأمر شراء في حالة ({$po->status->value}).");
-            }
-            // Re-verify branch status at intake time to prevent crediting stock to an inactive branch
-            $this->assertActiveBranch((int) $po->branch_id, 'فرع استلام أمر الشراء غير نشط.', true);
+            $this->validateReceiptPreconditions($po, $locationId, $supplierDeliveryId);
 
-            if ($supplierDeliveryId === null && $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
-                throw new BusinessException('حدد إشعار التوريد المعلق عند الاستلام لمنع احتساب كمياته مرتين.');
-            }
-            if ($locationId !== null) {
-                $location = Location::query()->whereKey($locationId)->lockForUpdate()->first();
-                if ($location === null || ! $location->is_active) {
-                    throw new BusinessException('موقع الاستلام غير نشط أو غير موجود.');
-                }
-                if ((int) $location->branch_id !== (int) $po->branch_id) {
-                    throw new BusinessException('موقع الاستلام لا يتبع فرع أمر الشراء.');
-                }
-            }
             $poItems = $po->items()->orderBy('product_variant_id')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            // Collapse duplicate lines so one PO item cannot be received twice in
-            // the same request with inflated quantities or split stock movements.
-            $received = [];
-            foreach ($receivedItems as $itemData) {
-                DiscreteQuantity::assert($itemData['qty']);
-                $lineId = (int) $itemData['purchase_order_item_id'];
-                $received[$lineId] = BigDecimal::of((string) ($received[$lineId] ?? '0'))
-                    ->plus((string) $itemData['qty'])
-                    ->toScale(4, RoundingMode::HalfUp)
-                    ->__toString();
-            }
-            $receivedItems = [];
-            foreach ($received as $lineId => $qty) {
-                $receivedItems[] = ['purchase_order_item_id' => $lineId, 'qty' => $qty];
-            }
-            usort($receivedItems, fn (array $a, array $b): int => [($poItems->get((int) $a['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $a['purchase_order_item_id']]
-                <=> [($poItems->get((int) $b['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $b['purchase_order_item_id']]);
-            $variantIds = [];
-            foreach ($receivedItems as $itemData) {
-                $line = $poItems->get((int) $itemData['purchase_order_item_id']);
-                if ($line !== null && BigDecimal::of((string) $itemData['qty'])->isPositive()) {
-                    $variantIds[] = (int) $line->product_variant_id;
-                }
-            }
-            if ($variantIds === []) {
-                throw new BusinessException('يجب استلام كمية موجبة من بند واحد على الأقل.');
-            }
-            $variants = ProductVariant::query()->whereIn('id', array_values(array_unique($variantIds)))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            // Lock every owned stock row for these variants before reading the WAC denominator.
-            StockLevel::query()
-                ->whereIn('product_variant_id', $variants->keys())
-                ->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
-                ->lockForUpdate()->get();
-            // Aggregate owned units once per variant while every stock row is locked,
-            // instead of re-summing inside the receipt loop.
-            $currentTotals = StockLevel::query()
-                ->whereIn('product_variant_id', $variants->keys())
-                ->groupBy('product_variant_id')
-                ->selectRaw('product_variant_id, SUM(on_hand + in_transit) as owned_total')
-                ->pluck('owned_total', 'product_variant_id');
-            $costFactor = BigDecimal::of((string) $po->subtotal)->isPositive()
-                ? BigDecimal::of('1')->minus(
-                    BigDecimal::of((string) $po->discount_amount)
-                        ->dividedBy((string) $po->subtotal, 12, RoundingMode::HalfUp)
-                )
-                : BigDecimal::of('1');
-            if ($costFactor->isNegative()) {
-                $costFactor = BigDecimal::of('0');
-            }
-            $delivery = null;
-            $deliveryItems = collect();
-            if ($supplierDeliveryId !== null) {
-                $delivery = SupplierDelivery::query()->lockForUpdate()
-                    ->where('purchase_order_id', $po->id)
-                    ->findOrFail($supplierDeliveryId);
-                if ($delivery->status !== SupplierDeliveryStatus::PendingReceipt) {
-                    throw new BusinessException('إشعار التوريد هذا تمت معالجته من قبل.');
-                }
-                $deliveryItems = $delivery->items()->lockForUpdate()->get()->keyBy('purchase_order_item_id');
-            }
+            $collapsedItems = $this->collapseReceiptLines($receivedItems, $poItems);
+            $variantIds = $this->extractPositiveReceiptVariantIds($collapsedItems, $poItems);
 
-            $receiptLines = [];
-            $variantTotals = [];
-            foreach ($receivedItems as $itemData) {
-                $poItem = $poItems->get((int) $itemData['purchase_order_item_id']);
-                if ($poItem === null) {
-                    throw new BusinessException('أحد بنود الاستلام لا يتبع أمر الشراء هذا.');
-                }
-                DiscreteQuantity::assert($itemData['qty']);
-                $qtyToReceive = BigDecimal::of((string) $itemData['qty'])->toScale(4, RoundingMode::HalfUp);
-                if (! $qtyToReceive->isPositive()) {
-                    continue;
-                }
+            ['variants' => $variants, 'currentTotals' => $currentTotals] = $this->loadLockedReceiptStocks($variantIds);
+            ['delivery' => $delivery, 'deliveryItems' => $deliveryItems] = $this->loadPendingDelivery($po, $supplierDeliveryId);
 
-                $remainingQty = BigDecimal::of((string) $poItem->ordered_qty)
-                    ->minus((string) $poItem->received_qty)
-                    ->toScale(4, RoundingMode::HalfUp);
-                if ($qtyToReceive->compareTo($remainingQty) > 0) {
-                    throw new BusinessException("الكمية المستلمة ({$qtyToReceive}) أكبر من الكمية المتبقية في أمر الشراء ({$remainingQty}).");
-                }
+            $costFactor = $this->orderDiscountCostFactor($po);
+            ['receiptLines' => $receiptLines, 'variantTotals' => $variantTotals] = $this->buildReceiptLinesAndTotals(
+                $collapsedItems,
+                $poItems,
+                $delivery,
+                $deliveryItems,
+                $variants,
+                $costFactor,
+            );
 
-                $deliveryItem = null;
-                if ($delivery !== null) {
-                    $deliveryItem = $deliveryItems->get($poItem->id);
-                    if ($deliveryItem === null) {
-                        throw new BusinessException('أحد بنود الاستلام غير موجود في إشعار التوريد المحدد.');
-                    }
-                    $shippedRemaining = BigDecimal::of((string) $deliveryItem->shipped_qty)
-                        ->minus((string) $deliveryItem->received_qty)
-                        ->toScale(4, RoundingMode::HalfUp);
-                    if ($qtyToReceive->compareTo($shippedRemaining) > 0) {
-                        throw new BusinessException('الكمية المستلمة أكبر من المشحونة المتبقية في إشعار التوريد.');
-                    }
-                }
-
-                $variant = $variants->get($poItem->product_variant_id);
-                if ($variant === null) {
-                    throw new BusinessException('متغير الصنف غير متاح للاستلام.');
-                }
-
-                // 1. Accumulate per-variant receipt value so duplicate variants receive
-                // one weighted average update even when they span multiple PO lines.
-                $newUnitCost = BigDecimal::of((string) $poItem->unit_cost)
-                    ->multipliedBy($costFactor)
-                    ->toScale(4, RoundingMode::HalfUp);
-                $receiptLines[] = [
-                    'poItem' => $poItem,
-                    'deliveryItem' => $deliveryItem,
-                    'variant' => $variant,
-                    'qty' => $qtyToReceive->__toString(),
-                    'unitCost' => $newUnitCost->__toString(),
-                ];
-                $variantTotals[$variant->id] ??= ['qty' => BigDecimal::zero(), 'value' => BigDecimal::zero()];
-                $variantTotals[$variant->id]['qty'] = $variantTotals[$variant->id]['qty']
-                    ->plus($qtyToReceive)
-                    ->toScale(4, RoundingMode::HalfUp);
-                $variantTotals[$variant->id]['value'] = $variantTotals[$variant->id]['value']
-                    ->plus($qtyToReceive->multipliedBy($newUnitCost))
-                    ->toScale(8, RoundingMode::HalfUp);
-            }
-
-            // 2. Calculate and update company-wide weighted average cost (WAC) once per variant.
-            foreach ($variantTotals as $variantId => $totals) {
-                $variant = $variants->get($variantId);
-                if ($variant === null) {
-                    throw new BusinessException('متغير الصنف غير متاح للاستلام.');
-                }
-                $currentTotalOnHand = BigDecimal::of((string) ($currentTotals[$variantId] ?? '0'));
-                if ($currentTotalOnHand->isNegative()) {
-                    $currentTotalOnHand = BigDecimal::zero();
-                }
-                $weightedUnitCost = $totals['qty']->isPositive()
-                    ? $totals['value']->dividedBy($totals['qty'], 8, RoundingMode::HalfUp)
-                    : BigDecimal::zero();
-                $newAverageCost = InventoryService::calculateWeightedAverageCost(
-                    $currentTotalOnHand->__toString(),
-                    (string) $variant->cost_price,
-                    $totals['qty']->__toString(),
-                    $weightedUnitCost->__toString(),
-                );
-                $variant->update([
-                    'cost_price' => $newAverageCost,
-                    'last_cost_price' => $weightedUnitCost->toScale(4, RoundingMode::HalfUp)->__toString(),
-                ]);
-            }
-
-            // 3. Post physical inventory receipts and increment received quantities.
-            foreach ($receiptLines as $line) {
-                $this->inventory->recordMovement([
-                    'product_variant_id' => $line['variant']->id,
-                    'branch_id' => (int) $po->branch_id,
-                    'location_id' => $locationId,
-                    'type' => StockMovementType::PurchaseReceipt,
-                    'affected_bucket' => StockBucket::OnHand,
-                    'quantity' => $line['qty'],
-                    'unit_cost' => $line['unitCost'],
-                    'reference_type' => PurchaseOrder::class,
-                    'reference_id' => $po->id,
-                    'created_by' => $actor->id,
-                    'notes' => "استلام من أمر شراء رقم {$po->po_number}",
-                ]);
-                $line['poItem']->increment('received_qty', $line['qty']);
-                $line['deliveryItem']?->increment('received_qty', $line['qty']);
-            }
-
-            if ($delivery !== null) {
-                $allDeliveryReceived = $delivery->items()->lockForUpdate()->get()
-                    ->every(fn (SupplierDeliveryItem $i): bool => BigDecimal::of((string) $i->received_qty)
-                        ->compareTo((string) $i->shipped_qty) >= 0);
-                if ($allDeliveryReceived) {
-                    $delivery->update(['status' => SupplierDeliveryStatus::Received]);
-                }
-            }
-
-            // 4. Update overall PO status based on whether all ordered quantities are satisfied
-            $po->load('items');
-            $allCompleted = $po->items->every(fn (PurchaseOrderItem $i): bool => BigDecimal::of((string) $i->received_qty)
-                ->compareTo((string) $i->ordered_qty) >= 0);
-            $po->update(['status' => $allCompleted ? PurchaseOrderStatus::Completed : PurchaseOrderStatus::PartiallyReceived]);
+            $this->updateVariantsWeightedAverageCost($variantTotals, $variants, $currentTotals);
+            $this->postReceiptMovementsAndSyncStatuses($po, $receiptLines, $locationId, $delivery, $actor);
 
             return $po->fresh(['items.variant']);
         });
+    }
+
+    private function validateReceiptPreconditions(PurchaseOrder $po, ?int $locationId, ?int $supplierDeliveryId): void
+    {
+        if (! in_array($po->status, [
+            PurchaseOrderStatus::SentToSupplier,
+            PurchaseOrderStatus::SupplierAccepted,
+            PurchaseOrderStatus::PartiallyReceived,
+        ], true)) {
+            throw new BusinessException("لا يمكن استلام بضاعة لأمر شراء في حالة ({$po->status->value}).");
+        }
+
+        // Re-verify branch status at intake time to prevent crediting stock to an inactive branch.
+        $this->assertActiveBranch((int) $po->branch_id, 'فرع استلام أمر الشراء غير نشط.', true);
+
+        if ($supplierDeliveryId === null && $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
+            throw new BusinessException('حدد إشعار التوريد المعلق عند الاستلام لمنع احتساب كمياته مرتين.');
+        }
+
+        if ($locationId !== null) {
+            $location = Location::query()->whereKey($locationId)->lockForUpdate()->first();
+            if ($location === null || ! $location->is_active) {
+                throw new BusinessException('موقع الاستلام غير نشط أو غير موجود.');
+            }
+            if ((int) $location->branch_id !== (int) $po->branch_id) {
+                throw new BusinessException('موقع الاستلام لا يتبع فرع أمر الشراء.');
+            }
+        }
+    }
+
+    /**
+     * @param  list<array{purchase_order_item_id: int, qty: float|int|string}>  $receivedItems
+     * @return list<array{purchase_order_item_id: int, qty: string}>
+     */
+    private function collapseReceiptLines(array $receivedItems, Collection $poItems): array
+    {
+        // Collapse duplicate lines so one PO item cannot be received twice in
+        // the same request with inflated quantities or split stock movements.
+        $received = [];
+        foreach ($receivedItems as $itemData) {
+            DiscreteQuantity::assert($itemData['qty']);
+            $lineId = (int) $itemData['purchase_order_item_id'];
+            $received[$lineId] = BigDecimal::of((string) ($received[$lineId] ?? '0'))
+                ->plus((string) $itemData['qty'])
+                ->toScale(4, RoundingMode::HalfUp)
+                ->__toString();
+        }
+
+        $collapsed = [];
+        foreach ($received as $lineId => $qty) {
+            $collapsed[] = ['purchase_order_item_id' => $lineId, 'qty' => $qty];
+        }
+
+        usort($collapsed, fn (array $a, array $b): int => [($poItems->get((int) $a['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $a['purchase_order_item_id']]
+            <=> [($poItems->get((int) $b['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $b['purchase_order_item_id']]);
+
+        return $collapsed;
+    }
+
+    /**
+     * @param  list<array{purchase_order_item_id: int, qty: string}>  $collapsedItems
+     * @return list<int>
+     */
+    private function extractPositiveReceiptVariantIds(array $collapsedItems, Collection $poItems): array
+    {
+        $variantIds = [];
+        foreach ($collapsedItems as $itemData) {
+            $line = $poItems->get((int) $itemData['purchase_order_item_id']);
+            if ($line !== null && BigDecimal::of($itemData['qty'])->isPositive()) {
+                $variantIds[] = (int) $line->product_variant_id;
+            }
+        }
+        if ($variantIds === []) {
+            throw new BusinessException('يجب استلام كمية موجبة من بند واحد على الأقل.');
+        }
+
+        return array_values(array_unique($variantIds));
+    }
+
+    /**
+     * @param  list<int>  $variantIds
+     * @return array{variants: Collection, currentTotals: Collection}
+     */
+    private function loadLockedReceiptStocks(array $variantIds): array
+    {
+        $variants = ProductVariant::query()->whereIn('id', $variantIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+
+        // Lock every owned stock row for these variants before reading the WAC denominator.
+        StockLevel::query()
+            ->whereIn('product_variant_id', $variants->keys())
+            ->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
+            ->lockForUpdate()->get();
+
+        // Aggregate owned units once per variant while every stock row is locked,
+        // instead of re-summing inside the receipt loop.
+        $currentTotals = StockLevel::query()
+            ->whereIn('product_variant_id', $variants->keys())
+            ->groupBy('product_variant_id')
+            ->selectRaw('product_variant_id, SUM(on_hand + in_transit) as owned_total')
+            ->pluck('owned_total', 'product_variant_id');
+
+        return ['variants' => $variants, 'currentTotals' => $currentTotals];
+    }
+
+    /**
+     * @return array{delivery: ?SupplierDelivery, deliveryItems: Collection}
+     */
+    private function loadPendingDelivery(PurchaseOrder $po, ?int $supplierDeliveryId): array
+    {
+        if ($supplierDeliveryId === null) {
+            return ['delivery' => null, 'deliveryItems' => collect()];
+        }
+
+        $delivery = SupplierDelivery::query()->lockForUpdate()
+            ->where('purchase_order_id', $po->id)
+            ->findOrFail($supplierDeliveryId);
+        if ($delivery->status !== SupplierDeliveryStatus::PendingReceipt) {
+            throw new BusinessException('إشعار التوريد هذا تمت معالجته من قبل.');
+        }
+
+        return [
+            'delivery' => $delivery,
+            'deliveryItems' => $delivery->items()->lockForUpdate()->get()->keyBy('purchase_order_item_id'),
+        ];
+    }
+
+    private function orderDiscountCostFactor(PurchaseOrder $po): BigDecimal
+    {
+        $costFactor = BigDecimal::of((string) $po->subtotal)->isPositive()
+            ? BigDecimal::of('1')->minus(
+                BigDecimal::of((string) $po->discount_amount)
+                    ->dividedBy((string) $po->subtotal, 12, RoundingMode::HalfUp)
+            )
+            : BigDecimal::of('1');
+
+        return $costFactor->isNegative() ? BigDecimal::of('0') : $costFactor;
+    }
+
+    /**
+     * @param  list<array{purchase_order_item_id: int, qty: string}>  $collapsedItems
+     * @return array{receiptLines: list<array<string, mixed>>, variantTotals: array<int, array{qty: BigDecimal, value: BigDecimal}>}
+     */
+    private function buildReceiptLinesAndTotals(
+        array $collapsedItems,
+        Collection $poItems,
+        ?SupplierDelivery $delivery,
+        Collection $deliveryItems,
+        Collection $variants,
+        BigDecimal $costFactor,
+    ): array {
+        $receiptLines = [];
+        $variantTotals = [];
+
+        foreach ($collapsedItems as $itemData) {
+            $poItem = $poItems->get((int) $itemData['purchase_order_item_id']);
+            if ($poItem === null) {
+                throw new BusinessException('أحد بنود الاستلام لا يتبع أمر الشراء هذا.');
+            }
+            DiscreteQuantity::assert($itemData['qty']);
+            $qtyToReceive = BigDecimal::of($itemData['qty'])->toScale(4, RoundingMode::HalfUp);
+            if (! $qtyToReceive->isPositive()) {
+                continue;
+            }
+
+            $remainingQty = BigDecimal::of((string) $poItem->ordered_qty)
+                ->minus((string) $poItem->received_qty)
+                ->toScale(4, RoundingMode::HalfUp);
+            if ($qtyToReceive->compareTo($remainingQty) > 0) {
+                throw new BusinessException("الكمية المستلمة ({$qtyToReceive}) أكبر من الكمية المتبقية في أمر الشراء ({$remainingQty}).");
+            }
+
+            $deliveryItem = null;
+            if ($delivery !== null) {
+                $deliveryItem = $deliveryItems->get($poItem->id);
+                if ($deliveryItem === null) {
+                    throw new BusinessException('أحد بنود الاستلام غير موجود في إشعار التوريد المحدد.');
+                }
+                $shippedRemaining = BigDecimal::of((string) $deliveryItem->shipped_qty)
+                    ->minus((string) $deliveryItem->received_qty)
+                    ->toScale(4, RoundingMode::HalfUp);
+                if ($qtyToReceive->compareTo($shippedRemaining) > 0) {
+                    throw new BusinessException('الكمية المستلمة أكبر من المشحونة المتبقية في إشعار التوريد.');
+                }
+            }
+
+            $variant = $variants->get($poItem->product_variant_id);
+            if ($variant === null) {
+                throw new BusinessException('متغير الصنف غير متاح للاستلام.');
+            }
+
+            // Accumulate per-variant receipt value so duplicate variants receive
+            // one weighted average update even when they span multiple PO lines.
+            $newUnitCost = BigDecimal::of((string) $poItem->unit_cost)
+                ->multipliedBy($costFactor)
+                ->toScale(4, RoundingMode::HalfUp);
+            $receiptLines[] = [
+                'poItem' => $poItem,
+                'deliveryItem' => $deliveryItem,
+                'variant' => $variant,
+                'qty' => $qtyToReceive->__toString(),
+                'unitCost' => $newUnitCost->__toString(),
+            ];
+            $variantTotals[$variant->id] ??= ['qty' => BigDecimal::zero(), 'value' => BigDecimal::zero()];
+            $variantTotals[$variant->id]['qty'] = $variantTotals[$variant->id]['qty']
+                ->plus($qtyToReceive)
+                ->toScale(4, RoundingMode::HalfUp);
+            $variantTotals[$variant->id]['value'] = $variantTotals[$variant->id]['value']
+                ->plus($qtyToReceive->multipliedBy($newUnitCost))
+                ->toScale(8, RoundingMode::HalfUp);
+        }
+
+        return ['receiptLines' => $receiptLines, 'variantTotals' => $variantTotals];
+    }
+
+    private function updateVariantsWeightedAverageCost(
+        array $variantTotals,
+        Collection $variants,
+        Collection $currentTotals,
+    ): void {
+        foreach ($variantTotals as $variantId => $totals) {
+            $variant = $variants->get($variantId);
+            if ($variant === null) {
+                throw new BusinessException('متغير الصنف غير متاح للاستلام.');
+            }
+            $currentTotalOnHand = BigDecimal::of((string) ($currentTotals[$variantId] ?? '0'));
+            if ($currentTotalOnHand->isNegative()) {
+                $currentTotalOnHand = BigDecimal::zero();
+            }
+            $weightedUnitCost = $totals['qty']->isPositive()
+                ? $totals['value']->dividedBy($totals['qty'], 8, RoundingMode::HalfUp)
+                : BigDecimal::zero();
+            $newAverageCost = InventoryService::calculateWeightedAverageCost(
+                $currentTotalOnHand->__toString(),
+                (string) $variant->cost_price,
+                $totals['qty']->__toString(),
+                $weightedUnitCost->__toString(),
+            );
+            $variant->update([
+                'cost_price' => $newAverageCost,
+                'last_cost_price' => $weightedUnitCost->toScale(4, RoundingMode::HalfUp)->__toString(),
+            ]);
+        }
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $receiptLines
+     */
+    private function postReceiptMovementsAndSyncStatuses(
+        PurchaseOrder $po,
+        array $receiptLines,
+        ?int $locationId,
+        ?SupplierDelivery $delivery,
+        User $actor,
+    ): void {
+        foreach ($receiptLines as $line) {
+            $this->inventory->recordMovement([
+                'product_variant_id' => $line['variant']->id,
+                'branch_id' => (int) $po->branch_id,
+                'location_id' => $locationId,
+                'type' => StockMovementType::PurchaseReceipt,
+                'affected_bucket' => StockBucket::OnHand,
+                'quantity' => $line['qty'],
+                'unit_cost' => $line['unitCost'],
+                'reference_type' => PurchaseOrder::class,
+                'reference_id' => $po->id,
+                'created_by' => $actor->id,
+                'notes' => "استلام من أمر شراء رقم {$po->po_number}",
+            ]);
+            $line['poItem']->increment('received_qty', $line['qty']);
+            $line['deliveryItem']?->increment('received_qty', $line['qty']);
+        }
+
+        if ($delivery !== null) {
+            $allDeliveryReceived = $delivery->items()->lockForUpdate()->get()
+                ->every(fn (SupplierDeliveryItem $i): bool => BigDecimal::of((string) $i->received_qty)
+                    ->compareTo((string) $i->shipped_qty) >= 0);
+            if ($allDeliveryReceived) {
+                $delivery->update(['status' => SupplierDeliveryStatus::Received]);
+            }
+        }
+
+        $po->load('items');
+        $allCompleted = $po->items->every(fn (PurchaseOrderItem $i): bool => BigDecimal::of((string) $i->received_qty)
+            ->compareTo((string) $i->ordered_qty) >= 0);
+        $po->update(['status' => $allCompleted ? PurchaseOrderStatus::Completed : PurchaseOrderStatus::PartiallyReceived]);
     }
 
     // ================= Supplier Portal =================
@@ -994,37 +1110,12 @@ class ProcurementService
                 throw new BusinessException("لا يمكن إرسال توريد لأمر شراء في حالة ({$po->status->value}).");
             }
 
-            // Aggregate duplicate line submissions before evaluating cumulative quantity caps
-            $lines = [];
-            foreach ($data['items'] as $line) {
-                DiscreteQuantity::assert($line['shipped_qty']);
-                $itemId = (int) $line['purchase_order_item_id'];
-                $lines[$itemId] = (string) BigDecimal::of((string) ($lines[$itemId] ?? '0'))
-                    ->plus((string) $line['shipped_qty'])->toScale(4, RoundingMode::HalfUp);
-            }
-
+            $lines = $this->aggregateDeliveryLines($data['items']);
             $poItems = $po->items()->with('variant:id,sku')->whereIn('id', array_keys($lines))->lockForUpdate()->get()->keyBy('id');
             if ($poItems->count() !== count($lines)) {
                 throw new BusinessException('أحد بنود التوريد لا يتبع أمر الشراء هذا.');
             }
-            foreach ($lines as $itemId => $shippedQty) {
-                $poItem = $poItems->get($itemId);
-                $pendingRows = SupplierDeliveryItem::query()
-                    ->where('purchase_order_item_id', $itemId)
-                    ->whereHas('delivery', fn ($q) => $q->where('status', SupplierDeliveryStatus::PendingReceipt->value))
-                    ->lockForUpdate()
-                    ->get(['shipped_qty', 'received_qty']);
-                $pendingShipment = '0';
-                foreach ($pendingRows as $pendingRow) {
-                    $pendingShipment = (string) BigDecimal::of($pendingShipment)
-                        ->plus(BigDecimal::of((string) $pendingRow->shipped_qty)->minus((string) $pendingRow->received_qty))
-                        ->toScale(4, RoundingMode::HalfUp);
-                }
-                $used = BigDecimal::of((string) $poItem->received_qty)->plus((string) $pendingShipment)->plus((string) $shippedQty)->toScale(4, RoundingMode::HalfUp);
-                if ($used->compareTo(BigDecimal::of((string) $poItem->ordered_qty)->toScale(4, RoundingMode::HalfUp)) > 0) {
-                    throw new BusinessException("إجمالي المشحون للصنف ({$poItem->variant?->sku}) يتجاوز الكمية المطلوبة في أمر الشراء.");
-                }
-            }
+            $this->assertDeliveryQuantitiesWithinCap($lines, $poItems);
 
             $delivery = SupplierDelivery::create([
                 'delivery_number' => $this->settings->generateNextNumber('delivery'),
@@ -1043,7 +1134,7 @@ class ProcurementService
                 ]);
             }
 
-            // Dispatching items without explicit prior acceptance constitutes implicit acceptance
+            // Dispatching items without explicit prior acceptance constitutes implicit acceptance.
             if ($po->status === PurchaseOrderStatus::SentToSupplier) {
                 $po->update(['status' => PurchaseOrderStatus::SupplierAccepted]);
             }
@@ -1056,6 +1147,54 @@ class ProcurementService
         });
 
         return $delivery->fresh(['items']);
+    }
+
+    /**
+     * @param  list<array{purchase_order_item_id: int, shipped_qty: float|int|string}>  $items
+     * @return array<int, string>
+     */
+    private function aggregateDeliveryLines(array $items): array
+    {
+        // Aggregate duplicate line submissions before evaluating cumulative quantity caps.
+        $lines = [];
+        foreach ($items as $line) {
+            DiscreteQuantity::assert($line['shipped_qty']);
+            $itemId = (int) $line['purchase_order_item_id'];
+            $lines[$itemId] = (string) BigDecimal::of((string) ($lines[$itemId] ?? '0'))
+                ->plus((string) $line['shipped_qty'])->toScale(4, RoundingMode::HalfUp);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param  array<int, string>  $lines
+     */
+    private function assertDeliveryQuantitiesWithinCap(array $lines, Collection $poItems): void
+    {
+        foreach ($lines as $itemId => $shippedQty) {
+            $poItem = $poItems->get($itemId);
+            $pendingRows = SupplierDeliveryItem::query()
+                ->where('purchase_order_item_id', $itemId)
+                ->whereHas('delivery', fn ($q) => $q->where('status', SupplierDeliveryStatus::PendingReceipt->value))
+                ->lockForUpdate()
+                ->get(['shipped_qty', 'received_qty']);
+
+            $pendingShipment = '0';
+            foreach ($pendingRows as $pendingRow) {
+                $pendingShipment = (string) BigDecimal::of($pendingShipment)
+                    ->plus(BigDecimal::of((string) $pendingRow->shipped_qty)->minus((string) $pendingRow->received_qty))
+                    ->toScale(4, RoundingMode::HalfUp);
+            }
+
+            $used = BigDecimal::of((string) $poItem->received_qty)
+                ->plus($pendingShipment)
+                ->plus($shippedQty)
+                ->toScale(4, RoundingMode::HalfUp);
+            if ($used->compareTo(BigDecimal::of((string) $poItem->ordered_qty)->toScale(4, RoundingMode::HalfUp)) > 0) {
+                throw new BusinessException("إجمالي المشحون للصنف ({$poItem->variant?->sku}) يتجاوز الكمية المطلوبة في أمر الشراء.");
+            }
+        }
     }
 
     /**

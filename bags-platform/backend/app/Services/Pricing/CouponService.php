@@ -180,47 +180,21 @@ class CouponService
      */
     public function recordUsage(Coupon $coupon, Order $order, ?Customer $customer, float $discountAmount): CouponUsage
     {
-        $normalizedGuest = $customer === null && $order->guest_phone !== null && trim($order->guest_phone) !== ''
-            ? Customer::normalizePhone($order->guest_phone)
+        $guestPhoneNormalized = $customer === null
+            ? $this->normalizeOptionalPhone($order->guest_phone)
             : null;
-        $guestPhoneNormalized = ($normalizedGuest !== null && $normalizedGuest !== '') ? $normalizedGuest : null;
+        $phoneKey = $guestPhoneNormalized ?? $this->normalizeOptionalPhone($customer?->phone);
 
-        $phoneKey = $guestPhoneNormalized ?? $this->resolveCustomerPhone($customer);
         if ($customer === null && $phoneKey === null) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
 
-        // Acquire sorted deterministic advisory locks for every present identity
-        // (customer ID and normalized phone) so concurrent checkouts sharing either
-        // identifier serialize on the same lock and cannot race past the limit.
-        if (DB::connection()->getDriverName() === 'pgsql') {
-            $lockKeys = array_values(array_unique(array_filter([
-                $customer !== null ? 'coupon-usage:'.$coupon->id.':customer:'.$customer->id : null,
-                $phoneKey !== null ? 'coupon-usage:'.$coupon->id.':phone:'.$phoneKey : null,
-            ])));
-            sort($lockKeys);
-            foreach ($lockKeys as $lockKey) {
-                DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockKey]);
-            }
-        }
+        $this->acquireUsageLocks($coupon, $customer, $phoneKey);
 
         // Re-evaluate identity limit under the lock to prevent race conditions.
         // Redemption always requires a real identity.
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized, true);
-
-        // Conditional atomic increment ensures usage_limit is never exceeded
-        // without locking the coupon row. L2: re-check activation and expiry
-        // under the lock so a concurrent pause/expiry cannot be redeemed.
-        $incremented = Coupon::query()
-            ->whereKey($coupon->id)
-            ->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
-            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
-            ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
-            ->increment('used_count');
-        if ($incremented === 0) {
-            throw new BusinessException(self::NOT_REDEEMABLE);
-        }
+        $this->incrementUsageOrFail($coupon);
 
         return CouponUsage::create([
             'coupon_id' => $coupon->id,
@@ -233,6 +207,50 @@ class CouponService
             // limit; $phoneKey already prefers the guest phone.
             'phone_normalized' => $phoneKey,
         ]);
+    }
+
+    /**
+     * Acquires sorted deterministic PostgreSQL advisory locks for every present identity
+     * so concurrent checkouts sharing either identifier serialize on the same lock.
+     */
+    private function acquireUsageLocks(Coupon $coupon, ?Customer $customer, ?string $phoneKey): void
+    {
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            return;
+        }
+
+        $lockKeys = array_values(array_unique(array_filter([
+            $customer !== null ? 'coupon-usage:'.$coupon->id.':customer:'.$customer->id : null,
+            $phoneKey !== null ? 'coupon-usage:'.$coupon->id.':phone:'.$phoneKey : null,
+        ])));
+        sort($lockKeys);
+
+        foreach ($lockKeys as $lockKey) {
+            DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockKey]);
+        }
+    }
+
+    /**
+     * Atomically increments used_count while re-checking activation, window, and usage ceiling.
+     *
+     * @throws BusinessException If the coupon is no longer active, within window, or has reached its limit
+     */
+    private function incrementUsageOrFail(Coupon $coupon): void
+    {
+        // Conditional atomic increment ensures usage_limit is never exceeded
+        // without locking the coupon row. L2: re-check activation and expiry
+        // under the lock so a concurrent pause/expiry cannot be redeemed.
+        $incremented = Coupon::query()
+            ->whereKey($coupon->id)
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
+            ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
+            ->increment('used_count');
+
+        if ($incremented === 0) {
+            throw new BusinessException(self::NOT_REDEEMABLE);
+        }
     }
 
     /**
@@ -283,21 +301,17 @@ class CouponService
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
 
-        $normalizedGuest = ($guestPhone !== null && trim($guestPhone) !== '')
-            ? Customer::normalizePhone($guestPhone)
-            : null;
-        $guestPhoneNormalized = ($normalizedGuest !== null && $normalizedGuest !== '') ? $normalizedGuest : null;
-
-        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized, $requireIdentity);
+        $this->assertPerIdentityAllowed(
+            $coupon,
+            $customer,
+            $this->normalizeOptionalPhone($guestPhone),
+            $requireIdentity,
+        );
     }
 
     /**
      * Verifies that the customer or guest phone has not reached the coupon usage ceiling.
      * Checks both customer IDs and normalized phone numbers across registered and guest checkouts.
-     *
-     * @param  Coupon  $coupon  Target coupon
-     * @param  Customer|null  $customer  Customer or null for guest
-     * @param  string|null  $guestPhoneNormalized  Pre-normalized E.164 phone
      *
      * @throws BusinessException If identity usage limit is reached
      */
@@ -311,6 +325,7 @@ class CouponService
         if ($limit <= 0) {
             return;
         }
+
         // During cart preview a guest has not supplied a phone yet; allow the
         // coupon to be attached. Final redemption must present an identity.
         if ($customer === null && $guestPhoneNormalized === null) {
@@ -321,17 +336,7 @@ class CouponService
             return;
         }
 
-        $phones = array_values(array_unique(array_filter([
-            $guestPhoneNormalized,
-            $this->resolveCustomerPhone($customer),
-        ])));
-        $customerIds = $customer !== null ? [$customer->id] : [];
-        if ($phones !== []) {
-            $customerIds = array_values(array_unique([
-                ...$customerIds,
-                ...Customer::query()->whereIn('phone', $phones)->pluck('id')->all(),
-            ]));
-        }
+        ['customerIds' => $customerIds, 'phones' => $phones] = $this->resolveIdentityScope($customer, $guestPhoneNormalized);
         if ($customerIds === [] && $phones === []) {
             if ($requireIdentity) {
                 throw new BusinessException(self::NOT_REDEEMABLE);
@@ -340,17 +345,56 @@ class CouponService
             return;
         }
 
+        if ($this->countActiveUsagesForIdentity($coupon, $customerIds, $phones) >= $limit) {
+            throw new BusinessException(self::NOT_REDEEMABLE);
+        }
+    }
+
+    /**
+     * Collects all customer IDs and normalized phone numbers linked to this checkout identity.
+     *
+     * @return array{customerIds: array<int>, phones: array<string>}
+     */
+    private function resolveIdentityScope(?Customer $customer, ?string $guestPhoneNormalized): array
+    {
+        $phones = array_values(array_unique(array_filter([
+            $guestPhoneNormalized,
+            $this->normalizeOptionalPhone($customer?->phone),
+        ])));
+
+        $customerIds = $customer !== null ? [$customer->id] : [];
+        if ($phones !== []) {
+            $customerIds = array_values(array_unique([
+                ...$customerIds,
+                ...Customer::query()->whereIn('phone', $phones)->pluck('id')->all(),
+            ]));
+        }
+
+        return [
+            'customerIds' => $customerIds,
+            'phones' => $phones,
+        ];
+    }
+
+    /**
+     * Counts non-cancelled coupon usages across matching customer IDs and normalized phones.
+     *
+     * @param  array<int>  $customerIds
+     * @param  array<string>  $phones
+     */
+    private function countActiveUsagesForIdentity(Coupon $coupon, array $customerIds, array $phones): int
+    {
         // Exclude cancelled orders so customers regain their allowance when an order is cancelled.
         // A registered checkout and a later guest checkout with the same phone share one allowance.
         // F-15: count on phone_normalized (present on every row with a phone)
         // so re-registration under a new customer_id keeps the old usage.
-        $usageCount = $coupon->usages()
+        return $coupon->usages()
             ->where(function ($query) use ($customerIds, $phones): void {
                 if ($customerIds !== []) {
                     $query->whereIn('customer_id', $customerIds);
                 }
                 if ($phones !== []) {
-                    $phoneMatch = fn ($query) => $query->whereIn('phone_normalized', $phones)
+                    $phoneMatch = fn ($subQuery) => $subQuery->whereIn('phone_normalized', $phones)
                         ->orWhereIn('guest_phone_normalized', $phones);
                     if ($customerIds === []) {
                         $phoneMatch($query);
@@ -361,25 +405,18 @@ class CouponService
             })
             ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
             ->count();
-
-        if ($usageCount >= $limit) {
-            throw new BusinessException(self::NOT_REDEEMABLE);
-        }
     }
 
     /**
-     * Extracts and normalizes customer phone into canonical E.164 format.
-     *
-     * @param  Customer|null  $customer  Target customer
-     * @return string|null Normalized phone string or null
+     * Normalizes a raw phone string into canonical E.164 format, or returns null when blank.
      */
-    private function resolveCustomerPhone(?Customer $customer): ?string
+    private function normalizeOptionalPhone(?string $phone): ?string
     {
-        if ($customer?->phone === null || trim((string) $customer->phone) === '') {
+        if ($phone === null || trim($phone) === '') {
             return null;
         }
 
-        $normalized = Customer::normalizePhone((string) $customer->phone);
+        $normalized = Customer::normalizePhone($phone);
 
         return $normalized !== '' ? $normalized : null;
     }
