@@ -195,13 +195,14 @@ select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg 
 @keyframes shimmer { 0% { opacity: .5 } 50% { opacity: 1 } 100% { opacity: .5 } }
 .sk { background: var(--skeleton); border-radius: 8px; animation: shimmer 1.3s ease-in-out infinite; }
 
-@keyframes blurFadeIn { 0% { opacity: 0; filter: blur(10px); transform: translateY(8px); } 100% { opacity: 1; filter: blur(0); transform: none; } }
+@keyframes blurFadeIn { 0% { opacity: 0; filter: blur(10px); transform: translateY(8px); } 100% { opacity: 1; filter: none; transform: none; } }
 .stagger-item { animation: blurFadeIn .48s cubic-bezier(.22,1,.36,1) both; }
 .stagger-1 { animation-delay: .03s } .stagger-2 { animation-delay: .09s } .stagger-3 { animation-delay: .15s } .stagger-4 { animation-delay: .21s }
 
 @keyframes popIn { from { opacity: 0; transform: translateY(10px) scale(.98) } to { opacity: 1; transform: none } }
 @keyframes sheetUp { from { opacity: 0; transform: translateY(100%) } to { opacity: 1; transform: translateY(0) } }
 .modal-in { animation: sheetUp .36s cubic-bezier(.32,.72,0,1) both; }
+.popover-in { animation: popIn .2s cubic-bezier(.22,1,.36,1) both; }
 @media (min-width: 768px) {
   .modal-in { animation: popIn .28s cubic-bezier(.22,1,.36,1) both; }
 }
@@ -209,7 +210,7 @@ select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg 
 .fade-in { animation: fadeIn .2s ease both; }
 .sheet-backdrop { background: rgba(0, 0, 0, .42); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 @media (prefers-reduced-motion: reduce) {
-  .modal-in, .stagger-item { animation: fadeIn .18s ease both !important; transform: none !important; }
+  .modal-in, .popover-in, .stagger-item { animation: fadeIn .18s ease both !important; transform: none !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .sheet-backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: none; -webkit-backdrop-filter: none; }

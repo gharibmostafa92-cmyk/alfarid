@@ -85,10 +85,10 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
     const requested = (initialTab === 'store' || initialTab === 'banners') ? 'store' : initialTab;
     if (requested && visibleTabs.some((t) => t.key === requested)) {
       setTab(requested);
-    } else if (!visibleTabs.some((t) => t.key === tab) && visibleTabs[0]) {
-      setTab(visibleTabs[0].key);
+      return;
     }
-  }, [initialTab, visibleTabs, tab]);
+    setTab((prev) => (visibleTabs.some((t) => t.key === prev) ? prev : (visibleTabs[0]?.key ?? prev)));
+  }, [initialTab, visibleTabs]);
   useEffect(() => { if (query.data) { setServer(clone(query.data)); setS(clone(query.data)); setFieldErrors({}); } }, [query.data]);
   const set = (group: keyof AdminSettings, key: string, val: any) =>
     setS(p => p && editable ? ({ ...p, [group]: { ...(p[group] as any), [key]: val } }) : p);
@@ -169,15 +169,6 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
       <PageHeader
         title="الإعدادات العامة"
         subtitle="هوية المؤسسة، الضرائب، الترقيم التلقائي للمستندات، سياسات الإرجاع وسير عمل المشتريات."
-        action={
-          <div className="flex items-center gap-3 stagger-item stagger-2">
-            {onNavigate && (
-              <GhostButton icon="users" onClick={() => onNavigate('users')}>
-                فريق العمل
-              </GhostButton>
-            )}
-          </div>
-        }
       />
 
       {conflict && (

@@ -497,8 +497,31 @@
 
 .v-drawer {
   box-shadow: var(--shadow-pop);
-  border-radius: 26px;
   overflow: hidden;
+}
+
+.v-sheet {
+  border-radius: 28px 28px 0 0;
+  border-bottom: 0;
+}
+@media (min-width: 640px) {
+  .v-sheet.v-sheet-sm-card {
+    border-radius: 22px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+@media (min-width: 768px) {
+  .v-sheet.v-sheet-md-card {
+    border-radius: 26px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+.v-sheet-handle {
+  width: 40px;
+  height: 4.5px;
+  border-radius: 999px;
+  background: var(--border-field);
+  margin: 0 auto;
 }
 
 /* Animations */
@@ -648,8 +671,14 @@
   .btn { min-height: 44px; }
   .btn-sm { min-height: 40px; }
   .icon-btn { min-width: 44px; min-height: 44px; }
-  .v-drawer { border-radius: 0; }
   .v-sticky-bar { border-radius: 16px; padding: 10px 14px; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-pop-in, .v-drawer, .v-sheet {
+    animation: none !important;
+    transition: opacity 0.18s ease !important;
+  }
 }
 
 @media (max-width: 479px) {

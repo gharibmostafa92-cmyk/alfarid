@@ -1798,6 +1798,7 @@ video {
 
 .v-shell-header .v-pill-surface {
   background-color: var(--header-surface);
+  border: 1px solid var(--border-subtle);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.03);
@@ -1814,7 +1815,7 @@ video {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
+  min-height: 46px;
   padding-inline: 14px;
   border-radius: 9999px;
   font-size: 12.5px;
@@ -1835,10 +1836,12 @@ video {
 .v-nav-shell {
   position: relative;
   min-width: 0;
-  flex: 1 1 0%;
+  flex: 0 1 auto;
+  max-width: 100%;
   align-items: center;
   gap: 2px;
   padding: 4px;
+  min-height: 46px;
   border-radius: 9999px;
 }
 
@@ -1846,8 +1849,8 @@ video {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
-  flex: 1 1 0%;
+  gap: 4px;
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -1856,7 +1859,7 @@ video {
   scrollbar-width: none;
   -ms-overflow-style: none;
   border-radius: 9999px;
-  padding: 1px;
+  padding: 0;
 }
 .v-nav-track::-webkit-scrollbar {
   display: none;
@@ -1876,8 +1879,8 @@ video {
 
 .v-nav-indicator {
   position: absolute;
-  top: 1px;
-  bottom: 1px;
+  top: 0;
+  bottom: 0;
   left: 0;
   border-radius: 9999px;
   background-color: var(--pill-active-bg);
@@ -1938,6 +1941,17 @@ video {
   transform: scale(0.95);
 }
 
+.v-brand-logo-img {
+  height: 26px;
+  width: auto;
+  max-width: 112px;
+  object-fit: contain;
+  display: block;
+}
+.theme-dark .v-brand-logo-wordmark {
+  filter: brightness(0) invert(1);
+}
+
 .v-shell-header #brand-home-btn,
 .v-header-tools,
 .v-header-account {
@@ -1967,7 +1981,7 @@ video {
   align-items: center;
   justify-content: center;
   height: 36px;
-  padding-inline: 14px;
+  padding-inline: 16px;
   border-radius: 9999px;
   font-size: 13px;
   font-weight: 500;
@@ -2058,61 +2072,94 @@ video {
   .v-aside-nav { display: none !important; }
   .v-mobile-nav {
     position: fixed;
-    inset-inline: 0;
-    bottom: 0;
+    inset-inline: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     z-index: 45;
     display: grid;
-    gap: 3px;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
-    background: var(--bg-card);
-    border-top: 1px solid var(--border-subtle);
-    box-shadow: 0 -6px 24px rgba(0, 0, 0, .08);
+    gap: 2px;
+    padding: 6px 8px;
+    border-radius: 26px;
+    background: var(--header-surface);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.05);
+    font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Inter', system-ui, sans-serif;
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .v-mobile-nav {
+      background: var(--bg-card);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
   .v-mobile-nav button {
     min-width: 0;
-    min-height: 52px;
+    min-height: 50px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    padding: 4px 2px;
-    border-radius: 12px;
-    color: var(--text-secondary);
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.2;
-    transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+    gap: 3px;
+    padding: 2px;
+    border-radius: 18px;
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0;
+    background: transparent;
+    transition: color 180ms ease;
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
   }
-  .v-mobile-nav button:active {
-    transform: scale(0.94);
+  .v-mobile-nav .v-mobile-nav-icon {
+    width: 44px;
+    height: 28px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 220ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms ease, transform 140ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease;
   }
-  .v-mobile-nav button span {
+  .v-mobile-nav button:active .v-mobile-nav-icon {
+    transform: scale(0.88);
+  }
+  .v-mobile-nav .v-mobile-nav-label {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
   .v-mobile-nav button svg {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     flex-shrink: 0;
   }
   .v-mobile-nav button[aria-current="page"],
   .v-mobile-nav button[aria-expanded="true"] {
+    background: transparent;
+    color: var(--text-primary);
+  }
+  .v-mobile-nav button[aria-current="page"] .v-mobile-nav-icon,
+  .v-mobile-nav button[aria-expanded="true"] .v-mobile-nav-icon {
     background: var(--pill-active-bg);
     color: var(--pill-active-text);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  }
+  .v-mobile-nav button[aria-current="page"] .v-mobile-nav-label,
+  .v-mobile-nav button[aria-expanded="true"] .v-mobile-nav-label {
+    color: var(--text-primary);
+    font-weight: 700;
   }
   .v-shell-header #top-help-btn { display: none; }
-  .v-shell-header #profile-pill-btn { gap: 0; padding-inline: 6px !important; }
+  .v-shell-header #profile-pill-btn { gap: 6px; padding-inline: 6px 12px !important; }
   .v-shell-header #profile-pill-btn > svg { display: none; }
 
   #v-toast {
-    bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(86px + env(safe-area-inset-bottom, 0px)) !important;
     right: 16px !important;
     left: 16px !important;
     display: flex;
@@ -2125,22 +2172,30 @@ video {
     max-width: 110px !important;
   }
   .v-header-tools .v-header-account {
-    max-width: 110px !important;
+    padding-inline: 6px !important;
+    gap: 0 !important;
+  }
+  .v-header-tools .v-header-account span:not([aria-hidden="true"]) {
+    display: none;
   }
 }
 
 @media (max-width: 380px) {
   .v-mobile-nav {
-    gap: 2px;
-    padding-inline: 4px;
+    inset-inline: 8px;
+    gap: 1px;
+    padding: 5px 6px;
+  }
+  .v-mobile-nav .v-mobile-nav-icon {
+    width: 38px;
+    height: 26px;
   }
   .v-mobile-nav button {
     font-size: 10px;
-    padding: 3px 1px;
   }
   .v-mobile-nav button svg {
-    width: 18px;
-    height: 18px;
+    width: 17px;
+    height: 17px;
   }
 }
 
@@ -2206,7 +2261,11 @@ video {
   }
 }
 .v-modal-card input { font-size: 16px; }
-.v-mobile-menu { direction: rtl; text-align: start; }
+.v-mobile-menu {
+  direction: rtl;
+  text-align: start;
+  font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Inter', system-ui, sans-serif;
+}
 .v-modal-card[dir="rtl"] { direction: rtl; text-align: start; }
 .v-mobile-nav { direction: rtl; }
 .v-mobile-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -2218,37 +2277,72 @@ video {
   grid-column: 1 / -1;
   color: var(--text-secondary);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 700;
   margin-bottom: 2px;
 }
 .v-mobile-menu nav button {
   display: flex; align-items: center; gap: 10px; text-align: start;
-  min-height: 48px; padding: 10px 12px; border-radius: 12px;
-  color: var(--text-primary); background: var(--bg-subcard); font-size: 13px;
-  font-weight: 500; transition: background-color 0.15s ease, transform 0.1s ease;
+  min-height: 46px; padding: 10px 12px; border-radius: 14px;
+  color: var(--text-primary); background: var(--bg-subcard);
+  border: 1px solid var(--border-subtle);
+  font-size: 13px; font-weight: 500; letter-spacing: 0;
+  transition: background-color 0.15s ease, transform 0.1s ease;
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
 }
 .v-mobile-menu nav button:active { transform: scale(0.97); }
-.v-mobile-menu nav button svg { flex-shrink: 0; }
+.v-mobile-menu nav button svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
+.v-mobile-menu nav button[aria-current="page"] svg { opacity: 1; }
 .v-mobile-menu nav button span { min-width: 0; overflow-wrap: break-word; line-height: 1.3; }
-.v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); font-weight: 600; }
-.v-mobile-menu-tools { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
-.v-mobile-menu-tools button {
+.v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); font-weight: 600; border-color: transparent; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); }
+.v-mobile-menu-tools {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.v-mobile-menu-tools button,
+.v-mobile-menu-tools .v-mobile-menu-link {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; min-height: 48px; padding: 10px 8px; font-size: 13.5px; font-weight: 500; color: var(--text-primary);
-  border-radius: 10px; transition: background-color 0.15s ease, transform 0.1s ease;
+  width: 100%; min-height: 46px; padding: 10px 10px; font-size: 13.5px; font-weight: 500; color: var(--text-primary);
+  border-radius: 12px; transition: background-color 0.15s ease, transform 0.1s ease;
+  text-decoration: none;
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
 }
-@media (hover: hover) and (pointer: fine) {
-  .v-mobile-menu-tools button:hover { background: var(--bg-subcard); }
+.v-mobile-menu-tools .v-mobile-tool-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  font-size: inherit;
 }
-.v-mobile-menu-tools button:active { background: var(--bg-subcard); transform: scale(0.98); }
-.v-mobile-menu-tools button span { color: var(--text-secondary); font-size: 12px; }
+.v-mobile-menu-tools .v-mobile-tool-label svg {
+  opacity: 0.78;
+  flex-shrink: 0;
+}
+.v-mobile-menu-tools .v-mobile-tool-badge {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: var(--bg-subcard);
+}
+.v-mobile-menu-tools .v-mobile-tool-danger {
+  color: var(--badge-red-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .v-mobile-menu-tools button:hover,
+  .v-mobile-menu-tools .v-mobile-menu-link:hover { background: var(--bg-subcard); }
+}
+.v-mobile-menu-tools button:active,
+.v-mobile-menu-tools .v-mobile-menu-link:active { background: var(--bg-subcard); transform: scale(0.98); }
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {

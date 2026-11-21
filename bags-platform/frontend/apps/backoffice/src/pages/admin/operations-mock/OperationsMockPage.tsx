@@ -252,12 +252,12 @@ export default function OperationsMockPage({
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-[var(--border-subtle)]">
                   {/* Secondary Navigation Pills */}
                   <div className="flex min-w-0 items-center gap-2 flex-wrap">
-                    <div className="v-pill p-1 hidden sm:flex items-center gap-1 flex-wrap">
+                    <div className="v-pill p-1 flex items-center gap-1 overflow-x-auto max-w-full" style={{ scrollbarWidth: 'none' }}>
                       {navGroups.map((g) => (
                         <button
                           key={g.key}
                           onClick={() => go({ m: g.items[0].m })}
-                          className="min-h-[44px] px-3 py-1.5 rounded-full text-[12.5px] font-medium transition"
+                          className="min-h-[44px] px-3 py-1.5 rounded-full text-[12.5px] font-medium whitespace-nowrap shrink-0 transition"
                           style={
                             curGroup === g.key
                               ? {

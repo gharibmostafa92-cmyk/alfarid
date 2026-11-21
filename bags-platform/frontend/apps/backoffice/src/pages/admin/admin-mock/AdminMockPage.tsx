@@ -129,9 +129,9 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab, 
   };
 
   const navItems = [
-    { id: 'users', label: 'المستخدمون', icon: 'users', count: usersTotal.loading ? undefined : usersTotal.data, path: '/users' },
-    { id: 'roles', label: 'الأدوار والصلاحيات', icon: 'shield', count: rolesQ.loading ? undefined : roles.length, path: '/roles' },
-    { id: 'settings', label: 'الإعدادات العامة', icon: 'sliders', path: '/settings' },
+    { id: 'users', label: 'المستخدمون', icon: 'users', count: usersTotal.data, countLoading: usersTotal.loading, path: '/users' },
+    { id: 'roles', label: 'الأدوار والصلاحيات', icon: 'shield', count: roles.length, countLoading: rolesQ.loading, path: '/roles' },
+    { id: 'settings', label: 'الإعدادات العامة', icon: 'sliders', countLoading: false, path: '/settings' },
   ].filter(item => item.id === 'settings' ? (visible('settings') || canFn('store.manage')) : visible(item.id));
 
   return (
@@ -146,7 +146,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab, 
         createPortal(
           <>
             <style>{styles}</style>
-            <div className={`admin-mock-surface ${isDark ? 'theme-dark' : 'theme-light'} p-4 sm:p-6 lg:p-8 space-y-6`} dir="rtl" lang="ar">
+            <div className={`admin-mock-surface relative ${isDark ? 'theme-dark' : 'theme-light'} p-4 sm:p-6 lg:p-8 space-y-6`} dir="rtl" lang="ar">
               {/* Top Linking Bar between the 3 Administrative Screens */}
               <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b" style={{ borderColor: 'var(--divider-color)' }}>
                 <div className="admin-section-tabs flex flex-wrap max-w-full gap-1 p-1 rounded-xl v-subcard" role="tablist" aria-label="إدارة النظام">
@@ -169,9 +169,11 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab, 
                       >
                         <Icon name={item.icon} className="w-4 h-4" />
                         <span>{item.label}</span>
-                        {item.count != null && (
+                        {item.countLoading ? (
+                          <span className="v-skeleton inline-block w-6 h-5 rounded-full" aria-hidden="true" />
+                        ) : item.count != null && (
                           <span
-                            className="admin-tab-count px-2 py-0.5 rounded-full text-[11px] font-medium"
+                            className="admin-tab-count px-2 py-0.5 rounded-full text-[11px] font-medium tabular-nums animate-[vFadeIn_220ms_ease-out]"
                             style={{
                               background: active ? 'rgba(255, 255, 255, 0.2)' : 'var(--bg-card)',
                               color: active ? 'inherit' : 'var(--text-muted)',

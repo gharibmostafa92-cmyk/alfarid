@@ -94,7 +94,10 @@ export default function AuthenticatedApp() {
     (route === '/assistant' && !can('ai_agent.use'))
   ) return <div dir="rtl" role="alert" className="p-6">ليس لديك صلاحية عرض هذه الصفحة. <a href="/dashboard">العودة للوحة التحكم</a></div>;
   const adminActive = route === '/users' ? 'users' : route === '/roles' ? 'roles' : (route === '/settings' || isStoreRoute) ? 'settings' : null;
-  const catalogActive = route === '/assistant' ? 'assistant' : isOperation
+  const firstPermittedOp = NAV_GROUPS.flatMap(group => group.items).find(item => canViewOperation(item.m, can));
+  const opsNavId = firstPermittedOp ? (canViewOperation('orders', can) ? 'orders' : firstPermittedOp.m) : null;
+  const opsNavLabel = opsNavId === 'orders' ? 'الطلبات' : (firstPermittedOp?.label ?? 'العمليات');
+  const catalogPageId = route === '/assistant' ? 'assistant' : isOperation
     ? operationsActive
     : inventoryActive
     ? 'inventory'
@@ -104,7 +107,14 @@ export default function AuthenticatedApp() {
     ? 'dealers'
     : route === '/production'
     ? 'production'
-    : adminActive;
+    : adminActive
+    ? 'settings'
+    : null;
+  const catalogActive = isOperation
+    ? opsNavId
+    : route === '/production'
+    ? 'inventory'
+    : catalogPageId;
 
   // Pre-populates assistant prompt and entity mentions when deep-linked from dealer views (#/assistant?seed=...)
   const assistantPrompt = (() => {
@@ -118,6 +128,18 @@ export default function AuthenticatedApp() {
     return { text, mentions: (entity === 'customer' || entity === 'transfer' || entity === 'stocktake') && Number.isInteger(id) && id > 0 ? [{ entity, id, label: label || text }] : undefined };
   })();
   const assistantNav = can('ai_agent.use') ? [{ id: 'assistant', label: 'المساعد الذكي', onOpen: () => { window.location.hash = '/assistant'; } }] : [];
+  const canAdminSettings = canAny(can, 'settings.view', 'settings.manage');
+  const canStoreSettings = can('store.manage');
+  const canAdminUsers = canAny(can, 'users.view', 'users.manage');
+  const canAdminRoles = canAny(can, 'roles.view', 'roles.manage');
+  const hasAdminHub = canAdminSettings || canStoreSettings || canAdminUsers || canAdminRoles;
+  const adminEntryRoute = canAdminSettings ? '/settings' : canStoreSettings ? '/store' : canAdminUsers ? '/users' : '/roles';
+  const adminEntryLabel = (canAdminSettings || canStoreSettings) ? 'الإعدادات' : 'المستخدمون والأدوار';
+  const sidebarNav = [
+    ...(!cashierOnly && can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),
+    ...assistantNav,
+    ...(!cashierOnly && hasAdminHub ? [{ id: 'settings', label: adminEntryLabel, onOpen: () => { window.location.hash = adminEntryRoute; } }] : []),
+  ];
   return <FinancialDashboard
     onLogout={logoutRemote}
     storefrontUrl={new URL('/', resolveServiceUrl(import.meta.env.VITE_WEB_URL ?? 'http://localhost:3000')).href}
@@ -159,22 +181,15 @@ export default function AuthenticatedApp() {
           queryString={routeWithQuery.split('?')[1] ?? ''}
         />
       ) : (
-        catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />
+        catalogPageId && <CatalogMockPage key={catalogPageId} can={can} page={catalogPageId} />
       )
     }
     catalogNav={!cashierOnly ? [
-      ...(canViewOperation('orders', can) ? [{ id: 'orders', label: 'الطلبات', onOpen: () => { window.location.hash = '/orders'; } }] : []),
+      ...(opsNavId ? [{ id: opsNavId, label: opsNavLabel, onOpen: () => { window.location.hash = '/' + opsNavId; } }] : []),
       ...(can('inventory.view') ? [{ id: 'inventory', label: 'المخزون', onOpen: () => { window.location.hash = '/inventory/stock'; } }] : []),
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
-      ...(can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),
-      ...(can('inventory.view') ? [{ id: 'production', label: 'استلام الإنتاج', onOpen: () => { window.location.hash = '/production'; } }] : []),
-      ...(canViewOperation('finance', can) ? [{ id: 'finance', label: 'المالية', onOpen: () => { window.location.hash = '/finance'; } }] : []),
-      ...(can('reports.view') ? [{ id: 'reports', label: 'التقارير', onOpen: () => { window.location.hash = '/reports'; } }] : []),
-      ...(canAny(can, 'users.view', 'users.manage') ? [{ id: 'users', label: 'المستخدمون', onOpen: () => { window.location.hash = '/users'; } }] : []),
-      ...(canAny(can, 'roles.view', 'roles.manage') ? [{ id: 'roles', label: 'الأدوار', onOpen: () => { window.location.hash = '/roles'; } }] : []),
-      ...(canAny(can, 'settings.view', 'settings.manage', 'store.manage') ? [{ id: 'settings', label: canAny(can, 'settings.view', 'settings.manage') ? 'الإعدادات' : 'إدارة المتجر', onOpen: () => { window.location.hash = canAny(can, 'settings.view', 'settings.manage') ? '/settings' : '/store'; } }] : []),
-      ...assistantNav,
-    ] : assistantNav}
+    ] : []}
+    sidebarNav={sidebarNav}
     onCloseCatalog={() => { window.location.hash = '/dashboard'; }}
     onOpenNotifications={() => { window.location.hash = '/notifications'; }}
     categoriesActive={categoriesActive}

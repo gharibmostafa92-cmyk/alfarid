@@ -51,15 +51,24 @@ function KpiCard({ label, value, icon, foot, accent, delay, loading, bar }: KpiC
           <Icon name={icon} className="w-4 h-4" />
         </span>
       </div>
-      {loading ? <Skeleton className="h-9 w-20 my-3 rounded-xl" style={accent ? { background: 'rgba(255,255,255,.25)' } : null} />
-        : <div className="font-display text-[34px] font-bold tracking-tight my-2 tabular-nums truncate" title={typeof value === 'number' || typeof value === 'string' ? String(value) : undefined} style={accent ? undefined : { color: 'var(--text-primary)' }}>{typeof value === 'number' ? <AnimatedNumber value={value} /> : value}</div>}
-      {bar != null && (
-        <div className="h-3 w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5 mb-2">
-          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${bar}%`, background: accent ? '#fff' : 'var(--accent-orange)' }} />
-          <div className={`h-full flex-1 rounded-full ${accent ? 'rewards-hatched-track' : 'spending-hatched-track'}`} />
-        </div>
+      {loading ? (
+        <>
+          <Skeleton className="h-9 w-20 my-3 rounded-xl" style={accent ? { background: 'rgba(255,255,255,.25)' } : null} />
+          {bar != null && <Skeleton className="h-3 w-full mb-2 rounded-full" style={accent ? { background: 'rgba(255,255,255,.2)' } : null} />}
+          <Skeleton className="h-4 w-28 rounded-full" style={accent ? { background: 'rgba(255,255,255,.2)' } : null} />
+        </>
+      ) : (
+        <>
+          <div className="font-display text-[34px] font-bold tracking-tight my-2 tabular-nums truncate animate-[vFadeIn_220ms_ease-out]" title={typeof value === 'number' || typeof value === 'string' ? String(value) : undefined} style={accent ? undefined : { color: 'var(--text-primary)' }}>{typeof value === 'number' ? <AnimatedNumber value={value} /> : value}</div>
+          {bar != null && (
+            <div className="h-3 w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5 mb-2 animate-[vFadeIn_220ms_ease-out]">
+              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${bar}%`, background: accent ? '#fff' : 'var(--accent-orange)' }} />
+              <div className={`h-full flex-1 rounded-full ${accent ? 'rewards-hatched-track' : 'spending-hatched-track'}`} />
+            </div>
+          )}
+          <div className={`text-[11.5px] animate-[vFadeIn_220ms_ease-out] ${accent ? 'text-white/80' : ''}`} style={accent ? undefined : { color: 'var(--text-muted)' }}>{foot}</div>
+        </>
       )}
-      <div className={`text-[11.5px] ${accent ? 'text-white/80' : ''}`} style={accent ? undefined : { color: 'var(--text-muted)' }}>{foot}</div>
     </div>
   );
 }
@@ -118,6 +127,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
   useQueryError(list.error); useQueryError(kpi.error); useQueryError(branchesQ.error);
   const rows = (list.data?.data ?? []).map(u => toAdminUser(u, meId));
   const loading = list.loading || (role !== 'all' && rolesLoading);
+  const kpiLoading = kpi.loading && kpi.data == null;
   const pages = list.data?.meta.last_page ?? 1;
   const filteredTotal = list.data?.meta.total ?? 0;
   const total = kpi.data?.all ?? 0, active = kpi.data?.active ?? 0, inactive = kpi.data?.inactive ?? 0;
@@ -190,11 +200,6 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
         subtitle="إدارة حسابات فريق العمل وتوزيع الفروع والأدوار."
         action={
           <div className="flex items-center gap-2.5 stagger-item stagger-2">
-            {onNavigate && (
-              <GhostButton icon="shield" onClick={() => onNavigate('roles')}>
-                الأدوار والصلاحيات
-              </GhostButton>
-            )}
             <PrimaryButton disabled={rolesLoading || !canAny(can, 'users.create', 'users.manage')} icon="plus" onClick={() => setDrawer({ mode: 'create' })}>
               مستخدم جديد
             </PrimaryButton>
@@ -202,31 +207,33 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <KpiCard
-          accent
-          label="إجمالي المستخدمين"
-          icon="users"
-          value={total}
-          loading={loading}
-          delay="stagger-2"
-          foot={
-            <span className="flex items-center gap-2">
-              <span>إجمالي الحسابات المسجلة</span>
-            </span>
-          }
-        />
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+        <div className="col-span-2 md:col-span-1">
+          <KpiCard
+            accent
+            label="إجمالي المستخدمين"
+            icon="users"
+            value={total}
+            loading={kpiLoading}
+            delay="stagger-2"
+            foot={
+              <span className="flex items-center gap-2">
+                <span>إجمالي الحسابات المسجلة</span>
+              </span>
+            }
+          />
+        </div>
         <KpiCard
           label="المستخدمون النشطون"
           icon="userCheck"
           value={active}
-          loading={loading}
+          loading={kpiLoading}
           delay="stagger-3"
           bar={total ? Math.round((active / total) * 100) : 0}
           foot={
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 flex-wrap">
               <Badge tone="green">{total ? Math.round((active / total) * 100) : 0}%</Badge>
-              من إجمالي الحسابات
+              <span className="hidden sm:inline">من إجمالي الحسابات</span>
             </span>
           }
         />
@@ -234,40 +241,140 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
           label="الحسابات المعطلة"
           icon="userOff"
           value={inactive}
-          loading={loading}
+          loading={kpiLoading}
           delay="stagger-4"
           foot={
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 flex-wrap">
               <Badge tone="red">موقوفة</Badge>
-              لا يمكنها تسجيل الدخول
+              <span className="hidden sm:inline">لا يمكنها تسجيل الدخول</span>
             </span>
           }
         />
       </div>
 
-      <div className="v-card p-5 stagger-item stagger-5">
+      <div className="v-card p-3.5 sm:p-5 stagger-item stagger-5">
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+          <div className="flex items-center justify-between sm:justify-start gap-3">
             <h3 className="font-display text-[17px] font-semibold" style={{ color: 'var(--text-primary)' }}>فريق العمل</h3>
-            <Badge tone="neutral">{filteredTotal} مستخدم</Badge>
+            {loading ? <Skeleton className="h-6 w-16 rounded-full" /> : <Badge tone="neutral">{filteredTotal} مستخدم</Badge>}
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="v-subcard px-3.5 h-9 rounded-full flex items-center gap-2 flex-1 sm:flex-initial min-w-[140px]">
-              <Icon name="search" className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو البريد" className="bg-transparent text-[12.5px] outline-none w-full sm:w-48" style={{ color: 'var(--text-primary)' }} />
-              {q && <button type="button" onClick={() => setQ('')} style={{ color: 'var(--text-muted)' }}><Icon name="close" className="w-3 h-3" strokeWidth={2.4} /></button>}
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5">
+            <div className="v-subcard px-3.5 h-10 sm:h-9 rounded-full flex items-center gap-2 w-full sm:w-56">
+              <Icon name="search" className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو البريد" className="bg-transparent text-[13px] sm:text-[12.5px] outline-none w-full" style={{ color: 'var(--text-primary)' }} />
+              {q && <button type="button" onClick={() => setQ('')} style={{ color: 'var(--text-muted)' }}><Icon name="close" className="w-3.5 h-3.5" strokeWidth={2.4} /></button>}
             </div>
-            <Select compact icon="building" width={170} disabled={!branches.length} value={branch} onChange={setBranch} searchable
-              options={[{ value: 'all', label: 'كل الفروع' }, { value: 'none', label: 'بدون فرع' }, ...branches.map(b => ({ value: b.id, label: b.name }))]} />
-            <Select compact icon="shield" width={150} value={role} onChange={setRole}
-              options={[{ value: 'all', label: 'كل الأدوار' }, ...roles.map(r => ({ value: r.id, label: r.name }))]} />
-            <Segmented size="sm" value={status} onChange={setStatus}
-              options={[{ value: 'all', label: 'الكل' }, { value: 'active', label: 'نشط' }, { value: 'inactive', label: 'معطل' }]} />
+            <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
+              <div className="w-full sm:w-[170px]">
+                <Select compact icon="building" width="100%" disabled={!branches.length} value={branch} onChange={setBranch} searchable
+                  options={[{ value: 'all', label: 'كل الفروع' }, { value: 'none', label: 'بدون فرع' }, ...branches.map(b => ({ value: b.id, label: b.name }))]} />
+              </div>
+              <div className="w-full sm:w-[150px]">
+                <Select compact icon="shield" width="100%" value={role} onChange={setRole}
+                  options={[{ value: 'all', label: 'كل الأدوار' }, ...roles.map(r => ({ value: r.id, label: r.name }))]} />
+              </div>
+            </div>
+            <div className="flex justify-start">
+              <Segmented size="sm" value={status} onChange={setStatus}
+                options={[{ value: 'all', label: 'الكل' }, { value: 'active', label: 'نشط' }, { value: 'inactive', label: 'معطل' }]} />
+            </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile Card List */}
+        <div className="md:hidden space-y-2.5">
+          {loading && Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="v-subcard rounded-[18px] p-3.5 space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-32 rounded" />
+                  <Skeleton className="h-2.5 w-44 rounded" />
+                </div>
+                <Skeleton className="h-6 w-14 rounded-full" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-6 w-24 rounded-full" />
+                <Skeleton className="h-6 w-20 rounded-full" />
+              </div>
+            </div>
+          ))}
+          {!loading && rows.map(u => {
+            const b = u.branch_name ? { name: u.branch_name } : undefined;
+            const isMe = u.id === meId;
+            const isSuper = u.role_names?.includes('Super Admin') ?? u.roles.some(id => roleById(id)?.system);
+            const protectedUser = !!isSuper && !iAmSuper;
+            const canTapEdit = mayUpdate && !protectedUser;
+            return (
+              <div
+                key={u.id}
+                onClick={() => canTapEdit && setDrawer({ mode: 'edit', user: u })}
+                className={`v-subcard rounded-[18px] p-3.5 transition ${canTapEdit ? 'cursor-pointer active:scale-[0.99]' : ''} ${!u.is_active ? 'opacity-70' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Avatar name={u.name} id={u.id} size={40} ring={isMe} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-[14px] flex items-center gap-1.5 truncate" style={{ color: 'var(--text-primary)' }}>
+                        <span className="truncate">{u.name}</span>
+                        {isMe && <Badge tone="orange" className="!py-0 !px-2 !text-[10px] shrink-0">أنت</Badge>}
+                      </div>
+                      <div className="text-[12px] mt-0.5 truncate" dir="ltr" style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{u.email}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                    {u.is_active ? <Badge tone="green" dot>نشط</Badge> : <Badge tone="red" dot>معطل</Badge>}
+                    <ActionMenu items={[
+                      { disabled: !mayUpdate || protectedUser, icon: 'edit', label: 'تعديل البيانات', onClick: () => setDrawer({ mode: 'edit', user: u }) },
+                      { disabled: !mayUpdate || protectedUser, icon: 'key', label: 'إعادة تعيين كلمة المرور', onClick: () => setDrawer({ mode: 'edit', user: u, focusPwd: true }) },
+                      { divider: true },
+                      ...(!isMe && (!isSuper || iAmSuper) && u.is_active && canAny(can, 'users.delete', 'users.manage') ? [{ icon: 'power', label: 'تعطيل الحساب', danger: true, disabled: mutating, onClick: () => setConfirm(u) }] : []),
+                      ...(!u.is_active && mayUpdate ? [{ icon: 'power', label: 'إعادة تفعيل الحساب', disabled: protectedUser || mutating, onClick: () => doActivate(u) }] : []),
+                    ]} />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-2.5" style={{ borderTop: '1px solid var(--divider-color)' }}>
+                  {hasAccessAll(u) ? <Badge tone="dark"><Icon name="globe" className="w-3 h-3" />كل الفروع</Badge>
+                    : b ? <Badge tone="outline"><Icon name="building" className="w-3 h-3 opacity-60" />{b.name}</Badge>
+                    : <Badge tone="neutral">بدون فرع</Badge>}
+                  {u.roles.map(rid => {
+                    const r = roleById(rid);
+                    if (!r) return <Badge key={rid} tone="neutral">{u.role_names?.[u.roles.indexOf(rid)] ?? rid}</Badge>;
+                    return (
+                      <button
+                        type="button"
+                        key={rid}
+                        onClick={(e) => { e.stopPropagation(); onNavigate?.('roles', { roleId: rid }); }}
+                        className="active:scale-95 transition-transform"
+                      >
+                        <Badge tone={r.system ? 'orange' : 'neutral'}>
+                          {r.system && <Icon name="shieldCheck" className="w-3 h-3" />}
+                          {r.name}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {(u.phone || u.created_at) && (
+                  <div className="flex items-center justify-between gap-2 mt-2 text-[11.5px]" style={{ color: 'var(--text-muted)' }}>
+                    <span dir="ltr" className="tabular-nums">{u.phone || '—'}</span>
+                    <span className="tabular-nums">{fmtDate(u.created_at)}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!loading && rows.length === 0 && (
+            <EmptyState title="لا توجد نتائج مطابقة" text="جرّب تعديل كلمات البحث أو إزالة بعض عوامل التصفية لعرض المزيد من المستخدمين."
+              action={anyFilter ? <GhostButton icon="refresh" onClick={clearFilters}>مسح التصفية</GhostButton> : undefined} />
+          )}
+        </div>
+
+        {/* Desktop Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-start border-collapse min-w-[900px]">
             <thead>
               <tr className="v-subcard text-[11.5px] font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -366,14 +473,17 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
 
         {/* Pagination */}
         {!loading && filteredTotal > 0 && (
-          <div className="flex items-center justify-between mt-4 pt-4" style={{ borderTop: '1px solid var(--divider-color)' }}>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4" style={{ borderTop: '1px solid var(--divider-color)' }}>
             <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
               عرض {list.data?.meta.from ?? 0}–{list.data?.meta.to ?? 0} من {filteredTotal}
             </span>
             <div className="flex items-center gap-1.5">
               <IconButton icon="chevRight" onClick={() => setPage(Math.max(1, page - 1))} />
+              <span className="sm:hidden text-[12.5px] font-medium px-2.5 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                {page} / {pages}
+              </span>
               {Array.from({ length: Math.min(pages, 7) }, (_, offset) => Math.max(1, Math.min(page - 3, pages - 6)) + offset - 1).map(i => (
-                <button key={i} type="button" onClick={() => setPage(i + 1)} className="w-8 h-8 rounded-full text-[12px] font-semibold transition"
+                <button key={i} type="button" onClick={() => setPage(i + 1)} className="hidden sm:inline-flex items-center justify-center w-8 h-8 rounded-full text-[12px] font-semibold transition"
                   style={page === i + 1 ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' } : { color: 'var(--text-secondary)' }}>{i + 1}</button>
               ))}
               <IconButton icon="chevLeft" onClick={() => setPage(Math.min(pages, page + 1))} />

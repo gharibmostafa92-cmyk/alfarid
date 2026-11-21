@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, ReactNode, CSSProperties } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, ReactNode, CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 
 // ===== Shared UI primitives (Vortix visual language, RTL) =====
 
@@ -541,19 +542,95 @@ export function ToastHost() {
   );
 }
 
+function rubberband(overshoot: number, dimension = 320, constant = 0.55) {
+  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+
 export function Drawer({ open, onClose, children, width = 520 }: { open: boolean; onClose: () => void; children: ReactNode; width?: number }) {
+  const dragState = useRef<{ startY: number; lastY: number; lastT: number; velY: number } | null>(null);
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setDragY(0); setDragging(false); return; }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', h);
+    };
   }, [open, onClose]);
 
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) return;
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const now = performance.now();
+    dragState.current = { startY: e.clientY, lastY: e.clientY, lastT: now, velY: 0 };
+    setDragging(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = dragState.current;
+    if (!st) return;
+    const dy = e.clientY - st.startY;
+    const now = performance.now();
+    const dt = Math.max(now - st.lastT, 8);
+    st.velY = (e.clientY - st.lastY) / dt;
+    st.lastY = e.clientY;
+    st.lastT = now;
+    setDragY(dy < 0 ? -rubberband(-dy, 260, 0.35) : dy);
+  };
+
+  const onPointerEnd = () => {
+    const st = dragState.current;
+    if (!st) return;
+    dragState.current = null;
+    setDragging(false);
+    if (dragY > 110 || st.velY > 0.45) {
+      setDragY(0);
+      onClose();
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const backdropOpacity = dragging ? Math.max(0.15, 1 - Math.max(0, dragY) / 420) : undefined;
+
   return (
-    <div inert={!open} className={`fixed inset-0 z-50 ${open ? '' : 'invisible pointer-events-none'}`}>
-      <div onClick={onClose} className={`absolute inset-0 v-scrim transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`} />
-      <div className={`absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card v-drawer flex flex-col transition-transform duration-[300ms] rounded-none sm:rounded-[26px] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
-        style={{ width: `min(${width}px, 100vw)`, maxWidth: '100vw', transitionTimingFunction: 'cubic-bezier(0.32,0.72,0,1)' }}>
+    <div inert={!open} className={`fixed inset-0 z-50 flex items-end justify-center md:block ${open ? '' : 'invisible pointer-events-none'}`}>
+      <div
+        onClick={onClose}
+        className={`absolute inset-0 v-scrim transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}
+        style={{ opacity: backdropOpacity }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={`relative md:absolute md:inset-y-3 md:start-3 w-full max-w-[600px] md:max-w-none md:w-[min(var(--drawer-w),calc(100vw-24px))] max-h-[92dvh] md:max-h-none v-card v-drawer v-sheet v-sheet-md-card flex flex-col pb-[env(safe-area-inset-bottom,0px)] md:pb-0 ${
+          open
+            ? 'translate-y-0 md:translate-y-0 md:translate-x-0'
+            : 'translate-y-[calc(100%+24px)] md:translate-y-0 md:translate-x-[calc(100%+24px)]'
+        }`}
+        style={{
+          ['--drawer-w' as string]: `${width}px`,
+          transform: open && dragY !== 0 ? `translateY(${dragY}px)` : undefined,
+          transition: dragging ? 'none' : 'transform 340ms cubic-bezier(0.32,0.72,0,1)',
+        }}
+      >
+        <div
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerEnd}
+          className="md:hidden pt-2.5 pb-1.5 shrink-0 touch-none cursor-grab active:cursor-grabbing"
+          aria-hidden="true"
+        >
+          <div className="v-sheet-handle" />
+        </div>
         {children}
       </div>
     </div>
@@ -563,17 +640,22 @@ export function Drawer({ open, onClose, children, width = 520 }: { open: boolean
 export function Modal({ open, onClose, children, width = 420 }: { open: boolean; onClose: () => void; children: ReactNode; width?: number }) {
   useEffect(() => {
     if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', h);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div onClick={onClose} className="absolute inset-0 v-scrim v-fade" />
-      <div role="dialog" aria-modal="true" className="relative v-card p-5 sm:p-6 v-pop-in w-full rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] max-h-[92dvh] overflow-y-auto overscroll-contain pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]" style={{ width: `min(${width}px, 100%)` }}>
-        <div className="sm:hidden w-10 h-1 bg-[var(--toggle-off-bg)] rounded-full mx-auto mb-4" aria-hidden="true" />
+      <div role="dialog" aria-modal="true" className="relative v-card v-sheet v-sheet-sm-card p-5 sm:p-6 v-pop-in w-full max-h-[92dvh] overflow-y-auto overscroll-contain pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]" style={{ width: `min(${width}px, 100%)` }}>
+        <div className="sm:hidden v-sheet-handle mb-4" aria-hidden="true" />
         {children}
       </div>
     </div>
@@ -592,25 +674,92 @@ export interface ActionMenuItem {
 
 export function ActionMenu({ items }: { items: ActionMenuItem[] }) {
   const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number; origin: string; ready: boolean }>({ top: 0, left: 0, origin: 'top left', ready: false });
   const ref = useRef<HTMLDivElement>(null);
-  useOutside(ref, () => setOpen(false), open);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const portalTarget = ref.current?.closest('.admin-mock-surface') as HTMLElement | null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const path = e.composedPath?.() ?? [];
+      const insideTrigger = ref.current && (path.includes(ref.current) || ref.current.contains(e.target as Node));
+      const insideMenu = menuRef.current && (path.includes(menuRef.current) || menuRef.current.contains(e.target as Node));
+      if (!insideTrigger && !insideMenu) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onScrollOrResize = () => setOpen(false);
+    document.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !ref.current || !menuRef.current) {
+      setCoords(prev => (prev.ready ? { ...prev, ready: false } : prev));
+      return;
+    }
+
+    const triggerRect = ref.current.getBoundingClientRect();
+    const menuRect = menuRef.current.getBoundingClientRect();
+    const surface = ref.current.closest('.admin-mock-surface') as HTMLElement | null;
+    const surfaceRect = surface?.getBoundingClientRect();
+    const margin = 8;
+    const gap = 6;
+    const spaceBelow = window.innerHeight - triggerRect.bottom - margin;
+    const spaceAbove = triggerRect.top - margin;
+    const flipUp = spaceBelow < menuRect.height + gap && spaceAbove > spaceBelow;
+    const targetTop = flipUp
+      ? Math.max(margin, triggerRect.top - menuRect.height - gap)
+      : Math.min(window.innerHeight - menuRect.height - margin, triggerRect.bottom + gap);
+    const isRtl = getComputedStyle(ref.current).direction === 'rtl';
+    const preferredLeft = isRtl ? triggerRect.left : triggerRect.right - menuRect.width;
+    const targetLeft = Math.max(margin, Math.min(window.innerWidth - menuRect.width - margin, preferredLeft));
+
+    setCoords({
+      top: surfaceRect ? targetTop - surfaceRect.top : targetTop,
+      left: surfaceRect ? targetLeft - surfaceRect.left : targetLeft,
+      origin: `${flipUp ? 'bottom' : 'top'} ${isRtl ? 'left' : 'right'}`,
+      ready: true,
+    });
+  }, [open, items.length]);
+
+  const menuNode = open ? (
+    <div
+      ref={menuRef}
+      className={`v-pop ${portalTarget ? 'absolute' : 'fixed'} z-50 w-[200px] p-1.5`}
+      style={{
+        top: coords.top,
+        left: coords.left,
+        transformOrigin: coords.origin,
+        visibility: coords.ready ? 'visible' : 'hidden',
+        animation: coords.ready ? 'vPopIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both' : undefined,
+      }}
+    >
+      {items.map((it, i) => it.divider ? <div key={i} className="my-1 h-px" style={{ background: 'var(--divider-color)' }} /> : (
+        <button type="button" key={i} disabled={it.disabled} title={it.title}
+          onClick={() => { setOpen(false); it.onClick?.(); }}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] text-start v-option ${it.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+          style={{ color: it.danger ? 'var(--badge-red-text)' : 'var(--text-primary)' }}>
+          {it.icon && <Icon name={it.icon} className="w-3.5 h-3.5" />}
+          <span className="flex-1">{it.label}</span>
+          {it.disabled && <Icon name="lock" className="w-3 h-3 opacity-70" />}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   return (
     <div ref={ref} className="relative inline-block">
-      <IconButton icon="more" onClick={() => setOpen(!open)} title="الإجراءات" />
-      {open && (
-        <div className="v-pop absolute z-30 mt-1.5 end-0 w-[200px] p-1.5">
-          {items.map((it, i) => it.divider ? <div key={i} className="my-1 h-px" style={{ background: 'var(--divider-color)' }} /> : (
-            <button type="button" key={i} disabled={it.disabled} title={it.title}
-              onClick={() => { setOpen(false); it.onClick?.(); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] text-start v-option ${it.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-              style={{ color: it.danger ? 'var(--badge-red-text)' : 'var(--text-primary)' }}>
-              {it.icon && <Icon name={it.icon} className="w-3.5 h-3.5" />}
-              <span className="flex-1">{it.label}</span>
-              {it.disabled && <Icon name="lock" className="w-3 h-3 opacity-70" />}
-            </button>
-          ))}
-        </div>
-      )}
+      <IconButton icon="more" onClick={() => setOpen(prev => !prev)} title="الإجراءات" />
+      {menuNode && (portalTarget ? createPortal(menuNode, portalTarget) : menuNode)}
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   Notice,
   toast,
   Modal,
+  Drawer,
 } from './ui';
 import { AdminRole } from './data';
 import { usePermissionGroups, useMe, runMutation, useQueryError } from './hooks';
@@ -47,6 +48,8 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const [saving, setSaving] = useState(false);
   const [del, setDel] = useState<AdminRole | null>(null);
   const [roleQ, setRoleQ] = useState('');
+  const [activeModule, setActiveModule] = useState<string | null>(null);
+  const [rolesSheetOpen, setRolesSheetOpen] = useState(false);
   const appliedInitialRole = useRef<number | undefined>(undefined);
   const passwordField = useRef<HTMLDivElement>(null);
 
@@ -187,10 +190,11 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const granted = isSystem ? allPerms.length : draft ? draft.perms.length : 0;
   const pct = Math.round((granted / total) * 100);
   const ql = q.trim().toLowerCase();
-  const groups = permissionGroups.map(g => ({
+  const allGroups = permissionGroups.map(g => ({
     ...g,
     visible: g.perms.filter(p => !ql || p[1].includes(q.trim()) || p[0].toLowerCase().includes(ql)),
   })).filter(g => g.visible.length > 0);
+  const groups = (!ql && activeModule) ? allGroups.filter(g => g.module === activeModule) : allGroups;
   const sensitiveGranted = draft ? permissionGroups.flatMap(g => g.perms).filter(p => p[2] && draft.perms.includes(p[0])).length : 0;
   const shownRoles = roles.filter(r => !roleQ || r.name.includes(roleQ));
 
@@ -199,20 +203,77 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
       <PageHeader
         title="الأدوار والصلاحيات"
         subtitle="حدّد الهيكل الإداري ووزّع الصلاحيات بدقة — كل موظف يحصل فقط على ما تحتاجه وظيفته."
-        action={
-          onNavigate && (
-            <div className="flex items-center gap-2.5 stagger-item stagger-2">
-              <GhostButton icon="users" onClick={() => onNavigate('users')}>
-                فريق العمل والمستخدمين
-              </GhostButton>
-            </div>
-          )
-        }
       />
 
+      {/* Mobile Horizontal Role Strip (< 1024px) */}
+      <div className="lg:hidden space-y-2.5 stagger-item stagger-2">
+        <div className="flex items-center justify-between gap-2 px-0.5">
+          <div className="flex items-center gap-2">
+            <h3 className="font-display text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>الأدوار</h3>
+            <span className="text-[11.5px] tabular-nums" style={{ color: 'var(--text-muted)' }}>({roles.length})</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {roles.length > 3 && (
+              <button
+                type="button"
+                onClick={() => setRolesSheetOpen(true)}
+                className="h-9 px-3 rounded-full text-[12px] font-medium flex items-center gap-1.5 v-card active:scale-95 transition"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Icon name="search" className="w-3.5 h-3.5" />عرض الكل
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={!centralAccess || saving || !!permissionsQ.error || !canAny(can, 'roles.create', 'roles.manage')}
+              onClick={newRole}
+              className="h-9 px-3.5 rounded-full text-[12px] font-semibold flex items-center gap-1.5 active:scale-95 transition"
+              style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}
+            >
+              <Icon name="plus" className="w-3.5 h-3.5" strokeWidth={2.4} />دور جديد
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1.5 -mx-1 px-1 snap-x" style={{ scrollbarWidth: 'none' }}>
+          {loading && Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[52px] w-36 rounded-2xl shrink-0" />)}
+          {!loading && draft?.isNew && (
+            <div className="v-card v-role-active rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 shrink-0 snap-start">
+              <span className="w-8 h-8 rounded-xl flex items-center justify-center text-white v-accent-btn shrink-0"><Icon name="plus" className="w-3.5 h-3.5" strokeWidth={2.4} /></span>
+              <div className="min-w-0">
+                <div className="text-[12.5px] font-semibold truncate max-w-[120px]" style={{ color: 'var(--text-primary)' }}>{draft.name || 'دور جديد'}</div>
+                <div className="text-[10.5px]" style={{ color: 'var(--text-muted)' }}>مسودة</div>
+              </div>
+            </div>
+          )}
+          {!loading && roles.map(r => {
+            const active = r.id === selId && !draft?.isNew;
+            const uc = usersCount(r.id);
+            return (
+              <button
+                type="button"
+                key={r.id}
+                onClick={() => {
+                  if (r.id !== selId && isDirty && !window.confirm('لديك تعديلات غير محفوظة. هل تريد تجاهلها؟')) return;
+                  setSelId(r.id);
+                }}
+                className={`v-card rounded-2xl px-3 py-2.5 flex items-center gap-2.5 shrink-0 snap-start text-start active:scale-[0.97] transition ${active ? 'v-role-active ring-2 ring-[var(--accent-orange)]' : ''}`}
+              >
+                <span className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${r.system ? 'text-white v-accent-btn' : 'v-role-icon'}`}>
+                  <Icon name={r.system ? 'shieldCheck' : 'shield'} className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-semibold truncate max-w-[130px]" style={{ color: 'var(--text-primary)' }}>{r.name}</div>
+                  <div className="text-[10.5px] tabular-nums" style={{ color: 'var(--text-muted)' }}>{r.perms.length} صلاحية · {uc} مستخدم</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Roles list */}
-        <div className="lg:col-span-4 xl:col-span-4 v-card p-4 stagger-item stagger-2 lg:sticky lg:top-5">
+        {/* Desktop Roles list */}
+        <div className="hidden lg:block lg:col-span-4 xl:col-span-4 v-card p-4 stagger-item stagger-2 lg:sticky lg:top-5">
           <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-2">
               <h3 className="font-display text-[16px] font-semibold" style={{ color: 'var(--text-primary)' }}>الأدوار</h3>
@@ -273,28 +334,28 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
           {!loading && !draft ? <EmptyState title="اختر دوراً لعرض صلاحياته" /> : loading || !draft ? (
             <div className="v-card p-5 space-y-4"><Skeleton className="h-11 rounded-2xl" /><Skeleton className="h-24 rounded-2xl" />{[1, 2, 3].map(i => <Skeleton key={i} className="h-16 rounded-2xl" />)}</div>
           ) : <>
-            <div className="v-card p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="flex-1 min-w-[240px]">
+            <div className="v-card p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+                <div className="flex-1 min-w-0">
                   <Field error={nameError} label="اسم الدور" required aside={isSystem && <span className="flex items-center gap-1 text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}><Icon name="lock" className="w-3 h-3" />دور نظام مقفل</span>}>
                     <TextInput value={draft.name} onChange={v => setDraft(d => d ? { ...d, name: v } : null)} disabled={isSystem || draft.builtin || !editable} icon={isSystem ? 'lock' : 'shield'} placeholder="مثال: مشرف مبيعات" />
                   </Field>
                 </div>
                 {!draft.isNew && !draft.builtin && !isSystem && centralAccess && canAny(can, 'roles.delete', 'roles.manage') && (
-                  <button type="button" onClick={() => sel && (setDeleteConflict(undefined), setDel(sel))} className="mt-7 h-11 px-4 rounded-full text-[12.5px] font-semibold flex items-center gap-2 v-badge-red hover:opacity-85 transition">
+                  <button type="button" onClick={() => sel && (setDeleteConflict(undefined), setDel(sel))} className="sm:mt-7 h-11 px-4 rounded-full text-[12.5px] font-semibold flex items-center justify-center gap-2 v-badge-red hover:opacity-85 active:scale-95 transition w-full sm:w-auto">
                     <Icon name="trash" className="w-4 h-4" />حذف الدور
                   </button>
                 )}
               </div>
 
               {/* Coverage & User Link */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 sm:mt-5">
                 <div className="v-orange-card rounded-[18px] p-4 sm:col-span-2 relative overflow-hidden">
                   <div className="flex items-center justify-between">
                     <span className="text-[12.5px] font-medium text-white/90">تغطية الصلاحيات</span>
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/20">{pct}%</span>
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/20 tabular-nums">{pct}%</span>
                   </div>
-                  <div className="font-display text-[30px] font-bold mt-1 tabular-nums">{granted} <span className="text-[16px] font-medium text-white/75">/ {total} صلاحية محددة</span></div>
+                  <div className="font-display text-[24px] sm:text-[30px] font-bold mt-1 tabular-nums">{granted} <span className="text-[14px] sm:text-[16px] font-medium text-white/75">/ {total} صلاحية محددة</span></div>
                   <div className="mt-3 h-3.5 w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5 bg-white/10">
                     <div className="h-full rounded-full bg-white transition-all duration-500" style={{ width: `${Math.max(pct, 2)}%` }} />
                     <div className="h-full flex-1 rounded-full rewards-hatched-track" />
@@ -338,16 +399,57 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
 
             {permissionsQ.error?.status === 403 && <Notice tone="info">لا تملك صلاحية عرض قائمة الصلاحيات؛ صلاحيات الدور الحالي للقراءة فقط.</Notice>}
             {/* Search */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="v-card !rounded-full px-4 h-11 flex items-center gap-2.5 flex-1 min-w-[240px]">
-                <Icon name="search" className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
-                <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث بالاسم أو بمفتاح الكود مثل inventory.adjust" className="bg-transparent outline-none text-[13px] w-full" style={{ color: 'var(--text-primary)' }} />
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+              <div className="v-card !rounded-full px-4 h-11 flex items-center gap-2.5 w-full sm:flex-1">
+                <Icon name="search" className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)' }} />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث بالاسم أو بمفتاح الكود" className="bg-transparent outline-none text-[13px] w-full" style={{ color: 'var(--text-primary)' }} />
                 {q && <button type="button" onClick={() => setQ('')} style={{ color: 'var(--text-muted)' }}><Icon name="close" className="w-3.5 h-3.5" strokeWidth={2.4} /></button>}
               </div>
-              <GhostButton onClick={() => setOpenGroups(openGroups.size ? new Set() : new Set(permissionGroups.map(g => g.module)))} className="!h-11 v-card !bg-[var(--bg-card)]">
+              <GhostButton onClick={() => setOpenGroups(openGroups.size ? new Set() : new Set(permissionGroups.map(g => g.module)))} className="!h-11 v-card !bg-[var(--bg-card)] w-full sm:w-auto justify-center">
                 {openGroups.size ? 'طي الكل' : 'توسيع الكل'}
               </GhostButton>
             </div>
+
+            {/* Quick Module Filter Chips (great for many permission groups) */}
+            {!ql && permissionGroups.length > 1 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveModule(null)}
+                  className="h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 active:scale-95 transition"
+                  style={!activeModule
+                    ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }
+                    : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                >
+                  الكل ({permissionGroups.length})
+                </button>
+                {permissionGroups.map(g => {
+                  const active = activeModule === g.module;
+                  const onCount = g.perms.filter(p => draft.perms.includes(p[0])).length;
+                  return (
+                    <button
+                      type="button"
+                      key={g.module}
+                      onClick={() => {
+                        if (active) {
+                          setActiveModule(null);
+                        } else {
+                          setActiveModule(g.module);
+                          setOpenGroups(prev => new Set([...prev, g.module]));
+                        }
+                      }}
+                      className="h-8 px-3 rounded-full text-[12px] font-medium shrink-0 flex items-center gap-1.5 active:scale-95 transition"
+                      style={active
+                        ? { background: 'var(--accent-orange)', color: '#fff' }
+                        : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <span>{g.label}</span>
+                      <span className="text-[10.5px] tabular-nums opacity-80">{onCount}/{g.perms.length}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Groups */}
             <div className="space-y-3">
@@ -356,14 +458,17 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
                 const keys = g.perms.map(p => p[0]);
                 const on = keys.filter(k => draft.perms.includes(k)).length;
                 const all = on === keys.length;
-                const isOpen = ql ? true : openGroups.has(g.module);
+                const isOpen = ql || activeModule === g.module ? true : openGroups.has(g.module);
                 return (
                   <div key={g.module} className="v-card overflow-hidden">
-                    <div className="flex items-center gap-3 p-4 cursor-pointer select-none" onClick={() => toggleOpen(g.module)}>
-                      <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${on ? 'v-badge-orange' : 'v-icon-well'}`}><Icon name={g.icon} className="w-[18px] h-[18px]" /></span>
+                    <div className="flex items-center gap-2.5 sm:gap-3 p-3.5 sm:p-4 cursor-pointer select-none active:scale-[0.995] transition-transform" onClick={() => toggleOpen(g.module)}>
+                      <span className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 ${on ? 'v-badge-orange' : 'v-icon-well'}`}><Icon name={g.icon} className="w-[18px] h-[18px]" /></span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{g.label}</div>
-                        <div className="text-[11px] mt-0.5 font-mono" dir="ltr" style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{g.keys}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13.5px] sm:text-[14px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{g.label}</span>
+                          <span className="sm:hidden text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full v-subcard tabular-nums shrink-0" style={{ color: on ? 'var(--accent-orange)' : 'var(--text-muted)' }}>{on}/{keys.length}</span>
+                        </div>
+                        <div className="text-[11px] mt-0.5 font-mono truncate" dir="ltr" style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{g.keys}</div>
                       </div>
                       <div className="hidden sm:flex items-center gap-2 w-[120px]">
                         <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--toggle-off-bg)' }}>
@@ -371,30 +476,30 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
                         </div>
                         <span className="text-[11.5px] font-semibold tabular-nums" style={{ color: 'var(--text-secondary)' }}>{on}/{keys.length}</span>
                       </div>
-                      <div onClick={e => e.stopPropagation()} className={`flex items-center gap-2 ps-3 ${isSystem ? 'opacity-50' : ''}`} style={{ borderInlineStart: '1px solid var(--divider-color)' }}>
+                      <div onClick={e => e.stopPropagation()} className={`flex items-center gap-2 ps-2.5 sm:ps-3 shrink-0 ${isSystem ? 'opacity-50' : ''}`} style={{ borderInlineStart: '1px solid var(--divider-color)' }}>
                         <span className="text-[11.5px] font-medium hidden md:inline" style={{ color: 'var(--text-secondary)' }}>تحديد الكل</span>
                         <Toggle size="sm" on={!!isSystem || all} onChange={v => toggleGroup(g, v)} disabled={isSystem || !editable} />
                       </div>
-                      <Icon name="chevDown" className={`w-4 h-4 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} style={{ color: 'var(--text-muted)' }} />
+                      <Icon name="chevDown" className={`w-4 h-4 shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} style={{ color: 'var(--text-muted)' }} />
                     </div>
                     <div className="v-collapse" style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}>
                       <div className="overflow-hidden">
-                        <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="px-3.5 sm:px-4 pb-3.5 sm:pb-4 grid grid-cols-1 md:grid-cols-2 gap-2">
                           {g.visible.map(([k, label, sensitive]) => {
                             const checked = !!isSystem || draft.perms.includes(k);
                             const changed = !draft.isNew && sel && checked !== sel.perms.includes(k);
                             return (
                               <div title={!iAmSuper && !myPerms.has(k) ? 'لا تملك هذه الصلاحية لمنحها' : undefined} key={k} onClick={() => togglePerm(k)}
-                                className={`v-perm rounded-2xl px-3.5 py-3 flex items-center gap-3 ${checked ? 'is-on' : ''} ${isSystem ? 'cursor-default' : 'cursor-pointer'}`}>
+                                className={`v-perm rounded-2xl px-3.5 py-3 flex items-center gap-3 active:scale-[0.985] transition-transform ${checked ? 'is-on' : ''} ${isSystem ? 'cursor-default' : 'cursor-pointer'}`}>
                                 <Checkbox checked={checked} disabled={isSystem || !editable || (!iAmSuper && !myPerms.has(k))} />
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-[12.5px] font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-                                    {label}
-                                    {changed && <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent-orange)' }} title="تعديل غير محفوظ" />}
+                                  <div className="text-[12.5px] font-semibold flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--text-primary)' }}>
+                                    <span className="break-words">{label}</span>
+                                    {changed && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent-orange)' }} title="تعديل غير محفوظ" />}
                                   </div>
-                                  <div className="text-[10.5px] font-mono mt-0.5" dir="ltr" style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{k}</div>
+                                  <div className="text-[10.5px] font-mono mt-0.5 truncate" dir="ltr" style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{k}</div>
                                 </div>
-                                {sensitive && <Badge tone="orange" className="!text-[10px] !px-2"><Icon name="alert" className="w-3 h-3" />حساسة</Badge>}
+                                {sensitive && <Badge tone="orange" className="!text-[10px] !px-2 shrink-0"><Icon name="alert" className="w-3 h-3" />حساسة</Badge>}
                               </div>
                             );
                           })}
@@ -412,6 +517,61 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
       <StickyBar show={!!isDirty && !isSystem && editable} onSave={save} onReset={reset} saving={saving}
         message={draft?.isNew ? 'دور جديد غير محفوظ' : 'تغييرات غير محفوظة على الدور'} count={changeCount} />
 
+      <Drawer open={rolesSheetOpen} onClose={() => setRolesSheetOpen(false)}>
+        <div className="px-5 pt-3 pb-3.5 v-border-b flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-display text-[17px] font-semibold" style={{ color: 'var(--text-primary)' }}>كل الأدوار ({roles.length})</h3>
+            <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>ابحث أو اختر دوراً لتعديل صلاحياته</p>
+          </div>
+          <button type="button" onClick={() => setRolesSheetOpen(false)} className="icon-btn">
+            <Icon name="close" className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-4 pb-2">
+          <div className="v-subcard px-3.5 h-10 rounded-full flex items-center gap-2">
+            <Icon name="search" className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />
+            <input value={roleQ} onChange={e => setRoleQ(e.target.value)} placeholder="بحث في الأدوار..." className="bg-transparent text-[13px] outline-none w-full" style={{ color: 'var(--text-primary)' }} />
+            {roleQ && <button type="button" onClick={() => setRoleQ('')} style={{ color: 'var(--text-muted)' }}><Icon name="close" className="w-3.5 h-3.5" /></button>}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto overscroll-contain p-4 pt-2 space-y-2">
+          {shownRoles.length === 0 && (
+            <EmptyState title="لا توجد أدوار مطابقة" text={`لم نجد دوراً يطابق «${roleQ}».`} />
+          )}
+          {shownRoles.map(r => {
+            const active = r.id === selId && !draft?.isNew;
+            const uc = usersCount(r.id);
+            return (
+              <button
+                type="button"
+                key={r.id}
+                onClick={() => {
+                  if (r.id !== selId && isDirty && !window.confirm('لديك تعديلات غير محفوظة. هل تريد تجاهلها؟')) return;
+                  setSelId(r.id);
+                  setRolesSheetOpen(false);
+                }}
+                className={`w-full rounded-2xl p-3.5 flex items-center gap-3 text-start active:scale-[0.985] transition ${active ? 'v-role-active ring-2 ring-[var(--accent-orange)]' : 'v-role-item'}`}
+              >
+                <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${r.system ? 'text-white v-accent-btn' : 'v-role-icon'}`}>
+                  <Icon name={r.system ? 'shieldCheck' : 'shield'} className="w-[18px] h-[18px]" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13.5px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{r.name}</span>
+                    {r.system && <Badge tone="orange" className="!py-0 !px-2 !text-[10px]">نظام</Badge>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-[11px] tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                    <span>{uc} مستخدم</span>
+                    <span>{r.perms.length} صلاحية</span>
+                  </div>
+                </div>
+                {active && <Icon name="check" className="w-4 h-4 shrink-0" style={{ color: 'var(--accent-orange)' }} />}
+              </button>
+            );
+          })}
+        </div>
+      </Drawer>
+
       <Modal open={!!del} onClose={() => setDel(null)}>
         {del && (() => {
           const uc = usersCount(del.id);
@@ -423,7 +583,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
               {deleteConflict ? deleteConflict : uc ? <>الدور مُسند حالياً إلى <b style={{ color: 'var(--text-primary)' }}>{uc} مستخدم</b>. أزل الدور من المستخدمين أولاً ثم أعد المحاولة.</> : 'سيتم حذف الدور وجميع صلاحياته نهائياً. لا يمكن التراجع عن هذا الإجراء.'}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-5">
-              <GhostButton onClick={() => setDel(null)} className={uc ? 'col-span-2' : ''}>{blocked ? 'حسناً' : 'إلغاء'}</GhostButton>
+              <GhostButton onClick={() => setDel(null)} className={blocked ? 'sm:col-span-2' : ''}>{blocked ? 'حسناً' : 'إلغاء'}</GhostButton>
               {!blocked && <button type="button" onClick={() => doDelete(del)} className="h-10 rounded-full text-[13px] font-semibold text-white" style={{ background: 'var(--badge-red-text)' }}>حذف نهائي</button>}
             </div>
           </>;

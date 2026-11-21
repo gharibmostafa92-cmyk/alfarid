@@ -223,15 +223,22 @@ function Modal({ open, onClose, children, width = 460, title, subtitle, icon, ic
   const titleId = useId();
   useEffect(() => {
     if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const h = (e) => e.key === 'Escape' && onClose && onClose();
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+    window.addEventListener('keydown', h);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', h);
+    };
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(3px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="pop v-card w-full overflow-hidden rounded-b-none sm:rounded-b-[26px] rounded-t-[26px] max-h-[90vh] flex flex-col pb-[max(0.75rem,env(safe-area-inset-bottom))]" style={{ maxWidth: width, boxShadow: 'var(--shadow-pop)' }}>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(4px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="modal-sheet v-card v-sheet v-sheet-sm-card w-full overflow-hidden max-h-[90dvh] flex flex-col pb-[max(0.75rem,env(safe-area-inset-bottom))]" style={{ maxWidth: width, boxShadow: 'var(--shadow-pop)' }}>
+        <div className="pt-2.5 pb-1 sm:hidden" aria-hidden="true"><div className="sheet-handle" /></div>
         {(title || icon) && (
-          <div className="p-6 pb-0 flex items-start gap-3.5">
+          <div className="px-6 pt-4 sm:pt-6 pb-0 flex items-start gap-3.5">
             {icon && <span className={cx('w-11 h-11 rounded-full flex items-center justify-center shrink-0', 'b-' + iconTone)}><Icon name={icon} size={19} /></span>}
             <div className="flex-1 min-w-0 pt-0.5">
               <h3 id={titleId} className="font-display text-[17px] font-semibold t-1">{title}</h3>
@@ -240,7 +247,7 @@ function Modal({ open, onClose, children, width = 460, title, subtitle, icon, ic
             {onClose && <button className="icon-btn -mt-1 -me-1" onClick={onClose}><Icon name="x" size={16} /></button>}
           </div>
         )}
-        <div className="p-6">{children}</div>
+        <div className="p-6 overflow-y-auto overscroll-contain">{children}</div>
         {footer && <div className="px-6 pb-6 -mt-2 flex items-center justify-end gap-2">{footer}</div>}
       </div>
     </div>
@@ -438,7 +445,7 @@ function StickyBar({ children, dirty, note }) {
 
 const MAX_DEPTH = 3;
 
-function treeDepth(n) { return 1 + Math.max(0, ...(n.children || []).map(treeDepth)); }
+function treeDepth(n) { if (!n) return 1; return 1 + Math.max(0, ...(n.children || []).map(treeDepth)); }
 
 function findNode(nodes, id, parent = null, depth = 1) {
   for (const n of nodes) {
@@ -483,6 +490,7 @@ export function CategoriesReferencePage() {
   const initialized = useRef(false);
   const [open, setOpen] = useState({});
   const [sel, setSel] = useState(null);
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null);
   const [overPosition, setOverPosition] = useState('inside');
@@ -503,7 +511,10 @@ export function CategoriesReferencePage() {
     }
   }, [phase, tree]);
   useEffect(() => {
-    if (sel && !findNode(tree, sel)) setSel(null);
+    if (sel && !findNode(tree, sel)) {
+      setSel(null);
+      setMobileSheetOpen(false);
+    }
   }, [tree, sel]);
   if (!perms.view) return <Forbidden perm="categories.view" />;
   const dirty = JSON.stringify(tree) !== JSON.stringify(saved);
@@ -583,28 +594,37 @@ export function CategoriesReferencePage() {
         <div data-category-id={n.id} draggable={perms.update && !savingOrder} onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n.id)); setDrag(n.id); }} onDragEnd={() => { setDrag(null); setOver(null); setOverPosition('inside'); setInvalid(null); }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const bounds = e.currentTarget.getBoundingClientRect(); const ratio = (e.clientY - bounds.top) / Math.max(bounds.height, 1); const position = ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside'; setOver(n.id); setOverPosition(position); const c = canDropAt(drag, n.id, position); setInvalid(c.ok ? null : c.why); }}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); doMove(drag, n.id, overPosition); setDrag(null); setOver(null); setOverPosition('inside'); setInvalid(null); }}
-          onClick={() => setSel(n.id)}
-          className={cx('group flex items-center gap-2 h-12 pe-2 rounded-[14px] cursor-pointer transition relative',
+          onClick={() => {
+            setSel(n.id);
+            if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+              setMobileSheetOpen(true);
+            }
+          }}
+          className={cx('tree-row group flex items-center gap-2 sm:gap-2.5 min-h-[54px] py-2 sm:min-h-[48px] sm:py-1.5 pe-2.5 sm:pe-2 rounded-[14px] cursor-pointer transition relative active:scale-[0.985]',
             sel === n.id ? 'bg-[var(--bg-subcard)]' : 'hover:bg-[var(--bg-subcard)]',
             drag === n.id && 'opacity-40',
             chk && (chk.ok ? 'ring-2 ring-[var(--accent)] bg-[var(--accent-soft)]' : 'ring-2 ring-[var(--badge-red-text)] bg-[var(--badge-red-bg)]'))}
-          style={{ paddingInlineStart: 8 + (depth - 1) * 26 }}>
-          {depth > 1 && <span className="absolute top-0 bottom-1/2 w-3 border-b border-s rounded-es-lg" style={{ insetInlineStart: (depth - 1) * 26 - 10, borderColor: 'var(--border-field)' }} />}
-          {perms.update && <span className="t-3 opacity-0 group-hover:opacity-100 cursor-grab"><Icon name="drag" size={14} /></span>}
-          <button onClick={(e) => { e.stopPropagation(); setOpen({ ...open, [n.id]: !isOpen }); }} className={cx('w-6 h-6 rounded-full flex items-center justify-center t-3 hover:bg-[var(--bg-card)]', !has && 'invisible')}>
-            <Icon name="chevLeft" size={13} className={cx('transition', isOpen && '-rotate-90')} />
+          style={{ ['--tree-depth']: depth }}>
+          {depth > 1 && <span className="absolute top-0 bottom-1/2 w-2.5 sm:w-3 border-b border-s rounded-es-lg pointer-events-none" style={{ insetInlineStart: 'calc((var(--tree-depth, 1) - 1) * var(--tree-indent, 14px) - 6px)', borderColor: 'var(--border-field)' }} />}
+          {perms.update && <span className="t-3 hidden sm:inline-flex opacity-0 group-hover:opacity-100 cursor-grab"><Icon name="drag" size={14} /></span>}
+          <button onClick={(e) => { e.stopPropagation(); setOpen({ ...open, [n.id]: !isOpen }); }} className={cx('w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center t-3 hover:bg-[var(--bg-card)] shrink-0', !has && 'invisible')}>
+            <Icon name="chevLeft" size={14} className={cx('transition-transform duration-200', isOpen && '-rotate-90')} />
           </button>
-          <span className={cx('w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0', depth === 1 ? '' : 'v-well')} style={depth === 1 ? { background: n.img || IMG[0] } : null}>
+          <span className={cx('w-9 h-9 sm:w-8 sm:h-8 rounded-[11px] sm:rounded-[10px] flex items-center justify-center shrink-0', depth === 1 ? '' : 'v-well')} style={depth === 1 ? { background: n.img || IMG[0] } : null}>
             {depth > 1 && <Icon name={has ? (isOpen ? 'folderOpen' : 'folder') : 'tag'} size={14} />}
           </span>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2"><span className={cx('text-[13px] truncate', depth === 1 ? 'font-semibold t-1' : 'font-medium t-1', n.status === 'inactive' && 'opacity-50')}><bdi>{displayName(n, 'ar')}</bdi></span>{n.status === 'inactive' && <Badge className="!py-0 !text-[10px]">غير نشط</Badge>}</div>
-            <div className="text-[11px] t-3 ltr text-end inline-block" dir="ltr">{n.en}</div>
+            <div className="flex items-center gap-1.5"><span className={cx('text-[13.5px] sm:text-[13px] truncate', depth === 1 ? 'font-semibold t-1' : 'font-medium t-1', n.status === 'inactive' && 'opacity-50')}><bdi>{displayName(n, 'ar')}</bdi></span>{n.status === 'inactive' && <Badge className="!py-0 !text-[10px]">غير نشط</Badge>}</div>
+            <div className="text-[11px] t-3 ltr truncate max-w-full" dir="ltr">{n.en}</div>
           </div>
           <span className="text-[11px] t-3 num hidden sm:inline">{sumProducts(n)} منتج</span>
-          <span className="text-[10px] font-bold w-5 h-5 rounded-full v-well flex items-center justify-center num">{depth}</span>
+          <span className="text-[10px] font-bold w-5 h-5 rounded-full v-well flex items-center justify-center num shrink-0">{depth}</span>
+          <span className="sm:hidden flex items-center gap-1 text-[11px] t-3 num shrink-0">
+            <span>{sumProducts(n)}</span>
+            <Icon name="chevLeft" size={13} className="opacity-60" />
+          </span>
           {(perms.create || perms.update || perms.delete) && (
-            <div className="flex items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
+            <div className="hidden sm:flex items-center opacity-0 group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
               {perms.create && (depth < MAX_DEPTH
                 ? <button title={dirty ? lockMsg : 'إضافة قسم فرعي'} disabled={dirty} className={cx('icon-btn !w-8 !h-8', dirty && 'opacity-30 cursor-not-allowed')} onClick={() => canCreate && setForm({ parentId: n.id })}><Icon name="plus" size={14} /></button>
                 : <span title="الحد الأقصى ٣ مستويات" className="icon-btn !w-8 !h-8 opacity-30 cursor-not-allowed"><Icon name="plus" size={14} /></span>)}
@@ -625,12 +645,12 @@ export function CategoriesReferencePage() {
       <PageHeader crumbs={[{ label: 'الكتالوج' }, { label: 'الأقسام' }]} title="الأقسام" subtitle={`شجرة أقسام حتى ${MAX_DEPTH} مستويات. اسحب لإعادة الترتيب أو استخدم «نقل إلى».`}
         actions={perms.create && <button className="btn btn-ink" title={dirty ? lockMsg : undefined} disabled={dirty} onClick={() => canCreate && setForm({ parentId: null })}><Icon name="plus" size={15} />قسم رئيسي</button>} />
       <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
-        <div className="v-card p-4 stagger s2">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
-            <SearchBox value={search} onChange={setSearch} placeholder="ابحث في الأقسام…" width={260} />
-            <div className="flex items-center gap-1.5">
-              <button className="btn btn-ghost btn-sm" onClick={() => setOpen(Object.fromEntries(flat.map((f) => [f.id, true])))}>فتح الكل</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setOpen({})}>طي الكل</button>
+        <div className="v-card p-3 sm:p-4 stagger s2">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3 px-1">
+            <SearchBox value={search} onChange={setSearch} placeholder="ابحث في الأقسام…" className="w-full sm:w-[260px]" width={undefined} />
+            <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+              <button className="btn btn-ghost btn-sm flex-1 sm:flex-none" onClick={() => setOpen(Object.fromEntries(flat.map((f) => [f.id, true])))}>فتح الكل</button>
+              <button className="btn btn-ghost btn-sm flex-1 sm:flex-none" onClick={() => setOpen({})}>طي الكل</button>
             </div>
           </div>
           {phase === 'loading' ? <div className="space-y-2 p-2">{[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="flex items-center gap-3 h-11" style={{ paddingInlineStart: (i % 3) * 26 }}><Skel w={32} h={32} r={10} /><Skel w={`${40 - (i % 3) * 8}%`} h={10} /></div>)}</div>
@@ -647,15 +667,19 @@ export function CategoriesReferencePage() {
                 )}
               </div>
             )}
-          <div className="flex items-center gap-4 mt-4 pt-3 px-1 v-border-t text-[11px] t-3">
+          <div className="hidden sm:flex items-center gap-4 mt-4 pt-3 px-1 v-border-t text-[11px] t-3">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-[var(--accent)]" />إفلات مسموح</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-[var(--badge-red-text)]" />إفلات غير مسموح</span>
             <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded-full v-well text-[9px] font-bold flex items-center justify-center">2</span>رقم المستوى</span>
           </div>
+          <div className="flex sm:hidden items-center justify-between gap-2 mt-3 pt-2.5 px-1 v-border-t text-[11px] t-3">
+            <span>اضغط على أي قسم للتفاصيل والإجراءات</span>
+            <span className="flex items-center gap-1"><span className="w-4 h-4 rounded-full v-well text-[9px] font-bold flex items-center justify-center">2</span>المستوى</span>
+          </div>
         </div>
 
-        {/* Detail / move-to panel */}
-        <div className="space-y-4 lg:sticky lg:top-5 stagger s3">
+        {/* Detail / move-to panel (desktop) */}
+        <div className="hidden lg:block space-y-4 lg:sticky lg:top-5 stagger s3">
           {selected ? (
             <div className="v-card overflow-hidden">
               <div className="h-24 relative" style={{ background: (tree.find((t) => t.id === sel || isDescendant(t, sel)) || {}).img || IMG[0] }}>
@@ -691,6 +715,97 @@ export function CategoriesReferencePage() {
           ) : <div className="v-card"><EmptyState compact icon="tree" title="اختر قسمًا" body="لعرض تفاصيله ونقله." /></div>}
         </div>
       </div>
+
+      {/* Mobile Bottom Sheet for Selected Category */}
+      <BottomSheet open={mobileSheetOpen && !!selected} onClose={() => setMobileSheetOpen(false)} ariaLabel={selected ? displayName(selected.node, 'ar') : 'تفاصيل القسم'}>
+        {selected && (
+          <div className="flex-1 overflow-y-auto overscroll-contain">
+            <div className="px-4 pt-1">
+              <div className="h-24 rounded-[20px] relative overflow-hidden" style={{ background: (tree.find((t) => t.id === sel || isDescendant(t, sel)) || {}).img || IMG[0] }}>
+                <span className="absolute bottom-3 start-3 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white/90 text-[#18151c] shadow-sm">
+                  {selected.depth === 1 ? 'قسم رئيسي · المستوى 1' : `المستوى ${selected.depth}`}
+                </span>
+                <button type="button" aria-label="إغلاق" onClick={() => setMobileSheetOpen(false)}
+                  className="absolute top-2.5 end-2.5 w-8 h-8 rounded-full flex items-center justify-center bg-black/30 text-white backdrop-blur-md active:scale-95 transition">
+                  <Icon name="x" size={15} />
+                </button>
+              </div>
+            </div>
+            <div className="px-5 pt-4 pb-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-display text-[19px] font-bold t-1 leading-snug"><bdi>{displayName(selected.node, 'ar')}</bdi></h3>
+                  <div className="text-[12px] t-3 ltr truncate mt-0.5" dir="ltr">{selected.node.en} · /{selected.node.slug}</div>
+                </div>
+                <StatusBadge s={selected.node.status} />
+              </div>
+              <div className="text-[11.5px] t-3 mt-3 flex items-center gap-1 flex-wrap">
+                {flat.find((f) => f.id === sel)?.path.map((p, i, a) => (
+                  <React.Fragment key={i}>
+                    <span className={i === a.length - 1 ? 't-1 font-semibold' : ''}>{p}</span>
+                    {i < a.length - 1 && <Icon name="chevLeft" size={11} />}
+                  </React.Fragment>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 mt-4">
+                <div className="v-subcard p-3.5">
+                  <div className="text-[11px] t-3">أقسام فرعية</div>
+                  <div className="font-display text-[20px] font-bold t-1 num mt-0.5"><AnimatedNumber value={(selected.node.children || []).length} /></div>
+                </div>
+                <div className="v-subcard p-3.5">
+                  <div className="text-[11px] t-3">منتجات</div>
+                  <div className="font-display text-[20px] font-bold t-1 num mt-0.5"><AnimatedNumber value={sumProducts(selected.node)} /></div>
+                </div>
+              </div>
+              {selected.node.createdAt && (
+                <div className="text-[11.5px] t-3 mt-2.5">
+                  أُضيف في {new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium' }).format(new Date(selected.node.createdAt))}
+                </div>
+              )}
+              {perms.update && (
+                <div className="mt-4">
+                  <Field label="نقل إلى" hint="الأقسام التي تتجاوز الحد أو تقع داخل نفس الفرع غير متاحة.">
+                    <SearchSelect value={selected.parent ? selected.parent.id : '__root'} clearable={false} asyncSim={false} disabled={savingOrder}
+                      onChange={(pid) => doMove(sel, pid === '__root' ? null : pid)}
+                      options={[{ value: '__root', label: 'بدون أب (قسم رئيسي)', depth: 0 }, ...flat.filter((f) => f.depth < MAX_DEPTH - 1 + 1).map((f) => {
+                        const c = canDropInto(sel, f.id);
+                        return { value: f.id, label: f.ar, depth: f.depth, disabled: !c.ok, note: !c.ok ? (f.id === sel ? 'نفسه' : c.why.includes('الحد') ? 'يتجاوز الحد' : 'فرعي منه') : null };
+                      })]} />
+                  </Field>
+                </div>
+              )}
+              {(perms.create || perms.update || perms.delete) && (
+                <div className="grid grid-cols-2 gap-2.5 mt-5 pt-4 v-border-t">
+                  {perms.update && (
+                    <button type="button" className="btn btn-ink" title={dirty ? lockMsg : undefined} disabled={dirty}
+                      onClick={() => { if (!canUpdate) return; setMobileSheetOpen(false); setForm(selected.node); }}>
+                      <Icon name="edit" size={15} />تعديل
+                    </button>
+                  )}
+                  {perms.create && selected.depth < MAX_DEPTH && (
+                    <button type="button" className="btn btn-soft" title={dirty ? lockMsg : undefined} disabled={dirty}
+                      onClick={() => { if (!canCreate) return; setMobileSheetOpen(false); setForm({ parentId: selected.node.id }); }}>
+                      <Icon name="plus" size={15} />قسم فرعي
+                    </button>
+                  )}
+                  {perms.update && (
+                    <button type="button" className="btn btn-outline" title={dirty ? lockMsg : undefined} disabled={dirty}
+                      onClick={() => { if (!canUpdate) return; setMobileSheetOpen(false); setDisable(selected.node); }}>
+                      <Icon name="ban" size={14} />{selected.node.status === 'active' ? 'تعطيل' : 'تفعيل'}
+                    </button>
+                  )}
+                  {perms.delete && (
+                    <button type="button" className="btn btn-danger" title={dirty ? lockMsg : undefined} disabled={dirty}
+                      onClick={() => { if (!canDelete) return; setMobileSheetOpen(false); setDel(selected.node); }}>
+                      <Icon name="trash" size={14} />حذف
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </BottomSheet>
 
       {perms.update && dirty && <StickyBar dirty note="ترتيب الأقسام اتغيّر — التغييرات مش هتتبعت قبل الحفظ">
         <button className="btn btn-ghost" onClick={() => setTree(saved)} disabled={savingOrder}>إلغاء التغييرات</button>
@@ -772,7 +887,7 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
       });
       setSlugTouched(true);
     } else {
-      const parentId = value.parentId ?? value.parent ?? null;
+      const parentId = value?.parentId ?? value?.parent ?? null;
       const siblings = parentId == null ? tree : (findNode(tree, parentId)?.node.children || []);
       setV({
         status: 'active',
@@ -785,9 +900,10 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
     }
   }, [open]);
   useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current); }, []);
+  if (!open) return null;
   const generatedSlug = autoSlug(v.en);
   const flat = flattenCats(tree);
-  const height = isEdit ? treeDepth(value) : 1;
+  const height = isEdit ? treeDepth(findNode(tree, v.id)?.node || value) : 1;
   const parentName = v.parentId != null ? flat.find((f) => f.id === v.parentId)?.ar : null;
   const previewUrl = safeCssUrl(v.previewUrl || v.imageUrl);
   const preview = previewUrl
@@ -847,7 +963,7 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
           <SearchSelect value={v.parentId || null} onChange={(p) => setV({ ...v, parentId: p })} placeholder="بدون أب (قسم رئيسي)"
             options={flat.map((f) => {
               const exceeds = (f.depth + 1) + height > MAX_DEPTH;
-              const selfOrChild = isEdit && (f.id === value.id || isDescendant(value, f.id));
+              const selfOrChild = isEdit && value != null && (f.id === value.id || isDescendant(value, f.id));
               return { value: f.id, label: f.ar, depth: f.depth, disabled: exceeds || selfOrChild, note: exceeds ? 'النقل هنا يتجاوز الحد الأقصى' : (selfOrChild ? (f.id === value.id ? 'نفسه' : 'فرعي منه') : null) };
             })} />
         </Field>
@@ -882,24 +998,184 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
 
 function Drawer({ open, onClose, title, subtitle, children, footer, width = 520 }) {
   const titleId = useId();
+  const dragState = useRef(null);
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setDragY(0); setDragging(false); return; }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const h = (e) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+    window.addEventListener('keydown', h);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', h);
+    };
   }, [open, onClose]);
   if (!open) return null;
+
+  const onPointerDown = (e) => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) return;
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (e.target.closest('button, a, input, select, textarea')) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const now = performance.now();
+    dragState.current = { startY: e.clientY, lastY: e.clientY, lastT: now, velY: 0 };
+    setDragging(true);
+  };
+
+  const onPointerMove = (e) => {
+    const st = dragState.current;
+    if (!st) return;
+    const dy = e.clientY - st.startY;
+    const now = performance.now();
+    const dt = Math.max(now - st.lastT, 8);
+    st.velY = (e.clientY - st.lastY) / dt;
+    st.lastY = e.clientY;
+    st.lastT = now;
+    setDragY(dy < 0 ? -rubberband(-dy, 260, 0.35) : dy);
+  };
+
+  const onPointerEnd = () => {
+    const st = dragState.current;
+    if (!st) return;
+    dragState.current = null;
+    setDragging(false);
+    if (dragY > 110 || st.velY > 0.45) {
+      setDragY(0);
+      onClose();
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const backdropOpacity = Math.max(0.15, 1 - Math.max(0, dragY) / 420);
+
   return (
-    <div className="fixed inset-0 z-[60] fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(2px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="drawer absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card flex flex-col overflow-hidden rounded-none sm:rounded-[26px]" style={{ width, maxWidth: '100vw', boxShadow: 'var(--shadow-pop)' }}>
-        <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3 v-border-b">
-          <div>
-            <h3 id={titleId} className="font-display text-[19px] font-semibold t-1">{title}</h3>
-            {subtitle && <p className="text-[12.5px] t-2 mt-0.5">{subtitle}</p>}
+    <div className="fixed inset-0 z-[60] fade flex items-end justify-center md:block" style={{ background: 'var(--overlay)', backdropFilter: 'blur(4px)', opacity: dragging ? backdropOpacity : undefined }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId}
+        className="drawer w-full max-w-[600px] md:max-w-none md:w-auto md:absolute md:inset-y-3 md:start-3 v-card v-sheet v-sheet-md-card flex flex-col overflow-hidden max-h-[92dvh] md:max-h-none pb-[env(safe-area-inset-bottom)] md:pb-0"
+        style={{
+          width: undefined,
+          ['--drawer-w']: `${width}px`,
+          boxShadow: 'var(--shadow-pop)',
+          transform: dragY !== 0 ? `translateY(${dragY}px)` : undefined,
+          transition: dragging ? 'none' : 'transform 0.34s cubic-bezier(0.32, 0.72, 0, 1)',
+        }}>
+        <div
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerEnd}
+          className="touch-none md:touch-auto cursor-grab active:cursor-grabbing md:cursor-auto"
+        >
+          <div className="pt-2.5 pb-1 md:hidden" aria-hidden="true"><div className="sheet-handle" /></div>
+          <div className="px-5 md:px-6 pt-3 md:pt-6 pb-3.5 md:pb-4 flex items-start justify-between gap-3 v-border-b md:w-[min(var(--drawer-w),calc(100vw-24px))]">
+            <div>
+              <h3 id={titleId} className="font-display text-[18px] md:text-[19px] font-semibold t-1">{title}</h3>
+              {subtitle && <p className="text-[12.5px] t-2 mt-0.5">{subtitle}</p>}
+            </div>
+            <button className="icon-btn" onClick={onClose}><Icon name="x" size={16} /></button>
           </div>
-          <button className="icon-btn" onClick={onClose}><Icon name="x" size={16} /></button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <div className="px-6 py-4 v-border-t flex items-center justify-end gap-2">{footer}</div>}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 md:px-6 py-4 md:py-5 md:w-[min(var(--drawer-w),calc(100vw-24px))]">{children}</div>
+        {footer && <div className="px-5 md:px-6 py-3.5 md:py-4 v-border-t flex items-center justify-end gap-2 md:w-[min(var(--drawer-w),calc(100vw-24px))]">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function rubberband(overshoot, dimension = 320, constant = 0.55) {
+  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+
+function BottomSheet({ open, onClose, ariaLabel, children }) {
+  const sheetRef = useRef(null);
+  const dragState = useRef(null);
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    if (!open) { setDragY(0); setDragging(false); return; }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (e.target.closest('button, a, input, select, textarea')) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const now = performance.now();
+    dragState.current = { startY: e.clientY, lastY: e.clientY, lastT: now, velY: 0 };
+    setDragging(true);
+  };
+
+  const onPointerMove = (e) => {
+    const st = dragState.current;
+    if (!st) return;
+    const dy = e.clientY - st.startY;
+    const now = performance.now();
+    const dt = Math.max(now - st.lastT, 8);
+    st.velY = (e.clientY - st.lastY) / dt;
+    st.lastY = e.clientY;
+    st.lastT = now;
+    setDragY(dy < 0 ? -rubberband(-dy, 260, 0.35) : dy);
+  };
+
+  const onPointerEnd = () => {
+    const st = dragState.current;
+    if (!st) return;
+    dragState.current = null;
+    setDragging(false);
+    const shouldClose = dragY > 110 || st.velY > 0.45;
+    if (shouldClose) {
+      setDragY(0);
+      onClose();
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const backdropOpacity = Math.max(0.15, 1 - Math.max(0, dragY) / 420);
+
+  return (
+    <div
+      className="fixed inset-0 z-[55] lg:hidden flex items-end justify-center fade"
+      style={{ background: 'var(--overlay)', backdropFilter: 'blur(4px)', opacity: dragging ? backdropOpacity : undefined }}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        className="sheet-up v-card v-sheet w-full max-w-[600px] overflow-hidden max-h-[88dvh] flex flex-col pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        style={{
+          boxShadow: 'var(--shadow-pop)',
+          transform: dragY !== 0 ? `translateY(${dragY}px)` : undefined,
+          transition: dragging ? 'none' : 'transform 0.34s cubic-bezier(0.32, 0.72, 0, 1)',
+        }}
+      >
+        <div
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerEnd}
+          className="pt-2.5 pb-2 cursor-grab active:cursor-grabbing touch-none shrink-0"
+          aria-hidden="true"
+        >
+          <div className="sheet-handle" />
+        </div>
+        {children}
       </div>
     </div>
   );
