@@ -80,7 +80,7 @@
   font-family: 'Inter', 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', sans-serif;
   background: var(--bg-canvas);
   color: var(--text-primary);
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 h1, h2, h3, .font-display { font-family: 'Plus Jakarta Sans', 'IBM Plex Sans Arabic', sans-serif; }
 .num { font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
@@ -89,6 +89,10 @@ h1, h2, h3, .font-display { font-family: 'Plus Jakarta Sans', 'IBM Plex Sans Ara
 #app-viewport { background: var(--bg-canvas); color: var(--text-primary); min-height: 60vh; transition: background .3s; }
 
 .v-card { background: var(--bg-card); border-radius: 22px; border: 1px solid var(--border-subtle); }
+.v-sheet { border-radius: 26px 26px 0 0; }
+@media (min-width: 768px) {
+  .v-sheet { border-radius: 22px; }
+}
 .v-subcard { background: var(--bg-subcard); border-radius: 16px; }
 .v-pill-surface { background: var(--bg-card); border: 1px solid var(--border-subtle); }
 .v-icon-well { background: var(--icon-well-bg); color: var(--text-secondary); }
@@ -196,9 +200,20 @@ select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg 
 .stagger-1 { animation-delay: .03s } .stagger-2 { animation-delay: .09s } .stagger-3 { animation-delay: .15s } .stagger-4 { animation-delay: .21s }
 
 @keyframes popIn { from { opacity: 0; transform: translateY(10px) scale(.98) } to { opacity: 1; transform: none } }
-.modal-in { animation: popIn .28s cubic-bezier(.22,1,.36,1) both; }
+@keyframes sheetUp { from { opacity: 0; transform: translateY(100%) } to { opacity: 1; transform: translateY(0) } }
+.modal-in { animation: sheetUp .36s cubic-bezier(.32,.72,0,1) both; }
+@media (min-width: 768px) {
+  .modal-in { animation: popIn .28s cubic-bezier(.22,1,.36,1) both; }
+}
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 .fade-in { animation: fadeIn .2s ease both; }
+.sheet-backdrop { background: rgba(0, 0, 0, .42); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+@media (prefers-reduced-motion: reduce) {
+  .modal-in, .stagger-item { animation: fadeIn .18s ease both !important; transform: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .sheet-backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
 
 /* Stepper (transfer status) */
 .step-line { height: 2px; flex: 1; background: var(--divider-color); border-radius: 2px; }
@@ -217,3 +232,41 @@ input[type=checkbox].vchk { accent-color: #e0491f; width: 15px; height: 15px; cu
 
 /* uncounted cell hatch */
 .uncounted { background: var(--hatched-track); }
+
+/* Mobile-only inventory topbar (< 768px) */
+@media (max-width: 767px) {
+  .inv-topbar-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: color-mix(in srgb, var(--bg-canvas) 82%, transparent);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    margin-inline: -12px;
+    padding: 8px 12px 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .inv-nav-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  .inv-nav-scroll::-webkit-scrollbar { display: none; }
+  .inv-nav-pill {
+    scroll-snap-align: center;
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 12.5px;
+    gap: 6px;
+  }
+}
+@media (max-width: 767px) and (prefers-reduced-transparency: reduce) {
+  .inv-topbar-wrap {
+    background: var(--bg-canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

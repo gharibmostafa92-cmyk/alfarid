@@ -56,11 +56,11 @@ function BranchForm({ open, initial, onClose, onSave }) {
       title={initial ? 'تعديل ' + (initial.type === 'warehouse' ? 'المخزن' : 'الفرع') : 'إضافة فرع أو مخزن'}
       sub="المخزن يُسجَّل كنوع من الفروع ويملك مواقع تخزين خاصة به."
       footer={<>
-        <button className="btn btn-dark" onClick={submit} disabled={busy}>
+        <button className="btn btn-dark flex-1 sm:flex-initial" onClick={submit} disabled={busy}>
           {busy && <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />}
           {initial ? 'حفظ التعديلات' : 'إضافة'}
         </button>
-        <button className="btn btn-soft" onClick={onClose}>إلغاء</button>
+        <button className="btn btn-soft flex-1 sm:flex-initial" onClick={onClose}>إلغاء</button>
       </>}>
       <div className="space-y-4">
         {err._form && <InlineAlert kind="red">{err._form}</InlineAlert>}
@@ -69,23 +69,23 @@ function BranchForm({ open, initial, onClose, onSave }) {
           <div className="grid grid-cols-2 gap-2.5">
             {[['branch', 'فرع', 'store', 'نقطة بيع تستقبل العملاء'], ['warehouse', 'مخزن', 'warehouse', 'تخزين وتوزيع فقط']].map(([k, l, ic, d]) => (
               <button key={k} type="button" onClick={() => set('type', k)}
-                className={`rounded-2xl p-3.5 flex items-center gap-3 text-right transition border ${f.type === k ? 'border-[var(--accent-orange)]' : 'border-transparent'}`}
+                className={`rounded-2xl p-3 sm:p-3.5 flex items-center gap-2.5 sm:gap-3 text-right transition active:scale-[0.98] border ${f.type === k ? 'border-[var(--accent-orange)]' : 'border-transparent'}`}
                 style={{ background: f.type === k ? 'var(--accent-orange-light)' : 'var(--bg-subcard)' }}>
-                <span className={`w-9 h-9 rounded-full flex items-center justify-center ${f.type === k ? 'bg-[var(--accent-orange)] text-white' : 'v-icon-well'}`}><Icon n={ic} s={16} /></span>
-                <span><span className="block text-[13px] font-semibold c-primary">{l}</span><span className="block text-[11px] c-secondary">{d}</span></span>
+                <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${f.type === k ? 'bg-[var(--accent-orange)] text-white' : 'v-icon-well'}`}><Icon n={ic} s={16} /></span>
+                <span className="min-w-0"><span className="block text-[13px] font-semibold c-primary">{l}</span><span className="block text-[11px] c-secondary leading-snug">{d}</span></span>
               </button>
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
           <Field label="الاسم" req error={err.name}><input className={`inp ${err.name ? 'err' : ''}`} value={f.name} onChange={e => set('name', e.target.value)} placeholder="مثال: فرع مدينة نصر" /></Field>
           <Field label="الكود" req error={err.code} hint="فريد على مستوى النظام"><input dir="ltr" maxLength={50} className={`inp mono text-left ${err.code ? 'err' : ''}`} value={f.code} onChange={e => set('code', e.target.value.toUpperCase())} placeholder="BR-XXX" /></Field>
-          <Field label="الهاتف" error={err.phone}><input dir="ltr" className="inp num text-left" value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="01xxxxxxxxx" /></Field>
-          <Field label="البريد الإلكتروني" error={err.email}><input dir="ltr" className={`inp mono text-left ${err.email ? 'err' : ''}`} value={f.email} onChange={e => set('email', e.target.value)} placeholder="branch@company.com" /></Field>
+          <Field label="الهاتف" error={err.phone}><input dir="ltr" type="tel" inputMode="tel" className="inp num text-left" value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="01xxxxxxxxx" /></Field>
+          <Field label="البريد الإلكتروني" error={err.email}><input dir="ltr" type="email" inputMode="email" className={`inp mono text-left ${err.email ? 'err' : ''}`} value={f.email} onChange={e => set('email', e.target.value)} placeholder="branch@company.com" /></Field>
           <Field label="المدينة" error={err.city}><input className={`inp ${err.city ? 'err' : ''}`} value={f.city} onChange={e => set('city', e.target.value)} maxLength={100} /></Field>
           <Field label="العنوان" error={err.address}><input className="inp" value={f.address} onChange={e => set('address', e.target.value)} /></Field>
         </div>
-        <div className="v-subcard p-3.5 flex items-center justify-between">
+        <div className="v-subcard p-3.5 flex items-center justify-between gap-3">
           <div>
             <div className="text-[13px] font-semibold c-primary">الحالة: {f.active ? 'نشط' : 'غير نشط'}</div>
             <div className="text-[11px] c-secondary">الفروع غير النشطة لا تظهر في عمليات التحويل والتسوية.</div>
@@ -172,64 +172,135 @@ function BranchesScreen({ go }) {
   const counts = { all: list.length, branch: list.filter(b => b.type === 'branch').length, warehouse: list.filter(b => b.type === 'warehouse').length };
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-4 sm:space-y-5">
       <PageHead title="الفروع والمخازن" sub="سجل نقاط البيع والمخازن ومواقع التخزين التابعة لكل منها."
-        actions={canAdd && <button className="btn btn-dark" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={14} w={2.2} /> إضافة فرع / مخزن</button>} />
+        actions={canAdd && <button className="btn btn-dark w-full sm:w-auto" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={14} w={2.2} /> إضافة فرع / مخزن</button>} />
 
-      <Card>
+      <Card pad="p-3.5 sm:p-5">
         <CardHead title="القائمة" meta={phase === 'ready' ? `${rows.length} من ${list.length} · ${list.filter(b => b.is_active).length} نشط` : null}
-          right={<>
-            <div className="seg">
+          right={<div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+            <div className="seg w-full sm:w-auto">
               {[['all', 'الكل'], ['branch', 'فروع'], ['warehouse', 'مخازن']].map(([k, l]) => (
-                <button key={k} className={type === k ? 'on' : ''} onClick={() => setType(k)}>{l} <span className="num c-muted mr-1">{counts[k]}</span></button>
+                <button key={k} className={`flex-1 sm:flex-initial justify-center flex items-center ${type === k ? 'on' : ''}`} onClick={() => setType(k)}>{l} <span className="num c-muted mr-1">{counts[k]}</span></button>
               ))}
             </div>
-            <SearchPill value={q} onChange={setQ} placeholder="الاسم، الكود، المدينة" />
-          </>} />
+            <SearchPill value={q} onChange={setQ} placeholder="الاسم، الكود، المدينة" w="w-full sm:w-44" className="w-full sm:w-auto" />
+          </div>} />
         <Phase phase={phase} cols={8} error={error} onRetry={reloadBranches}
           empty={<EmptyState icon="store" title="لا توجد فروع أو مخازن بعد" sub="ابدأ بإضافة المخزن الرئيسي، ثم أضف مواقع التخزين بداخله."
             action={canAdd && <button className="btn btn-dark btn-sm" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={13} /> إضافة أول فرع</button>} />}>
           {rows.length === 0 ? <EmptyState icon="search" title="لا توجد نتائج" sub="جرّب كلمة بحث أخرى أو غيّر نوع الفلتر." /> : (
-            <div className="overflow-x-auto">
-              <table className="vt">
-                <thead><tr>
-                  <th>الاسم</th><th>الكود</th><th>النوع</th><th>المدينة</th><th>الهاتف</th><th>الحالة</th><th>مواقع التخزين</th><th>الموظفون</th><th></th>
-                </tr></thead>
-                <tbody>
-                  {rows.map(b => (
-                    <tr key={b.id}>
-                      <td>
-                        <div className="flex items-center gap-2.5">
-                          <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${b.type === 'warehouse' ? '' : 'v-icon-well'}`} style={b.type === 'warehouse' ? { background: 'var(--accent-orange-light)', color: 'var(--accent-orange)' } : {}}>
-                            <Icon n={b.type === 'warehouse' ? 'warehouse' : 'store'} s={14} />
-                          </span>
-                          <div><div className="font-semibold c-primary">{b.name}</div><div className="text-[11px] c-muted mono">{b.email || '—'}</div></div>
+            <>
+              {/* Mobile cards */}
+              <div className="md:hidden space-y-3">
+                {rows.map(b => (
+                  <div key={b.id} className="v-subcard p-4 rounded-2xl border border-[var(--border-subtle)] transition">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${b.type === 'warehouse' ? '' : 'v-icon-well'}`} style={b.type === 'warehouse' ? { background: 'var(--accent-orange-light)', color: 'var(--accent-orange)' } : {}}>
+                          <Icon n={b.type === 'warehouse' ? 'warehouse' : 'store'} s={17} />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-[14.5px] c-primary truncate">{b.name}</div>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <Sku>{b.code}</Sku>
+                            <TypeBadge type={b.type} />
+                          </div>
                         </div>
-                      </td>
-                      <td><Sku>{b.code}</Sku></td>
-                      <td><TypeBadge type={b.type} /></td>
-                      <td className="c-secondary">{b.city || '—'}</td>
-                      <td className="num c-secondary" dir="ltr">{b.phone || '—'}</td>
-                      <td><ActiveBadge on={b.is_active} /></td>
-                      <td>
-                        <button onClick={() => go('locations', { branchId: b.id })} className="flex items-center gap-2 group">
-                          <span className="num font-semibold c-primary">{b.locations_count ?? '—'}</span>
-                          <span className="text-[11.5px] c-orange font-semibold opacity-0 group-hover:opacity-100 transition">فتح ←</span>
-                        </button>
-                      </td>
-                      <td className="num c-secondary">{b.employees_count ?? '—'}</td>
-                      <td>
-                        <div className="flex items-center gap-0.5 justify-end">
-                          <button className="icon-btn" title="مواقع التخزين" onClick={() => go('locations', { branchId: b.id })}><Icon n="pin" s={15} /></button>
-                          {canEdit && <button className="icon-btn" title="تعديل" onClick={() => setForm({ open: true, initial: b })}><Icon n="edit" s={15} /></button>}
-                          {canDelete && <button className="icon-btn hover:!text-[var(--badge-red-text)]" title="حذف" onClick={() => { setDel(b); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+                      </div>
+                      <ActiveBadge on={b.is_active} />
+                    </div>
+
+                    {(b.city || b.phone || b.email || b.employees_count != null) && (
+                      <div className="mt-3 pt-3 border-t border-[var(--divider-color)] grid grid-cols-2 gap-x-3 gap-y-2 text-[12px]">
+                        {b.city && (
+                          <div className="flex items-center gap-1.5 c-secondary min-w-0">
+                            <Icon n="pin" s={13} className="c-muted shrink-0" />
+                            <span className="truncate">{b.city}</span>
+                          </div>
+                        )}
+                        {b.phone && (
+                          <div className="flex items-center gap-1.5 c-secondary min-w-0">
+                            <Icon n="phone" s={13} className="c-muted shrink-0" />
+                            <span className="num truncate" dir="ltr">{b.phone}</span>
+                          </div>
+                        )}
+                        {b.employees_count != null && (
+                          <div className="flex items-center gap-1.5 c-secondary">
+                            <Icon n="users" s={13} className="c-muted shrink-0" />
+                            <span><span className="num font-semibold c-primary">{b.employees_count}</span> موظف</span>
+                          </div>
+                        )}
+                        {b.email && (
+                          <div className="col-span-2 mono text-[11px] c-muted truncate" dir="ltr">{b.email}</div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="mt-3 pt-3 border-t border-[var(--divider-color)] flex items-center justify-between gap-2">
+                      <button type="button" onClick={() => go('locations', { branchId: b.id })}
+                        className="btn btn-sm flex-1 justify-between px-3.5 rounded-xl"
+                        style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}>
+                        <span className="flex items-center gap-2">
+                          <Icon n="pin" s={14} className="c-orange" />
+                          <span>مواقع التخزين</span>
+                          <span className="num px-1.5 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: 'var(--bg-subcard)' }}>{b.locations_count ?? 0}</span>
+                        </span>
+                        <Icon n="chevL" s={14} className="c-muted" />
+                      </button>
+                      {(canEdit || canDelete) && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {canEdit && <button type="button" className="icon-btn" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} title="تعديل" aria-label="تعديل" onClick={() => setForm({ open: true, initial: b })}><Icon n="edit" s={16} /></button>}
+                          {canDelete && <button type="button" className="icon-btn hover:!text-[var(--badge-red-text)]" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} title="حذف" aria-label="حذف" onClick={() => { setDel(b); setDelErr(null); }}><Icon n="trash" s={16} /></button>}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="vt">
+                  <thead><tr>
+                    <th>الاسم</th><th>الكود</th><th>النوع</th><th>المدينة</th><th>الهاتف</th><th>الحالة</th><th>مواقع التخزين</th><th>الموظفون</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    {rows.map(b => (
+                      <tr key={b.id}>
+                        <td>
+                          <div className="flex items-center gap-2.5">
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${b.type === 'warehouse' ? '' : 'v-icon-well'}`} style={b.type === 'warehouse' ? { background: 'var(--accent-orange-light)', color: 'var(--accent-orange)' } : {}}>
+                              <Icon n={b.type === 'warehouse' ? 'warehouse' : 'store'} s={14} />
+                            </span>
+                            <div><div className="font-semibold c-primary">{b.name}</div><div className="text-[11px] c-muted mono">{b.email || '—'}</div></div>
+                          </div>
+                        </td>
+                        <td><Sku>{b.code}</Sku></td>
+                        <td><TypeBadge type={b.type} /></td>
+                        <td className="c-secondary">{b.city || '—'}</td>
+                        <td className="num c-secondary" dir="ltr">{b.phone || '—'}</td>
+                        <td><ActiveBadge on={b.is_active} /></td>
+                        <td>
+                          <button onClick={() => go('locations', { branchId: b.id })} className="flex items-center gap-2 group">
+                            <span className="num font-semibold c-primary">{b.locations_count ?? '—'}</span>
+                            <span className="text-[11.5px] c-orange font-semibold opacity-0 group-hover:opacity-100 transition">فتح ←</span>
+                          </button>
+                        </td>
+                        <td className="num c-secondary">{b.employees_count ?? '—'}</td>
+                        <td>
+                          <div className="flex items-center gap-0.5 justify-end">
+                            <button className="icon-btn" title="مواقع التخزين" onClick={() => go('locations', { branchId: b.id })}><Icon n="pin" s={15} /></button>
+                            {canEdit && <button className="icon-btn" title="تعديل" onClick={() => setForm({ open: true, initial: b })}><Icon n="edit" s={15} /></button>}
+                            {canDelete && <button className="icon-btn hover:!text-[var(--badge-red-text)]" title="حذف" onClick={() => { setDel(b); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </Phase>
       </Card>
@@ -265,19 +336,19 @@ function LocationForm({ open, initial, branchId, branchName, onClose, onSave }) 
   };
   return (
     <Modal open={open} onClose={onClose} title={initial ? 'تعديل موقع التخزين' : 'إضافة موقع تخزين'} sub={`تابع لـ ${branchName || ''}`}
-      footer={<><button className="btn btn-dark" onClick={submit} disabled={busy}>{initial ? 'حفظ' : 'إضافة'}</button><button className="btn btn-soft" onClick={onClose}>إلغاء</button></>}>
+      footer={<><button className="btn btn-dark flex-1 sm:flex-initial" onClick={submit} disabled={busy}>{initial ? 'حفظ' : 'إضافة'}</button><button className="btn btn-soft flex-1 sm:flex-initial" onClick={onClose}>إلغاء</button></>}>
       <div className="space-y-4">
         {err._form && <InlineAlert kind="red">{err._form}</InlineAlert>}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
           <Field label="الاسم" req error={err.name}><input className={`inp ${err.name ? 'err' : ''}`} value={f.name} onChange={e => set('name', e.target.value)} placeholder="رف A-01" /></Field>
           <Field label="الكود" req error={err.code} hint="فريد داخل الفرع"><input dir="ltr" className={`inp mono text-left ${err.code ? 'err' : ''}`} value={f.code} onChange={e => set('code', e.target.value.toUpperCase())} placeholder="A-01" maxLength={100} /></Field>
         </div>
         <div>
           <span className="field-label">النوع</span>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {Object.entries(LOCATION_TYPES).map(([k, t]) => (
               <button key={k} type="button" onClick={() => set('type', k)}
-                className={`rounded-xl py-2.5 text-[12px] font-medium transition border ${f.type === k ? 'border-[var(--accent-orange)] c-primary font-semibold' : 'border-transparent c-secondary'}`}
+                className={`rounded-xl min-h-[44px] py-2.5 text-[12px] font-medium transition active:scale-[0.97] border ${f.type === k ? 'border-[var(--accent-orange)] c-primary font-semibold' : 'border-transparent c-secondary'}`}
                 style={{ background: f.type === k ? 'var(--accent-orange-light)' : 'var(--bg-subcard)' }}>{t}</button>
             ))}
           </div>
@@ -374,11 +445,11 @@ function LocationsScreen({ go, params }) {
   return (
     <section className="space-y-5">
       <PageHead title="مواقع التخزين" back={{ label: 'الفروع والمخازن', onClick: onBack }}
-        sub={br && <span className="flex items-center gap-2">{br.name} <span className="mono text-[11.5px] c-muted" dir="ltr">{br.code}</span> <TypeBadge type={br.type} /></span>}
-        actions={<>
-          <Sel value={br?.id} onChange={id => id && go('locations', { branchId: id })} options={branchOptions} placeholder="اختر الفرع" className="!rounded-full !py-2 w-56" disabled={restriction.locked} />
-          {canAdd && <button className="btn btn-dark" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={14} w={2.2} /> إضافة موقع</button>}
-        </>} />
+        sub={br && <span className="flex items-center gap-2 flex-wrap">{br.name} <span className="mono text-[11.5px] c-muted" dir="ltr">{br.code}</span> <TypeBadge type={br.type} /></span>}
+        actions={<div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+          <Sel value={br?.id} onChange={id => id && go('locations', { branchId: id })} options={branchOptions} placeholder="اختر الفرع" className="!rounded-full !py-2 w-full sm:w-56" disabled={restriction.locked} />
+          {canAdd && <button className="btn btn-dark w-full sm:w-auto" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={14} w={2.2} /> إضافة موقع</button>}
+        </div>} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <Card className="lg:col-span-4" stagger={2}>
@@ -410,34 +481,61 @@ function LocationsScreen({ go, params }) {
             empty={<EmptyState icon="pin" title="لا توجد مواقع تخزين في هذا الفرع" sub="أضف رفوفًا ومناطق وخانات لتحديد مكان كل صنف بدقة."
               action={canAdd && <button className="btn btn-dark btn-sm" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={13} /> إضافة موقع</button>} />}>
             {rows.length === 0 ? <EmptyState icon="pin" title="لا توجد مواقع من هذا النوع" /> : (
-              <div className="overflow-x-auto">
-                <table className="vt">
-                  <thead><tr><th>الاسم</th><th>الكود</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
-                  <tbody>
-                    {rows.map(l => (
-                      <tr key={l.id} className={l.is_active ? '' : 'opacity-60'}>
-                        <td className="font-semibold c-primary">{l.name}</td>
-                        <td><Sku>{l.code}</Sku></td>
-                        <td><Badge cls={({ shelf: 'b-gray', zone: 'b-blue', bin: 'b-gray', damaged: 'b-red', receiving: 'b-amber' })[l.type] || 'b-gray'}>{LOCATION_TYPES[l.type] || l.type}</Badge></td>
-                        <td>
-                          <div className="flex items-center gap-2.5">
-                            {canEdit && <Toggle on={l.is_active} onChange={() => toggle(l)} />}
-                            <span className={`text-[11.5px] font-semibold ${l.is_active ? '' : 'c-muted'}`} style={l.is_active ? { color: 'var(--badge-green-text)' } : {}}>{l.is_active ? 'نشط' : 'معطّل'}</span>
+              <>
+                <div className="md:hidden space-y-2.5">
+                  {rows.map(l => (
+                    <div key={l.id} className={`v-subcard p-3.5 rounded-2xl border border-[var(--border-subtle)] ${l.is_active ? '' : 'opacity-65'}`}>
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-[14px] c-primary truncate">{l.name}</div>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <Sku>{l.code}</Sku>
+                            <Badge cls={({ shelf: 'b-gray', zone: 'b-blue', bin: 'b-gray', damaged: 'b-red', receiving: 'b-amber' })[l.type] || 'b-gray'}>{LOCATION_TYPES[l.type] || l.type}</Badge>
                           </div>
-                        </td>
-                        <td>
-                          {(canEdit || canDelete) && (
-                            <div className="flex items-center gap-0.5 justify-end">
-                              {canEdit && <button className="icon-btn" title="تعديل" onClick={() => setForm({ open: true, initial: l })}><Icon n="edit" s={15} /></button>}
-                              {canDelete && <button className="icon-btn" title="حذف" onClick={() => { setDel(l); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                          {canEdit && <Toggle on={l.is_active} onChange={() => toggle(l)} />}
+                          <span className={`text-[11.5px] font-semibold ${l.is_active ? '' : 'c-muted'}`} style={l.is_active ? { color: 'var(--badge-green-text)' } : {}}>{l.is_active ? 'نشط' : 'معطّل'}</span>
+                        </div>
+                      </div>
+                      {(canEdit || canDelete) && (
+                        <div className="mt-3 pt-2.5 border-t border-[var(--divider-color)] flex items-center justify-end gap-1.5">
+                          {canEdit && <button type="button" className="btn btn-sm flex-1 justify-center rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} onClick={() => setForm({ open: true, initial: l })}><Icon n="edit" s={14} /> تعديل</button>}
+                          {canDelete && <button type="button" className="icon-btn hover:!text-[var(--badge-red-text)]" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} title="حذف" aria-label="حذف" onClick={() => { setDel(l); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="vt">
+                    <thead><tr><th>الاسم</th><th>الكود</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
+                    <tbody>
+                      {rows.map(l => (
+                        <tr key={l.id} className={l.is_active ? '' : 'opacity-60'}>
+                          <td className="font-semibold c-primary">{l.name}</td>
+                          <td><Sku>{l.code}</Sku></td>
+                          <td><Badge cls={({ shelf: 'b-gray', zone: 'b-blue', bin: 'b-gray', damaged: 'b-red', receiving: 'b-amber' })[l.type] || 'b-gray'}>{LOCATION_TYPES[l.type] || l.type}</Badge></td>
+                          <td>
+                            <div className="flex items-center gap-2.5">
+                              {canEdit && <Toggle on={l.is_active} onChange={() => toggle(l)} />}
+                              <span className={`text-[11.5px] font-semibold ${l.is_active ? '' : 'c-muted'}`} style={l.is_active ? { color: 'var(--badge-green-text)' } : {}}>{l.is_active ? 'نشط' : 'معطّل'}</span>
                             </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          </td>
+                          <td>
+                            {(canEdit || canDelete) && (
+                              <div className="flex items-center gap-0.5 justify-end">
+                                {canEdit && <button className="icon-btn" title="تعديل" onClick={() => setForm({ open: true, initial: l })}><Icon n="edit" s={15} /></button>}
+                                {canDelete && <button className="icon-btn" title="حذف" onClick={() => { setDel(l); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </Phase>
         </Card>
@@ -2058,6 +2156,8 @@ const IP = {
   logout: 'M15 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4M8 17l-5-5 5-5M3 12h12',
   info: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 8h.01M12 11v5',
   storefront: 'M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M10 20v-5h4v5',
+  phone: 'M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.5c.9.3 1.8.6 2.8.7A2 2 0 0122 16.9z',
+  users: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8zM23 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8',
 };
 function Icon({ n, s = 16, w = 1.9, className = '', style }) {
   return (
@@ -2106,11 +2206,16 @@ function Badge({ cls = 'b-gray', dot, children }) {
 }
 const ActiveBadge = ({ on }) => <Badge cls={on ? 'b-green' : 'b-gray'} dot>{on ? 'نشط' : 'غير نشط'}</Badge>;
 
-function SearchPill({ value, onChange, placeholder = 'بحث', w = 'w-40' }) {
+function SearchPill({ value, onChange, placeholder = 'بحث', w = 'w-40', className = '' }) {
   return (
-    <div className="v-subcard px-3 py-1.5 rounded-full flex items-center gap-2">
-      <Icon n="search" s={14} className="c-muted" />
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={`bg-transparent text-[12px] outline-none ${w} c-primary`} />
+    <div className={`v-subcard px-3 py-1.5 rounded-full flex items-center gap-2 min-h-[40px] sm:min-h-0 ${className}`}>
+      <Icon n="search" s={14} className="c-muted shrink-0" />
+      <input type="search" inputMode="search" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={`bg-transparent text-[13px] sm:text-[12px] outline-none ${w} c-primary`} />
+      {value && (
+        <button type="button" onClick={() => onChange('')} aria-label="مسح البحث" className="w-5 h-5 rounded-full flex items-center justify-center c-muted hover:c-primary shrink-0">
+          <Icon n="x" s={12} />
+        </button>
+      )}
     </div>
   );
 }
@@ -2216,26 +2321,131 @@ function InlineAlert({ kind = 'red', icon = 'alert', title, children, onClose })
   );
 }
 
-// ---------- Modal ----------
+// ---------- Modal / Mobile Bottom Sheet ----------
+function sheetRubberband(overshoot, dimension, constant = 0.55) {
+  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+function projectSheetVelocity(velocityY, decelerationRate = 0.995) {
+  return (velocityY / 1000) * decelerationRate / (1 - decelerationRate);
+}
+
+const MODAL_WIDTH_MD = {
+  'max-w-md': 'md:max-w-md',
+  'max-w-lg': 'md:max-w-lg',
+  'max-w-xl': 'md:max-w-xl',
+  'max-w-2xl': 'md:max-w-2xl',
+  'max-w-3xl': 'md:max-w-3xl',
+};
+
 function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg' }) {
+  const sheetRef = useRef(null);
+  const dragRef = useRef({ active: false, pointerId: null, startY: 0, lastY: 0, lastT: 0, velocityY: 0 });
+  const closeTimer = useRef(null);
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [closing, setClosing] = useState(false);
+
   useEffect(() => {
     if (!open) return;
+    setDragY(0); setDragging(false); setClosing(false);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const h = e => e.key === 'Escape' && onClose && onClose();
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+    window.addEventListener('keydown', h);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', h);
+      clearTimeout(closeTimer.current);
+    };
   }, [open]);
+
   if (!open) return null;
+
+  const onHeaderPointerDown = e => {
+    if (window.innerWidth >= 768) return;
+    if (e.target.closest('button, input, select, textarea, a')) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const now = performance.now();
+    dragRef.current = { active: true, pointerId: e.pointerId, startY: e.clientY, lastY: e.clientY, lastT: now, velocityY: 0 };
+    setDragging(true);
+  };
+  const onHeaderPointerMove = e => {
+    const d = dragRef.current;
+    if (!d.active || d.pointerId !== e.pointerId) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - d.lastT);
+    const instV = ((e.clientY - d.lastY) / dt) * 1000;
+    d.velocityY = 0.7 * instV + 0.3 * d.velocityY;
+    d.lastY = e.clientY;
+    d.lastT = now;
+    const dy = e.clientY - d.startY;
+    if (dy < 0) {
+      const h = sheetRef.current?.offsetHeight || 420;
+      setDragY(-sheetRubberband(-dy, h, 0.55));
+    } else {
+      setDragY(dy);
+    }
+  };
+  const onHeaderPointerEnd = e => {
+    const d = dragRef.current;
+    if (!d.active || d.pointerId !== e.pointerId) return;
+    d.active = false;
+    setDragging(false);
+    const projected = dragY + projectSheetVelocity(d.velocityY, 0.995);
+    if ((projected > 130 && dragY > 24) || dragY > 150) {
+      const h = sheetRef.current?.offsetHeight || 500;
+      setClosing(true);
+      setDragY(h + 48);
+      closeTimer.current = setTimeout(() => { onClose && onClose(); }, 240);
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const backdropFade = closing ? 0 : dragY > 0 ? Math.max(0.15, 1 - dragY / 380) : 1;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in" style={{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onMouseDown={e => e.target === e.currentTarget && onClose && onClose()}>
-      <div className={`v-card ${width} w-full shadow-2xl modal-in flex flex-col max-h-[92vh] rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(0.5rem,env(safe-area-inset-bottom))]`}>
-        <div className="flex items-start justify-between gap-4 p-6 pb-4">
-          <div>
-            <h3 className="font-display text-[18px] font-semibold c-primary">{title}</h3>
-            {sub && <p className="text-[12px] c-secondary mt-0.5">{sub}</p>}
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 fade-in sheet-backdrop"
+      style={{ opacity: backdropFade, transition: dragging ? 'none' : 'opacity .24s ease' }}
+      onMouseDown={e => e.target === e.currentTarget && onClose && onClose()}
+    >
+      <div
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        className={`v-card v-sheet max-w-none ${MODAL_WIDTH_MD[width] || 'md:max-w-lg'} w-full shadow-2xl modal-in flex flex-col max-h-[85dvh] md:max-h-[92vh] pb-[max(0.5rem,env(safe-area-inset-bottom))]`}
+        style={{
+          transform: dragY !== 0 ? `translate3d(0, ${dragY}px, 0)` : undefined,
+          transition: dragging ? 'none' : 'transform .34s cubic-bezier(.32,.72,0,1)',
+          willChange: dragging ? 'transform' : undefined,
+        }}
+      >
+        <div
+          className="md:cursor-default cursor-grab active:cursor-grabbing select-none"
+          style={{ touchAction: 'none' }}
+          onPointerDown={onHeaderPointerDown}
+          onPointerMove={onHeaderPointerMove}
+          onPointerUp={onHeaderPointerEnd}
+          onPointerCancel={onHeaderPointerEnd}
+        >
+          <div className="md:hidden flex justify-center pt-2.5 pb-1">
+            <span className="w-10 h-1 rounded-full" style={{ background: 'var(--border-strong)' }} />
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full v-subcard flex items-center justify-center c-secondary shrink-0"><Icon n="x" s={14} /></button>
+          <div className="flex items-start justify-between gap-4 px-5 pt-2 pb-3.5 md:p-6 md:pb-4 border-b border-[var(--divider-color)] md:border-b-0">
+            <div className="min-w-0">
+              <h3 className="font-display text-[17px] md:text-[18px] font-semibold c-primary leading-snug">{title}</h3>
+              {sub && <p className="text-[12px] c-secondary mt-0.5 leading-relaxed">{sub}</p>}
+            </div>
+            <button type="button" onClick={onClose} aria-label="إغلاق" className="w-9 h-9 md:w-8 md:h-8 rounded-full v-subcard flex items-center justify-center c-secondary shrink-0 active:scale-95 transition"><Icon n="x" s={15} /></button>
+          </div>
         </div>
-        <div className="px-6 pb-2 overflow-y-auto flex-1">{children}</div>
-        {footer && <div className="p-6 pt-4 flex items-center justify-start gap-2.5 flex-row-reverse">{footer}</div>}
+        <div className="px-5 py-3.5 md:px-6 md:py-0 md:pb-2 overflow-y-auto flex-1 overscroll-contain">{children}</div>
+        {footer && (
+          <div className="px-5 py-3.5 md:p-6 md:pt-4 border-t border-[var(--divider-color)] md:border-t-0 flex items-center justify-start gap-2.5 flex-row-reverse">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2245,11 +2455,11 @@ function ConfirmDialog({ open, onClose, onConfirm, title, body, confirmLabel = '
   return (
     <Modal open={open} onClose={onClose} title={title} width="max-w-md"
       footer={<>
-        <button className={`btn ${danger ? 'btn-orange' : 'btn-dark'}`} onClick={onConfirm} disabled={busy}>
+        <button className={`btn flex-1 sm:flex-initial ${danger ? 'btn-orange' : 'btn-dark'}`} onClick={onConfirm} disabled={busy}>
           {busy ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : null}
           {confirmLabel}
         </button>
-        <button className="btn btn-soft" onClick={onClose}>تراجع</button>
+        <button className="btn btn-soft flex-1 sm:flex-initial" onClick={onClose}>تراجع</button>
       </>}>
       <div className="text-[13px] c-secondary leading-relaxed" style={{ textWrap: 'pretty' }}>{body}</div>
       {error && <div className="mt-4"><InlineAlert kind="red" title="رفض الخادم العملية">{error}</InlineAlert></div>}
@@ -2392,15 +2602,41 @@ export function InventoryReference({can,isDark}) {
  const branchesQuery = useApi(signal => fetchAllBranches(signal), [branchesTick]);
  const reloadBranches = () => { locationCache.current.clear(); setBranchesTick(t => t + 1); };
  const timer=useRef();
+ const [navFade, setNavFade] = useState({ left: false, right: false });
+ const updateNavFade = () => {
+   const navigation = navigationRef.current;
+   if (!navigation || window.innerWidth >= 768) { setNavFade({ left: false, right: false }); return; }
+   const first = navigation.firstElementChild;
+   const last = navigation.lastElementChild;
+   if (!first || !last) return;
+   const vp = navigation.getBoundingClientRect();
+   const f = first.getBoundingClientRect();
+   const l = last.getBoundingClientRect();
+   const right = f.right > vp.right + 4;
+   const left = l.left < vp.left - 4;
+   setNavFade(prev => (prev.left === left && prev.right === right ? prev : { left, right }));
+ };
  useEffect(() => {
    const navigation = navigationRef.current;
    const current = navigation?.querySelector('[aria-current="page"]');
-   if (!current) return;
-   const viewport = navigation.getBoundingClientRect();
-   const tab = current.getBoundingClientRect();
-   if (tab.left < viewport.left) navigation.scrollLeft += tab.left - viewport.left;
-   else if (tab.right > viewport.right) navigation.scrollLeft += tab.right - viewport.right;
+   if (current && navigation) {
+     if (window.innerWidth < 768) {
+       const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+       current.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', inline: 'center', block: 'nearest' });
+     } else {
+       const viewport = navigation.getBoundingClientRect();
+       const tab = current.getBoundingClientRect();
+       if (tab.left < viewport.left) navigation.scrollLeft += tab.left - viewport.left;
+       else if (tab.right > viewport.right) navigation.scrollLeft += tab.right - viewport.right;
+     }
+   }
+   updateNavFade();
  }, [nav.route]);
+ useEffect(() => {
+   updateNavFade();
+   window.addEventListener('resize', updateNavFade);
+   return () => window.removeEventListener('resize', updateNavFade);
+ }, []);
  useEffect(()=>{
    const markDirty = e => { dirtyNavigation.current = Boolean(e.detail); };
    const changed=()=>{
@@ -2416,17 +2652,32 @@ export function InventoryReference({can,isDark}) {
  const go=(route,params={})=>{const qs=new URLSearchParams(Object.entries(params).filter(([,value])=>value!=null)).toString();location.hash='/inventory/'+route+(qs?'?'+qs:'');};
  const toast=text=>{setToastMsg({text});clearTimeout(timer.current);timer.current=setTimeout(()=>setToastMsg(null),2400);};
  const Screen=SCREENS[nav.route];
+ const navMask = navFade.left && navFade.right
+   ? 'linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%)'
+   : navFade.left
+   ? 'linear-gradient(to right, transparent 0, #000 22px, #000 100%)'
+   : navFade.right
+   ? 'linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)'
+   : undefined;
  return <InvCtx.Provider value={{toast,can,go,reloadKey,reload:()=>setReloadKey(k=>k+1),variantCache:variantCache.current,locationCache:locationCache.current,branchesQuery,reloadBranches}}>
   <div className={'inventory-surface '+(isDark?'theme-dark':'theme-light')} dir="rtl" lang="ar">
-   <nav ref={navigationRef} aria-label="شاشات المخزون" className="flex gap-2 overflow-x-auto pb-2 mb-5">
-    {INV_NAV.map(item => {
-      const active = item.match.includes(nav.route);
-      return <button key={item.id} type="button" aria-current={active ? 'page' : undefined} onClick={() => {
-        if (item.id === 'banners') window.location.hash = '/settings?tab=store';
-        else go(item.id);
-      }} className={'btn shrink-0 ' + (active ? 'btn-dark' : 'btn-soft')}><Icon n={item.icon} s={15}/>{item.label}</button>;
-    })}
-   </nav>
+   <div className="inv-topbar-wrap md:mb-5">
+    <nav
+      ref={navigationRef}
+      onScroll={updateNavFade}
+      aria-label="شاشات المخزون"
+      className="inv-nav-scroll flex gap-1.5 md:gap-2 overflow-x-auto pb-0 md:pb-2"
+      style={navMask ? { maskImage: navMask, WebkitMaskImage: navMask } : undefined}
+    >
+     {INV_NAV.map(item => {
+       const active = item.match.includes(nav.route);
+       return <button key={item.id} type="button" aria-current={active ? 'page' : undefined} onClick={() => {
+         if (item.id === 'banners') window.location.hash = '/settings?tab=store';
+         else go(item.id);
+       }} className={'btn inv-nav-pill shrink-0 ' + (active ? 'btn-dark shadow-sm md:shadow-none' : 'btn-soft')}><Icon n={item.icon} s={15}/>{item.label}</button>;
+     })}
+    </nav>
+   </div>
    <main data-inventory-screen={nav.route}><Screen key={nav.route+JSON.stringify(nav.params)} go={go} params={nav.params}/></main>
    <Toast toast={toastMsg}/>
   </div>
