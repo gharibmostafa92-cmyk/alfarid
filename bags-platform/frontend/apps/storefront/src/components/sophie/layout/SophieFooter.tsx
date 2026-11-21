@@ -51,7 +51,7 @@ export function SophieFooter() {
       </div>
 
       {/* Main Luxury Dark Footer */}
-      <footer className="bg-[#151823] text-[#a4abba] pt-16 pb-14 font-[var(--font-poppins)] relative">
+      <footer className="bg-[#151823] text-[#a4abba] pt-12 pb-10 sm:pt-16 sm:pb-14 font-[var(--font-poppins)] relative">
         <div className="max-w-[1140px] mx-auto px-5">
           {/* 4-Column Main Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10 mb-10 lg:mb-14">
@@ -128,7 +128,7 @@ export function SophieFooter() {
                 </li>
                 <li>
                   <a href="#footer-contact" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
-                    <span className="text-[#6c7383]">&rsaquo;</span> Contact Us
+                    <span className="text-[#6c7383]">&rsaquo;</span> {isAr ? 'تواصل معنا' : 'Contact Us'}
                   </a>
                 </li>
               </ul>
@@ -137,10 +137,10 @@ export function SophieFooter() {
             {/* Column 4: NEWSLETTER */}
             <div id="footer-newsletter">
               <h4 className="font-[var(--font-oswald)] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
-                NEWSLETTER
+                {isAr ? 'النشرة البريدية' : 'NEWSLETTER'}
               </h4>
               <p className="text-[12.5px] leading-[1.75] text-[#a4abba] mb-5">
-                Newsletter subscriptions will be available soon.
+                {isAr ? 'الاشتراك في النشرة البريدية سيتوفر قريبًا.' : 'Newsletter subscriptions will be available soon.'}
               </p>
             </div>
           </div>

@@ -14,7 +14,7 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
   const external = banner.is_external && href?.startsWith('https://') ? { target: '_blank', rel: 'noopener noreferrer' } : {};
   return (
     <div
-      className={`min-h-[220px] sm:min-h-[235px] ${single ? 'md:aspect-[16/5]' : ''} ${wide ? 'md:col-span-2' : ''} flex flex-col min-[480px]:flex-row items-stretch overflow-hidden relative group`}
+      className={`min-h-[220px] sm:min-h-[235px] rounded-2xl border border-black/5 ${single ? 'md:aspect-[16/5]' : ''} ${wide ? 'md:col-span-2' : ''} flex flex-col min-[480px]:flex-row items-stretch overflow-hidden relative group transition-transform active:scale-[0.99]`}
       style={{ backgroundColor: banner.bg_color || PALETTE[index % PALETTE.length] }}
     >
       {failed ? (
@@ -58,7 +58,7 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
                   className="text-[12.5px] font-medium text-[#111] min-h-[40px] py-1.5 inline-flex items-center gap-1.5 hover:text-[#4f7d88] transition-colors"
                 >
                   <span>{banner.cta_label || 'View collection'}</span>
-                  <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <svg className="w-3 h-3 shrink-0 rtl:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                   </svg>
                 </a>

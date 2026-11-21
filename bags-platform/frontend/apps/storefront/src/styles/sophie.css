@@ -403,10 +403,10 @@
 
 /* Balanced responsive hero space without excessive vertical voids on mobile */
 .hero-wrapper .sophie-hero-content {
-  min-height: 400px;
+  min-height: 360px;
 }
 .hero-wrapper .sophie-hero-content.is-fallback-slide {
-  min-height: 540px;
+  min-height: 460px;
 }
 @media (min-width: 640px) {
   .hero-wrapper .sophie-hero-content {
@@ -473,8 +473,11 @@
 }
 
 .hero-copy-banner {
-  padding: clamp(24px, 3vw, 36px);
-  background: rgba(250, 249, 246, 0.96);
+  padding: clamp(20px, 3vw, 36px);
+  background: rgba(250, 249, 246, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
 }
 
 .hero-copy-kicker {
@@ -519,14 +522,20 @@
   min-height: 46px;
   max-width: 100%;
   padding: 12px 28px;
+  border-radius: 999px;
   background: #171717;
   color: white;
   font: 500 13px/1.4 var(--font-poppins), sans-serif;
   text-align: center;
-  transition: background-color .2s ease;
+  transition: background-color .2s ease, transform .12s ease;
 }
 
 .hero-copy-action:hover { background: #424242; }
+.hero-copy-action:active { transform: scale(0.97); }
+
+@media (max-width: 639px) {
+  .hero-copy-action { width: 100%; }
+}
 
 @media (max-width: 1023px) {
   .hero-copy { margin-top: 24px; }

@@ -40,8 +40,8 @@ export function SophieProductsSection({
             <div className="sophie-skeleton h-3 w-72 max-w-full mx-auto" />
           </div>
         ) : (
-          <div className="text-center mb-8 sm:mb-10">
-            <h2 className="font-[var(--font-oswald)] text-[24px] sm:text-[28px] font-semibold uppercase tracking-[0.5px] text-[#111] mb-1.5">
+          <div className="text-center mb-7 sm:mb-10">
+            <h2 className={`${isAr ? 'font-[var(--font-cairo)] tracking-normal' : 'font-[var(--font-oswald)] uppercase tracking-[0.5px]'} text-[22px] sm:text-[28px] font-semibold text-[#111] mb-1.5`}>
               {title}
             </h2>
             <p className="text-[12.5px] text-[#555] font-normal font-[var(--font-poppins)]">
@@ -86,14 +86,14 @@ export function SophieProductsSection({
             {safeViewMoreHref.startsWith('/') ? (
               <Link
                 href={safeViewMoreHref}
-                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
+                className="inline-flex items-center justify-center min-h-[44px] rounded-full bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] active:scale-[0.97] transition-all"
               >
                 {isAr ? 'عرض المزيد' : 'VIEW MORE'}
               </Link>
             ) : (
               <a
                 href={safeViewMoreHref}
-                className="inline-flex items-center justify-center min-h-[44px] bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] transition-colors"
+                className="inline-flex items-center justify-center min-h-[44px] rounded-full bg-black text-white font-[var(--font-oswald)] text-[11.5px] font-medium tracking-[0.8px] uppercase px-8 py-3 hover:bg-[#2c2c2c] active:scale-[0.97] transition-all"
               >
                 VIEW MORE
               </a>

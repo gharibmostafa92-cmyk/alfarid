@@ -180,7 +180,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
                   onClick={() => setIndex(position)}
                   aria-label={`Go to slide ${position + 1}`}
                   aria-current={activeIndex === position ? 'true' : undefined}
-                  className="min-w-[40px] min-h-[40px] px-1.5 inline-flex items-center justify-center"
+                  className="min-w-[44px] min-h-[44px] px-1.5 inline-flex items-center justify-center"
                 >
                   <span
                     className={`block h-[3px] rounded-full transition-all duration-300 ${
