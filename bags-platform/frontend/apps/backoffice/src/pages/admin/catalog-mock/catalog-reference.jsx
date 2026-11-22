@@ -66,13 +66,13 @@ function ProductsPage() {
       <PageHeader crumbs={[{ label: 'الكتالوج' }, { label: 'المنتجات' }]} title="المنتجات" subtitle="المنتج بيتعمل مسودة الأول، بعدها الصور، وبعدها النشر."
         actions={user.can('products.create') && <button className="btn btn-ink" onClick={() => nav('/products/new')}><Icon name="plus" size={15} />منتج جديد</button>} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stagger s2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 stagger s2">
         {[['', 'كل المنتجات', counts.all, 'box'], ['published', 'منشور', counts.published, 'globe'], ['draft', 'مسودة', counts.draft, 'edit'], ['archived', 'مؤرشف', counts.archived, 'folder']].map(([k, l, n, ic], i) => {
           const on = q.status === k;
           return (
-            <button key={k} onClick={() => setQ({ status: k, page: 1 })} className={cx('rounded-[22px] p-5 text-start transition', on ? 'v-orange shadow-sm' : 'v-card hover:shadow-sm')}>
-              <div className={cx('flex items-center justify-between text-[12.5px] font-medium', on ? 'text-white/90' : 't-2')}>{l}<span className={cx('w-7 h-7 rounded-full flex items-center justify-center', on ? 'bg-white/15' : 'v-well')}><Icon name={ic} size={14} /></span></div>
-              <div className={cx('font-display text-[32px] font-bold mt-3 num', !on && 't-1')}><AnimatedNumber value={n} /></div>
+            <button key={k} onClick={() => setQ({ status: k, page: 1 })} className={cx('tap-card rounded-[18px] sm:rounded-[22px] p-3.5 sm:p-5 text-start transition', on ? 'v-orange shadow-sm' : 'v-card hover:shadow-sm')}>
+              <div className={cx('flex items-center justify-between text-[12px] sm:text-[12.5px] font-medium', on ? 'text-white/90' : 't-2')}>{l}<span className={cx('w-7 h-7 rounded-full flex items-center justify-center', on ? 'bg-white/15' : 'v-well')}><Icon name={ic} size={14} /></span></div>
+              <div className={cx('font-display text-[24px] sm:text-[32px] font-bold mt-2 sm:mt-3 num', !on && 't-1')}><AnimatedNumber value={n} /></div>
               <div className={cx('mt-2 h-1.5 rounded-full overflow-hidden', on ? 'bg-white/20' : 'hatched-track')}><div className={cx('h-full rounded-full', on ? 'bg-white' : 'hatched-acc')} style={{ width: `${(counts.all ? n / counts.all : 0) * 100}%` }} /></div>
             </button>
           );
@@ -83,17 +83,47 @@ function ProductsPage() {
       <div className="stagger s3">
         <DataTable error={query.error} state={phase} onRetry={retry} rows={res.data} meta={res.meta} filtered={activeFilters > 0}
           onPage={(p) => setQ({ page: p })} onPerPage={(n) => setQ({ per_page: n, page: 1 })} onRowClick={(r) => nav('/products/' + r.id)}
+          renderMobileRow={(r) => (
+            <div key={r.id} onClick={() => nav('/products/' + r.id)} className="tap-card p-3.5 flex flex-col gap-3 cursor-pointer active:bg-[var(--bg-subcard)] transition">
+              <div className="flex items-start gap-3">
+                <span className="w-14 h-14 rounded-[14px] shrink-0 relative" style={{ background: r.img }}>
+                  {r.featured && <span className="absolute -top-1 -end-1 w-5 h-5 rounded-full bg-acc flex items-center justify-center" style={{ boxShadow: '0 0 0 2px var(--bg-card)' }}><Icon name="star" size={10} sw={2.5} /></span>}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-[14px] t-1 leading-snug line-clamp-2">{r.ar}</div>
+                    <StatusBadge s={r.status} />
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-[11px] t-3 ltr">{r.code}</span>
+                    {r.cat && <span className="text-[11px] t-2 truncate max-w-[180px]">· {r.cat}</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-2.5 v-border-t">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  {r.channel === 'wholesale' ? <span className="t-3 text-[12px]">جملة فقط</span> : r.min == null ? <span className="text-[11.5px] font-medium" style={{ color: 'var(--badge-amber-text)' }}>غير مكتمل</span> : <span className="num text-[13.5px] font-bold t-1">{r.min === r.max ? fmtMoney(r.min) : `${fmtMoney(r.min)} – ${fmtMoney(r.max)}`} <span className="text-[10.5px] t-3 font-medium">ج.م</span></span>}
+                  <span className="text-[11px] px-2 py-0.5 rounded-full v-well t-2">{CHANNEL_LABEL[r.channel]}</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full v-well t-2 num">{r.variants} متغير</span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" aria-label="تعديل المنتج" onClick={() => nav('/products/' + r.id)} className="icon-btn !w-9 !h-9"><Icon name="edit" size={15} /></button>
+                  {user.can('products.delete') && <button type="button" aria-label="حذف المنتج" onClick={() => setDeleting(r)} className="icon-btn !w-9 !h-9 text-[var(--badge-red-text)]"><Icon name="trash" size={15} /></button>}
+                </div>
+              </div>
+            </div>
+          )}
           empty={activeFilters > 0 ? <EmptyState icon="search" title="لا منتجات مطابقة" body="البحث بيشمل الاسم والكود وSKU والباركود. جرّب كلمات أقل أو امسح الفلاتر." action={<button className="btn btn-soft" onClick={() => setQ({ search: '', category: '', status: '', channel: '', featured: '', page: 1 })}>مسح كل الفلاتر</button>} />
             : <EmptyState icon="box" title="لا توجد منتجات بعد" body="ابدأ بأول منتج كمسودة — تقدر تضيف الصور وتنشره بعدين." action={user.can('products.create') && <button className="btn btn-ink" onClick={() => nav('/products/new')}><Icon name="plus" size={15} />منتج جديد</button>} />}
           toolbar={
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <SearchBox value={q.search} onChange={(v) => setQ({ search: v, page: 1 })} placeholder="الاسم، الكود، SKU أو الباركود…" width={320} />
-                <div className="w-[230px]"><SearchSelect value={q.category ? +q.category : null} onChange={(v) => setQ({ category: v, page: 1 })} placeholder="كل الأقسام" options={flat.map((f) => ({ value: f.id, label: f.ar, depth: f.depth }))} /></div>
+                <SearchBox value={q.search} onChange={(v) => setQ({ search: v, page: 1 })} placeholder="الاسم، الكود، SKU أو الباركود…" width="100%" className="sm:!w-[300px]" />
+                <div className="w-full sm:w-[230px]"><SearchSelect value={q.category ? +q.category : null} onChange={(v) => setQ({ category: v, page: 1 })} placeholder="كل الأقسام" options={flat.map((f) => ({ value: f.id, label: f.ar, depth: f.depth }))} /></div>
                 {q.category && <label className="h-10 px-3.5 rounded-full v-subcard !rounded-full flex items-center gap-2 text-[12px] font-medium t-1 cursor-pointer" onClick={() => setQ({ sub: q.sub === '1' ? '0' : '1', page: 1 })}><Check on={q.sub === '1'} />تضمين الأقسام الفرعية</label>}
                 <FilterMenu label="القناة" value={q.channel || null} onChange={(v) => setQ({ channel: v, page: 1 })} options={[{ value: 'retail', label: 'تجزئة' }, { value: 'wholesale', label: 'جملة' }, { value: 'both', label: 'تجزئة + جملة' }]} />
                 <button onClick={() => setQ({ featured: q.featured ? '' : '1', page: 1 })} className={cx('h-10 px-3.5 rounded-full inline-flex items-center gap-2 text-[12.5px] font-medium border transition', q.featured ? 'bg-ink border-transparent' : 'btn-outline')}><Icon name="star" size={14} />مميز</button>
-                <div className="ms-auto flex items-center gap-2">
+                <div className="w-full sm:w-auto sm:ms-auto flex items-center justify-between sm:justify-end gap-2">
                   <span className="text-[12px] t-3">ترتيب</span>
                   <Seg value={q.sort} onChange={(v) => setQ({ sort: v, page: 1 })} options={[{ value: 'newest', label: 'الأحدث' }, { value: 'oldest', label: 'الأقدم' }, { value: 'name', label: 'الاسم (EN)' }]} />
                 </div>
@@ -351,17 +381,20 @@ function ProductForm({ id, initial }) {
     { value: 'review', label: 'المراجعة والنشر', num: 4, state: tabState('review') },
   ];
 
+  const curTabIdx = Math.max(0, tabs.findIndex((t) => t.value === tab.tab));
+  const gotoTab = (t) => setTabQ({ tab: t });
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {p.status === 'published' && <Banner tone="amber">المنتج منشور: أي تعديل لازم يحافظ على شروط النشر</Banner>}
       <PageHeader crumbs={[{ label: 'الكتالوج' }, { label: 'المنتجات', href: '#/products' }, { label: isNew && !p.code ? 'منتج جديد' : (B.ar || p.code) }]}
         title={isNew && !p.code ? 'منتج جديد' : B.ar || 'بدون اسم'}
         badge={<>{p.status ? <StatusBadge s={p.status} /> : <Badge>لم يُحفظ بعد</Badge>}{p.code && <span className="ltr text-[12px] font-semibold px-2.5 py-1 rounded-full v-pill t-2">{p.code}</span>}</>}
         actions={<button className="btn btn-soft" onClick={() => dirty ? setLeave(true) : nav('/products')}><Icon name="arrowRight" size={14} />المنتجات</button>} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 stagger s2">
-        <Tabs value={tab.tab} onChange={(t) => setTabQ({ tab: t })} tabs={tabs} />
-        <div className="flex items-center gap-3 v-pill rounded-full ps-4 pe-1.5 h-11">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 stagger s2">
+        <Tabs value={tab.tab} onChange={gotoTab} tabs={tabs} />
+        <div className="hidden sm:flex items-center gap-3 v-pill rounded-full ps-4 pe-1.5 h-11 shrink-0">
           <span className="text-[12px] t-2">الجاهزية للنشر</span>
           <div className="w-24 h-2 rounded-full hatched-track overflow-hidden"><div className="h-full rounded-full hatched-acc transition-all" style={{ width: `${(readyCount / ready.length) * 100}%` }} /></div>
           <span className={cx('h-8 px-3 rounded-full text-[12px] font-bold num flex items-center', readyCount === ready.length ? 'b-green' : 'v-well t-1')}>{readyCount}/{ready.length}</span>
@@ -390,8 +423,10 @@ function ProductForm({ id, initial }) {
         {tab.tab === 'review' && <ReviewTab p={p} ready={ready} canCost={canCost} canPublish={canPublish} goto={(t) => setTabQ({ tab: t })} catNode={catNode} />}
       </fieldset>
 
-      {writable && <StickyBar dirty={dirty} note={p.status ? null : 'الصور هتترفع بعد حفظ المسودة'}>
-        {tab.tab !== 'review' && <button className="btn btn-ghost" onClick={() => setTabQ({ tab: tabs[Math.min(3, tabs.findIndex((t) => t.value === tab.tab) + 1)].value })}>التالي<Icon name="chevLeft" size={14} /></button>}
+      {writable && <StickyBar dirty={dirty} note={p.status ? null : 'الصور هتترفع بعد حفظ المسودة'}
+        aside={<span className={cx('h-6 px-2.5 rounded-full text-[11px] font-bold num inline-flex items-center gap-1', readyCount === ready.length ? 'b-green' : 'v-well t-1')}>جاهز {readyCount}/{ready.length}</span>}>
+        {curTabIdx > 0 && <button type="button" className="btn btn-ghost" onClick={() => gotoTab(tabs[curTabIdx - 1].value)}><Icon name="chevRight" size={14} />السابق</button>}
+        {curTabIdx < tabs.length - 1 && <button type="button" className="btn btn-soft" onClick={() => gotoTab(tabs[curTabIdx + 1].value)}>التالي<Icon name="chevLeft" size={14} /></button>}
         <button className="btn btn-outline" onClick={() => run(false)} disabled={!writable || (!!flow && !flow.done)}><Icon name="edit" size={14} />{p.status === 'published'||p.status==='archived' ? 'حفظ التعديلات' : 'حفظ كمسودة'}</button>
         {canPublish && p.id && (p.status==='published'?[['draft','إلغاء النشر'],['archived','أرشفة']]:p.status==='archived'?[['draft','استرجاع كمسودة']]:[]).map(([status,label])=><button key={status} disabled={!!flow&&!flow.done} className="btn btn-soft" onClick={async()=>{if(dirty&&!window.confirm('تغيير الحالة سيحفظ حالة المنتج فقط. ستبقى تعديلاتك غير المحفوظة؛ متابعة؟'))return;try{const updated=await productsApi.update(p.id,{status,expected_version:p.lock_version});const next={...p,status:updated.status,lock_version:updated.lock_version,updated_at:updated.updated_at};const baseline={...savedRef.current,status:updated.status,lock_version:updated.lock_version,updated_at:updated.updated_at};savedRef.current=cloneProductState(baseline);savedFingerprintRef.current=productFingerprint(baseline);setP(next);}catch(e){vtoast(normalizeError(e).message,'error');}}}>{label}</button>)}
         {canPublish ? (
@@ -437,11 +472,14 @@ function BasicTab({ B, set, errs, code, flat }) {
           </div>
           <div className="mt-5">
             <Field label="قناة البيع" required error={errs.channel} hint="بتحدد الأسعار المطلوبة لكل متغير قبل النشر.">
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {[['retail', 'تجزئة', 'سعر التجزئة مطلوب', 'cart'], ['wholesale', 'جملة', 'سعر الجملة مطلوب', 'warehouse'], ['both', 'الاتنين', 'السعرين مطلوبين', 'layers']].map(([k, l, s, ic]) => (
-                  <button key={k} type="button" onClick={() => set('channel', k)} className={cx('rounded-[16px] p-3.5 text-start border transition', B.channel === k ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-field)] hover:bg-[var(--bg-subcard)]')}>
-                    <span className={cx('w-8 h-8 rounded-full flex items-center justify-center mb-2', B.channel === k ? 'bg-acc' : 'v-well')}><Icon name={ic} size={15} /></span>
-                    <span className="block text-[13px] font-semibold t-1">{l}</span><span className="block text-[11px] t-3">{s}</span>
+                  <button key={k} type="button" onClick={() => set('channel', k)} className={cx('tap-card rounded-[16px] p-3 sm:p-3.5 text-start border transition flex sm:block items-center gap-3', B.channel === k ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-field)] hover:bg-[var(--bg-subcard)]')}>
+                    <span className={cx('w-9 h-9 sm:w-8 sm:h-8 rounded-full flex items-center justify-center sm:mb-2 shrink-0', B.channel === k ? 'bg-acc' : 'v-well')}><Icon name={ic} size={15} /></span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold t-1">{l}</span>
+                      <span className="block text-[11px] t-3">{s}</span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -532,6 +570,8 @@ function MediaTab({media,setMedia,axes,mode,saved,onRetry}) {
             {media.general.map((f, i) => (
               <FileTile key={f.id} file={f} index={i + 1} primary={i === 0 && f.status !== 'failed'} draggable
                 onDragStart={() => setDragIdx(i)} onDragOver={(e) => { e.preventDefault(); reorder(i); }} onDrop={() => setDragIdx(null)}
+                onMovePrev={i > 0 ? () => { const items = [...media.general]; [items[i - 1], items[i]] = [items[i], items[i - 1]]; setMedia({ ...media, general: items }); } : undefined}
+                onMoveNext={i < media.general.length - 1 ? () => { const items = [...media.general]; [items[i + 1], items[i]] = [items[i], items[i + 1]]; setMedia({ ...media, general: items }); } : undefined}
                 onRemove={() => setMedia({ ...media, general: media.general.filter((x) => x.id !== f.id) })} onRetry={onRetry} />
             ))}
             {true && (
@@ -551,11 +591,11 @@ function MediaTab({media,setMedia,axes,mode,saved,onRetry}) {
               {axes.colors.map((c) => {
                 const list = media.byVariant[c.en] || [];
                 return (
-                  <div key={c.en} className="v-subcard p-3.5 flex items-center gap-4">
-                    <div className="flex items-center gap-2.5 w-[150px] shrink-0"><Swatch c={c.hex} size={28} /><div><div className="text-[12.5px] font-semibold t-1">{c.ar}</div><div className="text-[10.5px] t-3 ltr">{c.en}</div></div></div>
-                    <div className="flex-1 flex items-center gap-2 overflow-x-auto">
+                  <div key={c.en} className="v-subcard p-3.5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                    <div className="flex items-center gap-2.5 sm:w-[150px] shrink-0"><Swatch c={c.hex} size={28} /><div><div className="text-[12.5px] font-semibold t-1">{c.ar}</div><div className="text-[10.5px] t-3 ltr">{c.en}</div></div></div>
+                    <div className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar">
                       {list.map((f) => <div key={f.id} className="w-16 shrink-0"><FileTile compact file={f} onRetry={onRetry} onRemove={() => setMedia({ ...media, byVariant: { ...media.byVariant, [c.en]: list.filter((x) => x.id !== f.id) } })} /></div>)}
-                      <button onClick={() => addFiles(1, c.en)} className="dropzone w-16 h-16 shrink-0 flex items-center justify-center t-3"><Icon name="plus" size={16} /></button>
+                      <button type="button" onClick={() => addFiles(1, c.en)} className="dropzone w-16 h-16 shrink-0 flex items-center justify-center t-3"><Icon name="plus" size={16} /></button>
                     </div>
                   </div>
                 );
@@ -566,12 +606,16 @@ function MediaTab({media,setMedia,axes,mode,saved,onRetry}) {
 
         <SectionCard title="فيديو المنتج" subtitle="فيديو واحد للمنتج كله — مش مرتبط بمتغير.">
           {media.video ? (
-            <div className="flex items-center gap-4 v-subcard p-3.5">
-              <div className="w-28 aspect-video rounded-[12px] flex items-center justify-center" style={{ background: IMG[6], color: 'rgba(255,255,255,.7)' }}><Icon name="video" size={22} /></div>
-              <div className="flex-1"><div className="text-[12.5px] font-semibold t-1 ltr text-end">{media.video.name}</div><div className="text-[11px] t-3 num">{media.video.size}</div>
-                {media.video.status === 'queued' && <Badge tone="amber" className="mt-1.5">بانتظار الحفظ</Badge>}{media.video.status==='uploading'&&<span>{media.video.progress}%</span>}{media.video.status==='failed'&&<div className="t-acc">{media.video.message}<button className="btn btn-sm" onClick={onRetry}>إعادة المحاولة</button></div>}</div>
-              <button className="btn btn-soft btn-sm" onClick={()=>addFiles(1,'video')}>استبدال الفيديو</button>
-              <button className="icon-btn" onClick={() => setMedia({ ...media, video: null })}><Icon name="trash" size={15} /></button>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 v-subcard p-3.5">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-24 sm:w-28 aspect-video rounded-[12px] flex items-center justify-center shrink-0" style={{ background: IMG[6], color: 'rgba(255,255,255,.7)' }}><Icon name="video" size={22} /></div>
+                <div className="flex-1 min-w-0"><div className="text-[12.5px] font-semibold t-1 ltr text-end truncate">{media.video.name}</div><div className="text-[11px] t-3 num">{media.video.size}</div>
+                  {media.video.status === 'queued' && <Badge tone="amber" className="mt-1.5">بانتظار الحفظ</Badge>}{media.video.status==='uploading'&&<span>{media.video.progress}%</span>}{media.video.status==='failed'&&<div className="t-acc">{media.video.message}<button className="btn btn-sm" onClick={onRetry}>إعادة المحاولة</button></div>}</div>
+              </div>
+              <div className="flex items-center justify-end gap-2 shrink-0">
+                <button type="button" className="btn btn-soft btn-sm flex-1 sm:flex-initial" onClick={()=>addFiles(1,'video')}>استبدال الفيديو</button>
+                <button type="button" className="icon-btn" onClick={() => setMedia({ ...media, video: null })}><Icon name="trash" size={15} /></button>
+              </div>
             </div>
           ) : <DropZone icon="video" title="اختر فيديو" rules={['MP4 · MOV', 'حتى 50MB', 'فيديو واحد فقط']} onPick={() => addFiles(1,'video')} onFiles={files=>pick(files,'',true)} />}
         </SectionCard>
@@ -600,26 +644,26 @@ function ReviewTab({ p, ready, canCost, canPublish, goto, catNode }) {
   const okCount = ready.filter((r) => r.ok).length;
   return (
     <div className="grid lg:grid-cols-[1fr_380px] gap-5 items-start">
-      <div className="v-card p-6">
+      <div className="v-card p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div><div className="font-display text-[17px] font-semibold t-1">قائمة الجاهزية للنشر</div><div className="text-[12.5px] t-2 mt-0.5">كل البنود لازم تكون مكتملة قبل النشر. الحفظ كمسودة متاح دائمًا.</div></div>
-          <div className="text-end"><div className="font-display text-[28px] font-bold t-1 num leading-none">{okCount}<span className="t-3 text-[16px]">/{ready.length}</span></div></div>
+          <div className="text-end shrink-0"><div className="font-display text-[28px] font-bold t-1 num leading-none">{okCount}<span className="t-3 text-[16px]">/{ready.length}</span></div></div>
         </div>
         <div className="mt-5 space-y-2">
           {ready.map((r) => (
-            <div key={r.k} className={cx('flex items-center gap-3.5 p-4 rounded-[16px]', r.ok ? 'v-subcard' : 'border border-dashed')} style={!r.ok ? { borderColor: 'var(--badge-red-text)', background: 'var(--badge-red-bg)' } : null}>
+            <div key={r.k} className={cx('flex flex-wrap sm:flex-nowrap items-center gap-3 p-3.5 sm:p-4 rounded-[16px]', r.ok ? 'v-subcard' : 'border border-dashed')} style={!r.ok ? { borderColor: 'var(--badge-red-text)', background: 'var(--badge-red-bg)' } : null}>
               <span className={cx('w-9 h-9 rounded-full flex items-center justify-center shrink-0', r.ok ? 'b-green' : 'bg-[var(--bg-card)]')} style={!r.ok ? { color: 'var(--badge-red-text)' } : null}><Icon name={r.ok ? 'check' : r.k === 'perm' ? 'lock' : 'x'} size={16} sw={2.5} /></span>
               <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold t-1">{r.label}</div><div className="text-[11.5px] t-2 mt-0.5">{r.detail}</div></div>
-              {!r.ok && r.tab && <button className="btn btn-sm btn-outline" onClick={() => goto(r.tab)}>إصلاح<Icon name="chevLeft" size={13} /></button>}
+              {!r.ok && r.tab && <button className="btn btn-sm btn-outline ms-auto" onClick={() => goto(r.tab)}>إصلاح<Icon name="chevLeft" size={13} /></button>}
             </div>
           ))}
         </div>
         <div className="mt-5 v-subcard p-4">
           <div className="text-[12px] font-semibold t-2 mb-3">تسلسل التنفيذ عند النشر</div>
-          <div className="flex items-center gap-2 text-[12px]">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-2 text-[12px]">
             {['حفظ المسودة والمتغيرات', 'رفع الصور', 'تحديث الحالة إلى منشور'].map((s, i) => (
               <React.Fragment key={s}>
-                {i > 0 && <span className="flex-1 h-[2px] min-w-[16px] hatched-track rounded-full" />}
+                {i > 0 && <span className="hidden sm:block flex-1 h-[2px] min-w-[16px] hatched-track rounded-full" />}
                 <span className="flex items-center gap-2 shrink-0"><span className="w-6 h-6 rounded-full bg-ink text-[11px] font-bold flex items-center justify-center num">{i + 1}</span><span className="t-1 font-medium">{s}</span></span>
               </React.Fragment>
             ))}
@@ -1094,20 +1138,20 @@ function Pagination({ meta, onPage, onPerPage }) {
   const pages = [];
   for (let i = 1; i <= last; i++) if (i === 1 || i === last || Math.abs(i - p) <= 1) pages.push(i); else if (pages[pages.length - 1] !== '…') pages.push('…');
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 v-border-t">
-      <div className="flex items-center gap-3 text-[12px] t-2">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-5 py-3.5 v-border-t">
+      <div className="flex items-center justify-between sm:justify-start gap-3 text-[12px] t-2">
         <span>عرض <b className="t-1 num">{from}–{to}</b> من <b className="t-1 num">{total}</b></span>
-        <span className="w-px h-4" style={{ background: 'var(--divider-color)' }} />
+        <span className="hidden sm:inline-block w-px h-4" style={{ background: 'var(--divider-color)' }} />
         <span className="flex items-center gap-1.5">لكل صفحة
           <select value={per_page} onChange={(e) => onPerPage(+e.target.value)} className="h-8 rounded-full px-2.5 text-[12px] font-semibold outline-none" style={{ background: 'var(--bg-subcard)', color: 'var(--text-primary)' }}>
             {[10, 15, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center justify-center sm:justify-end gap-1">
         <button className="icon-btn" disabled={p <= 1} onClick={() => onPage(p - 1)} style={{ opacity: p <= 1 ? .35 : 1 }}><Icon name="chevRight" size={15} /></button>
         {pages.map((n, i) => n === '…' ? <span key={i} className="w-8 text-center t-3 text-[12px]">…</span> : (
-          <button key={i} onClick={() => onPage(n)} className={cx('min-w-[32px] h-8 px-2 rounded-full text-[12px] font-semibold num transition', n === p ? 'bg-ink' : 't-2 hover:bg-[var(--bg-subcard)]')}>{n}</button>
+          <button key={i} onClick={() => onPage(n)} className={cx('min-w-[36px] sm:min-w-[32px] h-9 sm:h-8 px-2 rounded-full text-[12px] font-semibold num transition', n === p ? 'bg-ink' : 't-2 hover:bg-[var(--bg-subcard)]')}>{n}</button>
         ))}
         <button className="icon-btn" disabled={p >= last} onClick={() => onPage(p + 1)} style={{ opacity: p >= last ? .35 : 1 }}><Icon name="chevLeft" size={15} /></button>
       </div>
@@ -1116,26 +1160,38 @@ function Pagination({ meta, onPage, onPerPage }) {
 }
 
 /* ---------------- DataTable ---------------- */
-function DataTable({ error, columns, rows, state = 'ready', meta, onPage, onPerPage, onRetry, empty, toolbar, rowKey = 'id', onRowClick, skeletonRows = 6, filtered }) {
+function DataTable({ error, columns, rows, state = 'ready', meta, onPage, onPerPage, onRetry, empty, toolbar, rowKey = 'id', onRowClick, renderMobileRow, skeletonRows = 6, filtered }) {
   return (
     <div className="v-card overflow-hidden">
-      {toolbar && <div className="p-4 v-border-b">{toolbar}</div>}
+      {toolbar && <div className="p-3.5 sm:p-4 v-border-b">{toolbar}</div>}
       {state === 'error' ? <ErrorState onRetry={onRetry} title={error?.message} /> :
        state === 'empty' || (state === 'ready' && rows.length === 0) ? (empty || <EmptyState title={filtered ? 'لا نتائج مطابقة للفلاتر' : 'لا توجد بيانات بعد'} body={filtered ? 'جرّب تعديل البحث أو إزالة بعض الفلاتر.' : null} />) : (
-        <div className="overflow-x-auto">
-          <table className="v-table">
-            <thead><tr>{columns.map((c) => <th key={c.key} style={{ width: c.width, textAlign: c.align }}>{c.label}</th>)}</tr></thead>
-            <tbody>
-              {state === 'loading' ? Array.from({ length: skeletonRows }).map((_, i) => (
-                <tr key={i}>{columns.map((c, j) => <td key={c.key}>{c.skel ? c.skel(i) : <Skel w={j === 0 ? '70%' : `${40 + ((i * 7 + j * 13) % 40)}%`} h={10} />}</td>)}</tr>
-              )) : rows.map((r, i) => (
-                <tr key={r[rowKey]} onClick={() => onRowClick && onRowClick(r)} className={cx(onRowClick && 'cursor-pointer')}>
-                  {columns.map((c) => <td key={c.key} style={{ textAlign: c.align }}>{c.render ? c.render(r, i) : r[c.key]}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {renderMobileRow && (
+            <div className="md:hidden v-divide">
+              {state === 'loading' ? Array.from({ length: Math.min(skeletonRows, 4) }).map((_, i) => (
+                <div key={i} className="p-4 flex items-center gap-3">
+                  <Skel w={56} h={56} r={14} />
+                  <div className="flex-1 space-y-2"><Skel w="70%" h={12} /><Skel w="45%" h={10} /></div>
+                </div>
+              )) : rows.map((r, i) => renderMobileRow(r, i))}
+            </div>
+          )}
+          <div className={cx('overflow-x-auto', renderMobileRow && 'hidden md:block')}>
+            <table className="v-table">
+              <thead><tr>{columns.map((c) => <th key={c.key} style={{ width: c.width, textAlign: c.align }}>{c.label}</th>)}</tr></thead>
+              <tbody>
+                {state === 'loading' ? Array.from({ length: skeletonRows }).map((_, i) => (
+                  <tr key={i}>{columns.map((c, j) => <td key={c.key}>{c.skel ? c.skel(i) : <Skel w={j === 0 ? '70%' : `${40 + ((i * 7 + j * 13) % 40)}%`} h={10} />}</td>)}</tr>
+                )) : rows.map((r, i) => (
+                  <tr key={r[rowKey]} onClick={() => onRowClick && onRowClick(r)} className={cx(onRowClick && 'cursor-pointer')}>
+                    {columns.map((c) => <td key={c.key} style={{ textAlign: c.align }}>{c.render ? c.render(r, i) : r[c.key]}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       {meta && state !== 'error' && state !== 'empty' && rows.length > 0 && <Pagination meta={meta} onPage={onPage} onPerPage={onPerPage} />}
       {meta && state === 'loading' && (
@@ -1192,13 +1248,18 @@ function FilterMenu({ label, value, options, onChange, multi }) {
 
 /* ---------------- Tabs ---------------- */
 function Tabs({ value, onChange, tabs }) {
+  const railRef = useRef(null);
+  useEffect(() => {
+    const activeBtn = railRef.current?.querySelector('[data-active="true"]');
+    activeBtn?.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [value]);
   return (
-    <div className="seg !p-1.5 min-w-0 max-w-full overflow-x-auto">
+    <div ref={railRef} className="seg no-scrollbar !p-1.5 min-w-0 max-w-full w-full sm:w-auto overflow-x-auto flex-nowrap">
       {tabs.map((t) => (
-        <button key={t.value} type="button" onClick={() => onChange(t.value)} className={cx('!px-4 !py-2 !text-[12.5px] flex items-center gap-2', value === t.value && 'on')}>
-          {t.num != null && <span className={cx('w-5 h-5 rounded-full text-[10.5px] font-bold inline-flex items-center justify-center num', value === t.value ? 'bg-acc' : 'v-well')}>{t.num}</span>}
-          {t.label}
-          {t.state === 'error' && <span className="w-2 h-2 rounded-full" style={{ background: 'var(--badge-red-text)' }} />}
+        <button key={t.value} type="button" data-active={value === t.value ? 'true' : undefined} onClick={() => onChange(t.value)} className={cx('!px-3.5 sm:!px-4 !py-2 !text-[12.5px] flex items-center gap-2 shrink-0 min-h-[40px]', value === t.value && 'on')}>
+          {t.num != null && <span className={cx('w-5 h-5 rounded-full text-[10.5px] font-bold inline-flex items-center justify-center num shrink-0', value === t.value ? 'bg-acc' : 'v-well')}>{t.num}</span>}
+          <span>{t.label}</span>
+          {t.state === 'error' && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--badge-red-text)' }} />}
           {t.state === 'done' && <Icon name="checkCircle" size={14} style={{ color: 'var(--badge-green-text)' }} />}
           {t.count != null && <span className="text-[10.5px] t-3 num">{t.count}</span>}
         </button>
@@ -1233,13 +1294,13 @@ function PageHeader({ crumbs = [], title, subtitle, actions, badge }) {
   );
 }
 
-function SectionCard({ title, subtitle, children, aside, className = '', pad = 'p-6' }) {
+function SectionCard({ title, subtitle, children, aside, className = '', pad = 'p-4 sm:p-6' }) {
   return (
     <div className={cx('v-card', pad, className)}>
       {(title || aside) && (
-        <div className="flex items-start justify-between gap-3 mb-5">
-          <div>
-            <h2 className="font-display text-[16px] font-semibold t-1">{title}</h2>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4 sm:mb-5">
+          <div className="min-w-0">
+            <h2 className="font-display text-[15.5px] sm:text-[16px] font-semibold t-1">{title}</h2>
             {subtitle && <p className="text-[12.5px] t-2 mt-0.5 text-pretty">{subtitle}</p>}
           </div>
           {aside}
@@ -1252,7 +1313,7 @@ function SectionCard({ title, subtitle, children, aside, className = '', pad = '
 
 /* ---------------- File upload tile ---------------- */
 // status: queued | uploading | done | failed
-function FileTile({ file, onRemove, onRetry, draggable, onDragStart, onDragOver, onDrop, index, primary, compact, children }) {
+function FileTile({ file, onRemove, onRetry, onMovePrev, onMoveNext, draggable, onDragStart, onDragOver, onDrop, index, primary, compact, children }) {
   const st = file.status;
   const [preview,setPreview]=useState(null);
   useEffect(()=>{if(!file.file)return;const url=URL.createObjectURL(file.file);setPreview(url);return ()=>URL.revokeObjectURL(url);},[file.file]);
@@ -1269,9 +1330,15 @@ function FileTile({ file, onRemove, onRetry, draggable, onDragStart, onDragOver,
         {primary && <span className="absolute top-2 start-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-acc">الرئيسية</span>}
         {index != null && <span className="absolute bottom-2 start-2 w-6 h-6 rounded-full text-[10.5px] font-bold flex items-center justify-center bg-white/90 text-[#18151c] num">{index}</span>}
         <div className="absolute top-2 end-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition">
-          {draggable && <span className="w-7 h-7 rounded-full bg-white/90 text-[#18151c] flex items-center justify-center"><Icon name="drag" size={13} /></span>}
-          {onRemove && <button onClick={onRemove} className="w-7 h-7 rounded-full bg-white/90 text-[#e11d48] flex items-center justify-center hover:bg-white"><Icon name="trash" size={13} /></button>}
+          {draggable && <span className="hidden sm:flex w-7 h-7 rounded-full bg-white/90 text-[#18151c] items-center justify-center"><Icon name="drag" size={13} /></span>}
+          {onRemove && <button type="button" onClick={onRemove} className="w-8 h-8 sm:w-7 sm:h-7 rounded-full bg-white/90 text-[#e11d48] flex items-center justify-center hover:bg-white"><Icon name="trash" size={13} /></button>}
         </div>
+        {(onMovePrev || onMoveNext) && (
+          <div className="sm:hidden absolute bottom-2 end-2 flex gap-1">
+            {onMovePrev && <button type="button" aria-label="تقديم الصورة" onClick={onMovePrev} className="w-7 h-7 rounded-full bg-white/90 text-[#18151c] flex items-center justify-center"><Icon name="chevRight" size={13} /></button>}
+            {onMoveNext && <button type="button" aria-label="تأخير الصورة" onClick={onMoveNext} className="w-7 h-7 rounded-full bg-white/90 text-[#18151c] flex items-center justify-center"><Icon name="chevLeft" size={13} /></button>}
+          </div>
+        )}
       </div>
       {!compact && (
         <div className="px-3 py-2.5">
@@ -1311,13 +1378,16 @@ function DropZone({ onFiles, title = 'اسحب الملفات هنا أو اضغ
 }
 
 // Single image field (category/brand logo)
-function StickyBar({ children, dirty, note }) {
+function StickyBar({ children, dirty, note, aside }) {
   return (
-    <div className="catalog-save-bar sticky z-30 mt-6" style={{ bottom: 'calc(12px + var(--admin-bottom-nav-space, 0px))' }}>
-      <div className="v-card px-4 py-3 flex flex-wrap items-center justify-between gap-3" style={{ boxShadow: 'var(--shadow-pop)', borderRadius: 16 }}>
-        <div className="flex items-center gap-2.5 ps-2 text-[12.5px]">
-          {dirty ? <><span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" /><span className="font-semibold t-1">تغييرات غير محفوظة</span></> : <><Icon name="checkCircle" size={15} style={{ color: 'var(--badge-green-text)' }} /><span className="t-2">كل التغييرات محفوظة</span></>}
-          {note && <span className="t-3 hidden md:inline">· {note}</span>}
+    <div className="catalog-save-bar sticky z-30 mt-6" style={{ bottom: 'calc(10px + var(--admin-bottom-nav-space, 0px))' }}>
+      <div className="v-card px-3.5 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3" style={{ boxShadow: 'var(--shadow-pop)', borderRadius: 18 }}>
+        <div className="flex items-center justify-between gap-2 text-[12px] sm:text-[12.5px]">
+          <div className="flex items-center gap-2 min-w-0">
+            {dirty ? <><span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse shrink-0" /><span className="font-semibold t-1 truncate">تغييرات غير محفوظة</span></> : <><Icon name="checkCircle" size={15} style={{ color: 'var(--badge-green-text)' }} /><span className="t-2 truncate">كل التغييرات محفوظة</span></>}
+            {note && <span className="t-3 hidden md:inline">· {note}</span>}
+          </div>
+          {aside && <div className="sm:hidden shrink-0">{aside}</div>}
         </div>
         <div className="catalog-save-actions flex min-w-0 flex-wrap items-center gap-2">{children}</div>
       </div>
@@ -1405,13 +1475,15 @@ function ColorAxis({ colors, onChange }) {
           </span>
         ))}
       </div>
-      <div className="flex items-start gap-2">
-        <label className="w-[42px] h-[42px] rounded-[13px] relative overflow-hidden cursor-pointer shrink-0" style={{ background: draft.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.1)' }}>
+      <div className="grid grid-cols-[44px_1fr] sm:flex items-start gap-2">
+        <label className="w-[44px] h-[44px] sm:w-[42px] sm:h-[42px] rounded-[13px] relative overflow-hidden cursor-pointer shrink-0" style={{ background: draft.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.1)' }}>
           <input type="color" value={draft.hex} onChange={(e) => setDraft({ ...draft, hex: e.target.value })} className="opacity-0 absolute inset-0 cursor-pointer" />
         </label>
-        <input className="v-input flex-1" placeholder="اسم اللون (عربي)" value={draft.ar} onChange={(e) => setDraft({ ...draft, ar: e.target.value })} />
-        <input className={cx('v-input ltr flex-1', err && 'is-error')} placeholder="Color name (EN) *" value={draft.en} onChange={(e) => { setDraft({ ...draft, en: e.target.value }); setErr(null); }} onKeyDown={(e) => e.key === 'Enter' && add(draft)} />
-        <button className="btn btn-soft !h-[42px] !rounded-[13px]" onClick={() => add(draft)}><Icon name="plus" size={14} /></button>
+        <input className="v-input flex-1 min-w-0" placeholder="اسم اللون (عربي)" value={draft.ar} onChange={(e) => setDraft({ ...draft, ar: e.target.value })} />
+        <div className="col-span-2 flex items-center gap-2 sm:flex-1">
+          <input className={cx('v-input ltr flex-1 min-w-0', err && 'is-error')} placeholder="Color name (EN) *" value={draft.en} onChange={(e) => { setDraft({ ...draft, en: e.target.value }); setErr(null); }} onKeyDown={(e) => e.key === 'Enter' && add(draft)} />
+          <button type="button" className="btn btn-soft !h-[44px] sm:!h-[42px] !rounded-[13px] shrink-0" onClick={() => add(draft)}><Icon name="plus" size={14} /></button>
+        </div>
       </div>
       {err && <div className="text-[11.5px] font-medium mt-1.5 flex items-center gap-1" style={{ color: 'var(--badge-red-text)' }}><Icon name="alertCircle" size={12} />{err}</div>}
       <div className="flex flex-wrap gap-1 mt-2">{PRESET_COLORS.filter((p) => !colors.some((c) => c.en === p.en)).map((p) => (
@@ -1521,14 +1593,14 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
             {!canCost && <Badge tone="amber"><Icon name="eyeOff" size={11} />التكلفة مخفية</Badge>}
           </div>
           {mode === 'matrix' && rows.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               {sel.length > 0 ? (
-                <div className="pop flex items-center gap-1.5 h-10 ps-3 pe-1 rounded-full bg-ink">
+                <div className="pop flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-1.5 w-full sm:w-auto p-2.5 sm:p-0 sm:h-10 sm:ps-3 sm:pe-1 rounded-[18px] sm:rounded-full bg-ink">
                   <span className="text-[12px] font-semibold num">{sel.length} محدد</span>
-                  <select value={bulk.field} onChange={(e) => setBulk({ ...bulk, field: e.target.value })} className="h-8 rounded-full px-2 text-[12px] bg-white/10 outline-none">{priceCols.map((c) => <option key={c.k} value={c.k} className="text-black">{c.l}</option>)}</select>
-                  <input value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && applyBulk()} placeholder="0.00" className="w-24 h-8 rounded-full px-3 text-[12px] bg-white/10 outline-none ltr num" />
-                  <button onClick={applyBulk} className="h-8 px-3 rounded-full bg-acc text-[12px] font-semibold">تطبيق</button>
-                  <button onClick={() => setSel([])} className="w-8 h-8 rounded-full inline-flex items-center justify-center hover:bg-white/10"><Icon name="x" size={13} /></button>
+                  <select value={bulk.field} onChange={(e) => setBulk({ ...bulk, field: e.target.value })} className="h-9 sm:h-8 rounded-full px-2.5 text-[12px] bg-white/10 outline-none">{priceCols.map((c) => <option key={c.k} value={c.k} className="text-black">{c.l}</option>)}</select>
+                  <input value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && applyBulk()} placeholder="0.00" className="w-24 flex-1 sm:flex-initial h-9 sm:h-8 rounded-full px-3 text-[12px] bg-white/10 outline-none ltr num" />
+                  <button type="button" onClick={applyBulk} className="h-9 sm:h-8 px-3.5 rounded-full bg-acc text-[12px] font-semibold">تطبيق</button>
+                  <button type="button" onClick={() => setSel([])} className="w-9 h-9 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center hover:bg-white/10"><Icon name="x" size={13} /></button>
                 </div>
               ) : <span className="text-[11.5px] t-3 hidden lg:flex items-center gap-1.5"><Icon name="keyboard" size={13} /><kbd>↑</kbd><kbd>↓</kbd><kbd>Enter</kbd> للتنقل بين الخلايا</span>}
 
@@ -1614,21 +1686,59 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
           </div>
           {/* Mobile: summary rows with expandable details */}
           <div className="md:hidden v-divide">
+            {mode === 'matrix' && rows.length > 1 && (
+              <div className="px-4 py-2.5 flex items-center justify-between bg-[var(--bg-subcard)] text-[12px]">
+                <label className="flex items-center gap-2 font-medium t-1 cursor-pointer" onClick={() => setSel(allSel ? [] : rows.map((r) => r._id))}>
+                  <Check on={allSel} mixed={sel.length > 0 && !allSel} />
+                  <span>تحديد الكل للتعديل الجماعي</span>
+                </label>
+                <span className="t-3 num">{sel.length}/{rows.length}</span>
+              </div>
+            )}
             {rows.map((r) => {
-              const e = errs[r._id] || {}; const isOpen = open[r._id];
+              const e = errs[r._id] || {}; const isOpen = open[r._id] ?? (mode === 'single');
+              const isSelected = sel.includes(r._id);
               return (
-                <div key={r._id} className="p-4">
-                  <button className="w-full flex items-center gap-3 text-start" onClick={() => setOpen({ ...open, [r._id]: !isOpen })}>
-                    {r.color ? <Swatch c={r.color.hex} size={30} /> : <span className="w-[30px] h-[30px] rounded-full v-well" />}
-                    <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold t-1 truncate">{[r.color && r.color.ar, r.size, r.capacity].filter(Boolean).join(' · ') || 'المتغير الأساسي'}</div><div className="text-[11.5px] t-3 num">{r.retail ? fmtMoney(r.retail) + ' ج.م' : 'بدون سعر'}</div></div>
-                    {Object.keys(e).length > 0 && <span className="w-2 h-2 rounded-full" style={{ background: 'var(--badge-red-text)' }} />}
-                    <Icon name="chevDown" size={15} className={cx('t-3 transition', isOpen && 'rotate-180')} />
-                  </button>
-                  {isOpen && <div className="pop grid grid-cols-2 gap-3 mt-4">
-                    <Field label="SKU" error={e.sku}><input className="v-input ltr" value={r.sku} placeholder="تلقائي" onChange={(ev) => upd(r._id, { sku: ev.target.value })} /></Field>
-                    <Field label="الباركود" error={e.barcode}><input className="v-input ltr" value={r.barcode} placeholder="من السيرفر" onChange={(ev) => upd(r._id, { barcode: ev.target.value })} /></Field>
-                    {priceCols.map((c) => <Field key={c.k} label={c.l} required={c.req} error={e[c.k]}><input className={cx('v-input ltr', e[c.k] && 'is-error')} value={r[c.k]} onChange={(ev) => upd(r._id, { [c.k]: ev.target.value })} /></Field>)}
-                  </div>}
+                <div key={r._id} className={cx('p-4 transition', r.status === 'inactive' && 'opacity-55', e.dup && 'bg-[var(--badge-red-bg)]')}>
+                  <div className="flex items-center gap-2.5">
+                    {mode === 'matrix' && <Check on={isSelected} onChange={() => setSel(isSelected ? sel.filter((x) => x !== r._id) : [...sel, r._id])} />}
+                    <button type="button" className="flex-1 min-w-0 flex items-center gap-3 text-start" onClick={() => setOpen({ ...open, [r._id]: !isOpen })}>
+                      {r.color ? <Swatch c={r.color.hex} size={30} /> : <span className="w-[30px] h-[30px] rounded-full v-well shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-[13px] font-semibold t-1 truncate">{[r.color && r.color.ar, r.size, r.capacity].filter(Boolean).join(' · ') || 'المتغير الأساسي'}</div>
+                          {r.status === 'inactive' && <Badge tone="gray">غير نشط</Badge>}
+                        </div>
+                        <div className="text-[11.5px] t-3 num mt-0.5">
+                          {r.retail ? fmtMoney(r.retail) + ' ج.م' : 'بدون سعر'}
+                          {r.sku ? ` · ${r.sku}` : ''}
+                        </div>
+                        {(e.dup || e.color_en) && <div className="text-[10.5px] font-semibold mt-0.5" style={{ color: 'var(--badge-red-text)' }}>{e.dup ? `تركيبة مكررة — ${e.dup}` : e.color_en}</div>}
+                      </div>
+                      {Object.keys(e).length > 0 && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--badge-red-text)' }} />}
+                      <Icon name="chevDown" size={16} className={cx('t-3 transition shrink-0', isOpen && 'rotate-180')} />
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div className="pop space-y-3 mt-4 pt-3 v-border-t">
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="SKU" error={e.sku}><input className="v-input ltr" value={r.sku} placeholder="تلقائي" onChange={(ev) => upd(r._id, { sku: ev.target.value })} /></Field>
+                        <Field label="الباركود" error={e.barcode}><input className="v-input ltr" value={r.barcode} placeholder="من السيرفر" onChange={(ev) => upd(r._id, { barcode: ev.target.value })} /></Field>
+                        {priceCols.map((c) => <Field key={c.k} label={c.l} required={c.req} error={e[c.k]}><input className={cx('v-input ltr num', e[c.k] && 'is-error')} value={r[c.k]} placeholder={c.req ? '0.00' : '—'} onChange={(ev) => upd(r._id, { [c.k]: ev.target.value })} /></Field>)}
+                        {mode === 'matrix' && r.color && <Field label="اسم اللون (EN)" required error={e.color_en}><input className={cx('v-input ltr', e.color_en && 'is-error')} value={r.color.en} onChange={(ev) => upd(r._id, { color: { ...r.color, en: ev.target.value } })} /></Field>}
+                        <Field label="وزن المتغير"><Input ltr suffix="كجم" value={r.weight} onChange={(ev) => upd(r._id, { weight: ev.target.value })} placeholder="0.0" /></Field>
+                        <Field label="حد تنبيه المخزون"><Input ltr value={r.reorder} onChange={(ev) => upd(r._id, { reorder: ev.target.value })} placeholder="0" /></Field>
+                        <Field label="الترتيب"><Input ltr value={r.order} onChange={(ev) => upd(r._id, { order: ev.target.value })} /></Field>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 v-border-t">
+                        <div className="flex items-center gap-2.5">
+                          <Toggle on={r.status === 'active'} onChange={(on) => upd(r._id, { status: on ? 'active' : 'inactive' })} />
+                          <span className="text-[12.5px] font-medium t-1">{r.status === 'active' ? 'متغير نشط' : 'غير نشط'}</span>
+                        </div>
+                        {mode === 'matrix' && <button type="button" onClick={() => setDeleting(r)} className="btn btn-sm btn-danger"><Icon name="trash" size={14} />حذف</button>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

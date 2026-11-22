@@ -11,7 +11,9 @@ try {
   if (r2Public) {
     const u = new URL(r2Public);
     const basePath = u.pathname.replace(/\/+$/, '');
-    mediaDestination = `${u.origin}${basePath}/:path*`;
+    if (!u.hostname.toLowerCase().endsWith('.r2.cloudflarestorage.com')) {
+      mediaDestination = `${u.origin}${basePath}/:path*`;
+    }
     r2Hostname = u.hostname;
   }
 } catch {

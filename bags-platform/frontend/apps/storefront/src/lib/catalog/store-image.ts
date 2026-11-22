@@ -77,7 +77,9 @@ export function publicObjectImageUrl(source: string, cdnPublicUrl = ''): string 
 
 function resolveStoreImage(source: string | null | undefined, allowHttp: boolean): string {
   // Reject protocol-relative URLs, Windows backslashes, traversal and control characters to prevent SSRF and open redirect exploits.
-  if (!source || source !== source.trim() || source.startsWith('//') || source.includes('\\') || source.includes('..') || /%(?:2e|2f|5c)/i.test(source) || /[\u0000-\u001f\u007f]/.test(source)) return '';
+  // Check encoded traversal (%2e/%2f/%5c) on the path portion only so valid SigV4 presigned query params (X-Amz-Credential=...%2F...) are not rejected.
+  const pathPart = source ? source.split(/[?#]/, 1)[0] : '';
+  if (!source || source !== source.trim() || source.startsWith('//') || source.includes('\\') || pathPart.includes('..') || /%(?:2e|2f|5c)/i.test(pathPart) || /[\u0000-\u001f\u007f]/.test(source)) return '';
   if (STATIC_IMAGE_PREFIXES.some((prefix) => source.startsWith(prefix))) return source;
   try {
     const api = configuredUrl(process.env.NEXT_PUBLIC_API_URL, 'http://localhost:8000');

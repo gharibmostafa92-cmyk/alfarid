@@ -152,14 +152,28 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
   .icon-btn { min-width: 44px; min-height: 44px; }
   .v-table { min-width: 620px; }
   .v-input { min-height: 44px; }
-  .seg { flex-wrap: wrap; border-radius: 14px; }
 }
 
-@media (max-width: 479px) {
-  .catalog-save-bar > .v-card { padding: 8px; gap: 6px; }
-  .catalog-save-actions { width: 100%; gap: 4px; }
-  .catalog-save-actions .btn { flex: 1 0 auto; min-height: 44px; padding-inline: 8px; font-size: 12px; }
-  .catalog-save-actions .btn svg { display: none; }
+@media (max-width: 639px) {
+  .catalog-save-bar > .v-card {
+    padding: 10px 12px;
+    gap: 8px;
+    background: color-mix(in srgb, var(--bg-card) 86%, transparent);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+  }
+  .catalog-save-actions { width: 100%; gap: 6px; }
+  .catalog-save-actions .btn { flex: 1 1 auto; min-height: 44px; padding-inline: 10px; font-size: 12.5px; }
+}
+
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.tap-card { transition: transform .12s ease-out, box-shadow .15s ease; }
+.tap-card:active { transform: scale(.985); }
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger, .pop, .fade, .drawer, .skel, .spin, .progress-live { animation: none !important; }
+  .tap-card:active, .btn:active { transform: none !important; }
 }
 .btn-soft { background: var(--bg-subcard); color: var(--text-primary); }
 .btn-soft:hover { background: var(--bg-subcard-hover); }
