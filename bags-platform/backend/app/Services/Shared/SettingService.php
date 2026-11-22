@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Auth\StaffAdministration;
 use Brick\Math\BigDecimal;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -26,30 +27,15 @@ use JsonException;
  */
 class SettingService
 {
-    /** @var array<string, array{0: string, 1: int}> Cached numbering prefix and padding config per request to avoid repeated lookups. */
-    private array $numberingConfig = [];
+    public const BRANDING_CACHE_KEY = 'store:branding:v1';
 
-    private ?array $transactionSnapshot = null;
+    private const CACHE_KEY = 'app_settings_static';
 
-    private bool $uncommittedSettings = false;
+    private const CACHE_VERSION_KEY = 'app_settings_static_version';
 
-    /** @var array<string, mixed>|null Per-request in-memory cache to avoid repeated serialization and cache lookups. */
-    private ?array $requestCache = null;
+    private const CACHE_TTL_SECONDS = 3600;
 
-    private ?string $requestCacheVersion = null;
-
-    private ?string $numberingConfigVersion = null;
-
-    public function resetReadSnapshot(bool $transactionBoundary = false): void
-    {
-        $this->transactionSnapshot = null;
-        if ($transactionBoundary) {
-            $this->uncommittedSettings = false;
-            $this->requestCache = null;
-            $this->requestCacheVersion = null;
-            $this->numberingConfigVersion = null;
-        }
-    }
+    private const MAX_COUNTER_VALUE = 999_999_999;
 
     /** @var array<string, mixed> */
     private const DEFAULTS = [
@@ -94,17 +80,6 @@ class SettingService
     ];
 
     /** @var list<string> */
-    public array $warnings = [];
-
-    private const CACHE_KEY = 'app_settings_static';
-
-    public const BRANDING_CACHE_KEY = 'store:branding:v1';
-
-    private const CACHE_VERSION_KEY = 'app_settings_static_version';
-
-    private const CACHE_TTL_SECONDS = 3600;
-
-    /** @var list<string> */
     private const NUMBERING_COUNTER_KEYS = [
         'shift_next_number',
         'expense_next_number',
@@ -145,6 +120,82 @@ class SettingService
         'payment_notice' => 'payment_notice_next_number',
     ];
     // Tax invoices remain row-locked because continuous sequential numbering without gaps is a legal requirement.
+
+    /**
+     * Single source of truth: document type to [table, column] mapping for
+     * both numbering-collision asserts. Types without dedicated tables are
+     * excluded: `invoice` (no invoices table exists in schema — only
+     * supplier_invoices) and `pos_invoice` (sequence-only numbering, mapped
+     * to table null in 2026_10_31_000001_move_high_volume_numbering_to_sequences).
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const DOCUMENT_NUMBER_TARGETS = [
+        'order' => ['orders', 'order_number'],
+        'purchase_order' => ['purchase_orders', 'po_number'],
+        'quotation' => ['quotations', 'quotation_number'],
+        'transfer' => ['stock_transfers', 'transfer_number'],
+        'stocktake' => ['stocktakes', 'stocktake_number'],
+        'return' => ['return_requests', 'return_number'],
+        'purchase_request' => ['purchase_requests', 'request_number'],
+        'delivery' => ['supplier_deliveries', 'delivery_number'],
+        'supplier_invoice' => ['supplier_invoices', 'invoice_number'],
+        'supplier_payment' => ['supplier_payments', 'payment_number'],
+        'shift' => ['pos_shifts', 'shift_number'],
+        'expense' => ['expenses', 'expense_number'],
+        'treasury_transfer' => ['treasury_transfers', 'transfer_number'],
+        'payment_notice' => ['wholesale_payment_notices', 'notice_number'],
+        'movement' => ['stock_movements', 'reference_number'],
+    ];
+
+    /** @var list<string> */
+    private const NUMBERING_TYPES = [
+        'invoice',
+        'order',
+        'purchase_order',
+        'quotation',
+        'transfer',
+        'stocktake',
+        'return',
+        'purchase_request',
+        'delivery',
+        'supplier_invoice',
+        'supplier_payment',
+        'movement',
+        'shift',
+        'pos_invoice',
+        'expense',
+        'treasury_transfer',
+        'payment_notice',
+    ];
+
+    /** @var list<string> */
+    public array $warnings = [];
+
+    /** @var array<string, array{0: string, 1: int}> Cached numbering prefix and padding config per request to avoid repeated lookups. */
+    private array $numberingConfig = [];
+
+    private ?array $transactionSnapshot = null;
+
+    private bool $uncommittedSettings = false;
+
+    /** @var array<string, mixed>|null Per-request in-memory cache to avoid repeated serialization and cache lookups. */
+    private ?array $requestCache = null;
+
+    private ?string $requestCacheVersion = null;
+
+    private ?string $numberingConfigVersion = null;
+
+    public function resetReadSnapshot(bool $transactionBoundary = false): void
+    {
+        $this->transactionSnapshot = null;
+        if ($transactionBoundary) {
+            $this->uncommittedSettings = false;
+            $this->requestCache = null;
+            $this->requestCacheVersion = null;
+            $this->numberingConfigVersion = null;
+        }
+    }
 
     /**
      * Resets in-memory cached state (snapshots, counters, proxy counters).
@@ -191,71 +242,12 @@ class SettingService
         return $grouped;
     }
 
-    private function staticSettings(): array
-    {
-        $read = function (): array {
-            return Setting::query()
-                ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
-                ->orderBy('group')
-                ->orderBy('key')
-                ->get()
-                ->groupBy('group')
-                ->map(fn ($settings): array => $settings
-                    ->mapWithKeys(fn (Setting $setting): array => [
-                        $setting->key => $this->castValue($setting->value, $setting->type),
-                    ])
-                    ->all())
-                ->all();
-        };
-
-        $inTransaction = DB::transactionLevel() > 0;
-        if ($inTransaction && $this->transactionSnapshot !== null) {
-            return $this->transactionSnapshot;
-        }
-        if ($inTransaction && $this->uncommittedSettings) {
-            return $this->transactionSnapshot = $read();
-        }
-        $version = Cache::get(self::CACHE_VERSION_KEY);
-        if (! is_string($version)) {
-            Cache::add(self::CACHE_VERSION_KEY, (string) Str::uuid());
-            $version = Cache::get(self::CACHE_VERSION_KEY);
-        }
-
-        // M5: long-lived workers (queue/Octane/scheduler) must notice a version
-        // bump from another process instead of serving a frozen snapshot forever.
-        if ($this->requestCache !== null && $this->requestCacheVersion === $version) {
-            return $this->requestCache;
-        }
-        $key = self::CACHE_KEY.':'.$version;
-        if ($inTransaction) {
-            // Reuse committed cache values, but never publish an uncommitted cache miss.
-            return $this->transactionSnapshot = Cache::get($key) ?? $read();
-        }
-
-        $result = Cache::remember($key, self::CACHE_TTL_SECONDS, $read);
-        // Guard against concurrent version bump during read to prevent pinning stale snapshots in request cache.
-        if (Cache::get(self::CACHE_VERSION_KEY) === $version) {
-            $this->requestCache = $result;
-            $this->requestCacheVersion = $version;
-        }
-
-        return $result;
-    }
-
     public function get(string $key, mixed $default = null): mixed
     {
         if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
-            if ($key === 'movement_next_number') {
-                return $this->nextMovementNumber();
-            }
-            $type = array_search($key, self::SEQUENCE_TYPES, true);
-            if (is_string($type)) {
-                return $this->nextDocumentNumber($type);
-            }
-            $setting = Setting::query()->where('key', $key)->first();
-
-            return $setting ? $this->castValue($setting->value, $setting->type) : $default;
+            return $this->getNumberingCounter($key, $default);
         }
+
         foreach ($this->staticSettings() as $settings) {
             if (array_key_exists($key, $settings)) {
                 return $settings[$key];
@@ -293,14 +285,281 @@ class SettingService
         ];
     }
 
+    /**
+     * Update a flat key/value map atomically and invalidate the cached settings after commit.
+     *
+     * @param  array<string, mixed>  $settings
+     *
+     * @throws JsonException
+     */
+    public function updateBatch(array $settings, ?array $expected = null, array $via = [], ?User $actor = null): void
+    {
+        $this->warnings = [];
+        DB::transaction(function () use ($settings, $expected, $via, $actor): void {
+            $this->uncommittedSettings = true;
+            $this->resetReadSnapshot();
+
+            $lockedSettings = $this->lockRequestedSettings($settings);
+            [$before, $after, $movementSequenceTarget, $documentSequenceTargets] = $this->applySettingsBatch(
+                $settings,
+                $lockedSettings,
+                $expected,
+            );
+
+            $this->assertNumberingDoesNotCollide($settings, $after);
+            // Changing prefix or padding can collide with previously issued numbers; assert next formatted number is unused in target document table.
+            $this->assertNoNumberingCollision(array_keys($settings));
+
+            // F19: CLI/queue/WhatsApp callers have no staff HTTP request; an explicit
+            // actor keeps the audit log accurate, otherwise fall back safely.
+            $resolvedActor = $actor ?? (app()->runningInConsole() ? null : request()->user('staff'));
+            StaffAdministration::audit(
+                $resolvedActor,
+                'settings.updated',
+                'settings',
+                null,
+                array_keys($settings),
+                ['settings' => $this->auditableSettings($before)],
+                ['settings' => $this->auditableSettings($after)],
+                $via,
+            );
+            DB::afterCommit(fn () => $this->clearCache());
+
+            // Synchronize sequences within the transaction: a non-transactional
+            // sequence advance may leave gaps on rollback, but prevents
+            // duplicate document numbers.
+            $this->synchronizeSequences($movementSequenceTarget, $documentSequenceTargets);
+        }, attempts: 3);
+    }
+
+    /**
+     * Atomically return and increment the next document number for the requested type.
+     *
+     * @throws JsonException
+     */
+    public function generateNextNumber(string $type): string
+    {
+        if ($type === 'movement') {
+            [$prefix, $padding] = $this->numberingConfig('movement', 'movement_prefix', 'movement_padding');
+            $number = DB::selectOne('SELECT inventory_movement_number() AS number')->number;
+
+            return $this->formatDocumentNumber($prefix, (int) $number, $padding);
+        }
+
+        if (isset(self::SEQUENCE_TYPES[$type])) {
+            $definition = $this->numberingDefinition($type);
+            [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
+            $number = DB::selectOne('SELECT document_next_number(?) AS number', [$type])->number;
+
+            return $this->formatDocumentNumber($prefix, (int) $number, $padding);
+        }
+
+        if (! in_array($type, self::NUMBERING_TYPES, true)) {
+            throw new InvalidArgumentException("Unsupported numbering type [{$type}].");
+        }
+
+        $definition = $this->numberingDefinition($type);
+        [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
+
+        return DB::transaction(function () use ($definition, $prefix, $padding): string {
+            // Counter row is locked and read fresh; prefix and padding are cached in request memory
+            $nextSetting = Setting::query()
+                ->where('key', $definition['next'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($nextSetting === null) {
+                throw new InvalidArgumentException("Required numbering setting [{$definition['next']}] is missing.");
+            }
+
+            $nextValue = $this->counterValue($nextSetting->value);
+            $formatted = $this->formatDocumentNumber($prefix, $nextValue, $padding);
+            $nextSetting->value = (string) ($nextValue + 1);
+            $nextSetting->save();
+
+            return $formatted;
+        }, attempts: 3);
+    }
+
+    public function clearCache(): void
+    {
+        Cache::forever(self::CACHE_VERSION_KEY, (string) Str::uuid());
+        Cache::forget(self::CACHE_KEY); // Retire the cache key used before versioning.
+        Cache::forget(self::BRANDING_CACHE_KEY);
+        $this->numberingConfig = [];
+        $this->numberingConfigVersion = null;
+        $this->requestCache = null;
+        $this->requestCacheVersion = null;
+        $this->resetReadSnapshot();
+    }
+
+    private function staticSettings(): array
+    {
+        $read = fn (): array => Setting::query()
+            ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
+            ->orderBy('group')
+            ->orderBy('key')
+            ->get()
+            ->groupBy('group')
+            ->map(fn ($settings): array => $settings
+                ->mapWithKeys(fn (Setting $setting): array => [
+                    $setting->key => $this->castValue($setting->value, $setting->type),
+                ])
+                ->all())
+            ->all();
+
+        $inTransaction = DB::transactionLevel() > 0;
+        if ($inTransaction && $this->transactionSnapshot !== null) {
+            return $this->transactionSnapshot;
+        }
+        if ($inTransaction && $this->uncommittedSettings) {
+            return $this->transactionSnapshot = $read();
+        }
+
+        $version = Cache::get(self::CACHE_VERSION_KEY);
+        if (! is_string($version)) {
+            Cache::add(self::CACHE_VERSION_KEY, (string) Str::uuid());
+            $version = Cache::get(self::CACHE_VERSION_KEY);
+        }
+
+        // M5: long-lived workers (queue/Octane/scheduler) must notice a version
+        // bump from another process instead of serving a frozen snapshot forever.
+        if ($this->requestCache !== null && $this->requestCacheVersion === $version) {
+            return $this->requestCache;
+        }
+
+        $key = self::CACHE_KEY.':'.$version;
+        if ($inTransaction) {
+            // Reuse committed cache values, but never publish an uncommitted cache miss.
+            return $this->transactionSnapshot = Cache::get($key) ?? $read();
+        }
+
+        $result = Cache::remember($key, self::CACHE_TTL_SECONDS, $read);
+        // Guard against concurrent version bump during read to prevent pinning stale snapshots in request cache.
+        if (Cache::get(self::CACHE_VERSION_KEY) === $version) {
+            $this->requestCache = $result;
+            $this->requestCacheVersion = $version;
+        }
+
+        return $result;
+    }
+
+    private function getNumberingCounter(string $key, mixed $default): mixed
+    {
+        if ($key === 'movement_next_number') {
+            return $this->nextMovementNumber();
+        }
+
+        $type = array_search($key, self::SEQUENCE_TYPES, true);
+        if (is_string($type)) {
+            return $this->nextDocumentNumber($type);
+        }
+
+        $setting = Setting::query()->where('key', $key)->first();
+
+        return $setting ? $this->castValue($setting->value, $setting->type) : $default;
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     * @return Collection<string, Setting>
+     */
+    private function lockRequestedSettings(array $settings)
+    {
+        $lockedSettings = Setting::query()
+            ->whereIn('key', array_keys($settings))
+            ->orderBy('key')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('key');
+
+        $missingKeys = array_diff(array_keys($settings), $lockedSettings->keys()->all());
+        if ($missingKeys !== []) {
+            throw new InvalidArgumentException('Settings are not initialized: '.implode(', ', $missingKeys));
+        }
+
+        return $lockedSettings;
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     * @param  Collection<string, Setting>  $lockedSettings
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>, 2: int|null, 3: array<string, int>}
+     */
+    private function applySettingsBatch(array $settings, $lockedSettings, ?array $expected): array
+    {
+        $before = [];
+        $after = [];
+        $movementSequenceTarget = null;
+        /** @var array<string, int> $documentSequenceTargets */
+        $documentSequenceTargets = [];
+
+        foreach ($settings as $key => $value) {
+            /** @var Setting $setting */
+            $setting = $lockedSettings->get($key);
+            $isCounter = in_array($key, self::NUMBERING_COUNTER_KEYS, true);
+            $current = $isCounter ? $this->get($key) : $this->castValue($setting->value, $setting->type);
+
+            // Dynamic sequence counters increment continuously under concurrent traffic; enforce monotonic increase rather than exact equality on optimistic concurrency.
+            if (! $isCounter && $expected !== null && (! array_key_exists($key, $expected)
+                || $this->comparisonValue($current, $setting->type) !== $this->comparisonValue($expected[$key], $setting->type))) {
+                abort(409, 'تم تغيير إعداد أو عداد منذ فتح الصفحة؛ أعد تحميل الإعدادات قبل الحفظ.');
+            }
+            $before[$key] = $current;
+
+            if ($isCounter) {
+                $value = $this->resolveMonotonicCounterUpdate($key, $value, $setting, $movementSequenceTarget, $documentSequenceTargets);
+            }
+
+            $setting->value = $value === null && str_ends_with($key, '_prefix')
+                ? ''
+                : $this->serializeValue($value, $setting->type);
+            $setting->save();
+            $after[$key] = $this->castValue($setting->value, $setting->type);
+        }
+
+        return [$before, $after, $movementSequenceTarget, $documentSequenceTargets];
+    }
+
+    /**
+     * @param  array<string, int>  $documentSequenceTargets
+     */
+    private function resolveMonotonicCounterUpdate(
+        string $key,
+        mixed $value,
+        Setting $setting,
+        ?int &$movementSequenceTarget,
+        array &$documentSequenceTargets,
+    ): int {
+        $requested = $this->counterValue($value);
+        if ($requested > self::MAX_COUNTER_VALUE) {
+            throw ValidationException::withMessages([$key => 'الحد الأقصى للعداد هو 999999999.']);
+        }
+
+        $value = max($this->counterValue($setting->value), $requested);
+        if ($key === 'movement_next_number') {
+            $value = max($value, $this->nextMovementNumber());
+            $movementSequenceTarget = $value;
+        }
+
+        $sequenceType = array_search($key, self::SEQUENCE_TYPES, true);
+        if (is_string($sequenceType)) {
+            $value = max($value, $this->nextDocumentNumber($sequenceType));
+            $documentSequenceTargets[$sequenceType] = $value;
+        }
+
+        if ($requested < $value) {
+            throw ValidationException::withMessages([$key => 'لا يمكن خفض عداد الترقيم عن قيمته الحالية.']);
+        }
+
+        return $value;
+    }
+
     private function assertNumberingDoesNotCollide(array $settings, array $after): void
     {
         // Single source of truth: iterate the one DOCUMENT_NUMBER_TARGETS map.
         foreach (self::DOCUMENT_NUMBER_TARGETS as $type => $target) {
-            $definition = $this->numberingDefinitions()[$type] ?? null;
-            if ($definition === null) {
-                continue;
-            }
+            $definition = $this->numberingDefinition($type);
             $keys = [$definition['prefix'], $definition['next'], $definition['padding']];
             if (array_intersect($keys, array_keys($settings)) === []) {
                 continue;
@@ -325,8 +584,9 @@ class SettingService
             $max = self::maxNumericSuffix($target[0], $target[1], $prefix);
 
             if ($max !== null && $max >= $next) {
+                $formatted = $this->formatDocumentNumber($prefix, $next, $padding);
                 throw ValidationException::withMessages([
-                    $definition['next'] => 'الرقم '.$prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT).' مستخدم بالفعل في '.$target[0].'. غيّر البداية أو البادئة أو الطول.',
+                    $definition['next'] => 'الرقم '.$formatted.' مستخدم بالفعل في '.$target[0].'. غيّر البداية أو البادئة أو الطول.',
                 ]);
             }
         }
@@ -361,104 +621,11 @@ class SettingService
     }
 
     /**
-     * Update a flat key/value map atomically and invalidate the cached settings after commit.
-     *
-     * @param  array<string, mixed>  $settings
-     *
-     * @throws JsonException
-     */
-    public function updateBatch(array $settings, ?array $expected = null, array $via = [], ?User $actor = null): void
-    {
-        $this->warnings = [];
-        DB::transaction(function () use ($settings, $expected, $via, $actor): void {
-            $this->uncommittedSettings = true;
-            $this->resetReadSnapshot();
-            $movementSequenceTarget = null;
-            /** @var array<string, int> $documentSequenceTargets */
-            $documentSequenceTargets = [];
-            $lockedSettings = Setting::query()
-                ->whereIn('key', array_keys($settings))
-                ->orderBy('key')
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('key');
-
-            $missingKeys = array_diff(array_keys($settings), $lockedSettings->keys()->all());
-
-            if ($missingKeys !== []) {
-                throw new InvalidArgumentException('Settings are not initialized: '.implode(', ', $missingKeys));
-            }
-
-            $before = [];
-            $after = [];
-            foreach ($settings as $key => $value) {
-                /** @var Setting $setting */
-                $setting = $lockedSettings->get($key);
-                $current = $this->castValue($setting->value, $setting->type);
-                if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
-                    $current = $this->get($key);
-                }
-                // Dynamic sequence counters increment continuously under concurrent traffic; enforce monotonic increase rather than exact equality on optimistic concurrency.
-                $isCounter = in_array($key, self::NUMBERING_COUNTER_KEYS, true);
-                if (! $isCounter && $expected !== null && (! array_key_exists($key, $expected)
-                    || $this->comparisonValue($current, $setting->type) !== $this->comparisonValue($expected[$key], $setting->type))) {
-                    abort(409, 'تم تغيير إعداد أو عداد منذ فتح الصفحة؛ أعد تحميل الإعدادات قبل الحفظ.');
-                }
-                $before[$key] = $current;
-
-                if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
-                    $requested = $this->counterValue($value);
-                    if ($requested > 999999999) {
-                        throw ValidationException::withMessages([$key => 'الحد الأقصى للعداد هو 999999999.']);
-                    }
-                    $value = max($this->counterValue($setting->value), $requested);
-                    if ($key === 'movement_next_number') {
-                        $value = max($value, $this->nextMovementNumber());
-                        $movementSequenceTarget = $value;
-                    }
-                    $sequenceType = array_search($key, self::SEQUENCE_TYPES, true);
-                    if (is_string($sequenceType)) {
-                        $value = max($value, $this->nextDocumentNumber($sequenceType));
-                        $documentSequenceTargets[$sequenceType] = $value;
-                    }
-                    if ($requested < $value) {
-                        throw ValidationException::withMessages([$key => 'لا يمكن خفض عداد الترقيم عن قيمته الحالية.']);
-                    }
-                }
-
-                $setting->value = $value === null && str_ends_with($key, '_prefix')
-                    ? ''
-                    : $this->serializeValue($value, $setting->type);
-                $setting->save();
-                $after[$key] = $this->castValue($setting->value, $setting->type);
-            }
-
-            $this->assertNumberingDoesNotCollide($settings, $after);
-            // Changing prefix or padding can collide with previously issued numbers; assert next formatted number is unused in target document table.
-            $this->assertNoNumberingCollision(array_keys($settings));
-
-            // F19: CLI/queue/WhatsApp callers have no staff HTTP request; an explicit
-            // actor keeps the audit log accurate, otherwise fall back safely.
-            $resolvedActor = $actor ?? (app()->runningInConsole() ? null : request()->user('staff'));
-            StaffAdministration::audit($resolvedActor, 'settings.updated', 'settings', null, array_keys($settings),
-                ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
-            DB::afterCommit(fn () => $this->clearCache());
-
-            // Synchronize sequences within the transaction: a non-transactional
-            // sequence advance may leave gaps on rollback, but prevents
-            // duplicate document numbers.
-            $this->synchronizeSequences($movementSequenceTarget, $documentSequenceTargets);
-        }, attempts: 3);
-    }
-
-    /**
      * Advance the movement/document sequences to at least the synchronized
      * targets. A concurrent allocation can hold the numbering lock while it
      * accesses the sequence. Retry the sync with backoff on 55P03.
      *
      * @param  array<string, int>  $documentSequenceTargets
-     *
-     * @throws JsonException
      */
     private function synchronizeSequences(?int $movementSequenceTarget, array $documentSequenceTargets): void
     {
@@ -477,57 +644,6 @@ class SettingService
             fn (int $attempt): int => 500 * $attempt,
             fn (\Throwable $e): bool => $e instanceof QueryException && ($e->errorInfo[0] ?? null) === '55P03',
         );
-    }
-
-    /**
-     * Atomically return and increment the next document number for the requested type.
-     *
-     * @throws JsonException
-     */
-    public function generateNextNumber(string $type): string
-    {
-        if ($type === 'movement') {
-            [$prefix, $padding] = $this->numberingConfig('movement', 'movement_prefix', 'movement_padding');
-            $number = DB::selectOne('SELECT inventory_movement_number() AS number')->number;
-
-            return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
-        }
-        if (isset(self::SEQUENCE_TYPES[$type])) {
-            $definitions = $this->numberingDefinitions();
-            $definition = $definitions[$type];
-            [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
-            $number = DB::selectOne('SELECT document_next_number(?) AS number', [$type])->number;
-
-            return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
-        }
-        $definitions = $this->numberingDefinitions();
-
-        if (! isset($definitions[$type])) {
-            throw new InvalidArgumentException("Unsupported numbering type [{$type}].");
-        }
-
-        $definition = $definitions[$type];
-        [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
-
-        return DB::transaction(function () use ($definition, $prefix, $padding): string {
-            // Counter row is locked and read fresh; prefix and padding are cached in request memory
-            $nextSetting = Setting::query()
-                ->where('key', $definition['next'])
-                ->lockForUpdate()
-                ->first();
-
-            if ($nextSetting === null) {
-                throw new InvalidArgumentException("Required numbering setting [{$definition['next']}] is missing.");
-            }
-
-            $nextValue = $this->counterValue($nextSetting->value);
-
-            $formatted = $prefix.str_pad((string) $nextValue, $padding, '0', STR_PAD_LEFT);
-            $nextSetting->value = (string) ($nextValue + 1);
-            $nextSetting->save();
-
-            return $formatted;
-        }, attempts: 3);
     }
 
     /**
@@ -558,18 +674,6 @@ class SettingService
         })();
     }
 
-    public function clearCache(): void
-    {
-        Cache::forever(self::CACHE_VERSION_KEY, (string) Str::uuid());
-        Cache::forget(self::CACHE_KEY); // Retire the cache key used before versioning.
-        Cache::forget(self::BRANDING_CACHE_KEY);
-        $this->numberingConfig = [];
-        $this->numberingConfigVersion = null;
-        $this->requestCache = null;
-        $this->requestCacheVersion = null;
-        $this->resetReadSnapshot();
-    }
-
     private function comparisonValue(mixed $value, string $type): ?string
     {
         if ($type === 'float' && $value !== null && is_numeric($value)) {
@@ -586,33 +690,6 @@ class SettingService
 
         return array_intersect_key($settings, array_flip($allowed));
     }
-
-    /**
-     * Single source of truth: document type to [table, column] mapping for
-     * both numbering-collision asserts. Types without dedicated tables are
-     * excluded: `invoice` (no invoices table exists in schema — only
-     * supplier_invoices) and `pos_invoice` (sequence-only numbering, mapped
-     * to table null in 2026_10_31_000001_move_high_volume_numbering_to_sequences).
-     *
-     * @var array<string, array{0: string, 1: string}>
-     */
-    private const DOCUMENT_NUMBER_TARGETS = [
-        'order' => ['orders', 'order_number'],
-        'purchase_order' => ['purchase_orders', 'po_number'],
-        'quotation' => ['quotations', 'quotation_number'],
-        'transfer' => ['stock_transfers', 'transfer_number'],
-        'stocktake' => ['stocktakes', 'stocktake_number'],
-        'return' => ['return_requests', 'return_number'],
-        'purchase_request' => ['purchase_requests', 'request_number'],
-        'delivery' => ['supplier_deliveries', 'delivery_number'],
-        'supplier_invoice' => ['supplier_invoices', 'invoice_number'],
-        'supplier_payment' => ['supplier_payments', 'payment_number'],
-        'shift' => ['pos_shifts', 'shift_number'],
-        'expense' => ['expenses', 'expense_number'],
-        'treasury_transfer' => ['treasury_transfers', 'transfer_number'],
-        'payment_notice' => ['wholesale_payment_notices', 'notice_number'],
-        'movement' => ['stock_movements', 'reference_number'],
-    ];
 
     /**
      * Assert that formatted next number does not collide with existing document rows when prefix/padding/number changes.
@@ -635,7 +712,7 @@ class SettingService
             $prefix = (string) $this->castValue($rows[$keys[0]]->value, $rows[$keys[0]]->type);
             $next = (int) $this->castValue($rows[$keys[1]]->value, $rows[$keys[1]]->type);
             $padding = (int) $this->castValue($rows[$keys[2]]->value, $rows[$keys[2]]->type);
-            $candidate = $prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT);
+            $candidate = $this->formatDocumentNumber($prefix, $next, $padding);
             if (DB::table($table)->where($column, $candidate)->exists()) {
                 throw ValidationException::withMessages([$keys[0] => "الرقم التالي المُنسَّق ({$candidate}) صدر من قبل لنوع {$type}؛ غيّر البادئة أو الطول أو ارفع العداد."]);
             }
@@ -643,29 +720,20 @@ class SettingService
     }
 
     /**
-     * @return array<string, array{prefix: string, next: string, padding: string}>
+     * @return array{prefix: string, next: string, padding: string}
      */
-    private function numberingDefinitions(): array
+    private function numberingDefinition(string $type): array
     {
         return [
-            'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
-            'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
-            'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
-            'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
-            'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
-            'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
-            'return' => ['prefix' => 'return_prefix', 'next' => 'return_next_number', 'padding' => 'return_padding'],
-            'purchase_request' => ['prefix' => 'purchase_request_prefix', 'next' => 'purchase_request_next_number', 'padding' => 'purchase_request_padding'],
-            'delivery' => ['prefix' => 'delivery_prefix', 'next' => 'delivery_next_number', 'padding' => 'delivery_padding'],
-            'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
-            'supplier_payment' => ['prefix' => 'supplier_payment_prefix',    'next' => 'supplier_payment_next_number',    'padding' => 'supplier_payment_padding'],
-            'movement' => ['prefix' => 'movement_prefix', 'next' => 'movement_next_number', 'padding' => 'movement_padding'],
-            'shift' => ['prefix' => 'shift_prefix',               'next' => 'shift_next_number',               'padding' => 'shift_padding'],
-            'pos_invoice' => ['prefix' => 'pos_invoice_prefix',      'next' => 'pos_invoice_next_number',      'padding' => 'pos_invoice_padding'],
-            'expense' => ['prefix' => 'expense_prefix',             'next' => 'expense_next_number',             'padding' => 'expense_padding'],
-            'treasury_transfer' => ['prefix' => 'treasury_transfer_prefix',   'next' => 'treasury_transfer_next_number',   'padding' => 'treasury_transfer_padding'],
-            'payment_notice' => ['prefix' => 'payment_notice_prefix',      'next' => 'payment_notice_next_number',      'padding' => 'payment_notice_padding'],
+            'prefix' => $type.'_prefix',
+            'next' => $type.'_next_number',
+            'padding' => $type.'_padding',
         ];
+    }
+
+    private function formatDocumentNumber(string $prefix, int $number, int $padding): string
+    {
+        return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
     }
 
     private function nextMovementNumber(): int

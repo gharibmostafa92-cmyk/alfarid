@@ -18,6 +18,7 @@ use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -45,61 +46,13 @@ class CartService
      */
     public function resolveCart(?Customer $customer, ?string $guestToken, bool $create = true): Cart
     {
-        $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
+        $validToken = $this->validGuestToken($guestToken);
 
         if ($customer !== null) {
-            $cart = $create
-                ? $this->accountCart($customer)
-                : (Cart::query()->where('customer_id', $customer->id)->first() ?? new Cart(['customer_id' => $customer->id]));
-            if ($create && $guestToken !== null && $guestToken !== $cart->cart_token) {
-                $this->mergeGuestCart($customer, $guestToken);
-                $cart = $cart->fresh();
-            }
-
-            return $cart->loadMissing('items');
+            return $this->resolveCustomerCart($customer, $validToken, $create);
         }
 
-        $cart = $guestToken !== null
-            ? Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->first()
-            : null;
-        if ($cart !== null) {
-            return $cart->loadMissing('items');
-        }
-
-        if (! $create) {
-            return (new Cart(['cart_token' => $guestToken]))->loadMissing('items');
-        }
-        if ($guestToken !== null) {
-            try {
-                $created = Cart::query()->createOrFirst(
-                    ['cart_token' => $guestToken],
-                    ['customer_id' => null],
-                );
-            } catch (UniqueConstraintViolationException $exception) {
-                if (! Cart::query()->where('cart_token', $guestToken)->whereNotNull('customer_id')->exists()) {
-                    throw $exception;
-                }
-                $created = null;
-            }
-            if ($created !== null && $created->customer_id === null) {
-                return $created->loadMissing('items');
-            }
-        }
-
-        return Cart::create([])->loadMissing('items');
-    }
-
-    /**
-     * Retrieves or creates the unique persistent cart instance for an authenticated customer.
-     *
-     * @param  Customer  $customer  Target customer
-     * @return Cart Active customer cart
-     */
-    private function accountCart(Customer $customer): Cart
-    {
-        // createOrFirst wraps insertion inside a transaction savepoint to prevent 25P02 transaction aborts.
-        return Cart::query()->where('customer_id', $customer->id)->first()
-            ?? Cart::query()->createOrFirst(['customer_id' => $customer->id]);
+        return $this->resolveOrCreateGuestCart($validToken, $create);
     }
 
     /**
@@ -121,17 +74,18 @@ class CartService
      */
     public function mergeGuestCartWithReport(Customer $customer, ?string $guestToken): array
     {
-        $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
-        if ($guestToken === null) {
+        $validToken = $this->validGuestToken($guestToken);
+        if ($validToken === null) {
             return ['merged' => true, 'warnings' => []];
         }
 
         // Lock both carts in ID order so concurrent merges share the same lock order.
-        return DB::transaction(function () use ($customer, $guestToken): array {
-            $guestId = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->value('id');
+        return DB::transaction(function () use ($customer, $validToken): array {
+            $guestId = Cart::query()->where('cart_token', $validToken)->whereNull('customer_id')->value('id');
             if ($guestId === null) {
                 return ['merged' => false, 'warnings' => []];
             }
+
             $accountId = $this->accountCart($customer)->id;
             $carts = Cart::query()->whereKey([$guestId, $accountId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $guest = $carts->get($guestId);
@@ -139,6 +93,7 @@ class CartService
             if ($guest === null) {
                 return ['merged' => false, 'warnings' => []];
             }
+
             $guestItems = $guest->items()->lockForUpdate()->get();
             if ($guestItems->isEmpty()) {
                 $guest->delete();
@@ -146,114 +101,11 @@ class CartService
                 return ['merged' => true, 'warnings' => []];
             }
 
-            $purchasableIds = $this->retailVariants()->whereKey($guestItems->pluck('product_variant_id')->all())
-                ->pluck('id')->flip();
-            $available = $this->catalog->fulfillableQuantityMap(
-                $purchasableIds->keys()->map(fn ($id): int => (int) $id)->values()->all()
-            );
-            // Enforce cart line and item quantity caps during guest cart merger.
-            $maxLines = (int) config('store.max_cart_lines', 50);
-            $lineCap = $this->lineQtyCap($customer);
-            $accountQty = $account->items()->pluck('qty', 'product_variant_id')
-                ->map(fn ($qty): float => (float) $qty)->all();
-            $accountLines = count($accountQty);
-            $rows = [];
-            $remainingQuantities = [];
-            $unavailable = false;
-            $lineLimitReached = false;
-            $stockLimitReached = false;
-            $timestamp = now();
-
-            foreach ($guestItems as $item) {
-                $variantId = (int) $item->product_variant_id;
-                if (! $purchasableIds->has($variantId)) {
-                    $remainingQuantities[$item->id] = (float) $item->qty;
-                    $unavailable = true;
-
-                    continue;
-                }
-                $existingQty = $accountQty[$variantId] ?? null;
-                $isNew = $existingQty === null;
-
-                // Keep guest lines that do not fit the account cart instead of deleting them.
-                if ($isNew && $maxLines > 0 && $accountLines >= $maxLines) {
-                    $remainingQuantities[$item->id] = (float) $item->qty;
-                    $lineLimitReached = true;
-
-                    continue;
-                }
-
-                $held = (float) ($existingQty ?? 0);
-                $room = (float) ($available[$variantId] ?? 0) - $held;
-                if ($lineCap > 0) {
-                    $room = min($room, $lineCap - $held);
-                }
-                if ($room <= 0) {
-                    $remainingQuantities[$item->id] = (float) $item->qty;
-                    $stockLimitReached = true;
-
-                    continue;
-                }
-
-                $requestedQty = (float) $item->qty;
-                $qty = min($requestedQty, $room);
-                $remainingQty = round(max(0, $requestedQty - $qty), 4);
-                if ($remainingQty > 0) {
-                    $remainingQuantities[$item->id] = $remainingQty;
-                    $stockLimitReached = true;
-                }
-                $rows[] = [
-                    'cart_id' => $account->id,
-                    'product_variant_id' => $variantId,
-                    'qty' => $qty,
-                    'created_at' => $timestamp,
-                    'updated_at' => $timestamp,
-                ];
-
-                $accountQty[$variantId] = $held + $qty;
-                if ($isNew) {
-                    $accountLines++;
-                }
-                $dropIds[] = (int) $item->id;
-            }
-            if ($rows !== []) {
-                CartItem::query()->upsert(
-                    $rows,
-                    ['cart_id', 'product_variant_id'],
-                    ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
-                );
-            }
-            if ($remainingQuantities !== []) {
-                foreach ($remainingQuantities as $itemId => $qty) {
-                    $guest->items()->whereKey($itemId)->update(['qty' => $qty, 'updated_at' => $timestamp]);
-                }
-                $guest->items()->whereNotIn('id', array_keys($remainingQuantities))->delete();
-            } else {
-                $guest->items()->delete();
-            }
-
-            if ($remainingQuantities === [] && $account->coupon_id === null && $guest->coupon_id !== null) {
-                $account->unsetRelation('items');
-                try {
-                    $itemsTotal = $this->totals($account->load('items'), $customer)['items_total'];
-                    $this->coupons->redeemableById((int) $guest->coupon_id, $itemsTotal, $customer);
-                    $account->update(['coupon_id' => $guest->coupon_id]);
-                } catch (BusinessException) {
-                    // A guest coupon the account cannot redeem must not stick on the customer cart.
-                }
-            }
-            $warnings = [];
-            if ($unavailable) {
-                $warnings[] = 'بعض المنتجات لم تعد متاحة، وما تبقى منها محفوظ في سلة الزائر.';
-            }
-            if ($lineLimitReached) {
-                $warnings[] = 'سلة الحساب وصلت إلى الحد الأقصى؛ ما تبقى من المنتجات محفوظ في سلة الزائر.';
-            }
-            if ($stockLimitReached) {
-                $warnings[] = 'نُقلت الكمية المتاحة فقط، وما تبقى محفوظ في سلة الزائر.';
-            }
+            [$rows, $remainingQuantities, $warnings] = $this->planGuestCartMerge($account, $guestItems, $customer);
+            $this->persistGuestCartMerge($guest, $rows, $remainingQuantities);
 
             if ($remainingQuantities === []) {
+                $this->transferGuestCouponIfEligible($guest, $account, $customer);
                 $guest->delete();
             }
 
@@ -292,42 +144,6 @@ class CartService
         });
     }
 
-    private function addItemToLockedCart(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
-    {
-        $variant = $this->purchasableVariant($variantId);
-        $existing = $cart->items()->where('product_variant_id', $variantId)->first();
-
-        // Reject adding new lines when the maximum allowed cart line limit is reached.
-        if ($existing === null) {
-            $maxLines = (int) config('store.max_cart_lines', 50);
-            $this->pruneDanglingItems($cart);
-            if ($maxLines > 0 && $cart->items()->count() >= $maxLines) {
-                throw new BusinessException("بلغت سلة التسوق سقف الأصناف ({$maxLines})؛ احذف صنفًا قبل الإضافة.");
-            }
-        }
-
-        $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
-        $this->assertLineQty($customer, $targetQty);
-        $this->assertAvailable($variantId, $targetQty);
-        $this->assertPriced($variant, $customer, $targetQty);
-
-        // Upsert increments item quantity atomically to prevent unique key race conditions.
-        CartItem::query()->upsert(
-            [[
-                'cart_id' => $cart->id,
-                'product_variant_id' => $variantId,
-                'qty' => $qty,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]],
-            ['cart_id', 'product_variant_id'],
-            ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
-        );
-        $cart->touch();
-
-        return $cart->fresh('items');
-    }
-
     /**
      * Updates the quantity of a specific item in the cart.
      *
@@ -349,9 +165,7 @@ class CartService
 
         return $this->withLockedCart($cart, $customer, function (Cart $cart) use ($customer, $variantId, $qty, $itemId): Cart {
             $variant = $this->purchasableVariant($variantId);
-            $this->assertLineQty($customer, $qty);
-            $this->assertAvailable($variantId, $qty);
-            $this->assertPriced($variant, $customer, $qty);
+            $this->assertVariantEligibleForQty($variant, $customer, $qty);
 
             $item = $cart->items()->where('product_variant_id', $variantId)
                 ->when($itemId !== null, fn ($query) => $query->whereKey($itemId))->firstOrFail();
@@ -430,37 +244,15 @@ class CartService
     {
         $cart->loadMissing('items.variant.product');
         $this->pruneDanglingItems($cart);
-        $purchasableIds = $this->retailVariants()->whereIn('id', $cart->items->pluck('product_variant_id'))->pluck('id')->all();
-        $context = $this->pricing->contextFor($customer, $cart->items->pluck('product_variant_id')->all());
+        $variantIds = $cart->items->pluck('product_variant_id')->all();
+        $purchasableIds = $this->retailVariants()->whereIn('id', $variantIds)->pluck('id')->all();
+        $context = $this->pricing->contextFor($customer, $variantIds);
+
         $lines = [];
         foreach ($cart->items as $item) {
-            $variant = $item->variant;
-            if ($variant === null) {
-                continue;
-            }
-            // Retain inactive variants in response with null prices so shoppers can view and remove them from cart.
-            $qty = (float) $item->qty;
-            if (! in_array($variant->id, $purchasableIds, true)) {
-                $lines[] = $this->unpricedLine($item->id, $variant, $qty);
-
-                continue;
-            }
-            try {
-                $resolved = $this->pricing->resolve($variant, $customer, $qty, ctx: $context);
-                $unit = (float) $resolved['unit_price'];
-                $base = (float) $resolved['base_price'];
-                $lines[] = [
-                    'item_id' => $item->id,
-                    'variant' => $variant,
-                    'qty' => $qty,
-                    'unit_price' => $unit,
-                    'base_price' => $base,
-                    // Customer-specific pricing higher than base price does not produce negative discounts.
-                    'line_discount' => max(0.0, BigDecimal::of((string) $base)->minus((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat()),
-                    'line_total' => BigDecimal::of((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
-                ];
-            } catch (BusinessException) {
-                $lines[] = $this->unpricedLine($item->id, $variant, $qty);
+            $line = $this->priceSingleCartItem($item, $customer, $purchasableIds, $context);
+            if ($line !== null) {
+                $lines[] = $line;
             }
         }
 
@@ -476,42 +268,14 @@ class CartService
     public function totals(Cart $cart, ?Customer $customer, ?array $lines = null): array
     {
         $lines ??= $this->pricedLines($cart, $customer);
-        $subtotalDecimal = BigDecimal::zero();
-        $itemsDecimal = BigDecimal::zero();
-        foreach ($lines as $line) {
-            if ($line['unit_price'] === null) {
-                continue;
-            }
-            // Each line subtotal is rounded first, then aggregated to preserve exact currency arithmetic.
-            $lineSubtotal = BigDecimal::of((string) $line['base_price'])->multipliedBy((string) $line['qty'])->toScale(2, RoundingMode::HalfUp);
-            $subtotalDecimal = $subtotalDecimal->plus($lineSubtotal->isLessThan((string) $line['line_total']) ? (string) $line['line_total'] : $lineSubtotal);
-            $itemsDecimal = $itemsDecimal->plus((string) $line['line_total']);
-        }
-        $subtotal = $subtotalDecimal->toFloat();
+        [$subtotal, $pricingDiscount, $itemsDecimal] = $this->summarizeLineAmounts($lines);
         $itemsTotal = $itemsDecimal->toFloat();
 
-        // Pricing discount is the difference between rounded totals to prevent fractional cent rounding discrepancies.
-        // Higher custom prices raise the base threshold to avoid negative discounts inflating the bill.
-        if ($subtotal < $itemsTotal) {
-            $subtotal = $itemsTotal;
-            $pricingDiscount = 0.0;
-        } else {
-            $pricingDiscount = $subtotalDecimal->minus($itemsDecimal)->toScale(2, RoundingMode::HalfUp)->toFloat();
-        }
-
-        $couponDiscount = 0.0;
-        $couponCode = null;
-        $couponFreeShipping = false;
-        if ($cart->coupon_id !== null && $itemsTotal > 0) {
-            try {
-                $coupon = $this->coupons->redeemableById((int) $cart->coupon_id, $itemsTotal, $customer);
-                $couponDiscount = $this->coupons->discountFor($coupon, $itemsTotal);
-                $couponCode = $coupon->code;
-                $couponFreeShipping = $coupon->type === 'free_shipping';
-            } catch (BusinessException) {
-                // Silently omit invalidated coupons from cart totals; checkout will re-verify strictly.
-            }
-        }
+        [$couponDiscount, $couponCode, $couponFreeShipping] = $this->resolveCartCouponDiscount(
+            $cart,
+            $customer,
+            $itemsTotal,
+        );
 
         return [
             'subtotal' => round($subtotal, 2),
@@ -580,36 +344,10 @@ class CartService
         $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
         $availability = $this->catalog->fulfillableQuantityMap($ids);
 
-        $items = [];
-        foreach ($lines as $line) {
-            $variant = $line['variant'];
-            $exact = (float) ($availability[$variant->id] ?? 0);
-            // Cap exposed balance to purchasable limits to prevent leaking exact warehouse stock levels.
-            $maxQty = $line['unit_price'] === null ? 0.0 : $this->maxPurchasableQty($exact, $customer);
-            // Prefer the chosen variant image, then the parent product image.
-            $first = $variant->getMedia('images')->first()
-                ?? $variant->product?->getMedia('images')->first();
-            $items[] = [
-                'id' => $line['item_id'],
-                'product_variant_id' => $variant->id,
-                'product_id' => $variant->product_id,
-                'product_name' => $variant->product?->name_ar,
-                'product_slug' => $variant->product?->slug,
-                'product_name_en' => $variant->product?->name_en,
-                'image' => $first && $first->hasGeneratedConversion('thumb') ? $first->getUrl('thumb') : ($first?->getUrl() ?: null),
-                'color' => $variant->color_name_en ?? $variant->color_name_ar,
-                'size' => $variant->size ?? $variant->capacity,
-                'sku' => $variant->sku,
-                'qty' => $line['qty'],
-                'unit_price' => $line['unit_price'],
-                'base_price' => $line['base_price'],
-                'line_discount' => $line['line_discount'],
-                'line_total' => $line['line_total'],
-                'available' => $maxQty,
-                'max_qty' => $maxQty,
-                'priced' => $line['unit_price'] !== null,
-            ];
-        }
+        $items = array_map(
+            fn (array $line): array => $this->presentCartItem($line, $availability, $customer),
+            $lines,
+        );
 
         return [
             'id' => $cart->id,
@@ -617,6 +355,444 @@ class CartService
             'customer_id' => $cart->customer_id,
             'items' => $items,
             'totals' => $this->totals($cart, $customer, $lines),
+        ];
+    }
+
+    /**
+     * Enforces maximum allowed purchase quantity per cart line for guests and retail users.
+     *
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @param  float  $qty  Target line quantity
+     *
+     * @throws BusinessException If requested quantity exceeds user cap
+     */
+    public function assertLineQty(?Customer $customer, float $qty): void
+    {
+        $cap = $this->lineQtyCap($customer);
+        if ($cap > 0 && $qty > $cap) {
+            throw new BusinessException($customer === null
+                ? "سقف كمية البند الواحد للزوار ({$cap}) — سجّل الدخول للكميات الأكبر."
+                : "سقف كمية البند الواحد ({$cap}) — للكميات الأكبر تواصل مع مسار الجملة.");
+        }
+    }
+
+    /**
+     * Returns the effective quantity cap per cart line based on customer type (0 = uncapped for wholesale).
+     *
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @return float Maximum allowed line quantity (0 = uncapped)
+     */
+    public function lineQtyCap(?Customer $customer): float
+    {
+        if ($customer === null) {
+            return (float) config('store.guest_max_line_qty', 10);
+        }
+        if ($customer->isWholesaleApproved()) {
+            return 0.0;
+        }
+
+        return (float) config('store.retail_max_line_qty', 50);
+    }
+
+    /**
+     * Computes the maximum purchasable quantity considering branch availability and request caps.
+     *
+     * @param  float  $available  Actual branch quantity
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @return float Capped quantity safe for storefront exposure
+     */
+    public function maxPurchasableQty(float $available, ?Customer $customer): float
+    {
+        $cap = $this->lineQtyCap($customer);
+
+        return max(0.0, min($available, self::MAX_REQUEST_QTY, $cap > 0 ? $cap : self::MAX_REQUEST_QTY));
+    }
+
+    /**
+     * Asserts that the quantity is a positive whole integer.
+     *
+     * @param  float  $qty  Input quantity
+     * @param  bool  $allowZero  Whether 0 is considered valid
+     *
+     * @throws BusinessException If quantity contains fractional parts or is negative
+     */
+    public function assertWholeQuantity(float $qty, bool $allowZero = false): void
+    {
+        DiscreteQuantity::assertWhole($qty, $allowZero);
+    }
+
+    private function validGuestToken(?string $guestToken): ?string
+    {
+        return $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
+    }
+
+    private function resolveCustomerCart(Customer $customer, ?string $guestToken, bool $create): Cart
+    {
+        $cart = $create
+            ? $this->accountCart($customer)
+            : (Cart::query()->where('customer_id', $customer->id)->first() ?? new Cart(['customer_id' => $customer->id]));
+
+        if ($create && $guestToken !== null && $guestToken !== $cart->cart_token) {
+            $this->mergeGuestCart($customer, $guestToken);
+            $cart = $cart->fresh();
+        }
+
+        return $cart->loadMissing('items');
+    }
+
+    private function resolveOrCreateGuestCart(?string $guestToken, bool $create): Cart
+    {
+        $cart = $guestToken !== null
+            ? Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->first()
+            : null;
+        if ($cart !== null) {
+            return $cart->loadMissing('items');
+        }
+
+        if (! $create) {
+            return (new Cart(['cart_token' => $guestToken]))->loadMissing('items');
+        }
+
+        if ($guestToken !== null) {
+            try {
+                $created = Cart::query()->createOrFirst(
+                    ['cart_token' => $guestToken],
+                    ['customer_id' => null],
+                );
+            } catch (UniqueConstraintViolationException $exception) {
+                if (! Cart::query()->where('cart_token', $guestToken)->whereNotNull('customer_id')->exists()) {
+                    throw $exception;
+                }
+                $created = null;
+            }
+            if ($created !== null && $created->customer_id === null) {
+                return $created->loadMissing('items');
+            }
+        }
+
+        return Cart::create([])->loadMissing('items');
+    }
+
+    /**
+     * Retrieves or creates the unique persistent cart instance for an authenticated customer.
+     */
+    private function accountCart(Customer $customer): Cart
+    {
+        // createOrFirst wraps insertion inside a transaction savepoint to prevent 25P02 transaction aborts.
+        return Cart::query()->where('customer_id', $customer->id)->first()
+            ?? Cart::query()->createOrFirst(['customer_id' => $customer->id]);
+    }
+
+    /**
+     * @return array{0: list<array<string, mixed>>, 1: array<int, float>, 2: list<string>}
+     */
+    private function planGuestCartMerge(Cart $account, Collection $guestItems, Customer $customer): array
+    {
+        $purchasableIds = $this->retailVariants()->whereKey($guestItems->pluck('product_variant_id')->all())
+            ->pluck('id')->flip();
+        $available = $this->catalog->fulfillableQuantityMap(
+            $purchasableIds->keys()->map(fn ($id): int => (int) $id)->values()->all()
+        );
+
+        // Enforce cart line and item quantity caps during guest cart merger.
+        $maxLines = (int) config('store.max_cart_lines', 50);
+        $lineCap = $this->lineQtyCap($customer);
+        $accountQty = $account->items()->pluck('qty', 'product_variant_id')
+            ->map(fn ($qty): float => (float) $qty)->all();
+        $accountLines = count($accountQty);
+
+        $rows = [];
+        $remainingQuantities = [];
+        $unavailable = false;
+        $lineLimitReached = false;
+        $stockLimitReached = false;
+        $timestamp = now();
+
+        foreach ($guestItems as $item) {
+            $variantId = (int) $item->product_variant_id;
+            if (! $purchasableIds->has($variantId)) {
+                $remainingQuantities[$item->id] = (float) $item->qty;
+                $unavailable = true;
+
+                continue;
+            }
+
+            $existingQty = $accountQty[$variantId] ?? null;
+            $isNew = $existingQty === null;
+
+            // Keep guest lines that do not fit the account cart instead of deleting them.
+            if ($isNew && $maxLines > 0 && $accountLines >= $maxLines) {
+                $remainingQuantities[$item->id] = (float) $item->qty;
+                $lineLimitReached = true;
+
+                continue;
+            }
+
+            $held = (float) ($existingQty ?? 0);
+            $room = (float) ($available[$variantId] ?? 0) - $held;
+            if ($lineCap > 0) {
+                $room = min($room, $lineCap - $held);
+            }
+            if ($room <= 0) {
+                $remainingQuantities[$item->id] = (float) $item->qty;
+                $stockLimitReached = true;
+
+                continue;
+            }
+
+            $requestedQty = (float) $item->qty;
+            $qty = min($requestedQty, $room);
+            $remainingQty = round(max(0, $requestedQty - $qty), 4);
+            if ($remainingQty > 0) {
+                $remainingQuantities[$item->id] = $remainingQty;
+                $stockLimitReached = true;
+            }
+
+            $rows[] = [
+                'cart_id' => $account->id,
+                'product_variant_id' => $variantId,
+                'qty' => $qty,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+
+            $accountQty[$variantId] = $held + $qty;
+            if ($isNew) {
+                $accountLines++;
+            }
+        }
+
+        return [$rows, $remainingQuantities, $this->buildMergeWarnings($unavailable, $lineLimitReached, $stockLimitReached)];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<int, float>  $remainingQuantities
+     */
+    private function persistGuestCartMerge(Cart $guest, array $rows, array $remainingQuantities): void
+    {
+        $timestamp = now();
+        if ($rows !== []) {
+            CartItem::query()->upsert(
+                $rows,
+                ['cart_id', 'product_variant_id'],
+                ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => $timestamp],
+            );
+        }
+
+        if ($remainingQuantities !== []) {
+            foreach ($remainingQuantities as $itemId => $qty) {
+                $guest->items()->whereKey($itemId)->update(['qty' => $qty, 'updated_at' => $timestamp]);
+            }
+            $guest->items()->whereNotIn('id', array_keys($remainingQuantities))->delete();
+
+            return;
+        }
+
+        $guest->items()->delete();
+    }
+
+    private function transferGuestCouponIfEligible(Cart $guest, Cart $account, Customer $customer): void
+    {
+        if ($account->coupon_id !== null || $guest->coupon_id === null) {
+            return;
+        }
+
+        $account->unsetRelation('items');
+        try {
+            $itemsTotal = $this->totals($account->load('items'), $customer)['items_total'];
+            $this->coupons->redeemableById((int) $guest->coupon_id, $itemsTotal, $customer);
+            $account->update(['coupon_id' => $guest->coupon_id]);
+        } catch (BusinessException) {
+            // A guest coupon the account cannot redeem must not stick on the customer cart.
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildMergeWarnings(bool $unavailable, bool $lineLimitReached, bool $stockLimitReached): array
+    {
+        $warnings = [];
+        if ($unavailable) {
+            $warnings[] = 'بعض المنتجات لم تعد متاحة، وما تبقى منها محفوظ في سلة الزائر.';
+        }
+        if ($lineLimitReached) {
+            $warnings[] = 'سلة الحساب وصلت إلى الحد الأقصى؛ ما تبقى من المنتجات محفوظ في سلة الزائر.';
+        }
+        if ($stockLimitReached) {
+            $warnings[] = 'نُقلت الكمية المتاحة فقط، وما تبقى محفوظ في سلة الزائر.';
+        }
+
+        return $warnings;
+    }
+
+    private function addItemToLockedCart(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
+    {
+        $variant = $this->purchasableVariant($variantId);
+        $existing = $cart->items()->where('product_variant_id', $variantId)->first();
+
+        // Reject adding new lines when the maximum allowed cart line limit is reached.
+        if ($existing === null) {
+            $maxLines = (int) config('store.max_cart_lines', 50);
+            $this->pruneDanglingItems($cart);
+            if ($maxLines > 0 && $cart->items()->count() >= $maxLines) {
+                throw new BusinessException("بلغت سلة التسوق سقف الأصناف ({$maxLines})؛ احذف صنفًا قبل الإضافة.");
+            }
+        }
+
+        $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
+        $this->assertVariantEligibleForQty($variant, $customer, $targetQty);
+
+        // Upsert increments item quantity atomically to prevent unique key race conditions.
+        CartItem::query()->upsert(
+            [[
+                'cart_id' => $cart->id,
+                'product_variant_id' => $variantId,
+                'qty' => $qty,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]],
+            ['cart_id', 'product_variant_id'],
+            ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
+        );
+        $cart->touch();
+
+        return $cart->fresh('items');
+    }
+
+    private function assertVariantEligibleForQty(ProductVariant $variant, ?Customer $customer, float $qty): void
+    {
+        $this->assertLineQty($customer, $qty);
+        $this->assertAvailable((int) $variant->id, $qty);
+        $this->assertPriced($variant, $customer, $qty);
+    }
+
+    /**
+     * @param  array<int, int>  $purchasableIds
+     * @param  array<string, mixed>  $context
+     * @return array{item_id: int, variant: ProductVariant, qty: float, unit_price: float|null, base_price: float|null, line_discount: float, line_total: float}|null
+     */
+    private function priceSingleCartItem(CartItem $item, ?Customer $customer, array $purchasableIds, array $context): ?array
+    {
+        $variant = $item->variant;
+        if ($variant === null) {
+            return null;
+        }
+
+        // Retain inactive variants in response with null prices so shoppers can view and remove them from cart.
+        $qty = (float) $item->qty;
+        if (! in_array($variant->id, $purchasableIds, true)) {
+            return $this->unpricedLine($item->id, $variant, $qty);
+        }
+
+        try {
+            $resolved = $this->pricing->resolve($variant, $customer, $qty, ctx: $context);
+            $unit = (float) $resolved['unit_price'];
+            $base = (float) $resolved['base_price'];
+
+            return [
+                'item_id' => $item->id,
+                'variant' => $variant,
+                'qty' => $qty,
+                'unit_price' => $unit,
+                'base_price' => $base,
+                // Customer-specific pricing higher than base price does not produce negative discounts.
+                'line_discount' => max(0.0, BigDecimal::of((string) $base)->minus((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat()),
+                'line_total' => BigDecimal::of((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
+            ];
+        } catch (BusinessException) {
+            return $this->unpricedLine($item->id, $variant, $qty);
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $lines
+     * @return array{0: float, 1: float, 2: BigDecimal}
+     */
+    private function summarizeLineAmounts(array $lines): array
+    {
+        $subtotalDecimal = BigDecimal::zero();
+        $itemsDecimal = BigDecimal::zero();
+        foreach ($lines as $line) {
+            if ($line['unit_price'] === null) {
+                continue;
+            }
+            // Each line subtotal is rounded first, then aggregated to preserve exact currency arithmetic.
+            $lineSubtotal = BigDecimal::of((string) $line['base_price'])->multipliedBy((string) $line['qty'])->toScale(2, RoundingMode::HalfUp);
+            $subtotalDecimal = $subtotalDecimal->plus($lineSubtotal->isLessThan((string) $line['line_total']) ? (string) $line['line_total'] : $lineSubtotal);
+            $itemsDecimal = $itemsDecimal->plus((string) $line['line_total']);
+        }
+
+        $subtotal = $subtotalDecimal->toFloat();
+        $itemsTotal = $itemsDecimal->toFloat();
+
+        // Pricing discount is the difference between rounded totals to prevent fractional cent rounding discrepancies.
+        // Higher custom prices raise the base threshold to avoid negative discounts inflating the bill.
+        if ($subtotal < $itemsTotal) {
+            return [$itemsTotal, 0.0, $itemsDecimal];
+        }
+
+        return [$subtotal, $subtotalDecimal->minus($itemsDecimal)->toScale(2, RoundingMode::HalfUp)->toFloat(), $itemsDecimal];
+    }
+
+    /**
+     * @return array{0: float, 1: string|null, 2: bool}
+     */
+    private function resolveCartCouponDiscount(Cart $cart, ?Customer $customer, float $itemsTotal): array
+    {
+        if ($cart->coupon_id === null || $itemsTotal <= 0) {
+            return [0.0, null, false];
+        }
+
+        try {
+            $coupon = $this->coupons->redeemableById((int) $cart->coupon_id, $itemsTotal, $customer);
+
+            return [
+                $this->coupons->discountFor($coupon, $itemsTotal),
+                $coupon->code,
+                $coupon->type === 'free_shipping',
+            ];
+        } catch (BusinessException) {
+            // Silently omit invalidated coupons from cart totals; checkout will re-verify strictly.
+            return [0.0, null, false];
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $line
+     * @param  array<int, float>  $availability
+     * @return array<string, mixed>
+     */
+    private function presentCartItem(array $line, array $availability, ?Customer $customer): array
+    {
+        $variant = $line['variant'];
+        $exact = (float) ($availability[$variant->id] ?? 0);
+        // Cap exposed balance to purchasable limits to prevent leaking exact warehouse stock levels.
+        $maxQty = $line['unit_price'] === null ? 0.0 : $this->maxPurchasableQty($exact, $customer);
+        // Prefer the chosen variant image, then the parent product image.
+        $first = $variant->getMedia('images')->first()
+            ?? $variant->product?->getMedia('images')->first();
+
+        return [
+            'id' => $line['item_id'],
+            'product_variant_id' => $variant->id,
+            'product_id' => $variant->product_id,
+            'product_name' => $variant->product?->name_ar,
+            'product_slug' => $variant->product?->slug,
+            'product_name_en' => $variant->product?->name_en,
+            'image' => $first && $first->hasGeneratedConversion('thumb') ? $first->getUrl('thumb') : ($first?->getUrl() ?: null),
+            'color' => $variant->color_name_en ?? $variant->color_name_ar,
+            'size' => $variant->size ?? $variant->capacity,
+            'sku' => $variant->sku,
+            'qty' => $line['qty'],
+            'unit_price' => $line['unit_price'],
+            'base_price' => $line['base_price'],
+            'line_discount' => $line['line_discount'],
+            'line_total' => $line['line_total'],
+            'available' => $maxQty,
+            'max_qty' => $maxQty,
+            'priced' => $line['unit_price'] !== null,
         ];
     }
 
@@ -685,9 +861,6 @@ class CartService
     /**
      * Retrieves an active variant published on the retail channel.
      *
-     * @param  int  $variantId  Product variant ID
-     * @return ProductVariant Found active variant
-     *
      * @throws BusinessException If variant is unpublished or inactive
      */
     private function purchasableVariant(int $variantId): ProductVariant
@@ -706,8 +879,6 @@ class CartService
 
     /**
      * Scopes query to active variants published on storefront retail channels.
-     *
-     * @return Builder Eloquent query builder for retail variants
      */
     private function retailVariants(): Builder
     {
@@ -721,74 +892,8 @@ class CartService
     }
 
     /**
-     * Enforces maximum allowed purchase quantity per cart line for guests and retail users.
-     *
-     * @param  Customer|null  $customer  Customer or null for guest
-     * @param  float  $qty  Target line quantity
-     *
-     * @throws BusinessException If requested quantity exceeds user cap
-     */
-    public function assertLineQty(?Customer $customer, float $qty): void
-    {
-        $cap = $this->lineQtyCap($customer);
-        if ($cap > 0 && $qty > $cap) {
-            throw new BusinessException($customer === null
-                ? "سقف كمية البند الواحد للزوار ({$cap}) — سجّل الدخول للكميات الأكبر."
-                : "سقف كمية البند الواحد ({$cap}) — للكميات الأكبر تواصل مع مسار الجملة.");
-        }
-    }
-
-    /**
-     * Returns the effective quantity cap per cart line based on customer type (0 = uncapped for wholesale).
-     *
-     * @param  Customer|null  $customer  Customer or null for guest
-     * @return float Maximum allowed line quantity (0 = uncapped)
-     */
-    public function lineQtyCap(?Customer $customer): float
-    {
-        if ($customer === null) {
-            return (float) config('store.guest_max_line_qty', 10);
-        }
-        if ($customer->isWholesaleApproved()) {
-            return 0.0;
-        }
-
-        return (float) config('store.retail_max_line_qty', 50);
-    }
-
-    /**
-     * Computes the maximum purchasable quantity considering branch availability and request caps.
-     *
-     * @param  float  $available  Actual branch quantity
-     * @param  Customer|null  $customer  Customer or null for guest
-     * @return float Capped quantity safe for storefront exposure
-     */
-    public function maxPurchasableQty(float $available, ?Customer $customer): float
-    {
-        $cap = $this->lineQtyCap($customer);
-
-        return max(0.0, min($available, self::MAX_REQUEST_QTY, $cap > 0 ? $cap : self::MAX_REQUEST_QTY));
-    }
-
-    /**
-     * Asserts that the quantity is a positive whole integer.
-     *
-     * @param  float  $qty  Input quantity
-     * @param  bool  $allowZero  Whether 0 is considered valid
-     *
-     * @throws BusinessException If quantity contains fractional parts or is negative
-     */
-    public function assertWholeQuantity(float $qty, bool $allowZero = false): void
-    {
-        DiscreteQuantity::assertWhole($qty, $allowZero);
-    }
-
-    /**
      * Verifies that a single branch holds enough stock to fulfill the requested line quantity.
      * Storefront orders are not split across branches to prevent multiple shipments.
-     *
-     * @param  int  $variantId  Target variant
-     * @param  float  $qty  Required quantity
      *
      * @throws BusinessException If insufficient branch inventory
      */
@@ -802,10 +907,6 @@ class CartService
 
     /**
      * Ensures the variant has a valid pricing rule before adding to cart.
-     *
-     * @param  ProductVariant  $variant  Target variant
-     * @param  Customer|null  $customer  Customer or null for guest
-     * @param  float  $qty  Quantity being priced
      *
      * @throws BusinessException If no valid price rule matches
      */

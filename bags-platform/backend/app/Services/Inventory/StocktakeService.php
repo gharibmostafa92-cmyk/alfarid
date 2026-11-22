@@ -4,11 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Inventory;
 
-use App\Services\Shared\DiscreteQuantity;
-use Brick\Math\BigDecimal;
-use Brick\Math\RoundingMode;
-use App\Services\Shared\SettingService;
-
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\StocktakeStatus;
@@ -19,6 +14,10 @@ use App\Models\StockMovement;
 use App\Models\Stocktake;
 use App\Observers\CatalogRetailPriceObserver;
 use App\Services\Concerns\HandlesIdempotentCreation;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Shared\SettingService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +37,7 @@ class StocktakeService
     /**
      * Paginates stocktake sessions with applied branch and status filters.
      *
-     * @param array<string, mixed> $filters Query filters
+     * @param  array<string, mixed>  $filters  Query filters
      * @return LengthAwarePaginator Paginated stocktakes
      */
     public function paginate(array $filters): LengthAwarePaginator
@@ -56,7 +55,7 @@ class StocktakeService
     /**
      * Retrieves a single stocktake session with loaded associations.
      *
-     * @param int $id Stocktake ID
+     * @param  int  $id  Stocktake ID
      * @return Stocktake Retrieved stocktake model
      */
     public function find(int $id): Stocktake
@@ -69,10 +68,11 @@ class StocktakeService
     /**
      * Creates a new draft stocktake session idempotently.
      *
-     * @param array<string, mixed> $data Stocktake attributes and items
-     * @param int $userId Creator ID
-     * @param string|null $idempotencyKey Optional client request idempotency key
+     * @param  array<string, mixed>  $data  Stocktake attributes and items
+     * @param  int  $userId  Creator ID
+     * @param  string|null  $idempotencyKey  Optional client request idempotency key
      * @return Stocktake Created stocktake
+     *
      * @throws BusinessException If location or branch scope is invalid
      */
     public function create(array $data, int $userId, ?string $idempotencyKey = null): Stocktake
@@ -91,34 +91,14 @@ class StocktakeService
         );
     }
 
-    private function doCreate(array $data, int $userId): Stocktake
-    {
-        return DB::transaction(function () use ($data, $userId): Stocktake {
-            app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
-            app(BranchAccess::class)->lockActiveBranch((int) $data['branch_id']);
-            $this->assertScopedLocation((int) $data['branch_id'], $data['location_id'] ?? null);
-            $stocktake = Stocktake::query()->create([
-                'stocktake_number' => $this->settings->generateNextNumber('stocktake'),
-                'branch_id' => $data['branch_id'],
-                'location_id' => $data['location_id'] ?? null,
-                'status' => StocktakeStatus::Draft,
-                'created_by' => $userId,
-                'notes' => $data['notes'] ?? null,
-            ]);
-
-            $this->syncItems($stocktake, $data['items'] ?? []);
-
-            return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
-        });
-    }
-
     /**
      * Updates an editable stocktake session attributes, status, and items.
      *
-     * @param Stocktake $stocktake Target stocktake
-     * @param array<string, mixed> $data Updated attributes
-     * @param int $userId User performing update
+     * @param  Stocktake  $stocktake  Target stocktake
+     * @param  array<string, mixed>  $data  Updated attributes
+     * @param  int  $userId  User performing update
      * @return Stocktake Updated stocktake instance
+     *
      * @throws BusinessException If stocktake is locked or transition is invalid
      */
     public function update(Stocktake $stocktake, array $data, int $userId): Stocktake
@@ -129,65 +109,25 @@ class StocktakeService
             app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
             app(BranchAccess::class)->assertBranch($userId, (int) ($data['branch_id'] ?? $stocktake->branch_id));
 
-            $branchId = $data['branch_id'] ?? $stocktake->branch_id;
+            $branchId = (int) ($data['branch_id'] ?? $stocktake->branch_id);
             $locationId = array_key_exists('location_id', $data) ? $data['location_id'] : $stocktake->location_id;
-            $cancellingUnchangedScope = ($data['status'] ?? null) === StocktakeStatus::Cancelled->value
-                && (int) $branchId === $stocktake->branch_id
-                && ($locationId === null ? null : (int) $locationId) === $stocktake->location_id;
-            if (! $cancellingUnchangedScope) {
-                app(BranchAccess::class)->lockActiveBranch((int) $branchId);
-            }
-            if ($locationId !== null && ! $cancellingUnchangedScope) {
-                $location = Location::query()->whereKey($locationId)->where('branch_id', $branchId)
-                    ->where('is_active', true)->sharedLock()->first();
-                if ($location === null) {
-                    throw new BusinessException('موقع الجرد غير نشط أو لا يتبع الفرع المحدد.');
-                }
-            }
-            if ($locationId === null && ($data['status'] ?? null) !== StocktakeStatus::Cancelled->value) {
-                $this->assertScopedLocation((int) $branchId, null);
-            }
-            $scopeChanged = (int) $branchId !== $stocktake->branch_id || ($locationId === null ? null : (int) $locationId) !== $stocktake->location_id;
-            if ($scopeChanged && ($data['status'] ?? null) === StocktakeStatus::Cancelled->value) {
-                throw new BusinessException('لا يمكن تغيير فرع أو موقع جلسة الجرد أثناء إلغائها.');
-            }
-            if ($scopeChanged
-                && ! array_key_exists('items', $data) && $stocktake->items()->exists()) {
-                throw new BusinessException('تغيير نطاق الجرد يتطلب إعادة إرسال العناصر والعد الفعلي.');
-            }
-
-            if (isset($data['status'])) {
-                $target = StocktakeStatus::from($data['status']);
-                $allowed = match ($stocktake->status) {
-                    StocktakeStatus::Draft => [StocktakeStatus::InProgress, StocktakeStatus::Cancelled],
-                    StocktakeStatus::InProgress => [StocktakeStatus::Cancelled],
-                    default => [],
-                };
-
-                if (! in_array($target, $allowed, true)) {
-                    throw new BusinessException("لا يمكن نقل الجرد من حالة {$stocktake->status->value} إلى {$target->value}.");
-                }
-
-                $stocktake->status = $target;
-            }
+            $scopeChanged = $this->validateUpdateScopeAndStatus($stocktake, $data, $branchId, $locationId);
 
             $stocktake->fill([
-                'branch_id' => $data['branch_id'] ?? $stocktake->branch_id,
-                'location_id' => array_key_exists('location_id', $data) ? $data['location_id'] : $stocktake->location_id,
+                'branch_id' => $branchId,
+                'location_id' => $locationId,
                 'notes' => array_key_exists('notes', $data) ? $data['notes'] : $stocktake->notes,
             ])->save();
 
-            if (($stocktake->status === StocktakeStatus::Cancelled)
-                && DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->exists()) {
-                // Purge per-scan idempotency keys when cancelling session to reclaim table storage.
-                DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->delete();
+            if ($stocktake->status === StocktakeStatus::Cancelled) {
+                $this->purgeStocktakeScans($stocktake->id);
             }
 
             if (isset($data['items'])) {
-                if ($scopeChanged) {
-                    $data['items'] = array_map(fn ($item) => [...$item, 'recount' => true], $data['items']);
-                }
-                $this->upsertItems($stocktake, $data['items']);
+                $items = $scopeChanged
+                    ? array_map(fn ($item) => [...$item, 'recount' => true], $data['items'])
+                    : $data['items'];
+                $this->upsertItems($stocktake, $items);
             }
 
             return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
@@ -197,9 +137,10 @@ class StocktakeService
     /**
      * Approves a stocktake session, recording inventory adjustments for non-zero count differences.
      *
-     * @param Stocktake $stocktake Target stocktake
-     * @param int $userId Approving user ID
+     * @param  Stocktake  $stocktake  Target stocktake
+     * @param  int  $userId  Approving user ID
      * @return Stocktake Approved and locked stocktake
+     *
      * @throws BusinessException If items are uncounted, stale, or stocktake cannot be approved
      */
     public function approve(Stocktake $stocktake, int $userId): Stocktake
@@ -209,92 +150,10 @@ class StocktakeService
             app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
             $stocktake->load('items.variant');
 
-            if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::InProgress], true)) {
-                throw new BusinessException('لا يمكن اعتماد جرد بحالة '.$stocktake->status->value.'.');
-            }
-
-            $this->assertScopedLocation((int) $stocktake->branch_id, $stocktake->location_id);
-            $this->assertItemLimit($stocktake->items->count());
-
-            $uncounted = $stocktake->items->filter(fn ($item) => $item->counted_qty === null);
-
-            if ($stocktake->items->isEmpty()) {
-                throw new BusinessException('لا يمكن اعتماد جرد بلا عناصر.');
-            }
-
-            if ($uncounted->isNotEmpty()) {
-                throw new BusinessException('لا يمكن الاعتماد: توجد عناصر لم تُعدّ بعد.');
-            }
-
-            $levels = $this->inventory->lockLevels($stocktake->items->map(fn ($item) => [
-                'product_variant_id' => $item->product_variant_id,
-                'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
-            ])->all());
-
-            // Reconcile according to configured stale policy: reject on intermediate movement or apply net difference.
-            $rejectStale = config('inventory.stocktake_stale_policy', 'reject') !== 'apply_difference';
-            $staleItemIds = [];
-            $staleVariantIds = [];
-            $latestMovements = StockMovement::query()->where('branch_id', $stocktake->branch_id)
-                ->where('location_id', $stocktake->location_id)->where('affected_bucket', StockBucket::OnHand->value)
-                ->whereIn('product_variant_id', $stocktake->items->pluck('product_variant_id'))
-                ->when(! $rejectStale, fn ($q) => $q->whereIn('type', [
-                    StockMovementType::StocktakeGain->value,
-                    StockMovementType::StocktakeLoss->value,
-                    StockMovementType::DamageWriteOff->value,
-                ]))
-                ->selectRaw('product_variant_id, MAX(id) AS last_id')->groupBy('product_variant_id')
-                ->pluck('last_id', 'product_variant_id');
-            foreach ($stocktake->items as $item) {
-                $key = $this->inventory->levelKey([
-                    'product_variant_id' => $item->product_variant_id,
-                    'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
-                ]);
-                if ((int) ($latestMovements[$item->product_variant_id] ?? 0) > (int) $item->snapshot_movement_id
-                    || ($rejectStale && BigDecimal::of((string) $levels[$key]->on_hand)->compareTo((string) $item->system_qty) !== 0)) {
-                    $staleItemIds[] = $item->id;
-                    $staleVariantIds[] = $item->product_variant_id;
-                }
-                $finalQty = BigDecimal::of((string) $levels[$key]->on_hand)->plus((string) $item->difference);
-                $restrictedQty = BigDecimal::of((string) $levels[$key]->reserved)->plus((string) $levels[$key]->damaged);
-                if ($finalQty->compareTo($restrictedQty) < 0) {
-                    throw new BusinessException('العد الفعلي أقل من المحجوز والتالف؛ راجع الحجوزات وسوِّ التالف قبل إعادة العد والاعتماد.');
-                }
-            }
-
-            if ($staleItemIds !== []) {
-                throw new BusinessException(
-                    'توجد أصناف تغيّر رصيدها بعد عدّها وتحتاج إعادة عد قبل الاعتماد.',
-                    ['recount_item_ids' => $staleItemIds, 'recount_variant_ids' => $staleVariantIds],
-                );
-            }
-
-            foreach ($stocktake->items as $item) {
-                $difference = BigDecimal::of((string) $item->difference);
-
-                if ($difference->isZero()) {
-                    continue;
-                }
-
-                $key = $this->inventory->levelKey([
-                    'product_variant_id' => $item->product_variant_id,
-                    'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
-                ]);
-
-                $this->inventory->recordMovement([
-                    'product_variant_id' => $item->product_variant_id,
-                    'branch_id' => $stocktake->branch_id,
-                    'location_id' => $stocktake->location_id,
-                    'type' => $difference->isPositive() ? StockMovementType::StocktakeGain : StockMovementType::StocktakeLoss,
-                    'affected_bucket' => StockBucket::OnHand,
-                    'quantity' => (string) $difference,
-                    'unit_cost' => $item->variant?->cost_price,
-                    'reference_type' => Stocktake::class,
-                    'reference_id' => $stocktake->id,
-                    'created_by' => $userId,
-                    'notes' => 'تسوية جرد '.$stocktake->stocktake_number,
-                ], $levels[$key] ?? null);
-            }
+            $this->assertStocktakeApprovable($stocktake);
+            $levels = $this->snapshotLevels($stocktake, $stocktake->items->all());
+            $this->assertApprovalItemsFreshAndFeasible($stocktake, $levels);
+            $this->recordApprovalMovements($stocktake, $levels, $userId);
 
             $stocktake->update([
                 'status' => StocktakeStatus::Approved,
@@ -303,7 +162,7 @@ class StocktakeService
             ]);
 
             // Clean up scan idempotency records once session is approved to keep operational tables lean.
-            DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->delete();
+            $this->purgeStocktakeScans($stocktake->id);
 
             return $stocktake->load(['items.variant', 'branch', 'location']);
         }));
@@ -312,8 +171,9 @@ class StocktakeService
     /**
      * Deletes a draft or cancelled stocktake session.
      *
-     * @param Stocktake $stocktake Stocktake to delete
-     * @param int $userId Requesting user ID
+     * @param  Stocktake  $stocktake  Stocktake to delete
+     * @param  int  $userId  Requesting user ID
+     *
      * @throws BusinessException If session is in an undeletable status
      */
     public function delete(Stocktake $stocktake, int $userId): void
@@ -330,58 +190,12 @@ class StocktakeService
         });
     }
 
-    private function assertScopedLocation(int $branchId, mixed $locationId): void
-    {
-        if ($locationId !== null) {
-            $location = Location::query()->whereKey($locationId)->sharedLock()->first();
-            if (! $location?->is_active || (int) $location->branch_id !== $branchId) {
-                throw new BusinessException('موقع الجرد غير نشط أو لا ينتمي إلى الفرع المحدد.');
-            }
-            return;
-        }
-
-        // Prevent branch-wide unlocated stocktaking when location-specific stock exists to avoid artificial discrepancies.
-        $hasLocatedStock = StockLevel::query()->where('branch_id', $branchId)
-            ->whereNotNull('location_id')->hasNonZeroBalance()->exists();
-
-        if ($hasLocatedStock) {
-            throw new BusinessException('هذا الفرع يستخدم المواقع وله أرصدة عليها؛ حدد موقع الجرد بدل العدّ الإجمالي للفرع.');
-        }
-    }
-
-    private function assertEditable(Stocktake $stocktake): void
-    {
-        if (in_array($stocktake->status, [StocktakeStatus::Approved, StocktakeStatus::Cancelled], true)) {
-            throw new BusinessException('هذا الجرد مقفل ولا يقبل أي تعديل.');
-        }
-    }
-
-    /**
-     * @param list<array{product_variant_id: int, counted_qty?: float|int|string|null}> $items
-     */
-    private function syncItems(Stocktake $stocktake, array $items): void
-    {
-        $this->assertItemLimit(count($items));
-        $levels = $this->snapshotLevels($stocktake, $items);
-        $snapshotMovementId = (int) StockMovement::query()->max('id');
-        foreach ($items as $item) {
-            $level = $levels->get($item['product_variant_id']);
-
-            $stocktake->items()->create([
-                'product_variant_id' => $item['product_variant_id'],
-                'system_qty' => $level ? (float) $level->on_hand : 0,
-                'snapshot_movement_id' => $snapshotMovementId,
-                'counted_qty' => $item['counted_qty'] ?? null,
-            ]);
-        }
-    }
-
     /**
      * Incrementally updates a subset of stocktake items without deleting unmentioned ones.
      *
-     * @param Stocktake $stocktake Target stocktake
-     * @param list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}> $items Items payload
-     * @param int $userId User ID
+     * @param  Stocktake  $stocktake  Target stocktake
+     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items  Items payload
+     * @param  int  $userId  User ID
      * @return Stocktake Updated stocktake
      */
     public function upsertSomeItems(Stocktake $stocktake, array $items, int $userId): Stocktake
@@ -406,12 +220,13 @@ class StocktakeService
      * same transaction. A retried request replays the stored state instead of
      * double-counting (exactly-once per scan at the database level).
      *
-     * @param Stocktake $stocktake Target stocktake
-     * @param int $variantId Scanned variant ID
-     * @param float $quantity Scanned quantity increment
-     * @param int $userId Scanning user ID
-     * @param string|null $scanId Client-generated scan UUID for idempotency
+     * @param  Stocktake  $stocktake  Target stocktake
+     * @param  int  $variantId  Scanned variant ID
+     * @param  float  $quantity  Scanned quantity increment
+     * @param  int  $userId  Scanning user ID
+     * @param  string|null  $scanId  Client-generated scan UUID for idempotency
      * @return Stocktake Updated stocktake
+     *
      * @throws BusinessException If session is locked or quantity is invalid
      */
     public function incrementItemCount(Stocktake $stocktake, int $variantId, int|float|string $quantity, int $userId, ?string $scanId = null): Stocktake
@@ -424,33 +239,8 @@ class StocktakeService
             DiscreteQuantity::assert($quantity);
             $quantityDecimal = BigDecimal::of((string) $quantity)->toScale(4, RoundingMode::HalfUp);
 
-            if ($scanId !== null) {
-                $recorded = DB::table('stocktake_scans')->insertOrIgnore([
-                    'stocktake_id' => $stocktake->id,
-                    'scan_id' => $scanId,
-                    'product_variant_id' => $variantId,
-                    'qty' => (string) $quantityDecimal,
-                    'created_by' => $userId,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-                if ($recorded === 0) {
-                    // Duplicate delivery of an already-applied scan: replay state only when the
-                    // stored payload matches. A reused scan_id with different data is a client
-                    // UUID collision and must surface as a conflict instead of dropping a real scan.
-                    $stored = DB::table('stocktake_scans')
-                        ->where('stocktake_id', $stocktake->id)
-                        ->where('scan_id', $scanId)
-                        ->first();
-                    if ($stored !== null
-                        && ((int) $stored->product_variant_id !== (int) $variantId
-                            || BigDecimal::of((string) $stored->qty)->compareTo($quantityDecimal) !== 0)) {
-                        throw new BusinessException('مفتاح المسح مستخدم مسبقًا مع بيانات مختلفة؛ أعد المسح بمفتاح جديد.', [], 409);
-                    }
-                    if ($stored !== null) {
-                        return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
-                    }
-                }
+            if ($scanId !== null && $this->isDuplicateScanReplay($stocktake, $variantId, $quantityDecimal, $userId, $scanId)) {
+                return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
             }
 
             // Movements serialize on this stock-level row. Lock it before checking the
@@ -464,12 +254,14 @@ class StocktakeService
                     throw new BusinessException('تغيّر رصيد هذا الصنف أثناء العد؛ أعد عدّه من جديد قبل المتابعة.');
                 }
             }
+
             $counted = BigDecimal::of((string) ($existing?->counted_qty ?? '0.0000'));
             $total = $counted->plus($quantityDecimal)->toScale(4, RoundingMode::HalfUp);
             if (! $quantityDecimal->isPositive()
                 || $total->compareTo(BigDecimal::of((string) DiscreteQuantity::MAX_DECIMAL)) > 0) {
                 throw new BusinessException('كمية العد تتجاوز النطاق المسموح.');
             }
+
             if ($existing !== null && $existing->counted_qty !== null) {
                 $existing->update(['counted_qty' => (string) $total]);
             } else {
@@ -481,8 +273,247 @@ class StocktakeService
         });
     }
 
+    private function doCreate(array $data, int $userId): Stocktake
+    {
+        return DB::transaction(function () use ($data, $userId): Stocktake {
+            app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
+            app(BranchAccess::class)->lockActiveBranch((int) $data['branch_id']);
+            $this->assertScopedLocation((int) $data['branch_id'], $data['location_id'] ?? null);
+
+            $stocktake = Stocktake::query()->create([
+                'stocktake_number' => $this->settings->generateNextNumber('stocktake'),
+                'branch_id' => $data['branch_id'],
+                'location_id' => $data['location_id'] ?? null,
+                'status' => StocktakeStatus::Draft,
+                'created_by' => $userId,
+                'notes' => $data['notes'] ?? null,
+            ]);
+
+            $this->syncItems($stocktake, $data['items'] ?? []);
+
+            return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
+        });
+    }
+
+    private function validateUpdateScopeAndStatus(Stocktake $stocktake, array $data, int $branchId, mixed $locationId): bool
+    {
+        $normalizedLocationId = $locationId === null ? null : (int) $locationId;
+        $isCancelling = ($data['status'] ?? null) === StocktakeStatus::Cancelled->value;
+        $scopeChanged = $branchId !== $stocktake->branch_id || $normalizedLocationId !== $stocktake->location_id;
+
+        if (! ($isCancelling && ! $scopeChanged)) {
+            app(BranchAccess::class)->lockActiveBranch($branchId);
+        }
+
+        if ($normalizedLocationId !== null && ! ($isCancelling && ! $scopeChanged)) {
+            $location = Location::query()->whereKey($normalizedLocationId)->where('branch_id', $branchId)
+                ->where('is_active', true)->sharedLock()->first();
+            if ($location === null) {
+                throw new BusinessException('موقع الجرد غير نشط أو لا يتبع الفرع المحدد.');
+            }
+        }
+
+        if ($normalizedLocationId === null && ! $isCancelling) {
+            $this->assertScopedLocation($branchId, null);
+        }
+
+        if ($scopeChanged && $isCancelling) {
+            throw new BusinessException('لا يمكن تغيير فرع أو موقع جلسة الجرد أثناء إلغائها.');
+        }
+
+        if ($scopeChanged && ! array_key_exists('items', $data) && $stocktake->items()->exists()) {
+            throw new BusinessException('تغيير نطاق الجرد يتطلب إعادة إرسال العناصر والعد الفعلي.');
+        }
+
+        if (isset($data['status'])) {
+            $target = StocktakeStatus::from($data['status']);
+            $allowed = match ($stocktake->status) {
+                StocktakeStatus::Draft => [StocktakeStatus::InProgress, StocktakeStatus::Cancelled],
+                StocktakeStatus::InProgress => [StocktakeStatus::Cancelled],
+                default => [],
+            };
+
+            if (! in_array($target, $allowed, true)) {
+                throw new BusinessException("لا يمكن نقل الجرد من حالة {$stocktake->status->value} إلى {$target->value}.");
+            }
+
+            $stocktake->status = $target;
+        }
+
+        return $scopeChanged;
+    }
+
+    private function purgeStocktakeScans(int $stocktakeId): void
+    {
+        // Purge per-scan idempotency keys to reclaim table storage.
+        if (DB::table('stocktake_scans')->where('stocktake_id', $stocktakeId)->exists()) {
+            DB::table('stocktake_scans')->where('stocktake_id', $stocktakeId)->delete();
+        }
+    }
+
+    private function assertStocktakeApprovable(Stocktake $stocktake): void
+    {
+        if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::InProgress], true)) {
+            throw new BusinessException('لا يمكن اعتماد جرد بحالة '.$stocktake->status->value.'.');
+        }
+
+        $this->assertScopedLocation((int) $stocktake->branch_id, $stocktake->location_id);
+        $this->assertItemLimit($stocktake->items->count());
+
+        if ($stocktake->items->isEmpty()) {
+            throw new BusinessException('لا يمكن اعتماد جرد بلا عناصر.');
+        }
+
+        if ($stocktake->items->contains(fn ($item) => $item->counted_qty === null)) {
+            throw new BusinessException('لا يمكن الاعتماد: توجد عناصر لم تُعدّ بعد.');
+        }
+    }
+
+    private function assertApprovalItemsFreshAndFeasible(Stocktake $stocktake, Collection $levels): void
+    {
+        // Reconcile according to configured stale policy: reject on intermediate movement or apply net difference.
+        $rejectStale = config('inventory.stocktake_stale_policy', 'reject') !== 'apply_difference';
+        $latestMovements = $this->snapshotMovementIds(
+            $stocktake,
+            $stocktake->items->pluck('product_variant_id')->map(fn ($id) => (int) $id)->all(),
+            onlyCountAffectingMovements: ! $rejectStale,
+        );
+
+        $staleItemIds = [];
+        $staleVariantIds = [];
+        foreach ($stocktake->items as $item) {
+            $level = $levels->get($item->product_variant_id);
+            if ((int) ($latestMovements[$item->product_variant_id] ?? 0) > (int) $item->snapshot_movement_id
+                || ($rejectStale && BigDecimal::of((string) $level->on_hand)->compareTo((string) $item->system_qty) !== 0)) {
+                $staleItemIds[] = $item->id;
+                $staleVariantIds[] = $item->product_variant_id;
+            }
+
+            $finalQty = BigDecimal::of((string) $level->on_hand)->plus((string) $item->difference);
+            $restrictedQty = BigDecimal::of((string) $level->reserved)->plus((string) $level->damaged);
+            if ($finalQty->compareTo($restrictedQty) < 0) {
+                throw new BusinessException('العد الفعلي أقل من المحجوز والتالف؛ راجع الحجوزات وسوِّ التالف قبل إعادة العد والاعتماد.');
+            }
+        }
+
+        if ($staleItemIds !== []) {
+            throw new BusinessException(
+                'توجد أصناف تغيّر رصيدها بعد عدّها وتحتاج إعادة عد قبل الاعتماد.',
+                ['recount_item_ids' => $staleItemIds, 'recount_variant_ids' => $staleVariantIds],
+            );
+        }
+    }
+
+    private function recordApprovalMovements(Stocktake $stocktake, Collection $levels, int $userId): void
+    {
+        foreach ($stocktake->items as $item) {
+            $difference = BigDecimal::of((string) $item->difference);
+            if ($difference->isZero()) {
+                continue;
+            }
+
+            $this->inventory->recordMovement([
+                'product_variant_id' => $item->product_variant_id,
+                'branch_id' => $stocktake->branch_id,
+                'location_id' => $stocktake->location_id,
+                'type' => $difference->isPositive() ? StockMovementType::StocktakeGain : StockMovementType::StocktakeLoss,
+                'affected_bucket' => StockBucket::OnHand,
+                'quantity' => (string) $difference,
+                'unit_cost' => $item->variant?->cost_price,
+                'reference_type' => Stocktake::class,
+                'reference_id' => $stocktake->id,
+                'created_by' => $userId,
+                'notes' => 'تسوية جرد '.$stocktake->stocktake_number,
+            ], $levels->get($item->product_variant_id));
+        }
+    }
+
+    private function isDuplicateScanReplay(
+        Stocktake $stocktake,
+        int $variantId,
+        BigDecimal $quantityDecimal,
+        int $userId,
+        string $scanId,
+    ): bool {
+        $recorded = DB::table('stocktake_scans')->insertOrIgnore([
+            'stocktake_id' => $stocktake->id,
+            'scan_id' => $scanId,
+            'product_variant_id' => $variantId,
+            'qty' => (string) $quantityDecimal,
+            'created_by' => $userId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        if ($recorded !== 0) {
+            return false;
+        }
+
+        // Duplicate delivery of an already-applied scan: replay state only when the
+        // stored payload matches. A reused scan_id with different data is a client
+        // UUID collision and must surface as a conflict instead of dropping a real scan.
+        $stored = DB::table('stocktake_scans')
+            ->where('stocktake_id', $stocktake->id)
+            ->where('scan_id', $scanId)
+            ->first();
+
+        if ($stored !== null
+            && ((int) $stored->product_variant_id !== (int) $variantId
+                || BigDecimal::of((string) $stored->qty)->compareTo($quantityDecimal) !== 0)) {
+            throw new BusinessException('مفتاح المسح مستخدم مسبقًا مع بيانات مختلفة؛ أعد المسح بمفتاح جديد.', [], 409);
+        }
+
+        return $stored !== null;
+    }
+
+    private function assertScopedLocation(int $branchId, mixed $locationId): void
+    {
+        if ($locationId !== null) {
+            $location = Location::query()->whereKey($locationId)->sharedLock()->first();
+            if (! $location?->is_active || (int) $location->branch_id !== $branchId) {
+                throw new BusinessException('موقع الجرد غير نشط أو لا ينتمي إلى الفرع المحدد.');
+            }
+
+            return;
+        }
+
+        // Prevent branch-wide unlocated stocktaking when location-specific stock exists to avoid artificial discrepancies.
+        $hasLocatedStock = StockLevel::query()->where('branch_id', $branchId)
+            ->whereNotNull('location_id')->hasNonZeroBalance()->exists();
+
+        if ($hasLocatedStock) {
+            throw new BusinessException('هذا الفرع يستخدم المواقع وله أرصدة عليها؛ حدد موقع الجرد بدل العدّ الإجمالي للفرع.');
+        }
+    }
+
+    private function assertEditable(Stocktake $stocktake): void
+    {
+        if (in_array($stocktake->status, [StocktakeStatus::Approved, StocktakeStatus::Cancelled], true)) {
+            throw new BusinessException('هذا الجرد مقفل ولا يقبل أي تعديل.');
+        }
+    }
+
     /**
-     * @param list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}> $items
+     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null}>  $items
+     */
+    private function syncItems(Stocktake $stocktake, array $items): void
+    {
+        $this->assertItemLimit(count($items));
+        $levels = $this->snapshotLevels($stocktake, $items);
+        $snapshotMovementId = (int) StockMovement::query()->max('id');
+        foreach ($items as $item) {
+            $level = $levels->get($item['product_variant_id']);
+
+            $stocktake->items()->create([
+                'product_variant_id' => $item['product_variant_id'],
+                'system_qty' => $level ? (float) $level->on_hand : 0,
+                'snapshot_movement_id' => $snapshotMovementId,
+                'counted_qty' => $item['counted_qty'] ?? null,
+            ]);
+        }
+    }
+
+    /**
+     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items
      */
     private function upsertItems(Stocktake $stocktake, array $items, bool $deleteAbsent = true): void
     {
@@ -493,11 +524,9 @@ class StocktakeService
             ? count($payloadIds)
             : $existing->count() + count(array_diff($payloadIds, $existing->keys()->map(fn ($id) => (int) $id)->all()));
         $this->assertItemLimit($totalItems);
+
         $levels = $this->snapshotLevels($stocktake, $items);
-        $snapshotMovementIds = $this->snapshotMovementIds(
-            $stocktake,
-            collect($items)->pluck('product_variant_id')->map(fn ($id) => (int) $id)->unique()->all(),
-        );
+        $snapshotMovementIds = $this->snapshotMovementIds($stocktake, $payloadIds);
 
         $keepIds = [];
         foreach ($items as $item) {
@@ -518,39 +547,7 @@ class StocktakeService
             }
 
             $keepIds[] = $row->id;
-            $updates = [];
-
-            if (array_key_exists('counted_qty', $item)) {
-                $updates['counted_qty'] = $item['counted_qty'];
-            }
-
-            $countChanged = array_key_exists('counted_qty', $item)
-                && $item['counted_qty'] !== null
-                && ($row->counted_qty === null || BigDecimal::of((string) $item['counted_qty'])->compareTo((string) $row->counted_qty) !== 0);
-
-            $recount = ! empty($item['recount']);
-
-            if ($row !== null && $row->counted_qty !== null && $countChanged && ! $recount) {
-                // A supervisor correcting an entry made before intervening movements must not
-                // silently re-baseline the variance against post-movement stock: demand an
-                // explicit recount, exactly like the scan path does.
-                $this->assertNoInterveningMovement($stocktake, $variantId, (int) $row->snapshot_movement_id);
-            }
-
-            if ($countChanged || $recount) {
-                $updates['system_qty'] = $currentOnHand;
-                $updates['snapshot_movement_id'] = (int) $snapshotMovementIds->get($variantId, 0);
-            }
-
-            if ($recount && $row !== null && ! array_key_exists('counted_qty', $item)) {
-                // Recount means a fresh count from zero: never mix a stale pre-sale count
-                // with the post-sale baseline, otherwise the difference double-counts the sale.
-                $updates['counted_qty'] = 0;
-            }
-
-            if ($updates !== []) {
-                $row->update($updates);
-            }
+            $this->updateExistingStocktakeItem($stocktake, $row, $item, $variantId, $currentOnHand, $snapshotMovementIds);
         }
 
         if ($deleteAbsent) {
@@ -558,10 +555,53 @@ class StocktakeService
         }
     }
 
+    private function updateExistingStocktakeItem(
+        Stocktake $stocktake,
+        mixed $row,
+        array $item,
+        int $variantId,
+        mixed $currentOnHand,
+        Collection $snapshotMovementIds,
+    ): void {
+        $updates = [];
+        if (array_key_exists('counted_qty', $item)) {
+            $updates['counted_qty'] = $item['counted_qty'];
+        }
+
+        $countChanged = array_key_exists('counted_qty', $item)
+            && $item['counted_qty'] !== null
+            && ($row->counted_qty === null || BigDecimal::of((string) $item['counted_qty'])->compareTo((string) $row->counted_qty) !== 0);
+
+        $recount = ! empty($item['recount']);
+
+        if ($row->counted_qty !== null && $countChanged && ! $recount) {
+            // A supervisor correcting an entry made before intervening movements must not
+            // silently re-baseline the variance against post-movement stock: demand an
+            // explicit recount, exactly like the scan path does.
+            $this->assertNoInterveningMovement($stocktake, $variantId, (int) $row->snapshot_movement_id);
+        }
+
+        if ($countChanged || $recount) {
+            $updates['system_qty'] = $currentOnHand;
+            $updates['snapshot_movement_id'] = (int) $snapshotMovementIds->get($variantId, 0);
+        }
+
+        if ($recount && ! array_key_exists('counted_qty', $item)) {
+            // Recount means a fresh count from zero: never mix a stale pre-sale count
+            // with the post-sale baseline, otherwise the difference double-counts the sale.
+            $updates['counted_qty'] = 0;
+        }
+
+        if ($updates !== []) {
+            $row->update($updates);
+        }
+    }
+
     private function snapshotLevels(Stocktake $stocktake, array $items): Collection
     {
         return $this->inventory->lockLevels(array_map(fn ($item) => [
-            'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
+            'branch_id' => $stocktake->branch_id,
+            'location_id' => $stocktake->location_id,
             'product_variant_id' => $item['product_variant_id'],
         ], $items))->keyBy('product_variant_id');
     }
@@ -571,10 +611,10 @@ class StocktakeService
      * corresponding branch/location/variant row. Global sequence IDs can commit out of
      * order across independent stock keys and are not valid watermarks for this scope.
      *
-     * @param list<int> $variantIds
+     * @param  list<int>  $variantIds
      * @return Collection<int, int|string>
      */
-    private function snapshotMovementIds(Stocktake $stocktake, array $variantIds): Collection
+    private function snapshotMovementIds(Stocktake $stocktake, array $variantIds, bool $onlyCountAffectingMovements = false): Collection
     {
         if ($variantIds === []) {
             return collect();
@@ -585,6 +625,11 @@ class StocktakeService
             ->where('location_id', $stocktake->location_id)
             ->where('affected_bucket', StockBucket::OnHand->value)
             ->whereIn('product_variant_id', $variantIds)
+            ->when($onlyCountAffectingMovements, fn ($q) => $q->whereIn('type', [
+                StockMovementType::StocktakeGain->value,
+                StockMovementType::StocktakeLoss->value,
+                StockMovementType::DamageWriteOff->value,
+            ]))
             ->selectRaw('product_variant_id, MAX(id) AS last_id')
             ->groupBy('product_variant_id')
             ->pluck('last_id', 'product_variant_id');

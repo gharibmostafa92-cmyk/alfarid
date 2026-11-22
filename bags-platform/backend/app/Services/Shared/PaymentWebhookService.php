@@ -52,95 +52,30 @@ class PaymentWebhookService
     {
         $gateway = strtolower($gateway);
         $provider = 'payment:'.$gateway;
-
-        // M3: reject malformed gateway names before writing anything. The route
-        // already constrains the slug, but the service is also called directly.
-        if (preg_match('/\A[a-z0-9_-]{1,32}\z/', $gateway) !== 1) {
-            return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']];
-        }
-
-        // Pre-verification key uses raw body hash because unverified payload fields cannot be trusted
         $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
 
-        // Reject oversized payloads early without storing unverified content
-        if (strlen($rawBody) > self::MAX_BODY_BYTES) {
-            $this->sampledSlimLog($provider, $preVerifyKey, 'rejected', 'payload too large', $ip);
-
-            return ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']];
-        }
-
-        $config = config("webhooks.payment.{$gateway}");
-        if (! is_array($config)) {
-            return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']];
+        [$config, $rejected] = $this->verifyInboundRequest($gateway, $provider, $rawBody, $headers, $query, $payload, $preVerifyKey, $ip);
+        if ($rejected !== null) {
+            return $rejected;
         }
 
         // Paymob signs fields within the 'obj' dictionary; status, amount, and order IDs must be read from obj
         $isPaymob = (string) ($config['driver'] ?? 'hmac') === 'paymob';
-
-        // Verify cryptographic signature before persisting payload in database
-        $verified = $this->verifier->verifyGateway(
-            (string) ($config['driver'] ?? 'hmac'),
-            $config['secret'] ?? null,
-            $rawBody,
-            $headers,
-            $query,
-            $payload,
-            $config['signature_header'] ?? null,
-        );
-        if (! $verified) {
-            $this->sampledSlimLog($provider, $preVerifyKey, 'invalid_signature', null, $ip);
-
-            return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
-        }
-
         // Combine extracted event ID with outcome so subsequent refunds on the same transaction are not dropped as duplicates
         $outcome = $isPaymob ? $this->paymobOutcome($payload) : $this->outcome($payload);
         $extractedId = $isPaymob ? $this->paymobEventId($payload) : $this->extractEventId($payload, $outcome);
 
-        // M2: a gateway may deliver several successful events for one payment
-        // (charge.succeeded, payment_intent.succeeded, checkout.session.completed).
-        // Only the configured subset is processed; everything else is ignored.
-        $allowedEvents = $config['allowed_events'] ?? null;
-        if (is_array($allowedEvents) && $allowedEvents !== []) {
-            $eventType = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
-            $allowed = array_map(fn ($type) => strtolower((string) $type), $allowedEvents);
-            if (! in_array($eventType, $allowed, true)) {
-                $eventId = $this->buildEventId($extractedId ?? $preVerifyKey, $outcome, null);
-                $log = $this->startLog($provider, $eventId, $payload, $ip);
-                $log->update([
-                    'signature_valid' => true,
-                    'status' => 'ignored',
-                    'error' => 'event type not subscribed: '.mb_substr($eventType, 0, 191),
-                ]);
-
-                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
-            }
+        if (! $this->isAllowedEventType($config, $payload, $provider, $extractedId, $preVerifyKey, $outcome, $ip)) {
+            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
         }
 
-        if ($isPaymob && $outcome === 'refunded' && $extractedId !== null
-            && ($gatewayOrderId = $this->paymobGatewayOrderId($payload)) !== null) {
-            // Identical signed callbacks can report a later cumulative refund.
-            // Skip the inquiry only after this transaction's full refund was applied.
-            $refundedTotal = Order::query()->where('gateway_order_id', $gatewayOrderId)
-                ->where('payment_status', 'refunded')->value('grand_total');
-            if ($refundedTotal !== null) {
-                $fullRefundEventId = $this->buildEventId($extractedId, $outcome, (float) $refundedTotal);
-                if (WebhookLog::query()->where('provider', $provider)->where('status', 'processed')
-                    ->where('event_id', $fullRefundEventId)->exists()) {
-                    $this->sampledSlimLog($provider, $fullRefundEventId, 'duplicate', null, $ip);
-
-                    return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
-                }
-            }
+        if ($isPaymob && $this->isAlreadyAppliedPaymobFullRefund($provider, $payload, $extractedId, $outcome, $ip)) {
+            return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
         }
 
-        $refundAmount = null;
-        if ($outcome === 'refunded') {
-            // The callback HMAC does not authenticate Paymob's cumulative refund total.
-            $refundAmount = $isPaymob
-                ? $this->paymobRefundInquiry->amount($extractedId, $this->paymobGatewayOrderId($payload), $config)
-                : $this->refundAmount($payload, $config);
-        }
+        $refundAmount = $outcome === 'refunded'
+            ? $this->resolveRefundAmount($isPaymob, $payload, $extractedId, $config)
+            : null;
         $eventId = $extractedId === null && $outcome !== 'refunded'
             ? $preVerifyKey
             : $this->buildEventId($extractedId ?? $preVerifyKey, $outcome, $refundAmount);
@@ -154,7 +89,7 @@ class PaymentWebhookService
             return ['http' => 503, 'body' => ['received' => false, 'message' => 'refund inquiry unavailable']];
         }
 
-        if (WebhookLog::query()->where('provider', $provider)->where('event_id', $eventId)->where('status', 'processed')->exists()) {
+        if ($this->isDuplicateProcessedEvent($provider, $eventId)) {
             // M3: a redelivery of an already-processed event must not store
             // another full payload row; a sampled slim entry is enough.
             $this->sampledSlimLog($provider, $eventId, 'duplicate', null, $ip);
@@ -170,6 +105,175 @@ class PaymentWebhookService
         $log = $this->startLog($provider, $eventId, $storedPayload, $ip);
         $log->update(['signature_valid' => true]);
 
+        return $this->processVerifiedWebhook($gateway, $provider, $eventId, $payload, $log, $config, $outcome, $isPaymob, $refundAmount);
+    }
+
+    /**
+     * @param  array<string, string|null>  $headers
+     * @param  array<string, mixed>  $query
+     * @param  array<string, mixed>  $payload
+     * @return array{0: array<string, mixed>|null, 1: array{http: int, body: array<string, mixed>}|null}
+     */
+    private function verifyInboundRequest(
+        string $gateway,
+        string $provider,
+        string $rawBody,
+        array $headers,
+        array $query,
+        array $payload,
+        string $preVerifyKey,
+        ?string $ip,
+    ): array {
+        // M3: reject malformed gateway names before writing anything. The route
+        // already constrains the slug, but the service is also called directly.
+        if (preg_match('/\A[a-z0-9_-]{1,32}\z/', $gateway) !== 1) {
+            return [null, ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']]];
+        }
+
+        // Reject oversized payloads early without storing unverified content
+        if (strlen($rawBody) > self::MAX_BODY_BYTES) {
+            $this->sampledSlimLog($provider, $preVerifyKey, 'rejected', 'payload too large', $ip);
+
+            return [null, ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']]];
+        }
+
+        $config = config("webhooks.payment.{$gateway}");
+        if (! is_array($config)) {
+            return [null, ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']]];
+        }
+
+        // Verify cryptographic signature before persisting payload in database
+        $verified = $this->verifier->verifyGateway(
+            (string) ($config['driver'] ?? 'hmac'),
+            $config['secret'] ?? null,
+            $rawBody,
+            $headers,
+            $query,
+            $payload,
+            $config['signature_header'] ?? null,
+        );
+        if (! $verified) {
+            $this->sampledSlimLog($provider, $preVerifyKey, 'invalid_signature', null, $ip);
+
+            return [null, ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']]];
+        }
+
+        return [$config, null];
+    }
+
+    /**
+     * M2: a gateway may deliver several successful events for one payment.
+     * Only the configured subset is processed; everything else is ignored.
+     *
+     * @param  array<string, mixed>  $config
+     * @param  array<string, mixed>  $payload
+     */
+    private function isAllowedEventType(
+        array $config,
+        array $payload,
+        string $provider,
+        ?string $extractedId,
+        string $preVerifyKey,
+        string $outcome,
+        ?string $ip,
+    ): bool {
+        $allowedEvents = $config['allowed_events'] ?? null;
+        if (! is_array($allowedEvents) || $allowedEvents === []) {
+            return true;
+        }
+
+        $eventType = $this->eventTypeLower($payload);
+        $allowed = array_map(fn ($type) => strtolower((string) $type), $allowedEvents);
+        if (in_array($eventType, $allowed, true)) {
+            return true;
+        }
+
+        $eventId = $this->buildEventId($extractedId ?? $preVerifyKey, $outcome, null);
+        $log = $this->startLog($provider, $eventId, $payload, $ip);
+        $log->update([
+            'signature_valid' => true,
+            'status' => 'ignored',
+            'error' => 'event type not subscribed: '.mb_substr($eventType, 0, 191),
+        ]);
+
+        return false;
+    }
+
+    /**
+     * Identical signed Paymob callbacks can report a later cumulative refund.
+     * Skip the inquiry only after this transaction's full refund was applied.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function isAlreadyAppliedPaymobFullRefund(
+        string $provider,
+        array $payload,
+        ?string $extractedId,
+        string $outcome,
+        ?string $ip,
+    ): bool {
+        if ($outcome !== 'refunded' || $extractedId === null) {
+            return false;
+        }
+
+        $gatewayOrderId = $this->paymobGatewayOrderId($payload);
+        if ($gatewayOrderId === null) {
+            return false;
+        }
+
+        $refundedTotal = Order::query()->where('gateway_order_id', $gatewayOrderId)
+            ->where('payment_status', 'refunded')->value('grand_total');
+        if ($refundedTotal === null) {
+            return false;
+        }
+
+        $fullRefundEventId = $this->buildEventId($extractedId, $outcome, (float) $refundedTotal);
+        if (! $this->isDuplicateProcessedEvent($provider, $fullRefundEventId)) {
+            return false;
+        }
+
+        $this->sampledSlimLog($provider, $fullRefundEventId, 'duplicate', null, $ip);
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $config
+     */
+    private function resolveRefundAmount(bool $isPaymob, array $payload, ?string $extractedId, array $config): ?float
+    {
+        // The callback HMAC does not authenticate Paymob's cumulative refund total.
+        return $isPaymob
+            ? $this->paymobRefundInquiry->amount($extractedId, $this->paymobGatewayOrderId($payload), $config)
+            : $this->refundAmount($payload, $config);
+    }
+
+    private function isDuplicateProcessedEvent(string $provider, string $eventId): bool
+    {
+        return WebhookLog::query()
+            ->where('provider', $provider)
+            ->where('event_id', $eventId)
+            ->where('status', 'processed')
+            ->exists();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $config
+     * @return array{http: int, body: array<string, mixed>}
+     */
+    private function processVerifiedWebhook(
+        string $gateway,
+        string $provider,
+        string $eventId,
+        array $payload,
+        WebhookLog $log,
+        array $config,
+        string $outcome,
+        bool $isPaymob,
+        ?float $refundAmount,
+    ): array {
         try {
             return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config, $outcome, $isPaymob, $refundAmount): array {
                 // Advisory lock serializes concurrent webhooks for the same provider and event key
@@ -181,17 +285,7 @@ class PaymentWebhookService
                     return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
                 }
 
-                // Paymob references orders via obj.order.id mapped to orders.gateway_order_id
-                $orderReference = $isPaymob
-                    ? $this->paymobGatewayOrderId($payload)
-                    : $this->extractOrderNumber($payload);
-                $order = $orderReference !== null
-                    ? Order::query()
-                        ->when($isPaymob,
-                            fn ($q) => $q->where('gateway_order_id', $orderReference),
-                            fn ($q) => $q->where('order_number', $orderReference))
-                        ->lockForUpdate()->first()
-                    : null;
+                [$order, $orderReference] = $this->findAndLockOrder($isPaymob, $payload);
                 if ($order === null) {
                     $log->update(['status' => 'failed', 'error' => 'طلب غير موجود: '.($orderReference ?? '—')]);
 
@@ -219,140 +313,19 @@ class PaymentWebhookService
                     ? $this->paymobAmountMatches($payload, $order, $config)
                     : $this->amountMatches($payload, $order, $config);
                 if ($outcome === 'paid' && ! $amountOk) {
-                    // If money was captured with an unexpected amount, flag the order for staff investigation
-                    $order->update(['needs_attention' => true]);
-                    $log->update(['status' => 'failed', 'error' => 'amount mismatch']);
-                    Log::warning('Payment amount/currency mismatch on a paid event.', [
-                        'order_id' => $order->id,
-                        'order_number' => $order->order_number,
-                        'gateway' => $gateway,
-                        'expected' => (string) $order->grand_total,
-                    ]);
-
-                    return ['http' => 200, 'body' => ['received' => false, 'message' => 'amount mismatch']];
+                    return $this->rejectPaidAmountMismatch($order, $log, $gateway);
                 }
 
-                $note = null;
-                if ($outcome === 'paid') {
-                    if (in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
-                        // WH-H2: البوابات لا تضمن ترتيب التسليم — paid متأخر يجب ألا يقلب
-                        // مستردًا إلى paid؛ يُرفع للمراجعة البشرية بلا تغيير حالة.
-                        $order->update(['needs_attention' => true]);
-                        $note = 'حدث دفع ناجح على طلب مسترد مسبقًا — تحقق من التحصيل قبل الشحن';
-                    } elseif ($order->payment_status === 'paid') {
-                        // WH-H2: حدث ناجح ثاني بمعرّف مختلف = تحصيل مزدوج محتمل لا يلاحظه أحد.
-                        $order->update(['needs_attention' => true]);
-                        $note = 'حدث دفع ناجح مكرر لطلب مدفوع مسبقًا — تحقق من تحصيل مزدوج';
-                    } elseif ($order->status === OrderStatus::Cancelled) {
-                        // Payment captured after order cancellation: record payment and mark for refund without reviving order
-                        $order->update(['payment_status' => 'paid', 'requires_refund' => true, 'needs_attention' => true]);
-                        $note = 'دفع ناجح على طلب ملغي — يحتاج استردادًا';
-                    } else {
-                        $order->update(['payment_status' => 'paid']);
-                        if ($order->status === OrderStatus::Pending) {
-                            try {
-                                // Nested transaction is a savepoint. A constraint failure inside
-                                // changeStatus aborts only that savepoint (25P02), so the captured
-                                // payment can still be flagged instead of returning 500.
-                                DB::transaction(function () use ($order, $gateway): void {
-                                    $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
-                                });
-                            } catch (DeadlockException $e) {
-                                // Re-throw database deadlock so the gateway retries delivery
-                                throw $e;
-                            } catch (QueryException $e) {
-                                $state = (string) ($e->errorInfo[0] ?? $e->getCode());
-                                if (in_array($state, ['55P03', '40P01', '08006', '08003'], true)) {
-                                    throw $e;
-                                }
-                                // WH-L5: رسالة الاستثناء قد تحمل نص SQL وقيماً — تُسجَّل كاملة
-                                // في السجل فقط، والملاحظة المعروضة للموظفين تبقى عامة.
-                                report($e);
-                                Log::warning('Payment captured but order auto-confirm failed.', [
-                                    'order_id' => $order->id,
-                                    'order_number' => $order->order_number,
-                                    'gateway' => $gateway,
-                                    'sqlstate' => $state,
-                                ]);
-                                $order->refresh();
-                                $order->update(['needs_attention' => true]);
-                                $note = 'تم الدفع لكن تأكيد الطلب فشل — راجع سجلات النظام';
-                            } catch (Throwable $e) {
-                                // Captured payment with confirmation failure requires visible staff attention
-                                report($e);
-                                Log::warning('Payment captured but order auto-confirm failed.', [
-                                    'order_id' => $order->id,
-                                    'order_number' => $order->order_number,
-                                    'gateway' => $gateway,
-                                ]);
-                                $order->refresh();
-                                $order->update(['needs_attention' => true]);
-                                $note = 'تم الدفع لكن تأكيد الطلب فشل — راجع سجلات النظام';
-                            }
-                        }
+                if ($outcome === 'failed') {
+                    $ignored = $this->applyFailedOutcome($order, $log);
+                    if ($ignored !== null) {
+                        return $ignored;
                     }
-                } elseif ($outcome === 'failed') {
-                    if ($order->payment_status === 'paid') {
-                        // Ignore late failure notification if the order was already confirmed paid
-                        $log->update(['status' => 'ignored', 'error' => 'حدث فشل متأخر بعد دفع ناجح — يُتجاهل']);
-
-                        return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
-                    }
-                    if (in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
-                        // WH-H2: فشل متأخر لا يمحو حقيقة استرداد مُثبت.
-                        $log->update(['status' => 'ignored', 'error' => 'حدث فشل على طلب مسترد — يُتجاهل']);
-
-                        return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
-                    }
-                    $order->update(['payment_status' => 'failed']);
-                } else { // refunded
-                    if (! $this->refundCurrencyMatches($payload, $config, $order)) {
-                        // M9: a refund in another currency must never flip the order
-                        // to refunded; staff have to reconcile it manually.
-                        $order->update(['needs_attention' => true]);
-                        $note = 'استرداد بعملة مختلفة عن عملة الطلب — لم تُحدَّث حالة الدفع';
-                        Log::warning('Refund currency mismatch.', [
-                            'order_number' => $order->order_number,
-                            'gateway' => $gateway,
-                        ]);
-                    } elseif (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refund_pending', 'refunded'], true)) {
-                        // M9: money that was never captured cannot be refunded.
-                        $order->update(['needs_attention' => true]);
-                        $note = 'استرداد على طلب غير مدفوع — يحتاج مراجعة';
-                        Log::warning('Refund received for an unpaid order.', [
-                            'order_number' => $order->order_number,
-                            'gateway' => $gateway,
-                            'payment_status' => $order->payment_status,
-                        ]);
-                    } elseif ($refundAmount === null || ! $this->sameMoney($refundAmount, (float) $order->grand_total)) {
-                        $order->update(['needs_attention' => true]);
-                        $isCumulative = $isPaymob || data_get($payload, 'type') === 'charge.refunded';
-                        if ($isCumulative && $refundAmount !== null && $refundAmount < (float) $order->grand_total
-                            && $order->payment_status !== 'refunded'
-                            && $refundAmount > (float) $order->gateway_refunded_amount) {
-                            $order->forceFill([
-                                'gateway_refunded_amount' => $refundAmount,
-                                'payment_status' => 'partially_refunded',
-                            ])->save();
-                        }
-                        $note = 'مبلغ الاسترداد غير مؤكد أو لا يطابق إجمالي الطلب — يحتاج مراجعة';
-                    } else {
-                        // Mark non-cancelled orders for staff review and block shipping dispatch
-                        $order->forceFill([
-                            'payment_status' => 'refunded',
-                            'needs_attention' => $order->status !== OrderStatus::Cancelled,
-                            'gateway_refunded_amount' => $refundAmount,
-                        ])->save();
-                        Log::warning('Payment refunded for a non-cancelled order.', [
-                            'order_number' => $order->order_number,
-                            'gateway' => $gateway,
-                        ]);
-                        if (in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
-                            $note = 'استرداد على طلب مشحون/مُسلَّم — يحتاج مراجعة';
-                        } else {
-                            $note = 'تم استرداد الدفع — الطلب موسوم للانتباه ولن يخرج للشحن قبل مراجعة الدفع';
-                        }
-                    }
+                    $note = null;
+                } elseif ($outcome === 'paid') {
+                    $note = $this->applyPaidOutcome($order, $gateway);
+                } else {
+                    $note = $this->applyRefundedOutcome($order, $gateway, $payload, $config, $isPaymob, $refundAmount);
                 }
 
                 $log->update(['status' => 'processed', 'error' => $note]);
@@ -372,6 +345,219 @@ class PaymentWebhookService
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     * @return array{0: Order|null, 1: string|null}
+     */
+    private function findAndLockOrder(bool $isPaymob, array $payload): array
+    {
+        // Paymob references orders via obj.order.id mapped to orders.gateway_order_id
+        $orderReference = $isPaymob
+            ? $this->paymobGatewayOrderId($payload)
+            : $this->extractOrderNumber($payload);
+
+        $order = $orderReference !== null
+            ? Order::query()
+                ->when($isPaymob,
+                    fn ($q) => $q->where('gateway_order_id', $orderReference),
+                    fn ($q) => $q->where('order_number', $orderReference))
+                ->lockForUpdate()->first()
+            : null;
+
+        return [$order, $orderReference];
+    }
+
+    /**
+     * @return array{http: int, body: array<string, mixed>}
+     */
+    private function rejectPaidAmountMismatch(Order $order, WebhookLog $log, string $gateway): array
+    {
+        // If money was captured with an unexpected amount, flag the order for staff investigation
+        $order->update(['needs_attention' => true]);
+        $log->update(['status' => 'failed', 'error' => 'amount mismatch']);
+        Log::warning('Payment amount/currency mismatch on a paid event.', [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'gateway' => $gateway,
+            'expected' => (string) $order->grand_total,
+        ]);
+
+        return ['http' => 200, 'body' => ['received' => false, 'message' => 'amount mismatch']];
+    }
+
+    private function applyPaidOutcome(Order $order, string $gateway): ?string
+    {
+        if (in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
+            // WH-H2: البوابات لا تضمن ترتيب التسليم — paid متأخر يجب ألا يقلب
+            // مستردًا إلى paid؛ يُرفع للمراجعة البشرية بلا تغيير حالة.
+            $order->update(['needs_attention' => true]);
+
+            return 'حدث دفع ناجح على طلب مسترد مسبقًا — تحقق من التحصيل قبل الشحن';
+        }
+
+        if ($order->payment_status === 'paid') {
+            // WH-H2: حدث ناجح ثاني بمعرّف مختلف = تحصيل مزدوج محتمل لا يلاحظه أحد.
+            $order->update(['needs_attention' => true]);
+
+            return 'حدث دفع ناجح مكرر لطلب مدفوع مسبقًا — تحقق من تحصيل مزدوج';
+        }
+
+        if ($order->status === OrderStatus::Cancelled) {
+            // Payment captured after order cancellation: record payment and mark for refund without reviving order
+            $order->update(['payment_status' => 'paid', 'requires_refund' => true, 'needs_attention' => true]);
+
+            return 'دفع ناجح على طلب ملغي — يحتاج استردادًا';
+        }
+
+        $order->update(['payment_status' => 'paid']);
+
+        if ($order->status === OrderStatus::Pending) {
+            return $this->autoConfirmPaidOrder($order, $gateway);
+        }
+
+        return null;
+    }
+
+    private function autoConfirmPaidOrder(Order $order, string $gateway): ?string
+    {
+        try {
+            // Nested transaction is a savepoint. A constraint failure inside
+            // changeStatus aborts only that savepoint (25P02), so the captured
+            // payment can still be flagged instead of returning 500.
+            DB::transaction(function () use ($order, $gateway): void {
+                $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
+            });
+
+            return null;
+        } catch (DeadlockException $e) {
+            // Re-throw database deadlock so the gateway retries delivery
+            throw $e;
+        } catch (QueryException $e) {
+            $state = (string) ($e->errorInfo[0] ?? $e->getCode());
+            if (in_array($state, ['55P03', '40P01', '08006', '08003'], true)) {
+                throw $e;
+            }
+
+            return $this->reportAutoConfirmFailure($e, $order, $gateway, $state);
+        } catch (Throwable $e) {
+            return $this->reportAutoConfirmFailure($e, $order, $gateway);
+        }
+    }
+
+    private function reportAutoConfirmFailure(Throwable $e, Order $order, string $gateway, ?string $sqlstate = null): string
+    {
+        // WH-L5: رسالة الاستثناء قد تحمل نص SQL وقيماً — تُسجَّل كاملة
+        // في السجل فقط، والملاحظة المعروضة للموظفين تبقى عامة.
+        report($e);
+        $context = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'gateway' => $gateway,
+        ];
+        if ($sqlstate !== null) {
+            $context['sqlstate'] = $sqlstate;
+        }
+        Log::warning('Payment captured but order auto-confirm failed.', $context);
+
+        $order->refresh();
+        $order->update(['needs_attention' => true]);
+
+        return 'تم الدفع لكن تأكيد الطلب فشل — راجع سجلات النظام';
+    }
+
+    /**
+     * @return array{http: int, body: array<string, mixed>}|null
+     */
+    private function applyFailedOutcome(Order $order, WebhookLog $log): ?array
+    {
+        if ($order->payment_status === 'paid') {
+            // Ignore late failure notification if the order was already confirmed paid
+            $log->update(['status' => 'ignored', 'error' => 'حدث فشل متأخر بعد دفع ناجح — يُتجاهل']);
+
+            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+        }
+
+        if (in_array($order->payment_status, ['partially_refunded', 'refund_pending', 'refunded'], true)) {
+            // WH-H2: فشل متأخر لا يمحو حقيقة استرداد مُثبت.
+            $log->update(['status' => 'ignored', 'error' => 'حدث فشل على طلب مسترد — يُتجاهل']);
+
+            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+        }
+
+        $order->update(['payment_status' => 'failed']);
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $config
+     */
+    private function applyRefundedOutcome(
+        Order $order,
+        string $gateway,
+        array $payload,
+        array $config,
+        bool $isPaymob,
+        ?float $refundAmount,
+    ): string {
+        if (! $this->refundCurrencyMatches($payload, $config, $order)) {
+            // M9: a refund in another currency must never flip the order
+            // to refunded; staff have to reconcile it manually.
+            $order->update(['needs_attention' => true]);
+            Log::warning('Refund currency mismatch.', [
+                'order_number' => $order->order_number,
+                'gateway' => $gateway,
+            ]);
+
+            return 'استرداد بعملة مختلفة عن عملة الطلب — لم تُحدَّث حالة الدفع';
+        }
+
+        if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refund_pending', 'refunded'], true)) {
+            // M9: money that was never captured cannot be refunded.
+            $order->update(['needs_attention' => true]);
+            Log::warning('Refund received for an unpaid order.', [
+                'order_number' => $order->order_number,
+                'gateway' => $gateway,
+                'payment_status' => $order->payment_status,
+            ]);
+
+            return 'استرداد على طلب غير مدفوع — يحتاج مراجعة';
+        }
+
+        if ($refundAmount === null || ! $this->sameMoney($refundAmount, (float) $order->grand_total)) {
+            $order->update(['needs_attention' => true]);
+            $isCumulative = $isPaymob || data_get($payload, 'type') === 'charge.refunded';
+            if ($isCumulative && $refundAmount !== null && $refundAmount < (float) $order->grand_total
+                && $order->payment_status !== 'refunded'
+                && $refundAmount > (float) $order->gateway_refunded_amount) {
+                $order->forceFill([
+                    'gateway_refunded_amount' => $refundAmount,
+                    'payment_status' => 'partially_refunded',
+                ])->save();
+            }
+
+            return 'مبلغ الاسترداد غير مؤكد أو لا يطابق إجمالي الطلب — يحتاج مراجعة';
+        }
+
+        // Mark non-cancelled orders for staff review and block shipping dispatch
+        $order->forceFill([
+            'payment_status' => 'refunded',
+            'needs_attention' => $order->status !== OrderStatus::Cancelled,
+            'gateway_refunded_amount' => $refundAmount,
+        ])->save();
+        Log::warning('Payment refunded for a non-cancelled order.', [
+            'order_number' => $order->order_number,
+            'gateway' => $gateway,
+        ]);
+
+        if (in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
+            return 'استرداد على طلب مشحون/مُسلَّم — يحتاج مراجعة';
+        }
+
+        return 'تم استرداد الدفع — الطلب موسوم للانتباه ولن يخرج للشحن قبل مراجعة الدفع';
+    }
+
+    /**
      * Determine normalized payment outcome from gateway payload (paid, failed, refunded, pending, or ignored).
      */
     private function outcome(array $payload): string
@@ -384,7 +570,7 @@ class PaymentWebhookService
 
         // Stripe charge.refunded carries data.object.status=succeeded. The event type
         // is the refund signal and must win before that inner charge status.
-        $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
+        $type = $this->eventTypeLower($payload);
         if ($type !== '' && str_contains($type, 'refund')) {
             return 'refunded';
         }
@@ -411,30 +597,43 @@ class PaymentWebhookService
             // WH-H1: حالة صريحة وغير معروفة (مثل unpaid على checkout.session.completed
             // لوسيلة دفع مؤجلة) لا يجوز ترقيتها إلى paid عبر استدلال النوع — استنتاج
             // الفشل المعلن فقط يظل مسموحًا، وغير ذلك يُصنَّف ignored لمراجعة بشرية.
-            $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
-            if ($type !== '' && (str_contains($type, 'fail') || str_contains($type, 'declin'))) {
-                return 'failed';
-            }
-
-            return 'ignored';
+            return ($type !== '' && (str_contains($type, 'fail') || str_contains($type, 'declin')))
+                ? 'failed'
+                : 'ignored';
         }
 
         // Stripe events specify the outcome in the event 'type' attribute rather than an inner status field
-        $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
-        if ($type !== '') {
-            if (str_contains($type, 'refund')) {
-                return 'refunded';
-            }
-            if (str_contains($type, 'fail') || str_contains($type, 'declin')) {
-                return 'failed';
-            }
-            if (str_contains($type, 'succeeded') || str_contains($type, 'completed')
-                || str_contains($type, 'captured') || str_contains($type, 'paid')) {
-                return 'paid';
-            }
+        return $this->inferOutcomeFromEventType($type);
+    }
+
+    private function inferOutcomeFromEventType(string $type): string
+    {
+        if ($type === '') {
+            return 'ignored';
+        }
+        if (str_contains($type, 'refund')) {
+            return 'refunded';
+        }
+        if (str_contains($type, 'fail') || str_contains($type, 'declin')) {
+            return 'failed';
+        }
+        if (str_contains($type, 'succeeded') || str_contains($type, 'completed')
+            || str_contains($type, 'captured') || str_contains($type, 'paid')) {
+            return 'paid';
         }
 
         return 'ignored';
+    }
+
+    private function eventTypeLower(array $payload): string
+    {
+        return strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
+    }
+
+    /** @param array<string, mixed> $config */
+    private function expectedCurrency(?Order $order, array $config): string
+    {
+        return strtoupper((string) ($order?->currency ?? $config['currency'] ?? 'EGP'));
     }
 
     /**
@@ -444,7 +643,7 @@ class PaymentWebhookService
      */
     private function amountMatches(array $payload, Order $order, array $config): bool
     {
-        $expectedCurrency = strtoupper((string) ($order->currency ?? $config['currency'] ?? 'EGP'));
+        $expectedCurrency = $this->expectedCurrency($order, $config);
         $currency = $this->firstValue($payload, [
             'currency', 'data.currency', 'data.object.currency', 'obj.currency', 'obj.order.currency',
         ]);
@@ -474,7 +673,7 @@ class PaymentWebhookService
         if ($amount === null) {
             // WH-M8: الغياب التام للمبلغ لا يؤكد الدفع افتراضيًا — البوابات التي لا
             // ترسل مبالغ تحتاج ضبط require_amount=false صريحًا في config/webhooks.php.
-            return ! ($config['require_amount'] ?? true);
+            return ! $requireAmount;
         }
 
         if ($currency === null || trim((string) $currency) === ''
@@ -524,7 +723,7 @@ class PaymentWebhookService
     /** @param array<string, mixed> $config */
     private function refundCurrencyMatches(array $payload, array $config, ?Order $order = null): bool
     {
-        $expected = strtoupper((string) ($order?->currency ?? $config['currency'] ?? 'EGP'));
+        $expected = $this->expectedCurrency($order, $config);
         $currency = $this->firstValue($payload, [
             'currency', 'data.currency', 'data.object.currency', 'obj.currency', 'obj.order.currency',
         ]);
@@ -663,7 +862,7 @@ class PaymentWebhookService
             return false;
         }
 
-        $expectedCurrency = strtoupper((string) ($order->currency ?? $config['currency'] ?? 'EGP'));
+        $expectedCurrency = $this->expectedCurrency($order, $config);
         $currency = $obj['currency'] ?? null;
         if (! is_scalar($currency) || strtoupper((string) $currency) !== $expectedCurrency) {
             return false;

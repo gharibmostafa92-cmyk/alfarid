@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Inventory;
 
-use App\Services\Shared\DiscreteQuantity;
-use App\Services\Shared\IdempotencyFingerprint;
-use App\Services\Shared\SettingService;
-
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Events\Inventory\StockLowDetected;
@@ -19,6 +15,10 @@ use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use App\Services\Pos\PosService;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Shared\IdempotencyFingerprint;
+use App\Services\Shared\SettingService;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Database\QueryException;
@@ -34,171 +34,20 @@ use Illuminate\Support\Facades\DB;
  */
 class InventoryService
 {
+    private const MAX_SCALED_BALANCE = 999_999_999_999;
+
     public function __construct(private readonly SettingService $settings) {}
 
     /**
      * Records an immutable stock movement and updates bucket balances.
      *
      * @param  array{product_variant_id: int, branch_id: int, location_id?: int|null, type: StockMovementType|string, affected_bucket: StockBucket|string, quantity: float|int|string, unit_cost?: float|null, reference_type?: string|null, reference_id?: int|null, created_by?: int|null, notes?: string|null}  $data
+     *
      * @throws BusinessException If quantity is invalid, bucket balance goes negative, or available stock is insufficient.
      */
     public function recordMovement(array $data, ?StockLevel $prelockedLevel = null): StockMovement
     {
-        $apply = function () use ($data, $prelockedLevel): StockMovement {
-            $rawQty = $data['quantity'];
-            if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > DiscreteQuantity::MAX_DECIMAL) {
-                throw new BusinessException('كمية الحركة غير صالحة.');
-            }
-            // Work in ten-thousandths to avoid floating point residues at zero.
-            $qty = BigDecimal::of((string) $rawQty)->toScale(4, RoundingMode::HalfUp);
-            $units = $qty->getUnscaledValue()->toInt();
-
-            if ($units === 0) {
-                throw new BusinessException('كمية الحركة يجب ألا تساوي صفرًا.');
-            }
-
-            $type = $data['type'] instanceof StockMovementType ? $data['type'] : StockMovementType::from($data['type']);
-            $bucket = $data['affected_bucket'] instanceof StockBucket ? $data['affected_bucket'] : StockBucket::from($data['affected_bucket']);
-            $this->assertValidMovementSemantics($type, $bucket, $units);
-            $locationId = $data['location_id'] ?? null;
-
-            // Skip re-locking and location checks if caller already locked this level row.
-            if ($prelockedLevel !== null) {
-                if ((int) $prelockedLevel->product_variant_id !== (int) $data['product_variant_id']
-                    || (int) $prelockedLevel->branch_id !== (int) $data['branch_id']
-                    || ($prelockedLevel->location_id === null ? null : (int) $prelockedLevel->location_id) !== ($locationId === null ? null : (int) $locationId)) {
-                    throw new \LogicException('الصف المقفول مسبقًا لا يطابق مفتاح الحركة.');
-                }
-                $stock = $prelockedLevel;
-            } else {
-                // Location-to-branch ownership is validated inside lockLevels (batched whereIn
-                // with the same message), so no separate EXISTS round trip here.
-                $stock = $this->lockLevels([[
-                    'product_variant_id' => $data['product_variant_id'],
-                    'branch_id' => $data['branch_id'],
-                    'location_id' => $locationId,
-                ]])->first();
-            }
-
-            // Only new inbound inventory requires active variant and location.
-            // Stock transfers, returns, and write-offs remain allowed on inactive items to liquidate stock.
-            $isNewInbound = in_array($type, [
-                StockMovementType::AdjustmentIn,
-                StockMovementType::ProductionReceipt,
-                StockMovementType::PurchaseReceipt,
-            ], true);
-            if ($isNewInbound && $bucket === StockBucket::OnHand && $units > 0) {
-                $variant = $stock->variant;
-                if ($variant === null || $variant->trashed() || ! $variant->is_active
-                    || ($stock->location_id !== null && ! $stock->location?->is_active)) {
-                    throw new BusinessException('الإدخال يتطلب متغيرًا وموقعًا نشطين.');
-                }
-            }
-
-            $bucketKey = $bucket->value;
-            $before = BigDecimal::of((string) $stock->{$bucketKey})->toScale(4);
-            $after = $before->plus($qty);
-            $afterUnits = $after->getUnscaledValue()->toInt();
-            if ($afterUnits > 999999999999) {
-                throw new BusinessException('الرصيد يتجاوز الحد المسموح.');
-            }
-
-            if ($afterUnits < 0) {
-                throw new BusinessException("الرصيد غير كافٍ في ({$bucketKey}) لإتمام العملية.");
-            }
-
-            // Ensure available-for-sale quantity (on_hand - reserved - damaged) does not drop below zero.
-            $onHand = $bucket === StockBucket::OnHand ? $after : BigDecimal::of((string) $stock->on_hand);
-            $reserved = $bucket === StockBucket::Reserved ? $after : BigDecimal::of((string) $stock->reserved);
-            $damaged = $bucket === StockBucket::Damaged ? $after : BigDecimal::of((string) $stock->damaged);
-            $availableAfter = $onHand->minus($reserved)->minus($damaged)->toScale(4)->getUnscaledValue()->toInt();
-
-            if ($availableAfter < 0) {
-                $availableNow = (float) $stock->on_hand - (float) $stock->reserved - (float) $stock->damaged;
-
-                throw new BusinessException("الكمية المتاحة للبيع ({$availableNow}) غير كافية لإتمام العملية.");
-            }
-
-            // Created-by is mandatory for audit trails; fails explicitly in queue/CLI contexts without auth user.
-            $createdBy = $data['created_by'] ?? auth()->id();
-            if ($createdBy === null) {
-                throw new \LogicException('recordMovement يتطلب created_by صريحًا عند غياب مستخدم مصادق.');
-            }
-
-            // Store morph alias instead of FQCN so future class renames preserve audit trail queries.
-            $referenceType = $data['reference_type'] ?? null;
-            if (is_string($referenceType) && class_exists($referenceType)) {
-                $referenceType = (new $referenceType)->getMorphClass();
-            }
-
-            $movement = StockMovement::query()->create([
-                'reference_number' => $this->settings->generateNextNumber('movement'),
-                'product_variant_id' => $data['product_variant_id'],
-                'branch_id' => $data['branch_id'],
-                'location_id' => $locationId,
-                'type' => $type,
-                'affected_bucket' => $bucket,
-                'quantity' => (string) $qty,
-                'balance_before' => (string) $before,
-                'balance_after' => (string) $after,
-                'unit_cost' => $data['unit_cost'] ?? null,
-                'reference_type' => $referenceType,
-                'reference_id' => $data['reference_id'] ?? null,
-                'created_by' => $createdBy,
-                'notes' => $data['notes'] ?? null,
-            ]);
-
-            $stock->{$bucketKey} = (string) $after;
-            $stock->save();
-            \App\Services\Pos\PosService::invalidateCatalogVersionCache((int) $stock->branch_id);
-
-            // Evaluate low stock threshold: location-specific reorder level triggers on row availability,
-            // while variant reorder level triggers on branch-wide aggregate availability.
-            $rowLevel = (float) $stock->reorder_level;
-            if ($rowLevel > 0) {
-                $effectOnAvailable = match ($bucket) {
-                    StockBucket::OnHand => $units,
-                    StockBucket::Reserved, StockBucket::Damaged => -$units,
-                    default => 0,
-                };
-                $availableBeforeUnits = $availableAfter - $effectOnAvailable;
-                $availableAfterQty = $availableAfter / 10000;
-                if ($availableBeforeUnits / 10000 > $rowLevel && $availableAfterQty <= $rowLevel) {
-                    StockLowDetected::dispatch(
-                        (int) $stock->product_variant_id,
-                        (int) $stock->branch_id,
-                        $availableAfterQty,
-                        $rowLevel,
-                        $stock->location_id === null ? null : (int) $stock->location_id,
-                    );
-                }
-            }
-            $variantLevel = (float) ($stock->variant?->reorder_level ?? 0);
-            if ($variantLevel > 0) {
-                $effectOnAvailable = match ($bucket) {
-                    StockBucket::OnHand => $units,
-                    StockBucket::Reserved, StockBucket::Damaged => -$units,
-                    default => 0,
-                };
-                // Check aggregate branch availability within the transaction to see the committed change.
-                $branchTotal = (float) (StockLevel::query()
-                    ->where('product_variant_id', $stock->product_variant_id)
-                    ->where('branch_id', $stock->branch_id)
-                    ->selectRaw('COALESCE(SUM(on_hand - reserved - damaged), 0) AS total')
-                    ->value('total') ?? 0);
-                $branchBefore = $branchTotal - ($effectOnAvailable / 10000);
-                if ($branchBefore > $variantLevel && $branchTotal <= $variantLevel) {
-                    StockLowDetected::dispatch(
-                        (int) $stock->product_variant_id,
-                        (int) $stock->branch_id,
-                        $branchTotal,
-                        $variantLevel,
-                    );
-                }
-            }
-
-            return $movement;
-        };
+        $apply = fn (): StockMovement => $this->applyMovement($data, $prelockedLevel);
 
         if ($prelockedLevel !== null) {
             if (DB::transactionLevel() === 0) {
@@ -244,109 +93,8 @@ class InventoryService
                 return $movements;
             });
         } catch (UniqueConstraintViolationException $e) {
-            // Isolate idempotency key collisions from unrelated unique constraint violations.
-            $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
-            if (! str_contains($driverMessage, 'inventory_idempotency_keys_user_id_key_unique')
-                && ! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
-                throw $e;
-            }
-
-            $record = InventoryIdempotencyKey::query()
-                ->where('user_id', $userId)->where('key', $idempotencyKey)->first();
-
-            if ($record === null) {
-                throw new BusinessException('تعارض في مفتاح عدم التكرار؛ أعد المحاولة.', [], 409);
-            }
-
-            if (! hash_equals($record->request_hash, $requestHash)) {
-                throw new BusinessException('مفتاح عدم التكرار هذا مستخدم مسبقًا مع بيانات مختلفة.', [], 409);
-            }
-
-            $ids = $record->response ?? [];
-            $byId = StockMovement::query()->whereIn('id', $ids)->get()->keyBy('id');
-
-            return array_values(array_filter(array_map(fn ($id) => $byId->get($id), $ids)));
+            return $this->replayIdempotentAdjustments($e, $userId, $idempotencyKey, $requestHash);
         }
-    }
-
-    /**
-     * @param  array{branch_id: int, location_id?: int|null, items: list<array{product_variant_id: int, adjustment_type: string, quantity: float|int|string, reason?: string|null}>}  $payload
-     * @return list<StockMovement>
-     */
-    private function executeAdjustments(array $payload, int $userId): array
-    {
-        return DB::transaction(function () use ($payload, $userId): array {
-            app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
-            $locationId = $payload['location_id'] ?? null;
-            $increaseLocationId = $locationId;
-
-            // Deactivation allows stock write-offs/decreases, but increases require active variants and locations.
-            if (collect($payload['items'])->contains('adjustment_type', 'increase')) {
-                $increaseLocationId ??= $this->receivingLocation((int) $payload['branch_id']);
-                $variants = ProductVariant::query()->withTrashed()
-                    ->whereIn('id', array_column($payload['items'], 'product_variant_id'))
-                    ->get()->keyBy('id');
-                $location = $increaseLocationId !== null ? Location::query()->find($increaseLocationId) : null;
-
-                foreach ($payload['items'] as $item) {
-                    if ($item['adjustment_type'] !== 'increase') {
-                        continue;
-                    }
-                    // Soft-deleted variants cannot receive new stock, but write-offs remain allowed.
-                    $variant = $variants->get($item['product_variant_id']);
-                    if ($variant === null || $variant->trashed() || ! $variant->is_active) {
-                        throw new BusinessException('لا يمكن الإدخال على متغير معطّل؛ فعّله أولًا أو استخدم عمليات الإخراج لتصفية رصيده.');
-                    }
-                    if ($location !== null && ! $location->is_active) {
-                        throw new BusinessException('لا يمكن الإدخال إلى موقع معطّل؛ فعّله أولًا.');
-                    }
-                }
-            }
-            $keys = array_map(fn ($item) => [
-                'product_variant_id' => $item['product_variant_id'],
-                'branch_id' => $payload['branch_id'],
-                'location_id' => $item['adjustment_type'] === 'increase' ? $increaseLocationId : $locationId,
-            ], $payload['items']);
-            $levels = $this->lockLevels($keys);
-            $movements = [];
-
-            foreach ($payload['items'] as $index => $item) {
-                // Apply adjustment directly to prelocked level instance.
-                $key = $keys[$index];
-                $level = $levels->get($this->levelKey($key));
-                $quantity = BigDecimal::of((string) $item['quantity'])->abs();
-                if (in_array($item['adjustment_type'], ['write_off_damaged', 'restore_damaged'], true)) {
-                    $base = [
-                        ...$key,
-                        'created_by' => $userId, 'notes' => $item['reason'] ?? null,
-                        'quantity' => (string) $quantity->negated(),
-                    ];
-                    $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageRelease, 'affected_bucket' => StockBucket::Damaged], $level);
-                    if ($item['adjustment_type'] === 'write_off_damaged') {
-                        $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageWriteOff, 'affected_bucket' => StockBucket::OnHand], $level);
-                    }
-
-                    continue;
-                }
-                [$type, $bucket, $sign] = match ($item['adjustment_type']) {
-                    'increase' => [StockMovementType::AdjustmentIn, StockBucket::OnHand, 1],
-                    'decrease' => [StockMovementType::AdjustmentOut, StockBucket::OnHand, -1],
-                    'mark_damaged' => [StockMovementType::Damage, StockBucket::Damaged, 1],
-                    default => throw new BusinessException('نوع تسوية غير معروف: '.$item['adjustment_type']),
-                };
-
-                $movements[] = $this->recordMovement([
-                    ...$key,
-                    'type' => $type,
-                    'affected_bucket' => $bucket,
-                    'quantity' => (string) $quantity->multipliedBy($sign),
-                    'created_by' => $userId,
-                    'notes' => $item['reason'] ?? null,
-                ], $level);
-            }
-
-            return $movements;
-        });
     }
 
     /**
@@ -372,96 +120,25 @@ class InventoryService
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('Stock locks require an active transaction.');
         }
+
         // Enforce 5s lock timeout to fail fast with 409 Conflict instead of holding PHP worker threads.
         $keys = collect($keys)->unique(fn ($key) => $this->levelKey($key))
             ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) ($key['location_id'] ?? 0), (int) $key['product_variant_id']]);
         if ($keys->isEmpty()) {
             return collect();
         }
-        $now = now();
+
         $previousTimeout = DB::selectOne("SELECT current_setting('lock_timeout') AS value")->value;
         DB::statement("SET LOCAL lock_timeout = '5s'");
 
         try {
-            // Lock variants before stock rows in every path, including callers
-            // that prelock a batch of balances before recording movements.
-            // Acquire FOR SHARE on variants to serialize against variant schema updates while allowing parallel branch movements.
-            $variantIds = $keys->pluck('product_variant_id')->unique()->sort()->values();
-            $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->sharedLock()->get();
-            if ($variants->count() !== $variantIds->count()) {
-                throw new BusinessException('أحد المتغيرات لم يعد متاحًا.');
-            }
-
-            // Aggregate threshold checks must see earlier movements at other
-            // locations in this branch. Lock only pairs with a branch threshold.
-            $thresholdIds = $variants->filter(fn ($variant) => (float) $variant->reorder_level > 0)->modelKeys();
-            $pairs = $keys->filter(fn ($key) => in_array((int) $key['product_variant_id'], $thresholdIds, true))
-                ->unique(fn ($key) => $key['branch_id'].':'.$key['product_variant_id'])
-                ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) $key['product_variant_id']]);
-            foreach ($pairs as $key) {
-                DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
-                    'stock-threshold:'.$key['branch_id'].':'.$key['product_variant_id'],
-                ]);
-            }
-
-            // Validate location-to-branch ownership inside lock scope to prevent cross-branch inventory placement.
-            $locationIds = $keys->pluck('location_id')->filter(fn ($id) => $id !== null)->unique()->values();
-            if ($locationIds->isNotEmpty()) {
-                $branchByLocation = Location::query()->whereIn('id', $locationIds->all())->pluck('branch_id', 'id');
-                foreach ($keys as $key) {
-                    if (($key['location_id'] ?? null) === null) {
-                        continue;
-                    }
-                    $actual = $branchByLocation->get($key['location_id']);
-                    if ($actual === null || (int) $actual !== (int) $key['branch_id']) {
-                        throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
-                    }
-                }
-            }
-
-            // Seed missing stock level rows with insertOrIgnore before acquiring exclusive row locks.
-            $rows = $keys->map(fn ($key) => [
-                'product_variant_id' => $key['product_variant_id'], 'branch_id' => $key['branch_id'],
-                'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
-            ])->values();
-            foreach ($rows->chunk(1000) as $chunk) {
-                DB::table('stock_levels')->insertOrIgnore($chunk->all());
-            }
-
-            $levels = StockLevel::query()->with(['variant:id,product_id,is_active,deleted_at,reorder_level'])->where(function ($query) use ($keys): void {
-                foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
-                    $identity = $group->first();
-                    $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
-                        ->where('location_id', $identity['location_id'] ?? null)
-                        ->whereIn('product_variant_id', $group->pluck('product_variant_id')->all()));
-                }
-            })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
-                ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
-
-            // Shared lock on branches serializes with branch deactivation (exclusive lock), preventing stock entries while branch is being disabled.
-            $branchIds = $keys->pluck('branch_id')->map(fn ($id) => (int) $id)->unique()->values();
-            if ($branchIds->isNotEmpty()) {
-                $inactiveBranches = Branch::query()->whereIn('id', $branchIds->all())->sharedLock()->pluck('is_active', 'id');
-                foreach ($branchIds as $branchId) {
-                    if ($inactiveBranches->has($branchId) && ! (bool) $inactiveBranches->get($branchId)) {
-                        throw new BusinessException('الفرع متوقف حالياً ولا يقبل حركات مخزنية.');
-                    }
-                }
-            }
-            // Inactive locations are not rejected here: only new inbound stock is blocked (see recordMovement),
-            // so outbound, release and transit movements can still liquidate balances left on a disabled location.
-            if ($locationIds->isNotEmpty()) {
-                // Refresh activity state from the same locking read. The earlier eager
-                // load happened before this lock and could otherwise authorize an inbound
-                // movement using a stale active=true value after concurrent deactivation.
-                $locations = Location::query()->whereIn('id', $locationIds->all())
-                    ->orderBy('id')->sharedLock()->get(['id', 'is_active'])->keyBy('id');
-                foreach ($levels as $level) {
-                    if ($level->location_id !== null) {
-                        $level->setRelation('location', $locations->get((int) $level->location_id));
-                    }
-                }
-            }
+            $variants = $this->lockVariantsShared($keys);
+            $this->acquireThresholdAdvisoryLocks($keys, $variants);
+            $locationIds = $this->assertLocationsBelongToBranches($keys);
+            $this->seedMissingStockLevels($keys);
+            $levels = $this->lockStockLevelRows($keys);
+            $this->assertBranchesActive($keys);
+            $this->attachLockedLocations($levels, $locationIds);
         } catch (QueryException $e) {
             // Map 55P03 lock timeouts to RetryableConflict so background queues and HTTP callers retry safely.
             if (($e->errorInfo[0] ?? $e->getCode()) === '55P03') {
@@ -509,10 +186,12 @@ class InventoryService
 
             return $locationId;
         }
+
         // Branches that never used locations post returns to the branch-level row.
         if (! Location::query()->where('branch_id', $branchId)->exists()) {
             return null;
         }
+
         // Damaged locations are never eligible as receiving locations.
         $id = (clone $query)->where('type', '!=', 'damaged')
             ->orderByRaw("CASE WHEN type = 'receiving' THEN 0 ELSE 1 END")->orderBy('id')->value('id');
@@ -521,6 +200,480 @@ class InventoryService
         }
 
         return (int) $id;
+    }
+
+    /**
+     * Compute new weighted average cost (WAC) using 4-decimal precision arithmetic.
+     */
+    public static function calculateWeightedAverageCost(
+        string|float|int $currentStock,
+        string|float|int $currentCost,
+        string|float|int $incomingQty,
+        string|float|int $incomingUnitCost
+    ): string {
+        $safeCurrent = BigDecimal::of((string) $currentStock);
+        if ($safeCurrent->isNegative()) {
+            $safeCurrent = BigDecimal::zero();
+        }
+        $incoming = BigDecimal::of((string) $incomingQty);
+        $totalCost = $safeCurrent->multipliedBy((string) $currentCost)
+            ->plus($incoming->multipliedBy((string) $incomingUnitCost));
+        $denominator = $safeCurrent->plus($incoming);
+        if ($denominator->isZero()) {
+            return BigDecimal::of((string) $currentCost)->toScale(4, RoundingMode::HalfUp)->__toString();
+        }
+
+        return $totalCost->dividedBy($denominator, 4, RoundingMode::HalfUp)->__toString();
+    }
+
+    /**
+     * @param  array{product_variant_id: int, branch_id: int, location_id?: int|null, type: StockMovementType|string, affected_bucket: StockBucket|string, quantity: float|int|string, unit_cost?: float|null, reference_type?: string|null, reference_id?: int|null, created_by?: int|null, notes?: string|null}  $data
+     */
+    private function applyMovement(array $data, ?StockLevel $prelockedLevel): StockMovement
+    {
+        $qty = $this->parseMovementQuantity($data['quantity']);
+        $units = $qty->getUnscaledValue()->toInt();
+        $type = $data['type'] instanceof StockMovementType ? $data['type'] : StockMovementType::from($data['type']);
+        $bucket = $data['affected_bucket'] instanceof StockBucket ? $data['affected_bucket'] : StockBucket::from($data['affected_bucket']);
+        $this->assertValidMovementSemantics($type, $bucket, $units);
+
+        $locationId = $data['location_id'] ?? null;
+        $stock = $this->resolveLockedStockLevel($data, $locationId, $prelockedLevel);
+
+        $this->assertInboundTargetsActive($type, $bucket, $units, $stock);
+
+        $bucketKey = $bucket->value;
+        $before = BigDecimal::of((string) $stock->{$bucketKey})->toScale(4);
+        $after = $before->plus($qty);
+        $availableAfter = $this->assertBucketAndAvailableWithinBounds($stock, $bucket, $bucketKey, $after);
+
+        $createdBy = $this->resolveCreatedBy($data);
+        $referenceType = $this->normalizeReferenceType($data['reference_type'] ?? null);
+
+        $movement = StockMovement::query()->create([
+            'reference_number' => $this->settings->generateNextNumber('movement'),
+            'product_variant_id' => $data['product_variant_id'],
+            'branch_id' => $data['branch_id'],
+            'location_id' => $locationId,
+            'type' => $type,
+            'affected_bucket' => $bucket,
+            'quantity' => (string) $qty,
+            'balance_before' => (string) $before,
+            'balance_after' => (string) $after,
+            'unit_cost' => $data['unit_cost'] ?? null,
+            'reference_type' => $referenceType,
+            'reference_id' => $data['reference_id'] ?? null,
+            'created_by' => $createdBy,
+            'notes' => $data['notes'] ?? null,
+        ]);
+
+        $stock->{$bucketKey} = (string) $after;
+        $stock->save();
+        PosService::invalidateCatalogVersionCache((int) $stock->branch_id);
+
+        $this->dispatchLowStockAlertsIfCrossed($stock, $bucket, $units, $availableAfter);
+
+        return $movement;
+    }
+
+    private function parseMovementQuantity(mixed $rawQty): BigDecimal
+    {
+        if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > DiscreteQuantity::MAX_DECIMAL) {
+            throw new BusinessException('كمية الحركة غير صالحة.');
+        }
+
+        // Work in ten-thousandths to avoid floating point residues at zero.
+        $qty = BigDecimal::of((string) $rawQty)->toScale(4, RoundingMode::HalfUp);
+        if ($qty->getUnscaledValue()->toInt() === 0) {
+            throw new BusinessException('كمية الحركة يجب ألا تساوي صفرًا.');
+        }
+
+        return $qty;
+    }
+
+    private function resolveLockedStockLevel(array $data, ?int $locationId, ?StockLevel $prelockedLevel): StockLevel
+    {
+        // Skip re-locking and location checks if caller already locked this level row.
+        if ($prelockedLevel !== null) {
+            if ((int) $prelockedLevel->product_variant_id !== (int) $data['product_variant_id']
+                || (int) $prelockedLevel->branch_id !== (int) $data['branch_id']
+                || ($prelockedLevel->location_id === null ? null : (int) $prelockedLevel->location_id) !== ($locationId === null ? null : (int) $locationId)) {
+                throw new \LogicException('الصف المقفول مسبقًا لا يطابق مفتاح الحركة.');
+            }
+
+            return $prelockedLevel;
+        }
+
+        // Location-to-branch ownership is validated inside lockLevels (batched whereIn
+        // with the same message), so no separate EXISTS round trip here.
+        return $this->lockLevels([[
+            'product_variant_id' => $data['product_variant_id'],
+            'branch_id' => $data['branch_id'],
+            'location_id' => $locationId,
+        ]])->first();
+    }
+
+    private function assertInboundTargetsActive(StockMovementType $type, StockBucket $bucket, int $units, StockLevel $stock): void
+    {
+        // Only new inbound inventory requires active variant and location.
+        // Stock transfers, returns, and write-offs remain allowed on inactive items to liquidate stock.
+        $isNewInbound = in_array($type, [
+            StockMovementType::AdjustmentIn,
+            StockMovementType::ProductionReceipt,
+            StockMovementType::PurchaseReceipt,
+        ], true);
+
+        if (! ($isNewInbound && $bucket === StockBucket::OnHand && $units > 0)) {
+            return;
+        }
+
+        $variant = $stock->variant;
+        if ($variant === null || $variant->trashed() || ! $variant->is_active
+            || ($stock->location_id !== null && ! $stock->location?->is_active)) {
+            throw new BusinessException('الإدخال يتطلب متغيرًا وموقعًا نشطين.');
+        }
+    }
+
+    private function assertBucketAndAvailableWithinBounds(StockLevel $stock, StockBucket $bucket, string $bucketKey, BigDecimal $after): int
+    {
+        $afterUnits = $after->getUnscaledValue()->toInt();
+        if ($afterUnits > self::MAX_SCALED_BALANCE) {
+            throw new BusinessException('الرصيد يتجاوز الحد المسموح.');
+        }
+        if ($afterUnits < 0) {
+            throw new BusinessException("الرصيد غير كافٍ في ({$bucketKey}) لإتمام العملية.");
+        }
+
+        // Ensure available-for-sale quantity (on_hand - reserved - damaged) does not drop below zero.
+        $onHand = $bucket === StockBucket::OnHand ? $after : BigDecimal::of((string) $stock->on_hand);
+        $reserved = $bucket === StockBucket::Reserved ? $after : BigDecimal::of((string) $stock->reserved);
+        $damaged = $bucket === StockBucket::Damaged ? $after : BigDecimal::of((string) $stock->damaged);
+        $availableAfter = $onHand->minus($reserved)->minus($damaged)->toScale(4)->getUnscaledValue()->toInt();
+
+        if ($availableAfter < 0) {
+            $availableNow = (float) $stock->on_hand - (float) $stock->reserved - (float) $stock->damaged;
+            throw new BusinessException("الكمية المتاحة للبيع ({$availableNow}) غير كافية لإتمام العملية.");
+        }
+
+        return $availableAfter;
+    }
+
+    private function resolveCreatedBy(array $data): int|string
+    {
+        // Created-by is mandatory for audit trails; fails explicitly in queue/CLI contexts without auth user.
+        $createdBy = $data['created_by'] ?? auth()->id();
+        if ($createdBy === null) {
+            throw new \LogicException('recordMovement يتطلب created_by صريحًا عند غياب مستخدم مصادق.');
+        }
+
+        return $createdBy;
+    }
+
+    private function normalizeReferenceType(?string $referenceType): ?string
+    {
+        // Store morph alias instead of FQCN so future class renames preserve audit trail queries.
+        if (is_string($referenceType) && class_exists($referenceType)) {
+            return (new $referenceType)->getMorphClass();
+        }
+
+        return $referenceType;
+    }
+
+    private function dispatchLowStockAlertsIfCrossed(StockLevel $stock, StockBucket $bucket, int $units, int $availableAfter): void
+    {
+        $effectOnAvailable = match ($bucket) {
+            StockBucket::OnHand => $units,
+            StockBucket::Reserved, StockBucket::Damaged => -$units,
+            default => 0,
+        };
+
+        // Evaluate low stock threshold: location-specific reorder level triggers on row availability,
+        // while variant reorder level triggers on branch-wide aggregate availability.
+        $rowLevel = (float) $stock->reorder_level;
+        if ($rowLevel > 0) {
+            $availableBeforeUnits = $availableAfter - $effectOnAvailable;
+            $availableAfterQty = $availableAfter / 10000;
+            if ($availableBeforeUnits / 10000 > $rowLevel && $availableAfterQty <= $rowLevel) {
+                StockLowDetected::dispatch(
+                    (int) $stock->product_variant_id,
+                    (int) $stock->branch_id,
+                    $availableAfterQty,
+                    $rowLevel,
+                    $stock->location_id === null ? null : (int) $stock->location_id,
+                );
+            }
+        }
+
+        $variantLevel = (float) ($stock->variant?->reorder_level ?? 0);
+        if ($variantLevel > 0) {
+            // Check aggregate branch availability within the transaction to see the committed change.
+            $branchTotal = (float) (StockLevel::query()
+                ->where('product_variant_id', $stock->product_variant_id)
+                ->where('branch_id', $stock->branch_id)
+                ->selectRaw('COALESCE(SUM(on_hand - reserved - damaged), 0) AS total')
+                ->value('total') ?? 0);
+            $branchBefore = $branchTotal - ($effectOnAvailable / 10000);
+            if ($branchBefore > $variantLevel && $branchTotal <= $variantLevel) {
+                StockLowDetected::dispatch(
+                    (int) $stock->product_variant_id,
+                    (int) $stock->branch_id,
+                    $branchTotal,
+                    $variantLevel,
+                );
+            }
+        }
+    }
+
+    /**
+     * @return list<StockMovement>
+     */
+    private function replayIdempotentAdjustments(
+        UniqueConstraintViolationException $e,
+        int $userId,
+        string $idempotencyKey,
+        string $requestHash,
+    ): array {
+        // Isolate idempotency key collisions from unrelated unique constraint violations.
+        $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
+        if (! str_contains($driverMessage, 'inventory_idempotency_keys_user_id_key_unique')
+            && ! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
+            throw $e;
+        }
+
+        $record = InventoryIdempotencyKey::query()
+            ->where('user_id', $userId)->where('key', $idempotencyKey)->first();
+
+        if ($record === null) {
+            throw new BusinessException('تعارض في مفتاح عدم التكرار؛ أعد المحاولة.', [], 409);
+        }
+
+        if (! hash_equals($record->request_hash, $requestHash)) {
+            throw new BusinessException('مفتاح عدم التكرار هذا مستخدم مسبقًا مع بيانات مختلفة.', [], 409);
+        }
+
+        $ids = $record->response ?? [];
+        $byId = StockMovement::query()->whereIn('id', $ids)->get()->keyBy('id');
+
+        return array_values(array_filter(array_map(fn ($id) => $byId->get($id), $ids)));
+    }
+
+    /**
+     * @param  array{branch_id: int, location_id?: int|null, items: list<array{product_variant_id: int, adjustment_type: string, quantity: float|int|string, reason?: string|null}>}  $payload
+     * @return list<StockMovement>
+     */
+    private function executeAdjustments(array $payload, int $userId): array
+    {
+        return DB::transaction(function () use ($payload, $userId): array {
+            app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
+            $locationId = $payload['location_id'] ?? null;
+            $increaseLocationId = $this->resolveAndValidateIncreaseLocation($payload, $locationId);
+
+            $keys = array_map(fn ($item) => [
+                'product_variant_id' => $item['product_variant_id'],
+                'branch_id' => $payload['branch_id'],
+                'location_id' => $item['adjustment_type'] === 'increase' ? $increaseLocationId : $locationId,
+            ], $payload['items']);
+            $levels = $this->lockLevels($keys);
+            $movements = [];
+
+            foreach ($payload['items'] as $index => $item) {
+                $key = $keys[$index];
+                $level = $levels->get($this->levelKey($key));
+                $movements = [...$movements, ...$this->applySingleAdjustment($item, $key, $level, $userId)];
+            }
+
+            return $movements;
+        });
+    }
+
+    private function resolveAndValidateIncreaseLocation(array $payload, ?int $locationId): ?int
+    {
+        // Deactivation allows stock write-offs/decreases, but increases require active variants and locations.
+        if (! collect($payload['items'])->contains('adjustment_type', 'increase')) {
+            return $locationId;
+        }
+
+        $increaseLocationId = $locationId ?? $this->receivingLocation((int) $payload['branch_id']);
+        $variants = ProductVariant::query()->withTrashed()
+            ->whereIn('id', array_column($payload['items'], 'product_variant_id'))
+            ->get()->keyBy('id');
+        $location = $increaseLocationId !== null ? Location::query()->find($increaseLocationId) : null;
+
+        foreach ($payload['items'] as $item) {
+            if ($item['adjustment_type'] !== 'increase') {
+                continue;
+            }
+            // Soft-deleted variants cannot receive new stock, but write-offs remain allowed.
+            $variant = $variants->get($item['product_variant_id']);
+            if ($variant === null || $variant->trashed() || ! $variant->is_active) {
+                throw new BusinessException('لا يمكن الإدخال على متغير معطّل؛ فعّله أولًا أو استخدم عمليات الإخراج لتصفية رصيده.');
+            }
+            if ($location !== null && ! $location->is_active) {
+                throw new BusinessException('لا يمكن الإدخال إلى موقع معطّل؛ فعّله أولًا.');
+            }
+        }
+
+        return $increaseLocationId;
+    }
+
+    /**
+     * @return list<StockMovement>
+     */
+    private function applySingleAdjustment(array $item, array $key, StockLevel $level, int $userId): array
+    {
+        $quantity = BigDecimal::of((string) $item['quantity'])->abs();
+        if (in_array($item['adjustment_type'], ['write_off_damaged', 'restore_damaged'], true)) {
+            $base = [
+                ...$key,
+                'created_by' => $userId,
+                'notes' => $item['reason'] ?? null,
+                'quantity' => (string) $quantity->negated(),
+            ];
+            $movements = [
+                $this->recordMovement([...$base, 'type' => StockMovementType::DamageRelease, 'affected_bucket' => StockBucket::Damaged], $level),
+            ];
+            if ($item['adjustment_type'] === 'write_off_damaged') {
+                $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageWriteOff, 'affected_bucket' => StockBucket::OnHand], $level);
+            }
+
+            return $movements;
+        }
+
+        [$type, $bucket, $sign] = match ($item['adjustment_type']) {
+            'increase' => [StockMovementType::AdjustmentIn, StockBucket::OnHand, 1],
+            'decrease' => [StockMovementType::AdjustmentOut, StockBucket::OnHand, -1],
+            'mark_damaged' => [StockMovementType::Damage, StockBucket::Damaged, 1],
+            default => throw new BusinessException('نوع تسوية غير معروف: '.$item['adjustment_type']),
+        };
+
+        return [
+            $this->recordMovement([
+                ...$key,
+                'type' => $type,
+                'affected_bucket' => $bucket,
+                'quantity' => (string) $quantity->multipliedBy($sign),
+                'created_by' => $userId,
+                'notes' => $item['reason'] ?? null,
+            ], $level),
+        ];
+    }
+
+    private function lockVariantsShared(Collection $keys): Collection
+    {
+        // Lock variants before stock rows in every path, including callers
+        // that prelock a batch of balances before recording movements.
+        // Acquire FOR SHARE on variants to serialize against variant schema updates while allowing parallel branch movements.
+        $variantIds = $keys->pluck('product_variant_id')->unique()->sort()->values();
+        $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->sharedLock()->get();
+        if ($variants->count() !== $variantIds->count()) {
+            throw new BusinessException('أحد المتغيرات لم يعد متاحًا.');
+        }
+
+        return $variants;
+    }
+
+    private function acquireThresholdAdvisoryLocks(Collection $keys, Collection $variants): void
+    {
+        // Aggregate threshold checks must see earlier movements at other
+        // locations in this branch. Lock only pairs with a branch threshold.
+        $thresholdIds = $variants->filter(fn ($variant) => (float) $variant->reorder_level > 0)->modelKeys();
+        $pairs = $keys->filter(fn ($key) => in_array((int) $key['product_variant_id'], $thresholdIds, true))
+            ->unique(fn ($key) => $key['branch_id'].':'.$key['product_variant_id'])
+            ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) $key['product_variant_id']]);
+
+        foreach ($pairs as $key) {
+            DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
+                'stock-threshold:'.$key['branch_id'].':'.$key['product_variant_id'],
+            ]);
+        }
+    }
+
+    private function assertLocationsBelongToBranches(Collection $keys): Collection
+    {
+        // Validate location-to-branch ownership inside lock scope to prevent cross-branch inventory placement.
+        $locationIds = $keys->pluck('location_id')->filter(fn ($id) => $id !== null)->unique()->values();
+        if ($locationIds->isEmpty()) {
+            return $locationIds;
+        }
+
+        $branchByLocation = Location::query()->whereIn('id', $locationIds->all())->pluck('branch_id', 'id');
+        foreach ($keys as $key) {
+            if (($key['location_id'] ?? null) === null) {
+                continue;
+            }
+            $actual = $branchByLocation->get($key['location_id']);
+            if ($actual === null || (int) $actual !== (int) $key['branch_id']) {
+                throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
+            }
+        }
+
+        return $locationIds;
+    }
+
+    private function seedMissingStockLevels(Collection $keys): void
+    {
+        $now = now();
+        // Seed missing stock level rows with insertOrIgnore before acquiring exclusive row locks.
+        $rows = $keys->map(fn ($key) => [
+            'product_variant_id' => $key['product_variant_id'],
+            'branch_id' => $key['branch_id'],
+            'location_id' => $key['location_id'] ?? null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ])->values();
+
+        foreach ($rows->chunk(1000) as $chunk) {
+            DB::table('stock_levels')->insertOrIgnore($chunk->all());
+        }
+    }
+
+    private function lockStockLevelRows(Collection $keys): Collection
+    {
+        return StockLevel::query()->with(['variant:id,product_id,is_active,deleted_at,reorder_level'])->where(function ($query) use ($keys): void {
+            foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
+                $identity = $group->first();
+                $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
+                    ->where('location_id', $identity['location_id'] ?? null)
+                    ->whereIn('product_variant_id', $group->pluck('product_variant_id')->all()));
+            }
+        })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
+            ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
+    }
+
+    private function assertBranchesActive(Collection $keys): void
+    {
+        // Shared lock on branches serializes with branch deactivation (exclusive lock), preventing stock entries while branch is being disabled.
+        $branchIds = $keys->pluck('branch_id')->map(fn ($id) => (int) $id)->unique()->values();
+        if ($branchIds->isEmpty()) {
+            return;
+        }
+
+        $inactiveBranches = Branch::query()->whereIn('id', $branchIds->all())->sharedLock()->pluck('is_active', 'id');
+        foreach ($branchIds as $branchId) {
+            if ($inactiveBranches->has($branchId) && ! (bool) $inactiveBranches->get($branchId)) {
+                throw new BusinessException('الفرع متوقف حالياً ولا يقبل حركات مخزنية.');
+            }
+        }
+    }
+
+    private function attachLockedLocations(Collection $levels, Collection $locationIds): void
+    {
+        // Inactive locations are not rejected here: only new inbound stock is blocked (see recordMovement),
+        // so outbound, release and transit movements can still liquidate balances left on a disabled location.
+        if ($locationIds->isEmpty()) {
+            return;
+        }
+
+        // Refresh activity state from the same locking read. The earlier eager
+        // load happened before this lock and could otherwise authorize an inbound
+        // movement using a stale active=true value after concurrent deactivation.
+        $locations = Location::query()->whereIn('id', $locationIds->all())
+            ->orderBy('id')->sharedLock()->get(['id', 'is_active'])->keyBy('id');
+        foreach ($levels as $level) {
+            if ($level->location_id !== null) {
+                $level->setRelation('location', $locations->get((int) $level->location_id));
+            }
+        }
     }
 
     /**
@@ -546,29 +699,5 @@ class InventoryService
         if (! in_array($bucket, $allowed, true) || ($units > 0) !== $positive) {
             throw new BusinessException('نوع حركة المخزون لا يطابق وعاء المخزون أو اتجاه الكمية.');
         }
-    }
-
-    /**
-     * Compute new weighted average cost (WAC) using 4-decimal precision arithmetic.
-     */
-    public static function calculateWeightedAverageCost(
-        string|float|int $currentStock,
-        string|float|int $currentCost,
-        string|float|int $incomingQty,
-        string|float|int $incomingUnitCost
-    ): string {
-        $safeCurrent = BigDecimal::of((string) $currentStock);
-        if ($safeCurrent->isNegative()) {
-            $safeCurrent = BigDecimal::zero();
-        }
-        $incoming = BigDecimal::of((string) $incomingQty);
-        $totalCost = $safeCurrent->multipliedBy((string) $currentCost)
-            ->plus($incoming->multipliedBy((string) $incomingUnitCost));
-        $denominator = $safeCurrent->plus($incoming);
-        if ($denominator->isZero()) {
-            return BigDecimal::of((string) $currentCost)->toScale(4, RoundingMode::HalfUp)->__toString();
-        }
-
-        return $totalCost->dividedBy($denominator, 4, RoundingMode::HalfUp)->__toString();
     }
 }

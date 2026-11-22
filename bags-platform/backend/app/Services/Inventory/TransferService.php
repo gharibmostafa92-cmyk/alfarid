@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Inventory;
 
-use App\Services\Shared\SettingService;
-use Brick\Math\BigDecimal;
-use Brick\Math\RoundingMode;
-
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\TransferStatus;
@@ -21,6 +17,9 @@ use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
 use App\Models\User;
 use App\Services\Concerns\HandlesIdempotentCreation;
+use App\Services\Shared\SettingService;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -95,6 +94,247 @@ class TransferService
     }
 
     /**
+     * Updates transfer header and item lines while in draft status under pessimistic row lock.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function update(StockTransfer $transfer, array $data, int $userId): StockTransfer
+    {
+        return DB::transaction(function () use ($transfer, $data, $userId): StockTransfer {
+            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
+            $this->assertStatus($transfer, TransferStatus::Draft, 'التعديل');
+            $this->assertDraftAccess($transfer, $userId);
+            $this->assertDraftBranchChangesAllowed($transfer, $data, $userId);
+
+            $fromBranch = (int) ($data['from_branch_id'] ?? $transfer->from_branch_id);
+            $toBranch = (int) ($data['to_branch_id'] ?? $transfer->to_branch_id);
+            if ($fromBranch === $toBranch) {
+                throw new BusinessException('يجب اختلاف الفرع المرسل عن الفرع المستلم.');
+            }
+
+            app(BranchAccess::class)->lockActiveBranches([$fromBranch, $toBranch]);
+            $this->assertLocationsBelongToBranches($data['items'] ?? $transfer->items->toArray(), $fromBranch, $toBranch);
+
+            $transfer->update([
+                'from_branch_id' => $fromBranch,
+                'to_branch_id' => $toBranch,
+                'notes' => array_key_exists('notes', $data) ? $data['notes'] : $transfer->notes,
+            ]);
+
+            if (isset($data['items'])) {
+                $transfer->items()->delete();
+                $this->syncItems($transfer, $data['items']);
+            }
+
+            return $transfer->load(['items.variant', 'fromBranch', 'toBranch', 'creator']);
+        });
+    }
+
+    /**
+     * Approves transfer lines and reserves inventory at source branch to guarantee shipment stock.
+     *
+     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to approved quantity.
+     */
+    public function approve(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
+    {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
+            $transfer = $this->lockTransferWithItems($transfer);
+            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+
+            if ($transfer->status === TransferStatus::Approved) {
+                // Retry after a timeout: same quantities replay the stage, different ones conflict.
+                return $this->replayCompletedStage($transfer, $itemsPayload, 'approved_qty');
+            }
+
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
+            $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
+            // Early validation prevents approving transfers targeted at inactive or unreceivable branches.
+            $this->assertReceivableDestination($transfer);
+            // Resolve and lock the final destination before any reservation is posted.
+            // This makes duplicate detection use the real location while the draft can
+            // still be corrected without leaving inventory reserved indefinitely.
+            $this->assignReceivingLocation($transfer);
+
+            if (! $this->sumPayloadQuantities($transfer, $itemsPayload, 'requested_qty')->isPositive()) {
+                throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
+            }
+
+            $levels = $this->lockTransferLevels($transfer, true, true);
+            $this->assertLockedDestinationsActive($transfer, $levels);
+
+            $qtyUpdates = $this->applyApprovedQuantities($transfer, $itemsPayload, $userId, $levels);
+            if ($qtyUpdates !== []) {
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['approved_qty', 'updated_at']);
+            }
+
+            $transfer->update(['status' => TransferStatus::Approved, 'approved_by' => $userId]);
+
+            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
+        });
+    }
+
+    /**
+     * Dispatch approved stock from source branch and move into destination in-transit bucket.
+     *
+     * Releases source reservations, deducts physical on-hand inventory, returns any unshipped
+     * approved quantity back to available stock, and registers items as in-transit at destination.
+     *
+     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to shipped quantity
+     *
+     * @throws BusinessException
+     */
+    public function ship(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
+    {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
+            $transfer = $this->lockTransferWithItems($transfer);
+            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+
+            if (in_array($transfer->status, [TransferStatus::Shipped, TransferStatus::Received], true)) {
+                return $this->replayCompletedStage($transfer, $itemsPayload, 'shipped_qty');
+            }
+
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
+            $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
+            // Fail early if destination branch or locations were deactivated between approval and shipping
+            $this->assertReceivableDestination($transfer);
+
+            if (! $this->sumPayloadQuantities($transfer, $itemsPayload, 'approved_qty')->isPositive()) {
+                throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
+            }
+
+            $this->assignReceivingLocation($transfer);
+            $levels = $this->lockTransferLevels($transfer, true, true);
+            $this->assertLockedDestinationsActive($transfer, $levels);
+
+            $qtyUpdates = $this->shipTransferItems($transfer, $itemsPayload, $userId, $levels);
+            if ($qtyUpdates !== []) {
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['to_location_id', 'shipped_qty', 'updated_at']);
+            }
+
+            $transfer->update(['status' => TransferStatus::Shipped, 'shipped_at' => now()]);
+
+            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
+        });
+    }
+
+    /**
+     * Intake shipped inventory at the destination branch and settle in-transit stock.
+     *
+     * Moves verified goods from in-transit to on-hand. Any difference between shipped
+     * and received quantity is deducted as an explicit shortage ledger movement.
+     *
+     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to received quantity
+     *
+     * @throws BusinessException
+     */
+    public function receive(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
+    {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
+            $transfer = $this->lockTransferWithItems($transfer);
+            app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
+            $this->assertActiveDestinationBranch($transfer->to_branch_id);
+
+            if ($transfer->status === TransferStatus::Received) {
+                return $this->replayCompletedStage($transfer, $itemsPayload, 'received_qty');
+            }
+
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
+            $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
+            $this->assertShortageAuthorized($transfer, $itemsPayload, $userId);
+
+            [$receivingLocation, $inactiveLocations] = $this->resolveLegacyReceivingContext($transfer, $itemsPayload);
+            $levels = $this->lockTransferLevels($transfer, false, true, $receivingLocation, $inactiveLocations);
+
+            [$qtyUpdates, $shortageNotes] = $this->receiveTransferItems(
+                $transfer,
+                $itemsPayload,
+                $userId,
+                $levels,
+                $receivingLocation,
+                $inactiveLocations,
+            );
+
+            if ($qtyUpdates !== []) {
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['to_location_id', 'received_location_id', 'received_qty', 'updated_at']);
+            }
+
+            $transfer->update([
+                'status' => TransferStatus::Received,
+                'received_at' => now(),
+                'notes' => $this->appendShortageNotes($transfer, $shortageNotes),
+            ]);
+
+            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
+        });
+    }
+
+    /**
+     * Cancel an active transfer in draft or approved status.
+     *
+     * Once approved, cancelling releases reserved inventory back to available stock.
+     * Shipped transfers cannot be cancelled and must proceed to intake/settlement.
+     *
+     * @throws BusinessException
+     */
+    public function cancel(StockTransfer $transfer, int $userId): StockTransfer
+    {
+        return DB::transaction(function () use ($transfer, $userId): StockTransfer {
+            $transfer = $this->lockTransferWithItems($transfer);
+            $actor = User::query()->findOrFail($userId);
+            $hasLedgerHistory = $this->hasLedgerHistory($transfer);
+
+            $this->authorizeCancellation($transfer, $actor, $hasLedgerHistory);
+
+            if ($transfer->status === TransferStatus::Cancelled) {
+                return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
+            }
+
+            if ($transfer->status === TransferStatus::Approved) {
+                $this->releaseApprovedReservationsOnCancel($transfer, $userId);
+            } elseif ($transfer->status !== TransferStatus::Draft) {
+                throw new BusinessException('لا يمكن إلغاء تحويل بحالة '.$transfer->status->value.'.');
+            }
+
+            $transfer->update(['status' => TransferStatus::Cancelled]);
+
+            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
+        });
+    }
+
+    /**
+     * Delete a draft or cancelled transfer.
+     *
+     * Transfers that have associated inventory ledger movements cannot be deleted
+     * to preserve audit trails and prevent orphaned reference records.
+     *
+     * @throws BusinessException
+     */
+    public function delete(StockTransfer $transfer, int $userId): void
+    {
+        DB::transaction(function () use ($transfer, $userId): void {
+            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
+            $hasLedgerHistory = $this->hasLedgerHistory($transfer);
+
+            if (in_array($transfer->status, [TransferStatus::Draft, TransferStatus::Cancelled], true) && ! $hasLedgerHistory) {
+                $this->assertDraftAccess($transfer, $userId);
+            } else {
+                app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            }
+
+            if (! in_array($transfer->status, [TransferStatus::Draft, TransferStatus::Cancelled], true)) {
+                throw new BusinessException('لا يمكن حذف تحويل إلا في حالة المسودة أو الملغي.');
+            }
+
+            // Transfers with posted ledger movements must be preserved for financial and audit trails
+            if ($hasLedgerHistory) {
+                throw new BusinessException('لا يمكن حذف تحويل له حركات مخزون مسجلة في الدفتر؛ إلغاؤه يحفظ أثر التدقيق.');
+            }
+
+            $transfer->delete();
+        });
+    }
+
+    /**
      * Persists new draft transfer and dispatches approval notification event.
      *
      * @param  array<string, mixed>  $data
@@ -122,503 +362,419 @@ class TransferService
         });
     }
 
-    /**
-     * Updates transfer header and item lines while in draft status under pessimistic row lock.
-     *
-     * @param  array<string, mixed>  $data
-     */
-    public function update(StockTransfer $transfer, array $data, int $userId): StockTransfer
+    private function lockTransferWithItems(StockTransfer $transfer): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $data, $userId): StockTransfer {
-            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            $this->assertStatus($transfer, TransferStatus::Draft, 'التعديل');
-            $this->assertDraftAccess($transfer, $userId);
-            // Moving the draft across branches requires access to the new side; leaving
-            // the branches untouched keeps the relaxed draft access above.
-            if (array_key_exists('from_branch_id', $data) && (int) $data['from_branch_id'] !== (int) $transfer->from_branch_id) {
-                app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
-            }
-            if (array_key_exists('to_branch_id', $data) && (int) $data['to_branch_id'] !== (int) $transfer->to_branch_id) {
-                app(BranchAccess::class)->assertBranch($userId, (int) $data['to_branch_id']);
-            }
+        $locked = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
+        $locked->load('items.variant');
 
-            $fromBranch = $data['from_branch_id'] ?? $transfer->from_branch_id;
-            $toBranch = $data['to_branch_id'] ?? $transfer->to_branch_id;
-            if ((int) $fromBranch === (int) $toBranch) {
-                throw new BusinessException('يجب اختلاف الفرع المرسل عن الفرع المستلم.');
-            }
-            app(BranchAccess::class)->lockActiveBranches([$fromBranch, $toBranch]);
-            $items = $data['items'] ?? $transfer->items->toArray();
-            foreach ($items as $item) {
-                foreach (['from_location_id' => $fromBranch, 'to_location_id' => $toBranch] as $field => $branchId) {
-                    if (isset($item[$field]) && ! Location::query()->whereKey($item[$field])->where('branch_id', $branchId)
-                        ->where('is_active', true)->exists()) {
-                        throw new BusinessException('موقع التحويل لا يتبع الفرع المحدد.');
-                    }
-                }
-            }
+        return $locked;
+    }
 
-            $transfer->update([
-                'from_branch_id' => $data['from_branch_id'] ?? $transfer->from_branch_id,
-                'to_branch_id' => $data['to_branch_id'] ?? $transfer->to_branch_id,
-                'notes' => array_key_exists('notes', $data) ? $data['notes'] : $transfer->notes,
-            ]);
-
-            if (isset($data['items'])) {
-                $transfer->items()->delete();
-                $this->syncItems($transfer, $data['items']);
-            }
-
-            return $transfer->load(['items.variant', 'fromBranch', 'toBranch', 'creator']);
-        });
+    private function assertDraftBranchChangesAllowed(StockTransfer $transfer, array $data, int $userId): void
+    {
+        // Moving the draft across branches requires access to the new side; leaving
+        // the branches untouched keeps the relaxed draft access above.
+        if (array_key_exists('from_branch_id', $data) && (int) $data['from_branch_id'] !== (int) $transfer->from_branch_id) {
+            app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
+        }
+        if (array_key_exists('to_branch_id', $data) && (int) $data['to_branch_id'] !== (int) $transfer->to_branch_id) {
+            app(BranchAccess::class)->assertBranch($userId, (int) $data['to_branch_id']);
+        }
     }
 
     /**
-     * Approves transfer lines and reserves inventory at source branch to guarantee shipment stock.
-     *
-     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to approved quantity.
+     * @param  array<int, array<string, mixed>>  $items
      */
-    public function approve(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
+    private function assertLocationsBelongToBranches(array $items, int $fromBranch, int $toBranch): void
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
-            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            $transfer->load('items.variant');
-            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
-            if ($transfer->status === TransferStatus::Approved) {
-                // Retry after a timeout: same quantities replay the stage, different ones conflict.
-                return $this->replayCompletedStage($transfer, $itemsPayload, 'approved_qty');
-            }
-            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
-            $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
-            // Early validation prevents approving transfers targeted at inactive or unreceivable branches.
-            $this->assertReceivableDestination($transfer);
-            // Resolve and lock the final destination before any reservation is posted.
-            // This makes duplicate detection use the real location while the draft can
-            // still be corrected without leaving inventory reserved indefinitely.
-            $this->assignReceivingLocation($transfer);
-            $totalApproved = $transfer->items->reduce(
-                fn (BigDecimal $sum, $item) => $sum->plus($this->quantity($itemsPayload[$item->id] ?? $item->requested_qty)),
-                BigDecimal::of('0'),
-            );
-            if (! $totalApproved->isPositive()) {
-                throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
-            }
-            $levels = $this->lockTransferLevels($transfer, true, true);
-            $this->assertLockedDestinationsActive($transfer, $levels);
-            $qtyUpdates = [];
-
-            foreach ($transfer->items as $item) {
-                $approvedQty = $this->quantity($itemsPayload[$item->id] ?? $item->requested_qty);
-
-                if ($approvedQty->isNegative() || $approvedQty->compareTo($this->quantity($item->requested_qty)) > 0) {
-                    throw new BusinessException('الكمية المعتمدة يجب أن تكون بين صفر والكمية المطلوبة.');
-                }
-
-                // Collect quantity updates into a single batch upsert to minimize lock holding duration.
-                $qtyUpdates[] = $this->itemUpsertRow($item, 'approved_qty', $approvedQty);
-
-                if ($approvedQty->isPositive()) {
-                    $this->move([
-                        'product_variant_id' => $item->product_variant_id,
-                        'branch_id' => $transfer->from_branch_id,
-                        'location_id' => $item->from_location_id,
-                        'type' => StockMovementType::Reserve,
-                        'affected_bucket' => StockBucket::Reserved,
-                        'quantity' => (string) $approvedQty,
-                        'unit_cost' => $item->variant?->cost_price,
-                        'reference_type' => StockTransfer::class,
-                        'reference_id' => $transfer->id,
-                        'created_by' => $userId,
-                        'notes' => 'حجز لصالح تحويل '.$transfer->transfer_number,
-                    ], $levels);
+        foreach ($items as $item) {
+            foreach (['from_location_id' => $fromBranch, 'to_location_id' => $toBranch] as $field => $branchId) {
+                if (isset($item[$field]) && ! Location::query()->whereKey($item[$field])->where('branch_id', $branchId)
+                    ->where('is_active', true)->exists()) {
+                    throw new BusinessException('موقع التحويل لا يتبع الفرع المحدد.');
                 }
             }
-
-            if ($qtyUpdates !== []) {
-                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['approved_qty', 'updated_at']);
-            }
-
-            $transfer->update(['status' => TransferStatus::Approved, 'approved_by' => $userId]);
-
-            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
-        });
+        }
     }
 
     /**
-     * Dispatch approved stock from source branch and move into destination in-transit bucket.
-     *
-     * Releases source reservations, deducts physical on-hand inventory, returns any unshipped
-     * approved quantity back to available stock, and registers items as in-transit at destination.
-     *
-     * @param  StockTransfer  $transfer
-     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to shipped quantity
-     * @param  int  $userId
-     * @param  string|null  $expectedUpdatedAt
-     * @param  int|null  $expectedVersion
-     * @return StockTransfer
-     *
-     * @throws BusinessException
+     * @param  array<int, float|int|string>  $itemsPayload
      */
-    public function ship(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
+    private function sumPayloadQuantities(StockTransfer $transfer, array $itemsPayload, string $fallbackField): BigDecimal
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
-            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            $transfer->load('items.variant');
-            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
-            if (in_array($transfer->status, [TransferStatus::Shipped, TransferStatus::Received], true)) {
-                return $this->replayCompletedStage($transfer, $itemsPayload, 'shipped_qty');
+        return $transfer->items->reduce(
+            fn (BigDecimal $sum, $item) => $sum->plus($this->quantity($itemsPayload[$item->id] ?? $item->{$fallbackField})),
+            BigDecimal::of('0'),
+        );
+    }
+
+    /**
+     * @param  array<int, float|int|string>  $itemsPayload
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyApprovedQuantities(StockTransfer $transfer, array $itemsPayload, int $userId, Collection $levels): array
+    {
+        $qtyUpdates = [];
+
+        foreach ($transfer->items as $item) {
+            $approvedQty = $this->quantity($itemsPayload[$item->id] ?? $item->requested_qty);
+
+            if ($approvedQty->isNegative() || $approvedQty->compareTo($this->quantity($item->requested_qty)) > 0) {
+                throw new BusinessException('الكمية المعتمدة يجب أن تكون بين صفر والكمية المطلوبة.');
             }
-            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
-            $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
-            // Fail early if destination branch or locations were deactivated between approval and shipping
-            $this->assertReceivableDestination($transfer);
-            $totalShipped = $transfer->items->reduce(
-                fn (BigDecimal $sum, $item) => $sum->plus($this->quantity($itemsPayload[$item->id] ?? $item->approved_qty)),
-                BigDecimal::of('0'),
-            );
-            if (! $totalShipped->isPositive()) {
-                throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
-            }
-            $this->assignReceivingLocation($transfer);
-            $levels = $this->lockTransferLevels($transfer, true, true);
-            $this->assertLockedDestinationsActive($transfer, $levels);
-            $qtyUpdates = [];
 
-            foreach ($transfer->items as $item) {
-                $shippedQty = $this->quantity($itemsPayload[$item->id] ?? $item->approved_qty);
+            // Collect quantity updates into a single batch upsert to minimize lock holding duration.
+            $qtyUpdates[] = $this->itemUpsertRow($item, 'approved_qty', $approvedQty);
 
-                if ($shippedQty->isNegative() || $shippedQty->compareTo($this->quantity($item->approved_qty)) > 0) {
-                    throw new BusinessException('الكمية المشحونة يجب أن تكون بين صفر والكمية المعتمدة.');
-                }
-
-                $qtyUpdates[] = $this->itemUpsertRow($item, 'shipped_qty', $shippedQty);
-
-                if (! $shippedQty->isPositive()) {
-                    if ($this->quantity($item->approved_qty)->isPositive()) {
-                        $this->move([
-                            'product_variant_id' => $item->product_variant_id,
-                            'branch_id' => $transfer->from_branch_id,
-                            'location_id' => $item->from_location_id,
-                            'type' => StockMovementType::ReleaseReserve,
-                            'affected_bucket' => StockBucket::Reserved,
-                            'quantity' => (string) $this->quantity($item->approved_qty)->negated(),
-                            'reference_type' => StockTransfer::class,
-                            'reference_id' => $transfer->id,
-                            'created_by' => $userId,
-                            'notes' => 'فك حجز صنف غير مشحون من تحويل '.$transfer->transfer_number,
-                        ], $levels);
-                    }
-
-                    continue;
-                }
-
-                $base = [
+            if ($approvedQty->isPositive()) {
+                $this->move([
                     'product_variant_id' => $item->product_variant_id,
-                    'unit_cost' => $item->variant?->cost_price,
-                    'reference_type' => StockTransfer::class,
-                    'reference_id' => $transfer->id,
-                    'created_by' => $userId,
-                ];
-
-                // Release source reservation before recording physical deduction from on-hand
-                $this->move([...$base,
                     'branch_id' => $transfer->from_branch_id,
                     'location_id' => $item->from_location_id,
-                    'type' => StockMovementType::ReleaseReserve,
+                    'type' => StockMovementType::Reserve,
                     'affected_bucket' => StockBucket::Reserved,
-                    'quantity' => (string) $shippedQty->negated(),
-                    'notes' => 'فك حجز عند شحن تحويل '.$transfer->transfer_number,
-                ], $levels);
-                $this->move([...$base,
-                    'branch_id' => $transfer->from_branch_id,
-                    'location_id' => $item->from_location_id,
-                    'type' => StockMovementType::TransferOut,
-                    'affected_bucket' => StockBucket::OnHand,
-                    'quantity' => (string) $shippedQty->negated(),
-                    'notes' => 'شحن تحويل '.$transfer->transfer_number,
-                ], $levels);
-
-                // Release approved but unshipped quantity back to available inventory
-                $unshipped = $this->quantity($item->approved_qty)->minus($shippedQty);
-                if ($unshipped->isPositive()) {
-                    $this->move([...$base,
-                        'branch_id' => $transfer->from_branch_id,
-                        'location_id' => $item->from_location_id,
-                        'type' => StockMovementType::ReleaseReserve,
-                        'affected_bucket' => StockBucket::Reserved,
-                        'quantity' => (string) $unshipped->negated(),
-                        'notes' => 'فك حجز الكمية المعتمدة غير المشحونة من تحويل '.$transfer->transfer_number,
-                    ], $levels);
-                }
-
-                // Increment in-transit stock at the destination branch/location
-                $this->move([...$base,
-                    'branch_id' => $transfer->to_branch_id,
-                    'location_id' => $item->to_location_id,
-                    'type' => StockMovementType::TransferInTransit,
-                    'affected_bucket' => StockBucket::InTransit,
-                    'quantity' => (string) $shippedQty,
-                    'notes' => 'بضاعة في الطريق من تحويل '.$transfer->transfer_number,
-                ], $levels);
-            }
-
-            if ($qtyUpdates !== []) {
-                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['to_location_id', 'shipped_qty', 'updated_at']);
-            }
-
-            $transfer->update(['status' => TransferStatus::Shipped, 'shipped_at' => now()]);
-
-            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
-        });
-    }
-
-    /**
-     * Intake shipped inventory at the destination branch and settle in-transit stock.
-     *
-     * Moves verified goods from in-transit to on-hand. Any difference between shipped
-     * and received quantity is deducted as an explicit shortage ledger movement.
-     *
-     * @param  StockTransfer  $transfer
-     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to received quantity
-     * @param  int  $userId
-     * @param  string|null  $expectedUpdatedAt
-     * @param  int|null  $expectedVersion
-     * @return StockTransfer
-     *
-     * @throws BusinessException
-     */
-    public function receive(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
-    {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
-            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            $transfer->load('items.variant');
-            app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
-            // Verify destination branch remains active before accepting inbound goods
-            $toBranch = Branch::query()->find($transfer->to_branch_id);
-            if ($toBranch === null || ! $toBranch->is_active) {
-                throw new BusinessException('الفرع المستلم غير نشط؛ لا يمكن الاستلام إليه.');
-            }
-            if ($transfer->status === TransferStatus::Received) {
-                return $this->replayCompletedStage($transfer, $itemsPayload, 'received_qty');
-            }
-            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
-            $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
-            $hasShortage = $transfer->items->contains(fn ($item) => $this->quantity($item->shipped_qty)
-                ->compareTo($this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty)) > 0);
-            if ($hasShortage && ! User::query()->findOrFail($userId)->can('transfers.approve_shortage')) {
-                throw new BusinessException('تسجيل عجز عند الاستلام يتطلب صلاحية اعتماد العجز.', [], 403);
-            }
-            // Older transfers can have transit stock on the branch-level row.
-            $inactiveLocations = Location::query()->whereKey($transfer->items->pluck('to_location_id')->filter()->unique()->all())
-                ->where('is_active', false)->pluck('id')->flip();
-            $needsReceivingLocation = $transfer->items->contains(fn ($item) =>
-                ($item->to_location_id === null || $inactiveLocations->has($item->to_location_id))
-                && $this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty)->isPositive());
-            $receivingLocation = $needsReceivingLocation ? $this->lockReceivingLocation($transfer->to_branch_id) : null;
-            if ($receivingLocation === null && $transfer->items->contains(fn ($item) =>
-                $inactiveLocations->has($item->to_location_id)
-                && $this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty)->isPositive())) {
-                throw new BusinessException('لا يوجد موقع استلام نشط؛ فعّل موقعًا للاستلام ثم أعد المحاولة.');
-            }
-            $levels = $this->lockTransferLevels($transfer, false, true, $receivingLocation, $inactiveLocations);
-
-            $shortageNotes = [];
-            $qtyUpdates = [];
-
-            foreach ($transfer->items as $item) {
-                $receivedQty = $this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty);
-                $shippedQty = $this->quantity($item->shipped_qty);
-
-                if ($receivedQty->isNegative() || $receivedQty->compareTo($shippedQty) > 0) {
-                    throw new BusinessException('الكمية المستلمة يجب أن تكون بين صفر والكمية المشحونة.');
-                }
-
-                if (! $shippedQty->isPositive()) {
-                    $qtyUpdates[] = $this->itemUpsertRow($item, 'received_qty', $receivedQty);
-                    continue;
-                }
-
-                $base = [
-                    'product_variant_id' => $item->product_variant_id,
-                    'branch_id' => $transfer->to_branch_id,
-                    'location_id' => $item->to_location_id,
+                    'quantity' => (string) $approvedQty,
                     'unit_cost' => $item->variant?->cost_price,
                     'reference_type' => StockTransfer::class,
                     'reference_id' => $transfer->id,
                     'created_by' => $userId,
-                ];
+                    'notes' => 'حجز لصالح تحويل '.$transfer->transfer_number,
+                ], $levels);
+            }
+        }
 
-                // Deduct accepted quantity from in-transit and post directly to destination on-hand
-                if ($receivedQty->isPositive()) {
-                    $receiptLocationId = $inactiveLocations->has($item->to_location_id)
-                        ? $receivingLocation
-                        : ($item->to_location_id ?? $receivingLocation);
-                    $this->move([...$base,
-                        'type' => StockMovementType::TransferTransitRelease,
-                        'affected_bucket' => StockBucket::InTransit,
-                        'quantity' => (string) $receivedQty->negated(),
-                        'notes' => 'استلام تحويل '.$transfer->transfer_number,
-                    ], $levels);
-                    $this->move([...$base,
-                        'location_id' => $receiptLocationId,
-                        'type' => StockMovementType::TransferIn,
-                        'affected_bucket' => StockBucket::OnHand,
-                        'quantity' => (string) $receivedQty,
-                        'notes' => 'استلام تحويل '.$transfer->transfer_number,
-                    ], $levels);
+        return $qtyUpdates;
+    }
 
-                    // Persist the fallback location alongside the receipt movement. Older
-                    // branch-level transit rows have no location, but the accepted stock
-                    // now belongs to this concrete destination location.
-                    if (($item->to_location_id === null || $inactiveLocations->has($item->to_location_id))
-                        && ! $this->hasSiblingAtLocation($transfer, $item, $receivingLocation, $inactiveLocations)) {
-                        $item->to_location_id = $receivingLocation;
-                    }
-                    $item->received_location_id = $receiptLocationId;
+    /**
+     * @param  array<int, float|int|string>  $itemsPayload
+     * @return array<int, array<string, mixed>>
+     */
+    private function shipTransferItems(StockTransfer $transfer, array $itemsPayload, int $userId, Collection $levels): array
+    {
+        $qtyUpdates = [];
+
+        foreach ($transfer->items as $item) {
+            $shippedQty = $this->quantity($itemsPayload[$item->id] ?? $item->approved_qty);
+            $approvedQty = $this->quantity($item->approved_qty);
+
+            if ($shippedQty->isNegative() || $shippedQty->compareTo($approvedQty) > 0) {
+                throw new BusinessException('الكمية المشحونة يجب أن تكون بين صفر والكمية المعتمدة.');
+            }
+
+            $qtyUpdates[] = $this->itemUpsertRow($item, 'shipped_qty', $shippedQty);
+
+            if (! $shippedQty->isPositive()) {
+                if ($approvedQty->isPositive()) {
+                    $this->releaseSourceReservation(
+                        $transfer,
+                        $item,
+                        $approvedQty,
+                        $userId,
+                        'فك حجز صنف غير مشحون من تحويل '.$transfer->transfer_number,
+                        $levels,
+                    );
                 }
 
+                continue;
+            }
+
+            $this->dispatchSingleShippedItem($transfer, $item, $shippedQty, $approvedQty, $userId, $levels);
+        }
+
+        return $qtyUpdates;
+    }
+
+    private function dispatchSingleShippedItem(
+        StockTransfer $transfer,
+        StockTransferItem $item,
+        BigDecimal $shippedQty,
+        BigDecimal $approvedQty,
+        int $userId,
+        Collection $levels,
+    ): void {
+        $base = [
+            'product_variant_id' => $item->product_variant_id,
+            'unit_cost' => $item->variant?->cost_price,
+            'reference_type' => StockTransfer::class,
+            'reference_id' => $transfer->id,
+            'created_by' => $userId,
+        ];
+
+        // Release source reservation before recording physical deduction from on-hand
+        $this->releaseSourceReservation(
+            $transfer,
+            $item,
+            $shippedQty,
+            $userId,
+            'فك حجز عند شحن تحويل '.$transfer->transfer_number,
+            $levels,
+        );
+        $this->move([...$base,
+            'branch_id' => $transfer->from_branch_id,
+            'location_id' => $item->from_location_id,
+            'type' => StockMovementType::TransferOut,
+            'affected_bucket' => StockBucket::OnHand,
+            'quantity' => (string) $shippedQty->negated(),
+            'notes' => 'شحن تحويل '.$transfer->transfer_number,
+        ], $levels);
+
+        // Release approved but unshipped quantity back to available inventory
+        $unshipped = $approvedQty->minus($shippedQty);
+        if ($unshipped->isPositive()) {
+            $this->releaseSourceReservation(
+                $transfer,
+                $item,
+                $unshipped,
+                $userId,
+                'فك حجز الكمية المعتمدة غير المشحونة من تحويل '.$transfer->transfer_number,
+                $levels,
+            );
+        }
+
+        // Increment in-transit stock at the destination branch/location
+        $this->move([...$base,
+            'branch_id' => $transfer->to_branch_id,
+            'location_id' => $item->to_location_id,
+            'type' => StockMovementType::TransferInTransit,
+            'affected_bucket' => StockBucket::InTransit,
+            'quantity' => (string) $shippedQty,
+            'notes' => 'بضاعة في الطريق من تحويل '.$transfer->transfer_number,
+        ], $levels);
+    }
+
+    private function releaseSourceReservation(
+        StockTransfer $transfer,
+        StockTransferItem $item,
+        BigDecimal $qty,
+        int $userId,
+        string $notes,
+        Collection $levels,
+    ): void {
+        $this->move([
+            'product_variant_id' => $item->product_variant_id,
+            'branch_id' => $transfer->from_branch_id,
+            'location_id' => $item->from_location_id,
+            'type' => StockMovementType::ReleaseReserve,
+            'affected_bucket' => StockBucket::Reserved,
+            'quantity' => (string) $qty->negated(),
+            'reference_type' => StockTransfer::class,
+            'reference_id' => $transfer->id,
+            'created_by' => $userId,
+            'notes' => $notes,
+        ], $levels);
+    }
+
+    private function assertActiveDestinationBranch(int $branchId): void
+    {
+        // Verify destination branch remains active before accepting inbound goods
+        $toBranch = Branch::query()->find($branchId);
+        if ($toBranch === null || ! $toBranch->is_active) {
+            throw new BusinessException('الفرع المستلم غير نشط؛ لا يمكن الاستلام إليه.');
+        }
+    }
+
+    /**
+     * @param  array<int, float|int|string>  $itemsPayload
+     */
+    private function assertShortageAuthorized(StockTransfer $transfer, array $itemsPayload, int $userId): void
+    {
+        $hasShortage = $transfer->items->contains(fn ($item) => $this->quantity($item->shipped_qty)
+            ->compareTo($this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty)) > 0);
+        if ($hasShortage && ! User::query()->findOrFail($userId)->can('transfers.approve_shortage')) {
+            throw new BusinessException('تسجيل عجز عند الاستلام يتطلب صلاحية اعتماد العجز.', [], 403);
+        }
+    }
+
+    /**
+     * @param  array<int, float|int|string>  $itemsPayload
+     * @return array{0: int|null, 1: Collection}
+     */
+    private function resolveLegacyReceivingContext(StockTransfer $transfer, array $itemsPayload): array
+    {
+        // Older transfers can have transit stock on the branch-level row.
+        $inactiveLocations = Location::query()->whereKey($transfer->items->pluck('to_location_id')->filter()->unique()->all())
+            ->where('is_active', false)->pluck('id')->flip();
+        $needsReceivingLocation = $transfer->items->contains(fn ($item) => ($item->to_location_id === null || $inactiveLocations->has($item->to_location_id))
+            && $this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty)->isPositive());
+        $receivingLocation = $needsReceivingLocation ? $this->lockReceivingLocation($transfer->to_branch_id) : null;
+
+        if ($receivingLocation === null && $transfer->items->contains(fn ($item) => $inactiveLocations->has($item->to_location_id)
+            && $this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty)->isPositive())) {
+            throw new BusinessException('لا يوجد موقع استلام نشط؛ فعّل موقعًا للاستلام ثم أعد المحاولة.');
+        }
+
+        return [$receivingLocation, $inactiveLocations];
+    }
+
+    /**
+     * @param  array<int, float|int|string>  $itemsPayload
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, string>}
+     */
+    private function receiveTransferItems(
+        StockTransfer $transfer,
+        array $itemsPayload,
+        int $userId,
+        Collection $levels,
+        ?int $receivingLocation,
+        Collection $inactiveLocations,
+    ): array {
+        $shortageNotes = [];
+        $qtyUpdates = [];
+
+        foreach ($transfer->items as $item) {
+            $receivedQty = $this->quantity($itemsPayload[$item->id] ?? $item->shipped_qty);
+            $shippedQty = $this->quantity($item->shipped_qty);
+
+            if ($receivedQty->isNegative() || $receivedQty->compareTo($shippedQty) > 0) {
+                throw new BusinessException('الكمية المستلمة يجب أن تكون بين صفر والكمية المشحونة.');
+            }
+
+            if (! $shippedQty->isPositive()) {
                 $qtyUpdates[] = $this->itemUpsertRow($item, 'received_qty', $receivedQty);
 
-                // Any shortage is deducted from in-transit as an explicit shortage movement for loss tracking
-                $shortage = $shippedQty->minus($receivedQty);
-                if ($shortage->isPositive()) {
-                    $this->move([...$base,
-                        'type' => StockMovementType::TransferShortage,
-                        'affected_bucket' => StockBucket::InTransit,
-                        'quantity' => (string) $shortage->negated(),
-                        'notes' => 'عجز عند استلام تحويل '.$transfer->transfer_number,
-                    ], $levels);
-                    $shortageNotes[] = "عجز {$shortage} وحدة في المتغير #{$item->product_variant_id}";
-                }
+                continue;
             }
 
-            if ($qtyUpdates !== []) {
-                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['to_location_id', 'received_location_id', 'received_qty', 'updated_at']);
+            $base = [
+                'product_variant_id' => $item->product_variant_id,
+                'branch_id' => $transfer->to_branch_id,
+                'location_id' => $item->to_location_id,
+                'unit_cost' => $item->variant?->cost_price,
+                'reference_type' => StockTransfer::class,
+                'reference_id' => $transfer->id,
+                'created_by' => $userId,
+            ];
+
+            if ($receivedQty->isPositive()) {
+                $this->postAcceptedReceiptMovements($transfer, $item, $receivedQty, $base, $levels, $receivingLocation, $inactiveLocations);
             }
 
-            $notes = $transfer->notes;
-            if ($shortageNotes !== []) {
-                $notes = trim(($notes ? $notes.' | ' : '').implode('؛ ', $shortageNotes));
+            $qtyUpdates[] = $this->itemUpsertRow($item, 'received_qty', $receivedQty);
+
+            // Any shortage is deducted from in-transit as an explicit shortage movement for loss tracking
+            $shortage = $shippedQty->minus($receivedQty);
+            if ($shortage->isPositive()) {
+                $this->move([...$base,
+                    'type' => StockMovementType::TransferShortage,
+                    'affected_bucket' => StockBucket::InTransit,
+                    'quantity' => (string) $shortage->negated(),
+                    'notes' => 'عجز عند استلام تحويل '.$transfer->transfer_number,
+                ], $levels);
+                $shortageNotes[] = "عجز {$shortage} وحدة في المتغير #{$item->product_variant_id}";
             }
+        }
 
-            $transfer->update(['status' => TransferStatus::Received, 'received_at' => now(), 'notes' => $notes]);
-
-            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
-        });
+        return [$qtyUpdates, $shortageNotes];
     }
 
     /**
-     * Cancel an active transfer in draft or approved status.
-     *
-     * Once approved, cancelling releases reserved inventory back to available stock.
-     * Shipped transfers cannot be cancelled and must proceed to intake/settlement.
-     *
-     * @param  StockTransfer  $transfer
-     * @param  int  $userId
-     * @return StockTransfer
-     *
-     * @throws BusinessException
+     * Deducts accepted quantity from in-transit and posts directly to destination on-hand.
      */
-    public function cancel(StockTransfer $transfer, int $userId): StockTransfer
-    {
-        return DB::transaction(function () use ($transfer, $userId): StockTransfer {
-            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            $transfer->load('items.variant');
-            $actor = User::query()->findOrFail($userId);
-            $hasLedgerHistory = StockMovement::query()
-                ->whereIn('reference_type', [(new StockTransfer)->getMorphClass(), StockTransfer::class])
-                ->where('reference_id', $transfer->id)
-                ->exists();
+    private function postAcceptedReceiptMovements(
+        StockTransfer $transfer,
+        StockTransferItem $item,
+        BigDecimal $receivedQty,
+        array $base,
+        Collection $levels,
+        ?int $receivingLocation,
+        Collection $inactiveLocations,
+    ): void {
+        $receiptLocationId = $inactiveLocations->has($item->to_location_id)
+            ? $receivingLocation
+            : ($item->to_location_id ?? $receivingLocation);
 
-            if ($transfer->status === TransferStatus::Cancelled) {
-                // Retry after a timeout: a completed cancellation returns the entity as-is.
-                // Same access rule as the draft it was cancelled from, so a destination-side
-                // retry does not fail after the first cancellation succeeded.
-                abort_unless($actor->can($hasLedgerHistory ? 'transfers.approve' : 'transfers.update'), 403);
-                if ($hasLedgerHistory) {
-                    app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
-                } else {
-                    $this->assertDraftAccess($transfer, $userId);
-                }
+        $this->move([...$base,
+            'type' => StockMovementType::TransferTransitRelease,
+            'affected_bucket' => StockBucket::InTransit,
+            'quantity' => (string) $receivedQty->negated(),
+            'notes' => 'استلام تحويل '.$transfer->transfer_number,
+        ], $levels);
+        $this->move([...$base,
+            'location_id' => $receiptLocationId,
+            'type' => StockMovementType::TransferIn,
+            'affected_bucket' => StockBucket::OnHand,
+            'quantity' => (string) $receivedQty,
+            'notes' => 'استلام تحويل '.$transfer->transfer_number,
+        ], $levels);
 
-                return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
-            }
-
-            if ($transfer->status === TransferStatus::Draft) {
-                abort_unless($actor->can('transfers.update'), 403);
-                $this->assertDraftAccess($transfer, $userId);
-            } else {
-                abort_unless($actor->can('transfers.approve'), 403);
-                app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
-            }
-
-            if ($transfer->status === TransferStatus::Approved) {
-                $levels = $this->lockTransferLevels($transfer, true, false);
-                foreach ($transfer->items as $item) {
-                    if (! $this->quantity($item->approved_qty)->isPositive()) {
-                        continue;
-                    }
-
-                    $this->move([
-                        'product_variant_id' => $item->product_variant_id,
-                        'branch_id' => $transfer->from_branch_id,
-                        'location_id' => $item->from_location_id,
-                        'type' => StockMovementType::ReleaseReserve,
-                        'affected_bucket' => StockBucket::Reserved,
-                        'quantity' => (string) $this->quantity($item->approved_qty)->negated(),
-                        'reference_type' => StockTransfer::class,
-                        'reference_id' => $transfer->id,
-                        'created_by' => $userId,
-                        'notes' => 'فك حجز عند إلغاء تحويل '.$transfer->transfer_number,
-                    ], $levels);
-                }
-            } elseif ($transfer->status !== TransferStatus::Draft) {
-                throw new BusinessException('لا يمكن إلغاء تحويل بحالة '.$transfer->status->value.'.');
-            }
-
-            $transfer->update(['status' => TransferStatus::Cancelled]);
-
-            return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
-        });
+        // Persist the fallback location alongside the receipt movement. Older
+        // branch-level transit rows have no location, but the accepted stock
+        // now belongs to this concrete destination location.
+        if (($item->to_location_id === null || $inactiveLocations->has($item->to_location_id))
+            && ! $this->hasSiblingAtLocation($transfer, $item, $receivingLocation, $inactiveLocations)) {
+            $item->to_location_id = $receivingLocation;
+        }
+        $item->received_location_id = $receiptLocationId;
     }
 
     /**
-     * Delete a draft or cancelled transfer.
-     *
-     * Transfers that have associated inventory ledger movements cannot be deleted
-     * to preserve audit trails and prevent orphaned reference records.
-     *
-     * @param  StockTransfer  $transfer
-     * @param  int  $userId
-     * @return void
-     *
-     * @throws BusinessException
+     * @param  array<int, string>  $shortageNotes
      */
-    public function delete(StockTransfer $transfer, int $userId): void
+    private function appendShortageNotes(StockTransfer $transfer, array $shortageNotes): ?string
     {
-        DB::transaction(function () use ($transfer, $userId): void {
-            $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            $hasLedgerHistory = StockMovement::query()
-                ->whereIn('reference_type', [(new StockTransfer)->getMorphClass(), StockTransfer::class])
-                ->where('reference_id', $transfer->id)
-                ->exists();
-            if (in_array($transfer->status, [TransferStatus::Draft, TransferStatus::Cancelled], true) && ! $hasLedgerHistory) {
-                $this->assertDraftAccess($transfer, $userId);
-            } else {
+        $notes = $transfer->notes;
+        if ($shortageNotes === []) {
+            return $notes;
+        }
+
+        return trim(($notes ? $notes.' | ' : '').implode('؛ ', $shortageNotes));
+    }
+
+    private function authorizeCancellation(StockTransfer $transfer, User $actor, bool $hasLedgerHistory): void
+    {
+        $userId = (int) $actor->id;
+        if ($transfer->status === TransferStatus::Cancelled) {
+            // Retry after a timeout: a completed cancellation returns the entity as-is.
+            // Same access rule as the draft it was cancelled from, so a destination-side
+            // retry does not fail after the first cancellation succeeded.
+            abort_unless($actor->can($hasLedgerHistory ? 'transfers.approve' : 'transfers.update'), 403);
+            if ($hasLedgerHistory) {
                 app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            } else {
+                $this->assertDraftAccess($transfer, $userId);
             }
 
-            if (! in_array($transfer->status, [TransferStatus::Draft, TransferStatus::Cancelled], true)) {
-                throw new BusinessException('لا يمكن حذف تحويل إلا في حالة المسودة أو الملغي.');
+            return;
+        }
+
+        if ($transfer->status === TransferStatus::Draft) {
+            abort_unless($actor->can('transfers.update'), 403);
+            $this->assertDraftAccess($transfer, $userId);
+
+            return;
+        }
+
+        abort_unless($actor->can('transfers.approve'), 403);
+        app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+    }
+
+    private function releaseApprovedReservationsOnCancel(StockTransfer $transfer, int $userId): void
+    {
+        $levels = $this->lockTransferLevels($transfer, true, false);
+        foreach ($transfer->items as $item) {
+            $approvedQty = $this->quantity($item->approved_qty);
+            if (! $approvedQty->isPositive()) {
+                continue;
             }
 
-            // Transfers with posted ledger movements must be preserved for financial and audit trails
-            if (StockMovement::query()->whereIn('reference_type', [StockTransfer::class, 'stock_transfer'])->where('reference_id', $transfer->id)->exists()) {
-                throw new BusinessException('لا يمكن حذف تحويل له حركات مخزون مسجلة في الدفتر؛ إلغاؤه يحفظ أثر التدقيق.');
-            }
+            $this->releaseSourceReservation(
+                $transfer,
+                $item,
+                $approvedQty,
+                $userId,
+                'فك حجز عند إلغاء تحويل '.$transfer->transfer_number,
+                $levels,
+            );
+        }
+    }
 
-            $transfer->delete();
-        });
+    private function hasLedgerHistory(StockTransfer $transfer): bool
+    {
+        return StockMovement::query()
+            ->whereIn('reference_type', array_unique([(new StockTransfer)->getMorphClass(), StockTransfer::class, 'stock_transfer']))
+            ->where('reference_id', $transfer->id)
+            ->exists();
     }
 
     /**
@@ -820,8 +976,7 @@ class TransferService
 
     private function hasSiblingAtLocation(StockTransfer $transfer, StockTransferItem $item, ?int $locationId, Collection $inactiveLocations): bool
     {
-        return $locationId !== null && $transfer->items->contains(fn (StockTransferItem $candidate): bool =>
-            $candidate->id !== $item->id
+        return $locationId !== null && $transfer->items->contains(fn (StockTransferItem $candidate): bool => $candidate->id !== $item->id
             && (int) $candidate->product_variant_id === (int) $item->product_variant_id
             && (int) ($candidate->from_location_id ?? 0) === (int) ($item->from_location_id ?? 0)
             && ($candidate->to_location_id === null
