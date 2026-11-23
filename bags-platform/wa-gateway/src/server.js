@@ -35,7 +35,7 @@ const pool = new pg.Pool(createPoolConfig(process.env.DATABASE_URL));
 pool.on('error', (err) => logger.error({ err }, 'pg pool idle client error'));
 
 const mediaStore = createMediaStore();
-const maxImageBytes = 4 * 1024 * 1024;
+const maxMediaBytes = 4 * 1024 * 1024;
 const runtime = {
   state: 'close',
   phone: null,
@@ -224,8 +224,8 @@ app.post('/media/:id', async (request, reply) => {
     15000,
     'downloadMediaMessage timed out',
   );
-  const { tooLarge, buffer } = await consumeMediaStream(stream, { maxBytes: maxImageBytes, timeoutMs: 15000 });
-  if (tooLarge) return reply.code(413).send({ message: 'image too large' });
+  const { tooLarge, buffer } = await consumeMediaStream(stream, { maxBytes: maxMediaBytes, timeoutMs: 15000 });
+  if (tooLarge) return reply.code(413).send({ message: 'media too large' });
   return reply.type('application/octet-stream').send(buffer);
 });
 app.post('/encode-qr', async (request, reply) => {

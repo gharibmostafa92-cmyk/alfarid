@@ -15,6 +15,27 @@ import {
   resolveBaileysVersion,
 } from '../src/gateway.js';
 import { createReplayGuard, sign, verify } from '../src/hmac.js';
+import { toInbound } from '../src/filter.js';
+
+test('keeps an incoming voice note available after webhook delivery', async () => {
+  const store = createMediaStore();
+  const message = {
+    key: { id: 'voice-1', remoteJid: '201000000000@s.whatsapp.net' },
+    message: { audioMessage: { ptt: true, mimetype: 'audio/ogg; codecs=opus' } },
+  };
+  const payload = toInbound(message);
+  assert.equal(payload.text, '');
+  assert.deepEqual(payload.media, { id: 'voice-1', type: 'audio', mime: 'audio/ogg' });
+  const post = createPostInbound({
+    inboundUrl: 'https://laravel.test/api/wa/inbound',
+    secret: 'test-secret',
+    mediaStore: store,
+    fetchImpl: async () => ({ ok: true }),
+  });
+  assert.equal(await post(payload, message), true);
+  assert.deepEqual(store.get('voice-1').msg, message);
+  assert.equal(toInbound({ ...message, key: { ...message.key, remoteJid: '123@g.us' } }), null);
+});
 
 test('createPoolConfig sets bounded pool options', () => {
   const cfg = createPoolConfig('postgres://user:pass@localhost:5432/db');

@@ -60,7 +60,7 @@ export function createPostInbound({
   now = () => Date.now(),
 }) {
   return async function postInbound(payload, rawMessage) {
-    const mediaId = payload.media?.type === 'image' ? rawMessage?.key?.id : null;
+    const mediaId = ['image', 'audio'].includes(payload.media?.type) ? rawMessage?.key?.id : null;
     if (mediaId) mediaStore.remember(rawMessage);
     if (!inboundUrl) return true;
 

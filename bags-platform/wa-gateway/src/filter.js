@@ -27,7 +27,11 @@ export function toInbound(msg) {
     || null;
   let media = null;
   if (content.imageMessage) media = { id: key.id, type: 'image', mime: content.imageMessage.mimetype || 'image/jpeg' };
-  else if (content.audioMessage || content.pttMessage) media = { id: key.id, type: 'audio', mime: 'audio/ogg' };
+  else if (content.audioMessage || content.pttMessage) media = {
+    id: key.id,
+    type: 'audio',
+    mime: (content.audioMessage || content.pttMessage).mimetype?.split(';')[0] || 'audio/ogg',
+  };
   else if (content.videoMessage) media = { id: key.id, type: 'video', mime: content.videoMessage.mimetype || null };
   else if (content.documentMessage) media = { id: key.id, type: 'document', mime: content.documentMessage.mimetype || null };
   if (!text && !media) return null;
