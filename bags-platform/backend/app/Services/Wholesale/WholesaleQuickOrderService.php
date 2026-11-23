@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
-use App\Services\Orders\CartService;
-use App\Services\Pricing\PricingService;
-
 use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
@@ -14,6 +11,8 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Services\Orders\CartService;
+use App\Services\Pricing\PricingService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -51,61 +50,12 @@ class WholesaleQuickOrderService
      */
     public function lookupSelectedVariants(Customer $customer, array $lines): array
     {
-        $variants = ProductVariant::query()->with(['product.media', 'media'])
-            ->wholesalePurchasable()
-            ->whereIn('id', array_column($lines, 'product_variant_id'))
-            ->get()->keyBy('id');
+        $variants = $this->loadPurchasableVariantsById(
+            array_column($lines, 'product_variant_id'),
+            ['product.media', 'media'],
+        );
 
         return $this->lookupLines($customer, $lines, $variants, $variants, byVariantId: true);
-    }
-
-    private function lookupLines(Customer $customer, array $lines, Collection $bySku, Collection $byBarcode, bool $byVariantId = false): array
-    {
-        $allIds = $bySku->merge($byBarcode)->pluck('id')->unique()->all();
-        $availability = $this->availabilityFor($allIds);
-        // Preload pricing context for all looked-up variants in a single query batch.
-        $ctx = $this->pricing->contextFor($customer, $allIds);
-
-        return collect($lines)->map(function (array $line) use ($customer, $bySku, $byBarcode, $availability, $ctx, $byVariantId): array {
-            $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
-            if ($byVariantId) {
-                $variant = $bySku->get($line['product_variant_id']);
-            } elseif (isset($line['sku']) && trim((string) $line['sku']) !== '') {
-                $key = mb_strtoupper(trim((string) $line['sku']));
-                $variant = $bySku->get($key) ?? $byBarcode->get($key);
-            } else {
-                $key = mb_strtoupper(trim((string) ($line['barcode'] ?? '')));
-                $variant = $byBarcode->get($key) ?? $bySku->get($key);
-            }
-            $qty = (float) $line['qty'];
-
-            if ($variant === null) {
-                return [
-                    'code' => $code, 'found' => false, 'qty' => $qty,
-                    'available_qty' => 0.0, 'in_stock' => false,
-                ];
-            }
-
-            $available = $availability[$variant->id] ?? 0.0;
-            $unitPrice = $this->pricing->resolve($variant, $customer, $qty, null, $ctx)['unit_price'];
-
-            return [
-                'code' => $code,
-                'found' => true,
-                'product_variant_id' => $variant->id,
-                'sku' => $variant->sku,
-                'barcode' => $variant->barcode,
-                'label' => $variant->displayLabel(),
-                'image' => $this->imageFor($variant),
-                'product_name' => $variant->product?->name_ar,
-                'qty' => $qty,
-                'unit_price' => $unitPrice,
-                'line_total' => round($unitPrice * $qty, 2),
-                'tier_prices' => $this->pricing->tiersFor($variant, $customer, $ctx),
-                'available_qty' => $available,
-                'in_stock' => $available >= $qty,
-            ];
-        })->all();
     }
 
     /**
@@ -118,34 +68,19 @@ class WholesaleQuickOrderService
      */
     public function importToCart(Customer $customer, array $rows): array
     {
-        // Consolidate duplicate codes within the input before running stock availability checks.
-        $merged = [];
-        foreach ($rows as $row) {
-            $sku = trim((string) $row['sku']);
-            if ($sku === '') {
-                continue;
-            }
-            $merged[$sku] = ($merged[$sku] ?? 0.0) + (float) $row['qty'];
-        }
-
-        $lines = collect($merged)->map(fn (float $qty, string $sku) => ['sku' => $sku, 'qty' => $qty])->values()->all();
+        $lines = $this->consolidateSkuRows($rows);
         $found = $this->findVariants($lines);
         $allIds = $found['all']->pluck('id')->unique()->all();
         $availability = $this->availabilityFor($allIds);
         // Preload pricing context for all candidate items in one batch to eliminate per-item overhead.
-        $ctx = $this->pricing->contextFor($customer, $allIds);
+        $pricingCtx = $this->pricing->contextFor($customer, $allIds);
 
-        $items = array_map(function (array $line) use ($found): array {
-            $key = mb_strtoupper(trim((string) $line['sku']));
-
-            return [
-                'sku' => $line['sku'],
-                'qty' => $line['qty'],
-                'variant' => $found['by_sku']->get($key) ?? $found['by_barcode']->get($key),
-            ];
-        }, $lines);
-
-        return $this->addLinesToCart($customer, $items, $availability, $ctx);
+        return $this->addLinesToCart(
+            $customer,
+            $this->buildCandidateItemsFromCodes($lines, $found['by_sku'], $found['by_barcode']),
+            $availability,
+            $pricingCtx,
+        );
     }
 
     /**
@@ -163,7 +98,7 @@ class WholesaleQuickOrderService
         }
 
         $rows = $order->items()->get()
-            ->map(fn ($item) => [
+            ->map(fn ($item): array => [
                 'product_variant_id' => $item->product_variant_id,
                 'sku' => (string) $item->sku_snapshot,
                 'qty' => (float) $item->qty,
@@ -181,29 +116,191 @@ class WholesaleQuickOrderService
      */
     public function importSelectedVariantsToCart(Customer $customer, array $rows): array
     {
-        $lines = collect($rows)
-            ->groupBy('product_variant_id')
-            ->map(fn (Collection $items, int $variantId) => [
-                'product_variant_id' => $variantId,
-                'sku' => $items->first()['sku'],
-                'qty' => (float) $items->sum('qty'),
-            ])
-            ->values();
+        $lines = $this->consolidateVariantRows($rows);
+        $variants = $this->loadPurchasableVariantsById(
+            $lines->pluck('product_variant_id')->all(),
+            ['product'],
+        );
+        $variantIds = $variants->pluck('id')->all();
+        $availability = $this->availabilityFor($variantIds);
+        $pricingCtx = $this->pricing->contextFor($customer, $variantIds);
 
-        $variants = ProductVariant::query()->with('product')
-            ->wholesalePurchasable()
-            ->whereIn('id', $lines->pluck('product_variant_id'))
-            ->get()->keyBy('id');
-        $availability = $this->availabilityFor($variants->pluck('id')->all());
-        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
-
-        $items = $lines->map(fn (array $row) => [
+        $items = $lines->map(fn (array $row): array => [
             'sku' => $row['sku'],
             'qty' => $row['qty'],
             'variant' => $variants->get($row['product_variant_id']),
         ])->all();
 
-        return $this->addLinesToCart($customer, $items, $availability, $ctx);
+        return $this->addLinesToCart($customer, $items, $availability, $pricingCtx);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $lines
+     * @param  Collection<int|string, ProductVariant>  $bySku
+     * @param  Collection<int|string, ProductVariant>  $byBarcode
+     * @return list<array<string, mixed>>
+     */
+    private function lookupLines(
+        Customer $customer,
+        array $lines,
+        Collection $bySku,
+        Collection $byBarcode,
+        bool $byVariantId = false,
+    ): array {
+        $allIds = $bySku->merge($byBarcode)->pluck('id')->unique()->all();
+        $availability = $this->availabilityFor($allIds);
+        // Preload pricing context for all looked-up variants in a single query batch.
+        $pricingCtx = $this->pricing->contextFor($customer, $allIds);
+
+        return collect($lines)
+            ->map(function (array $line) use ($customer, $bySku, $byBarcode, $availability, $pricingCtx, $byVariantId): array {
+                $variant = $this->resolveVariantForLine($line, $bySku, $byBarcode, $byVariantId);
+
+                return $this->presentLookupLine($line, $variant, $customer, $availability, $pricingCtx);
+            })
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $line
+     * @param  Collection<int|string, ProductVariant>  $bySku
+     * @param  Collection<int|string, ProductVariant>  $byBarcode
+     */
+    private function resolveVariantForLine(
+        array $line,
+        Collection $bySku,
+        Collection $byBarcode,
+        bool $byVariantId,
+    ): ?ProductVariant {
+        if ($byVariantId) {
+            return $bySku->get($line['product_variant_id']);
+        }
+
+        if (isset($line['sku']) && trim((string) $line['sku']) !== '') {
+            $key = $this->normalizeCode((string) $line['sku']);
+
+            return $bySku->get($key) ?? $byBarcode->get($key);
+        }
+
+        $key = $this->normalizeCode((string) ($line['barcode'] ?? ''));
+
+        return $byBarcode->get($key) ?? $bySku->get($key);
+    }
+
+    /**
+     * @param  array<string, mixed>  $line
+     * @param  array<int, float>  $availability
+     * @param  array<string, mixed>  $pricingCtx
+     * @return array<string, mixed>
+     */
+    private function presentLookupLine(
+        array $line,
+        ?ProductVariant $variant,
+        Customer $customer,
+        array $availability,
+        array $pricingCtx,
+    ): array {
+        $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
+        $qty = (float) $line['qty'];
+
+        if ($variant === null) {
+            return [
+                'code' => $code,
+                'found' => false,
+                'qty' => $qty,
+                'available_qty' => 0.0,
+                'in_stock' => false,
+            ];
+        }
+
+        $available = $availability[$variant->id] ?? 0.0;
+        $unitPrice = $this->pricing->resolve($variant, $customer, $qty, null, $pricingCtx)['unit_price'];
+
+        return [
+            'code' => $code,
+            'found' => true,
+            'product_variant_id' => $variant->id,
+            'sku' => $variant->sku,
+            'barcode' => $variant->barcode,
+            'label' => $variant->displayLabel(),
+            'image' => $this->imageFor($variant),
+            'product_name' => $variant->product?->name_ar,
+            'qty' => $qty,
+            'unit_price' => $unitPrice,
+            'line_total' => round($unitPrice * $qty, 2),
+            'tier_prices' => $this->pricing->tiersFor($variant, $customer, $pricingCtx),
+            'available_qty' => $available,
+            'in_stock' => $available >= $qty,
+        ];
+    }
+
+    /**
+     * Consolidate duplicate SKU codes within imported rows before stock availability checks.
+     *
+     * @param  list<array{sku: string, qty: float}>  $rows
+     * @return list<array{sku: string, qty: float}>
+     */
+    private function consolidateSkuRows(array $rows): array
+    {
+        $merged = [];
+        foreach ($rows as $row) {
+            $sku = trim((string) $row['sku']);
+            if ($sku === '') {
+                continue;
+            }
+            $merged[$sku] = ($merged[$sku] ?? 0.0) + (float) $row['qty'];
+        }
+
+        return collect($merged)
+            ->map(fn (float $qty, string $sku): array => ['sku' => $sku, 'qty' => $qty])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<array{product_variant_id: int, sku: string, qty: float}>  $rows
+     * @return Collection<int, array{product_variant_id: int, sku: string, qty: float}>
+     */
+    private function consolidateVariantRows(array $rows): Collection
+    {
+        return collect($rows)
+            ->groupBy('product_variant_id')
+            ->map(fn (Collection $items, int $variantId): array => [
+                'product_variant_id' => $variantId,
+                'sku' => $items->first()['sku'],
+                'qty' => (float) $items->sum('qty'),
+            ])
+            ->values();
+    }
+
+    /**
+     * @param  list<array{sku: string, qty: float}>  $lines
+     * @param  Collection<string, ProductVariant>  $bySku
+     * @param  Collection<string, ProductVariant>  $byBarcode
+     * @return list<array{sku: string, qty: float, variant: ?ProductVariant}>
+     */
+    private function buildCandidateItemsFromCodes(array $lines, Collection $bySku, Collection $byBarcode): array
+    {
+        return array_map(fn (array $line): array => [
+            'sku' => $line['sku'],
+            'qty' => $line['qty'],
+            'variant' => $this->resolveVariantForLine($line, $bySku, $byBarcode, byVariantId: false),
+        ], $lines);
+    }
+
+    /**
+     * @param  list<int>  $variantIds
+     * @param  list<string>  $relations
+     * @return Collection<int, ProductVariant>
+     */
+    private function loadPurchasableVariantsById(array $variantIds, array $relations = []): Collection
+    {
+        return ProductVariant::query()
+            ->with($relations)
+            ->wholesalePurchasable()
+            ->whereIn('id', $variantIds)
+            ->get()
+            ->keyBy('id');
     }
 
     /**
@@ -219,36 +316,26 @@ class WholesaleQuickOrderService
         return DB::transaction(function () use ($customer, $items, $availability, $pricingCtx): array {
             $cart = $this->carts->resolveCart($customer, null);
             Cart::query()->whereKey($cart->id)->lockForUpdate()->first();
-            $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
+            $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q): float => (float) $q)->all();
 
             $added = [];
             $skipped = [];
+
             foreach ($items as $item) {
-                $variant = $item['variant'];
-                $sku = $item['sku'];
-                $qty = (float) $item['qty'];
+                [$cart, $addedLine, $skippedLine] = $this->processCartCandidate(
+                    $cart,
+                    $customer,
+                    $item,
+                    $availability,
+                    $pricingCtx,
+                    $inCart,
+                );
 
-                if ($variant === null || ! $variant->is_active || $variant->product?->status !== ProductStatus::Published) {
-                    $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'not_found_or_inactive'];
-
-                    continue;
+                if ($addedLine !== null) {
+                    $added[] = $addedLine;
+                } elseif ($skippedLine !== null) {
+                    $skipped[] = $skippedLine;
                 }
-
-                $alreadyInCart = $inCart[$variant->id] ?? 0.0;
-                if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $qty) {
-                    $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'insufficient_stock'];
-
-                    continue;
-                }
-
-                $cart = $this->carts->addItem($cart, $customer, $variant->id, $qty);
-                $inCart[$variant->id] = $alreadyInCart + $qty;
-                $added[] = [
-                    'sku' => $variant->sku,
-                    'product_variant_id' => $variant->id,
-                    'qty' => $qty,
-                    'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $pricingCtx)['unit_price'],
-                ];
             }
 
             return [
@@ -260,6 +347,52 @@ class WholesaleQuickOrderService
     }
 
     /**
+     * @param  array{sku: string, qty: float, variant: ?ProductVariant}  $item
+     * @param  array<int, float>  $availability
+     * @param  array<string, mixed>  $pricingCtx
+     * @param  array<int, float>  $inCart
+     * @return array{0: Cart, 1: ?array<string, mixed>, 2: ?array<string, mixed>}
+     */
+    private function processCartCandidate(
+        Cart $cart,
+        Customer $customer,
+        array $item,
+        array $availability,
+        array $pricingCtx,
+        array &$inCart,
+    ): array {
+        $variant = $item['variant'];
+        $sku = $item['sku'];
+        $qty = (float) $item['qty'];
+
+        if (! $this->isVariantPurchasable($variant)) {
+            return [$cart, null, ['sku' => $sku, 'qty' => $qty, 'reason' => 'not_found_or_inactive']];
+        }
+
+        $alreadyInCart = $inCart[$variant->id] ?? 0.0;
+        if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $qty) {
+            return [$cart, null, ['sku' => $sku, 'qty' => $qty, 'reason' => 'insufficient_stock']];
+        }
+
+        $cart = $this->carts->addItem($cart, $customer, $variant->id, $qty);
+        $inCart[$variant->id] = $alreadyInCart + $qty;
+
+        return [$cart, [
+            'sku' => $variant->sku,
+            'product_variant_id' => $variant->id,
+            'qty' => $qty,
+            'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $pricingCtx)['unit_price'],
+        ], null];
+    }
+
+    private function isVariantPurchasable(?ProductVariant $variant): bool
+    {
+        return $variant !== null
+            && $variant->is_active
+            && $variant->product?->status === ProductStatus::Published;
+    }
+
+    /**
      * Map active variants of published products into separate SKU and barcode namespaces.
      *
      * @param  list<array{sku?: string|null, barcode?: string|null}>  $lines
@@ -267,42 +400,80 @@ class WholesaleQuickOrderService
      */
     private function findVariants(array $lines): array
     {
-        $rawCodes = collect($lines)
-            ->flatMap(fn (array $line) => [$line['sku'] ?? null, $line['barcode'] ?? null])
-            ->map(fn ($c) => trim((string) $c))
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
-
+        $rawCodes = $this->extractUniqueCodes($lines);
         if ($rawCodes === []) {
             return ['by_sku' => collect(), 'by_barcode' => collect(), 'all' => collect()];
         }
 
-        $upperCodes = array_values(array_unique(array_map('mb_strtoupper', $rawCodes)));
+        $variants = $this->queryVariantsByCodes($rawCodes);
+        $indexed = $this->indexVariantsByCode($variants);
+
+        return [
+            'by_sku' => $indexed['by_sku'],
+            'by_barcode' => $indexed['by_barcode'],
+            'all' => $variants,
+        ];
+    }
+
+    /**
+     * @param  list<array{sku?: string|null, barcode?: string|null}>  $lines
+     * @return list<string>
+     */
+    private function extractUniqueCodes(array $lines): array
+    {
+        return collect($lines)
+            ->flatMap(fn (array $line): array => [$line['sku'] ?? null, $line['barcode'] ?? null])
+            ->map(fn ($code): string => trim((string) $code))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<string>  $rawCodes
+     * @return Collection<int, ProductVariant>
+     */
+    private function queryVariantsByCodes(array $rawCodes): Collection
+    {
+        $upperCodes = array_values(array_unique(array_map($this->normalizeCode(...), $rawCodes)));
         $placeholders = implode(', ', array_fill(0, count($upperCodes), '?'));
 
-        $variants = ProductVariant::query()->with(['product.media', 'media'])
+        return ProductVariant::query()
+            ->with(['product.media', 'media'])
             ->wholesalePurchasable()
-            ->where(function ($q) use ($upperCodes, $rawCodes, $placeholders): void {
-                $q->whereRaw("UPPER(sku) IN ({$placeholders})", $upperCodes)
+            ->where(function ($query) use ($upperCodes, $rawCodes, $placeholders): void {
+                $query->whereRaw("UPPER(sku) IN ({$placeholders})", $upperCodes)
                     ->orWhereIn('barcode', $rawCodes)
                     ->orWhereIn('barcode', $upperCodes);
             })
             ->get();
+    }
 
+    /**
+     * @param  Collection<int, ProductVariant>  $variants
+     * @return array{by_sku: Collection<string, ProductVariant>, by_barcode: Collection<string, ProductVariant>}
+     */
+    private function indexVariantsByCode(Collection $variants): array
+    {
         $bySku = collect();
         $byBarcode = collect();
+
         foreach ($variants as $variant) {
             if ($variant->sku !== null && $variant->sku !== '') {
-                $bySku->put(mb_strtoupper(trim((string) $variant->sku)), $variant);
+                $bySku->put($this->normalizeCode($variant->sku), $variant);
             }
             if ($variant->barcode !== null && $variant->barcode !== '') {
-                $byBarcode->put(mb_strtoupper(trim((string) $variant->barcode)), $variant);
+                $byBarcode->put($this->normalizeCode($variant->barcode), $variant);
             }
         }
 
-        return ['by_sku' => $bySku, 'by_barcode' => $byBarcode, 'all' => $variants];
+        return ['by_sku' => $bySku, 'by_barcode' => $byBarcode];
+    }
+
+    private function normalizeCode(?string $code): string
+    {
+        return mb_strtoupper(trim((string) $code));
     }
 
     /**
@@ -339,7 +510,7 @@ class WholesaleQuickOrderService
             ->groupBy('stock_levels.product_variant_id')
             ->selectRaw('stock_levels.product_variant_id, SUM(stock_levels.available) AS total_available')
             ->pluck('total_available', 'stock_levels.product_variant_id')
-            ->map(fn ($v) => (float) $v)
+            ->map(fn ($value): float => (float) $value)
             ->all();
     }
 }

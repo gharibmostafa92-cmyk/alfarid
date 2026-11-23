@@ -156,10 +156,11 @@ select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg 
 .seg button.on { background: var(--seg-active-bg); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.06); font-weight: 600; }
 
 @media (max-width: 639px) {
-  .seg { flex-wrap: wrap; max-width: 100%; border-radius: 12px; }
-  .seg button { min-height: 44px; padding-inline: 10px; }
+  .seg { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; border-radius: 14px; scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { min-height: 40px; padding-inline: 12px; white-space: nowrap; flex-shrink: 0; scroll-snap-align: start; touch-action: manipulation; }
   .btn { min-height: 44px; }
-  .btn-sm { min-height: 40px; }
+  .btn-sm { min-height: 38px; }
   .icon-btn { min-width: 44px; min-height: 44px; }
   .inp { min-height: 44px; }
   .vt { min-width: 580px; }

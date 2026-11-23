@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, RotateCcw, Ruler, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
 import { formatStorePrice } from '@alfarid/utils';
@@ -50,9 +50,12 @@ export function ProductExperience({
   const [explicitVariantId, setExplicitVariantId] = useState(initialVariantId ?? null);
   const [quantity, setQuantity] = useState(1);
   const [activeImage, setActiveImage] = useState<string | null>(null);
+  const [focusKey, setFocusKey] = useState(0);
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
   const [notice, setNotice] = useState('');
+  const [showStickyBar, setShowStickyBar] = useState(false);
+  const addBtnRef = useRef<HTMLButtonElement | null>(null);
   const addItem = useCartStore((state) => state.addItem);
 
   const sizeReady = detail.sizes.length === 0 || size !== null;
@@ -153,6 +156,7 @@ export function ProductExperience({
       color: color && colors.includes(color) ? color : colors.length === 1 ? colors[0] : color,
     });
     setQuantity(1);
+    setFocusKey((k) => k + 1);
     resetFeedback();
   };
 
@@ -176,6 +180,7 @@ export function ProductExperience({
       color: nextColor,
     }));
     setQuantity(1);
+    setFocusKey((k) => k + 1);
     resetFeedback();
   };
 
@@ -253,9 +258,71 @@ export function ProductExperience({
     .filter(Boolean)
     .join(' · ');
 
+  const actionLabel = !purchasingReady
+    ? isAr
+      ? 'جاري التحميل…'
+      : 'Loading…'
+    : soldOut
+      ? isAr
+        ? 'نفدت الكمية'
+        : 'Sold out'
+      : !complete
+        ? !sizeReady
+          ? isAr
+            ? 'اختار المقاس'
+            : 'Choose size'
+          : isAr
+            ? 'اختار اللون'
+            : 'Choose color'
+        : adding
+          ? isAr
+            ? 'جاري الإضافة…'
+            : 'Adding…'
+          : added
+            ? isAr
+              ? 'تمت الإضافة للسلة'
+              : 'Added to cart'
+            : !canBuy
+              ? isAr
+                ? 'نفدت الكمية'
+                : 'Sold out'
+              : isAr
+                ? 'أضف للسلة'
+                : 'Add to cart';
+
+  useEffect(() => {
+    const target = addBtnRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setShowStickyBar(!entry.isIntersecting);
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -64px 0px' }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  const handleStickyAction = () => {
+    if (!complete) {
+      document.getElementById('product-options')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    void add();
+  };
+
   return (
     <main id="main-content" tabIndex={-1} className="design-page product-experience product-mode">
       <section className="product-purchase-stage" aria-label="Product selection and 3D stage">
+        <div className="product-mobile-topbar">
+          <button type="button" className="product-back" onClick={onBack}>
+            {isAr ? <ArrowRight size={16} /> : <ArrowLeft size={16} />}
+            <span>{isAr ? 'العودة للتشكيلة' : 'Back to collection'}</span>
+          </button>
+          {detail.categoryLabel && (
+            <span className="product-mobile-category">{detail.categoryLabel}</span>
+          )}
+        </div>
         <aside id="product-options" className="design-sidebar product-configurator" aria-label="Product options">
           <div className="product-configurator-main">
             <button type="button" className="product-back" onClick={onBack}>
@@ -387,45 +454,14 @@ export function ProductExperience({
             )}
 
             <button
+              ref={addBtnRef}
               type="button"
               className="design-btn-pill product-add-button"
               disabled={!canBuy || adding}
               onClick={add}
             >
               {added ? <Check size={16} /> : <ShoppingBag size={16} />}
-              <span>
-                {!purchasingReady
-                  ? isAr
-                    ? 'جاري التحميل…'
-                    : 'Loading…'
-                  : soldOut
-                    ? isAr
-                      ? 'نفدت الكمية'
-                      : 'Sold out'
-                    : !complete
-                      ? !sizeReady
-                        ? isAr
-                          ? 'اختار المقاس'
-                          : 'Choose size'
-                        : isAr
-                          ? 'اختار اللون'
-                          : 'Choose color'
-                      : adding
-                        ? isAr
-                          ? 'جاري الإضافة…'
-                          : 'Adding…'
-                        : added
-                          ? isAr
-                            ? 'تمت الإضافة للسلة'
-                            : 'Added to cart'
-                          : !canBuy
-                            ? isAr
-                              ? 'نفدت الكمية'
-                              : 'Sold out'
-                            : isAr
-                              ? 'أضف للسلة'
-                              : 'Add to cart'}
-              </span>
+              <span>{actionLabel}</span>
             </button>
 
             <p className="product-cart-notice" role="status">
@@ -481,6 +517,8 @@ export function ProductExperience({
             canNavigate={slides.length > 1}
             onNavigate={navigate}
             onSelectIndex={selectStageIndex}
+            focusKey={focusKey}
+            isMatched={!!variant}
           />
 
           <div className="design-carousel-info product-heading">
@@ -496,7 +534,18 @@ export function ProductExperience({
               {oldPrice !== null && price !== null && oldPrice > price && (
                 <span className="product-price-old">{formatStorePrice(oldPrice)}</span>
               )}
-              {selectionSummary && <span className="product-stage-chip">{selectionSummary}</span>}
+              {selectionSummary && (
+                <span className={`product-stage-chip${variant ? ' is-matched' : ''}`}>
+                  {variant && <Check size={12} strokeWidth={2.75} aria-hidden="true" />}
+                  <span>
+                    {variant
+                      ? isAr
+                        ? `متطابق مع اختيارك · ${selectionSummary}`
+                        : `Matches selection · ${selectionSummary}`
+                      : selectionSummary}
+                  </span>
+                </span>
+              )}
             </div>
 
             <a
@@ -636,6 +685,30 @@ export function ProductExperience({
           </dl>
         </div>
       </section>
+
+      <div
+        className={`product-mobile-bar${showStickyBar ? ' is-visible' : ''}`}
+        aria-hidden={!showStickyBar}
+      >
+        <div className="product-mobile-bar-meta">
+          <span className="product-mobile-bar-price">
+            {price !== null ? formatStorePrice(price) : isAr ? 'غير متاح' : 'Unavailable'}
+          </span>
+          {selectionSummary && (
+            <span className="product-mobile-bar-selection">{selectionSummary}</span>
+          )}
+        </div>
+        <button
+          type="button"
+          className="design-btn-pill product-mobile-bar-cta"
+          tabIndex={showStickyBar ? 0 : -1}
+          disabled={complete && (!canBuy || adding)}
+          onClick={handleStickyAction}
+        >
+          {added ? <Check size={15} /> : <ShoppingBag size={15} />}
+          <span>{actionLabel}</span>
+        </button>
+      </div>
     </main>
   );
 }

@@ -1168,14 +1168,15 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
   const [rowErrs, setRowErrs] = useState({});
   useEffect(() => { if (open) { setF({ batch: '', branchId: restriction.locked ? restriction.branchId : null, locId: null, note: '' }); setLines([newPrLine()]); setTried(false); setErr(null); setRowErrs({}); setBusy(false); } }, [open]);
   const upd = (k, p) => { setLines(ls => ls.map(l => l.key === k ? { ...l, ...p } : l)); setRowErrs({}); };
-  const bad = l => {
-    if (!l.variantId) return true;
+  const badQty = l => {
     const qv = normalizeNumericInput(l.qty);
-    if (!/^\d+$/.test(qv) || !(Number(qv) >= 1) || Number(qv) > 99999999) return true;
-    const cv = normalizeNumericInput(l.cost);
-    if (cv === '' || !QTY_RE.test(cv) || Number(cv) < 0 || Number(cv) > QTY_MAX) return true;
-    return false;
+    return !/^\d+$/.test(qv) || !(Number(qv) >= 1) || Number(qv) > 99999999;
   };
+  const badCost = l => {
+    const cv = normalizeNumericInput(l.cost);
+    return cv === '' || !QTY_RE.test(cv) || Number(cv) < 0 || Number(cv) > QTY_MAX;
+  };
+  const bad = l => !l.variantId || badQty(l) || badCost(l);
   const valid = f.batch.trim() && f.batch.trim().length <= 100 && f.branchId && lines.length && lines.length <= PRD_MAX && lines.every(l => !bad(l));
   const dupes = lines.filter((l, i) => l.variantId && lines.findIndex(x => x.variantId === l.variantId) !== i).length;
   const total = lines.reduce((a, l) => a + (Number(normalizeNumericInput(l.qty)) || 0) * (Number(normalizeNumericInput(l.cost)) || 0), 0);
@@ -1209,38 +1210,73 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
         <button className="btn btn-orange" onClick={submit} disabled={busy}>{busy && <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />} تسجيل الاستلام</button>
         <button className="btn btn-soft" onClick={onClose}>إلغاء</button>
         <span className="flex-1" />
-        <span className="text-[12px] c-secondary">إجمالي التكلفة <span className="num font-display text-[18px] font-bold c-primary mr-1">{formatCurrency(total)}</span></span>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[12px] c-secondary">إجمالي التكلفة</span>
+          <span className="num font-display text-[19px] font-bold c-primary">{formatCurrency(total)}</span>
+        </div>
       </>}>
       <div className="space-y-4">
         {err && <InlineAlert kind="red" title="رفض الخادم العملية">{err}</InlineAlert>}
         {dupes > 0 && <InlineAlert kind="amber" title="بنود مكررة">يوجد {dupes} بند مكرر — المتغيرات يجب أن تكون مميزة، احذف التكرار قبل التسجيل.</InlineAlert>}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Field label="رقم الدفعة" req error={tried && !f.batch.trim() ? 'مطلوب' : rowErrs.batch_number}><input dir="ltr" className={`inp mono text-left ${tried && !f.batch.trim() ? 'err' : ''}`} maxLength={100} value={f.batch} onChange={e => setF({ ...f, batch: e.target.value.toUpperCase() })} placeholder="B-2610-08" /></Field>
-          <Field label="الفرع / المخزن" req error={tried && !f.branchId ? 'مطلوب' : rowErrs.branch_id}><Sel value={f.branchId} disabled={restriction.locked} onChange={v => setF({ ...f, branchId: v || null, locId: null })} placeholder="اختر…" options={branches.filter(b => !restriction.locked || b.id === restriction.branchId).map(b => ({ value: b.id, label: b.name }))} /></Field>
-          <Field label="الموقع" hint="اختياري"><Sel value={f.locId} onChange={v => setF({ ...f, locId: v || null })} placeholder={f.branchId ? 'الموقع الافتراضي' : '—'} disabled={!f.branchId} options={locOpts} /></Field>
+        <div className="v-subcard p-4 rounded-2xl border border-[var(--border-subtle)] grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+          <Field label="رقم الدفعة" req error={tried && !f.batch.trim() ? 'مطلوب' : rowErrs.batch_number}>
+            <input dir="ltr" className={`inp mono text-left !bg-[var(--bg-card)] ${tried && !f.batch.trim() ? 'err' : ''}`} maxLength={100} value={f.batch} onChange={e => setF({ ...f, batch: e.target.value.toUpperCase() })} placeholder="B-2610-08" />
+          </Field>
+          <Field label="الفرع / المخزن" req error={tried && !f.branchId ? 'مطلوب' : rowErrs.branch_id}>
+            <Sel value={f.branchId} disabled={restriction.locked} onChange={v => setF({ ...f, branchId: v || null, locId: null })} placeholder="اختر…" options={branches.filter(b => !restriction.locked || b.id === restriction.branchId).map(b => ({ value: b.id, label: b.name }))} className="!bg-[var(--bg-card)]" />
+          </Field>
+          <Field label={<>الموقع <span className="c-muted font-normal">(اختياري)</span></>}>
+            <Sel value={f.locId} onChange={v => setF({ ...f, locId: v || null })} placeholder={f.branchId ? 'الموقع الافتراضي' : '—'} disabled={!f.branchId} options={locOpts} className="!bg-[var(--bg-card)]" />
+          </Field>
         </div>
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="field-label !mb-0">البنود <span className="num c-muted">{lines.length}/{PRD_MAX}</span></span>
-            <button className="btn btn-soft btn-sm" disabled={lines.length >= PRD_MAX} onClick={() => setLines(ls => [...ls, newPrLine()])}><Icon n="plus" s={13} /> إضافة بند</button>
+        <div className="rounded-2xl border border-[var(--border-subtle)] overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--divider-color)]" style={{ background: 'var(--bg-subcard)' }}>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-semibold c-primary">البنود</span>
+              <span className="num text-[11.5px] px-2 py-0.5 rounded-full c-secondary" style={{ background: 'var(--bg-card)' }}>{lines.length} / {PRD_MAX}</span>
+            </div>
+            <button type="button" className="btn btn-soft btn-sm !bg-[var(--bg-card)] border border-[var(--border-subtle)]" disabled={lines.length >= PRD_MAX} onClick={() => setLines(ls => [...ls, newPrLine()])}>
+              <Icon n="plus" s={13} /> إضافة بند
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="vt">
-              <thead><tr><th className="w-8">#</th><th style={{ minWidth: 300 }}>المتغير / SKU</th><th style={{ width: 120 }}>الكمية</th><th style={{ width: 140 }}>تكلفة الوحدة</th><th className="t-num">الإجمالي</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th className="w-10 text-center">#</th>
+                  <th style={{ minWidth: 280 }}>المتغير / SKU</th>
+                  <th style={{ width: 115 }}>الكمية</th>
+                  <th style={{ width: 135 }}>تكلفة الوحدة</th>
+                  <th className="t-num" style={{ width: 120 }}>الإجمالي</th>
+                  <th className="w-11"></th>
+                </tr>
+              </thead>
               <tbody>
                 {lines.map((l, i) => {
                   const re = rowErrs[i] || {};
                   return (
-                  <tr key={l.key}>
-                    <td className="num c-muted">{i + 1}</td>
-                    <td><div className={(tried && !l.variantId) || re.product_variant_id ? 'rounded-[12px] ring-1 ring-[var(--badge-red-text)]' : ''}><VariantPicker small value={l.variantId} onChange={v => upd(l.key, { variantId: v })} /></div>
-                      {re.product_variant_id && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.product_variant_id}</div>}</td>
-                    <td><NumInput small integer value={l.qty} onChange={v => upd(l.key, { qty: v })} err={(tried && bad(l)) || re.quantity} />
-                      {re.quantity && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.quantity}</div>}</td>
-                    <td><NumInput small decimals={4} value={l.cost} onChange={v => upd(l.key, { cost: v })} err={(tried && bad(l)) || re.unit_cost} placeholder="0.00" />
-                      {re.unit_cost && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.unit_cost}</div>}</td>
-                    <td className="t-num num c-primary font-semibold">{formatCurrency((Number(normalizeNumericInput(l.qty)) || 0) * (Number(normalizeNumericInput(l.cost)) || 0))}</td>
-                    <td><button className="icon-btn" disabled={lines.length === 1} onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Icon n="trash" s={14} /></button></td>
+                  <tr key={l.key} className="align-top">
+                    <td className="num c-muted text-center pt-4">{i + 1}</td>
+                    <td>
+                      <div className={(tried && !l.variantId) || re.product_variant_id ? 'rounded-[12px] ring-1 ring-[var(--badge-red-text)]' : ''}>
+                        <VariantPicker small value={l.variantId} onChange={v => upd(l.key, { variantId: v })} />
+                      </div>
+                      {re.product_variant_id && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.product_variant_id}</div>}
+                    </td>
+                    <td>
+                      <NumInput small integer value={l.qty} onChange={v => upd(l.key, { qty: v })} err={(tried && badQty(l)) || re.quantity} />
+                      {re.quantity && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.quantity}</div>}
+                    </td>
+                    <td>
+                      <NumInput small decimals={4} value={l.cost} onChange={v => upd(l.key, { cost: v })} err={(tried && badCost(l)) || re.unit_cost} placeholder="0.00" />
+                      {re.unit_cost && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.unit_cost}</div>}
+                    </td>
+                    <td className="t-num num c-primary font-semibold pt-4">{formatCurrency((Number(normalizeNumericInput(l.qty)) || 0) * (Number(normalizeNumericInput(l.cost)) || 0))}</td>
+                    <td className="pt-2.5 text-center">
+                      <button type="button" aria-label="حذف البند" className="icon-btn" disabled={lines.length === 1} onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}>
+                        <Icon n="trash" s={14} />
+                      </button>
+                    </td>
                   </tr>
                   );
                 })}
@@ -1248,7 +1284,9 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
             </table>
           </div>
         </div>
-        <Field label="ملاحظات"><textarea maxLength={1000} className="inp" rows={2} value={f.note} onChange={e => setF({ ...f, note: e.target.value })} /></Field>
+        <Field label={<>ملاحظات <span className="c-muted font-normal">(اختياري)</span></>}>
+          <textarea maxLength={1000} className="inp" rows={2} value={f.note} onChange={e => setF({ ...f, note: e.target.value })} placeholder="رقم أمر التشغيل أو ملاحظات الجودة…" />
+        </Field>
       </div>
     </Modal>
   );
@@ -1978,14 +2016,14 @@ function TransfersScreen({ go }) {
       <Card pad="p-3.5 sm:p-5" stagger={3}>
         <CardHead title="القائمة" right={<div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           <div className="seg w-full sm:w-auto">
-            <button className={`flex-1 sm:flex-initial ${st === 'all' ? 'on' : ''}`} onClick={() => setSt('all')}>الكل</button>
-            {Object.entries(TRANSFER_STATUS).map(([k, t]) => <button key={k} className={`flex-1 sm:flex-initial ${st === k ? 'on' : ''}`} onClick={() => setSt(k)}>{t}</button>)}
+            <button className={st === 'all' ? 'on' : ''} onClick={() => setSt('all')}>الكل</button>
+            {Object.entries(TRANSFER_STATUS).map(([k, t]) => <button key={k} className={st === k ? 'on' : ''} onClick={() => setSt(k)}>{t}</button>)}
           </div>
-          <SearchPill value={q} onChange={setQ} placeholder="رقم التحويل" w="w-full sm:w-32" className="w-full sm:w-auto" />
+          <SearchPill value={q} onChange={setQ} placeholder="رقم التحويل" w="w-full sm:w-36" className="w-full sm:w-auto" />
         </div>} />
         <FilterBar active={active} onReset={() => { setFromF(null); setToF(null); setQ(''); setSt('all'); }}>
-          <FItem label="من فرع" w="w-[calc(50%-5px)] sm:w-44"><Sel small value={fromF} onChange={v => setFromF(v || null)} placeholder="كل الفروع" options={branchOptions} className="!bg-[var(--bg-card)]" /></FItem>
-          <FItem label="إلى فرع" w="w-[calc(50%-5px)] sm:w-44"><Sel small value={toF} onChange={v => setToF(v || null)} placeholder="كل الفروع" options={branchOptions} className="!bg-[var(--bg-card)]" /></FItem>
+          <FItem label="من فرع" w="w-full xs:w-[calc(50%-5px)] sm:w-44"><Sel small value={fromF} onChange={v => setFromF(v || null)} placeholder="كل الفروع" options={branchOptions} className="!bg-[var(--bg-card)]" /></FItem>
+          <FItem label="إلى فرع" w="w-full xs:w-[calc(50%-5px)] sm:w-44"><Sel small value={toF} onChange={v => setToF(v || null)} placeholder="كل الفروع" options={branchOptions} className="!bg-[var(--bg-card)]" /></FItem>
         </FilterBar>
         <Phase phase={phase} cols={6} error={error} onRetry={onRetry}
           empty={<EmptyState icon="swap" title="لا توجد تحويلات" sub="أنشئ أول تحويل لنقل الكميات من المخزن الرئيسي إلى الفروع."
@@ -1993,29 +2031,37 @@ function TransfersScreen({ go }) {
           {rows.length === 0 ? <EmptyState icon="filter" title="لا توجد تحويلات بهذه الحالة" /> : (
             <>
               {/* Mobile cards */}
-              <div className="md:hidden space-y-3">
+              <div className="md:hidden space-y-2.5">
                 {rows.map(t => {
                   const idx = TR_FLOW.indexOf(t.status);
                   return (
                     <div key={t.id} role="button" tabIndex={0} onClick={() => go('transfer', { id: t.id })} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && go('transfer', { id: t.id })}
-                      className="v-subcard p-3.5 rounded-2xl border border-[var(--border-subtle)] space-y-2.5 cursor-pointer transition active:scale-[0.985]">
+                      className="v-subcard p-3.5 rounded-2xl border border-[var(--border-subtle)] space-y-3 cursor-pointer transition-transform duration-150 active:scale-[0.985]">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="mono text-[13.5px] font-bold c-primary" dir="ltr">{t.transfer_number}</span>
+                        <span className="mono text-[13.5px] font-bold c-primary tracking-tight" dir="ltr">{t.transfer_number}</span>
                         <TrStatus s={t.status} />
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap text-[13px]">
-                        <span className="font-semibold c-primary truncate">{t.from_branch?.name || '—'}</span>
-                        <Icon n="arrowL" s={14} className="c-orange shrink-0" />
-                        <span className="font-semibold c-primary truncate">{t.to_branch?.name || '—'}</span>
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'var(--bg-card)' }}>
+                        <div className="min-w-0">
+                          <div className="text-[10px] c-muted">من</div>
+                          <div className="text-[12.5px] font-semibold c-primary truncate">{t.from_branch?.name || '—'}</div>
+                        </div>
+                        <span className="w-7 h-7 rounded-full v-subcard flex items-center justify-center shrink-0">
+                          <Icon n="arrowL" s={13} className="c-orange" />
+                        </span>
+                        <div className="min-w-0 text-end">
+                          <div className="text-[10px] c-muted">إلى</div>
+                          <div className="text-[12.5px] font-semibold c-primary truncate">{t.to_branch?.name || '—'}</div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 w-full pt-0.5">
+                      <div className="flex items-center gap-1.5 w-full">
                         {TR_FLOW.slice(1).map((s, i) => (
                           <span key={s} className="h-1.5 flex-1 rounded-full" style={{ background: t.status === 'cancelled' ? 'var(--badge-red-bg)' : i < idx ? 'var(--accent-orange)' : 'var(--badge-gray-bg)' }} />
                         ))}
                       </div>
-                      <div className="pt-2 border-t border-[var(--divider-color)] flex items-center justify-between gap-2 text-[11px] c-muted">
+                      <div className="pt-2 border-t border-[var(--divider-color)] flex items-center justify-between gap-2 text-[11.5px] c-muted">
                         <span className="num">{formatDate(t.created_at)}</span>
-                        <Icon n="chevL" s={15} className="c-muted shrink-0" />
+                        <span className="inline-flex items-center gap-1 font-medium c-secondary">التفاصيل <Icon n="chevL" s={14} className="c-muted shrink-0" /></span>
                       </div>
                     </div>
                   );
@@ -2156,7 +2202,7 @@ function TransferEdit({ go, params }) {
               <Field label="فرع المصدر" req error={tried && !from ? 'مطلوب' : rowErrs.from_branch_id}>
                 <Sel value={from} disabled={restriction.locked} onChange={v => { setFrom(v || null); setLines(ls => ls.map(l => ({ ...l, fromLoc: null }))); }} placeholder="من…" options={branchOptions.filter(b => !restriction.locked || b.value === restriction.branchId)} className={(tried && !from) || same ? 'err' : ''} />
               </Field>
-              <button type="button" disabled={restriction.locked} onClick={() => { setFrom(to); setTo(from); setLines(ls => ls.map(l => ({ ...l, fromLoc: l.toLoc, toLoc: l.fromLoc }))); }} className="w-10 h-10 rounded-full v-subcard flex items-center justify-center c-orange mx-auto mb-0.5" title="تبديل">
+              <button type="button" disabled={restriction.locked} onClick={() => { setFrom(to); setTo(from); setLines(ls => ls.map(l => ({ ...l, fromLoc: l.toLoc, toLoc: l.fromLoc }))); }} className="w-11 h-11 md:w-10 md:h-10 rounded-full v-subcard border border-[var(--border-subtle)] flex items-center justify-center c-orange mx-auto md:mb-0.5 active:scale-95 transition-transform" aria-label="تبديل المصدر والوجهة" title="تبديل">
                 <Icon n="swap" s={16} />
               </button>
               <Field label="فرع الوجهة" req error={tried && !to ? 'مطلوب' : rowErrs.to_branch_id}>
@@ -2328,13 +2374,13 @@ function TransferDetail({ go, params }) {
   const canReceive = !restriction.locked || t?.to_branch?.id === restriction.branchId;
   if (t && !stage) {
     if (t.status === 'draft' && canSend) {
-      if (canAny(can, 'transfers.update', 'transfers.manage')) actions.push(<button key="e" className="btn btn-soft" onClick={() => go('transfer-edit', { id: t.id })}><Icon n="edit" s={14} /> تعديل</button>);
-      if (can('transfers.approve')) actions.push(<button key="a" className="btn btn-dark" onClick={() => startStage('approve')}><Icon n="check" s={14} /> اعتماد</button>);
+      if (canAny(can, 'transfers.update', 'transfers.manage')) actions.push(<button key="e" className="btn btn-soft flex-1 sm:flex-initial" onClick={() => go('transfer-edit', { id: t.id })}><Icon n="edit" s={14} /> تعديل</button>);
+      if (can('transfers.approve')) actions.push(<button key="a" className="btn btn-dark flex-1 sm:flex-initial" onClick={() => startStage('approve')}><Icon n="check" s={14} /> اعتماد</button>);
     }
-    if (t.status === 'approved' && canSend && can('transfers.ship')) actions.push(<button key="s" className="btn btn-dark" onClick={() => startStage('ship')}><Icon n="truck" s={14} /> شحن</button>);
-    if (t.status === 'shipped' && canReceive && can('transfers.receive')) actions.push(<button key="r" className="btn btn-orange" onClick={() => startStage('receive')}><Icon n="inbox" s={14} /> استلام</button>);
-    if (canSend && ['draft', 'approved'].includes(t.status) && canAny(can, 'transfers.update', 'transfers.manage')) actions.unshift(<button key="c" className="btn btn-danger" onClick={() => { setErr(null); setConfirm('cancel'); }}>إلغاء التحويل</button>);
-    if (canSend && t.status === 'draft' && canAny(can, 'transfers.delete', 'transfers.manage')) actions.push(<button key="d" className="btn btn-soft hover:!text-[var(--badge-red-text)]" disabled={delBusy} onClick={() => { setErr(null); setConfirm('delete'); }}><Icon n="trash" s={14} /> حذف</button>);
+    if (t.status === 'approved' && canSend && can('transfers.ship')) actions.push(<button key="s" className="btn btn-dark flex-1 sm:flex-initial" onClick={() => startStage('ship')}><Icon n="truck" s={14} /> شحن</button>);
+    if (t.status === 'shipped' && canReceive && can('transfers.receive')) actions.push(<button key="r" className="btn btn-orange flex-1 sm:flex-initial" onClick={() => startStage('receive')}><Icon n="inbox" s={14} /> استلام</button>);
+    if (canSend && ['draft', 'approved'].includes(t.status) && canAny(can, 'transfers.update', 'transfers.manage')) actions.unshift(<button key="c" className="btn btn-danger flex-1 sm:flex-initial" onClick={() => { setErr(null); setConfirm('cancel'); }}>إلغاء التحويل</button>);
+    if (canSend && t.status === 'draft' && canAny(can, 'transfers.delete', 'transfers.manage')) actions.push(<button key="d" className="btn btn-soft flex-1 sm:flex-initial hover:!text-[var(--badge-red-text)]" disabled={delBusy} onClick={() => { setErr(null); setConfirm('delete'); }}><Icon n="trash" s={14} /> حذف</button>);
   }
   const nextNeedsPerm = t && !stage && actions.length === 0 && !['received', 'cancelled'].includes(t.status);
 
@@ -2395,21 +2441,21 @@ function TransferDetail({ go, params }) {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-1.5 rounded-xl p-2" style={{ background: 'var(--bg-card)' }}>
-                        <div className="text-center px-1">
-                          <div className="text-[10px] c-muted">المطلوبة</div>
-                          <div className="num text-[12.5px] font-semibold c-primary mt-0.5">{formatQty(l.requested_qty)}</div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-xl p-2.5" style={{ background: 'var(--bg-card)' }}>
+                        <div className="text-center px-1 py-0.5">
+                          <div className="text-[10.5px] c-muted">المطلوبة</div>
+                          <div className="num text-[13px] font-semibold c-primary mt-0.5">{formatQty(l.requested_qty)}</div>
                         </div>
-                        {[['approved_qty', 'المعتمدة'], ['shipped_qty', 'المشحونة'], ['received_qty', 'المستلمة']].map(([col, lbl]) => {
+                        {[['approved_qty', 'المعتمدة'], ['shipped_qty', 'المشحونة'], ['received_qty', 'المستلمة']].map(([col, lbl], idxCol) => {
                           const v = l[col];
                           const isDiff = col === 'received_qty' && diff;
                           return (
-                            <div key={col} className="text-center px-1 border-s border-[var(--divider-color)]">
-                              <div className="text-[10px] c-muted">{lbl}</div>
-                              <div className="num text-[12.5px] font-semibold mt-0.5" style={{ color: v == null ? 'var(--text-muted)' : isDiff ? 'var(--badge-red-text)' : 'var(--text-primary)' }}>
+                            <div key={col} className={`text-center px-1 py-0.5 ${idxCol === 1 ? 'sm:border-s sm:border-[var(--divider-color)]' : 'border-s border-[var(--divider-color)]'}`}>
+                              <div className="text-[10.5px] c-muted">{lbl}</div>
+                              <div className="num text-[13px] font-semibold mt-0.5" style={{ color: v == null ? 'var(--text-muted)' : isDiff ? 'var(--badge-red-text)' : 'var(--text-primary)' }}>
                                 {v == null ? '—' : formatQty(v)}
                               </div>
-                              {isDiff && <div className="text-[9.5px]" style={{ color: 'var(--badge-red-text)' }}>عجز {formatQty(Number(l.shipped_qty) - Number(v))}</div>}
+                              {isDiff && <div className="text-[10px]" style={{ color: 'var(--badge-red-text)' }}>عجز {formatQty(Number(l.shipped_qty) - Number(v))}</div>}
                             </div>
                           );
                         })}
@@ -2623,17 +2669,17 @@ function Icon({ n, s = 16, w = 1.9, className = '', style }) {
 // ---------- Layout ----------
 function PageHead({ title, sub, actions, back }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4 pt-1 stagger-item stagger-1">
-      <div>
+    <div className="flex flex-wrap items-end justify-between gap-3 sm:gap-4 pt-1 stagger-item stagger-1">
+      <div className="min-w-0">
         {back && (
           <button onClick={back.onClick} className="flex items-center gap-1.5 text-[12px] font-medium c-secondary hover:c-primary mb-2">
             <Icon n="chevR" s={14} /> {back.label}
           </button>
         )}
-        <h1 className="font-display text-[34px] sm:text-[38px] font-medium tracking-[-0.02em] leading-tight c-primary">{title}</h1>
-        {sub && <p className="text-[13.5px] mt-1 c-secondary">{sub}</p>}
+        <h1 className="font-display text-[26px] sm:text-[36px] font-medium tracking-[-0.02em] leading-tight c-primary">{title}</h1>
+        {sub && <p className="text-[13px] sm:text-[13.5px] mt-1 c-secondary">{sub}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2.5 flex-wrap">{actions}</div>}
+      {actions && <div className="flex items-center gap-2.5 flex-wrap w-full sm:w-auto">{actions}</div>}
     </div>
   );
 }
@@ -2649,7 +2695,7 @@ function CardHead({ title, meta, right }) {
         <h3 className="font-display text-[17px] font-semibold c-primary">{title}</h3>
         {meta && <span className="text-[11.5px] c-muted">| &nbsp;{meta}</span>}
       </div>
-      {right && <div className="flex items-center gap-2.5 flex-wrap">{right}</div>}
+      {right && <div className="flex items-center gap-2.5 flex-wrap w-full sm:w-auto">{right}</div>}
     </div>
   );
 }
@@ -2788,6 +2834,8 @@ const MODAL_WIDTH_MD = {
   'max-w-xl': 'md:max-w-xl',
   'max-w-2xl': 'md:max-w-2xl',
   'max-w-3xl': 'md:max-w-3xl',
+  'max-w-4xl': 'md:max-w-4xl',
+  'max-w-5xl': 'md:max-w-5xl',
 };
 
 function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg' }) {
@@ -2885,7 +2933,7 @@ function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg'
           <div className="md:hidden flex justify-center pt-2.5 pb-1">
             <span className="w-10 h-1 rounded-full" style={{ background: 'var(--border-strong)' }} />
           </div>
-          <div className="flex items-start justify-between gap-4 px-5 pt-2 pb-3.5 md:p-6 md:pb-4 border-b border-[var(--divider-color)] md:border-b-0">
+          <div className="flex items-start justify-between gap-4 px-5 pt-2 pb-3.5 md:px-6 md:py-4 border-b border-[var(--divider-color)]">
             <div className="min-w-0">
               <h3 className="font-display text-[17px] md:text-[18px] font-semibold c-primary leading-snug">{title}</h3>
               {sub && <p className="text-[12px] c-secondary mt-0.5 leading-relaxed">{sub}</p>}
@@ -2893,9 +2941,9 @@ function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg'
             <button type="button" onClick={onClose} aria-label="إغلاق" className="w-9 h-9 md:w-8 md:h-8 rounded-full v-subcard flex items-center justify-center c-secondary shrink-0 active:scale-95 transition"><Icon n="x" s={15} /></button>
           </div>
         </div>
-        <div className="px-5 py-3.5 md:px-6 md:py-0 md:pb-2 overflow-y-auto flex-1 overscroll-contain">{children}</div>
+        <div className="px-5 py-4 md:px-6 md:py-5 overflow-y-auto flex-1 overscroll-contain">{children}</div>
         {footer && (
-          <div className="px-5 py-3.5 md:p-6 md:pt-4 border-t border-[var(--divider-color)] md:border-t-0 flex items-center justify-start gap-2.5 flex-row-reverse">
+          <div className="px-5 py-3.5 md:px-6 md:py-4 border-t border-[var(--divider-color)] flex items-center justify-start gap-2.5 flex-row-reverse">
             {footer}
           </div>
         )}
@@ -3097,7 +3145,7 @@ function NumInput({ value, onChange, decimals = 4, integer, small, placeholder =
 
 function KPI({ label, value, icon, hot, sub, format }) {
   return (
-    <div className={`${hot ? 'v-orange-card' : 'v-subcard'} rounded-[18px] p-3.5 sm:p-4 flex flex-col justify-between min-h-[100px] sm:min-h-[112px] h-full`}>
+    <div className={`${hot ? 'v-orange-card' : 'v-subcard'} rounded-[18px] p-3 sm:p-4 flex flex-col justify-between min-h-[88px] sm:min-h-[112px] h-full`}>
       <div className="flex items-center justify-between gap-2">
         <span className={`text-[12px] sm:text-[12.5px] font-medium ${hot ? 'text-white/90' : 'c-secondary'}`}>{label}</span>
         <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${hot ? 'bg-white/15 text-white' : 'v-icon-well'}`}><Icon n={icon} s={14} w={2} /></span>

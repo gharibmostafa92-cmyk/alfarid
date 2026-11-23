@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const descDir = 'floorplan/descriptions';
-const files = fs.readdirSync(descDir).filter(f => f.endsWith('.json'));
+const DESCRIPTIONS_DIR = 'floorplan/descriptions';
+const MAX_MIGRATION_NAME_LENGTH = 30;
 
-function cleanTitle(s) {
-  return s
+function cleanTitle(text) {
+  return text
     .replace(/([A-Z])/g, ' $1')
     .replace(/[_\-.]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -13,158 +13,153 @@ function cleanTitle(s) {
     .replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function generateMeta(filePath, existingName) {
-  const p = filePath.replace(/\\/g, '/');
-  const base = path.basename(p);
-  const ext = path.extname(p);
-  const rawName = path.basename(p, ext);
+function normalizeSeparators(filePath) {
+  return filePath.replace(/\\/g, '/');
+}
 
-  // 1. Migrations
-  if (p.includes('/database/migrations/')) {
-    const clean = rawName.replace(/^\d{4}_\d{2}_\d{2}_\d{6}_/, '');
-    const readable = cleanTitle(clean);
-    return {
-      name: readable.length > 30 ? readable.slice(0, 30) : readable,
-      description: `Updates database schema to support ${clean.replace(/_/g, ' ')} across store tables.`
-    };
-  }
+function readableOf(rawName, stripPattern) {
+  const stem = stripPattern ? rawName.replace(stripPattern, '') : rawName;
+  return cleanTitle(stem);
+}
 
-  // 2. Tests
-  if (p.includes('/tests/')) {
-    const readable = cleanTitle(rawName.replace(/(Test|Spec)$/i, ''));
-    return {
-      name: `${readable} Tests`,
-      description: `Automated test suite verifying that ${readable.toLowerCase()} operations work reliably and safely.`
-    };
-  }
+function migrationMeta(rawName) {
+  const withoutTimestamp = rawName.replace(/^\d{4}_\d{2}_\d{2}_\d{6}_/, '');
+  const readable = cleanTitle(withoutTimestamp);
+  return {
+    name: readable.length > MAX_MIGRATION_NAME_LENGTH ? readable.slice(0, MAX_MIGRATION_NAME_LENGTH) : readable,
+    description: `Updates database schema to support ${withoutTimestamp.replace(/_/g, ' ')} across store tables.`
+  };
+}
 
-  // 3. Controllers
-  if (p.includes('/Controllers/')) {
-    const clean = rawName.replace(/Controller$/i, '');
-    const readable = cleanTitle(clean);
-    return {
-      name: `${readable} API`,
-      description: `Processes server requests and handles business actions for ${readable.toLowerCase()}.`
-    };
-  }
+function testsMeta(rawName) {
+  const readable = readableOf(rawName, /(Test|Spec)$/i);
+  return {
+    name: `${readable} Tests`,
+    description: `Automated test suite verifying that ${readable.toLowerCase()} operations work reliably and safely.`
+  };
+}
 
-  // 4. Form Requests & Middleware
-  if (p.includes('/Requests/')) {
-    const readable = cleanTitle(rawName.replace(/Request$/i, ''));
-    return {
-      name: `${readable} Validator`,
-      description: `Validates and sanitizes input data submitted for ${readable.toLowerCase()}.`
-    };
-  }
-  if (p.includes('/Middleware/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Guard`,
-      description: `Inspects incoming requests to enforce access permissions, security rules, and caching.`
-    };
-  }
+function controllerMeta(rawName) {
+  const readable = readableOf(rawName, /Controller$/i);
+  return {
+    name: `${readable} API`,
+    description: `Processes server requests and handles business actions for ${readable.toLowerCase()}.`
+  };
+}
 
-  // 5. Models
-  if (p.includes('/app/Models/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Model`,
-      description: `Defines business properties, table relationships, and scopes for ${readable.toLowerCase()} records.`
-    };
-  }
+function requestMeta(rawName) {
+  const readable = readableOf(rawName, /Request$/i);
+  return {
+    name: `${readable} Validator`,
+    description: `Validates and sanitizes input data submitted for ${readable.toLowerCase()}.`
+  };
+}
 
-  // 6. AI Tools
-  if (p.includes('/app/Services/Ai/')) {
-    const clean = rawName.replace(/Tool$/i, '');
-    const readable = cleanTitle(clean);
-    return {
-      name: `${readable} AI Tool`,
-      description: `Executes guarded analytical tasks and safe automated actions for ${readable.toLowerCase()}.`
-    };
-  }
+function middlewareMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Guard`,
+    description: `Inspects incoming requests to enforce access permissions, security rules, and caching.`
+  };
+}
 
-  // 7. Domain Services
-  if (p.includes('/app/Services/')) {
-    const clean = rawName.replace(/Service$/i, '');
-    const readable = cleanTitle(clean);
-    return {
-      name: `${readable} Service`,
-      description: `Implements core business calculations, validations, and state transitions for ${readable.toLowerCase()}.`
-    };
-  }
+function modelMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Model`,
+    description: `Defines business properties, table relationships, and scopes for ${readable.toLowerCase()} records.`
+  };
+}
 
-  // 8. Console Commands
-  if (p.includes('/app/Console/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Command`,
-      description: `Automated console command performing maintenance routines and scheduled tasks for ${readable.toLowerCase()}.`
-    };
-  }
+function aiToolMeta(rawName) {
+  const readable = readableOf(rawName, /Tool$/i);
+  return {
+    name: `${readable} AI Tool`,
+    description: `Executes guarded analytical tasks and safe automated actions for ${readable.toLowerCase()}.`
+  };
+}
 
-  // 9. Storefront UI Components & Pages
-  if (p.includes('/apps/storefront/')) {
-    if (base.startsWith('page.')) {
-      const parentDir = path.basename(path.dirname(p));
-      const readable = cleanTitle(parentDir === 'src' ? 'Home' : parentDir);
-      return {
-        name: `${readable} Store Page`,
-        description: `Renders customer storefront view for browsing and interacting with ${readable.toLowerCase()}.`
-      };
-    }
-    const readable = cleanTitle(rawName);
-    return {
-      name: readable,
-      description: `Storefront interface component providing visual layout and shopping controls for ${readable.toLowerCase()}.`
-    };
-  }
+function serviceMeta(rawName) {
+  const readable = readableOf(rawName, /Service$/i);
+  return {
+    name: `${readable} Service`,
+    description: `Implements core business calculations, validations, and state transitions for ${readable.toLowerCase()}.`
+  };
+}
 
-  // 10. POS Terminal UI
-  if (p.includes('/apps/pos/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Register UI`,
-      description: `Point-of-sale terminal component assisting cashiers with ringing sales, shifts, and inventory.`
-    };
-  }
+function consoleMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Command`,
+    description: `Automated console command performing maintenance routines and scheduled tasks for ${readable.toLowerCase()}.`
+  };
+}
 
-  // 11. Backoffice Admin UI
-  if (p.includes('/apps/backoffice/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Admin View`,
-      description: `Management dashboard screen for tracking orders, warehouse stock, and business finances.`
-    };
-  }
+function storefrontPageMeta(normalizedPath) {
+  const parentDir = path.basename(path.dirname(normalizedPath));
+  const readable = cleanTitle(parentDir === 'src' ? 'Home' : parentDir);
+  return {
+    name: `${readable} Store Page`,
+    description: `Renders customer storefront view for browsing and interacting with ${readable.toLowerCase()}.`
+  };
+}
 
-  // 12. Frontend Packages (UI / API client)
-  if (p.includes('/packages/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Helper`,
-      description: `Shared library component providing reusable styles, design elements, or API communications.`
-    };
-  }
+function storefrontComponentMeta(rawName) {
+  const readable = cleanTitle(rawName);
+  return {
+    name: readable,
+    description: `Storefront interface component providing visual layout and shopping controls for ${readable.toLowerCase()}.`
+  };
+}
 
-  // 13. Documentation
-  if (p.endsWith('.md') || p.includes('/docs/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Guide`,
-      description: `Technical documentation outlining architectural specs, operational rules, or audit reports.`
-    };
+function storefrontMeta(rawName, normalizedPath) {
+  if (path.basename(normalizedPath).startsWith('page.')) {
+    return storefrontPageMeta(normalizedPath);
   }
+  return storefrontComponentMeta(rawName);
+}
 
-  // 14. Configs & Infra
-  if (p.endsWith('.json') || p.endsWith('.yml') || p.endsWith('.yaml') || p.includes('/config/')) {
-    const readable = cleanTitle(rawName);
-    return {
-      name: `${readable} Settings`,
-      description: `Configures runtime environment options, service credentials, and server defaults.`
-    };
-  }
+function posMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Register UI`,
+    description: `Point-of-sale terminal component assisting cashiers with ringing sales, shifts, and inventory.`
+  };
+}
 
-  // Default fallback
+function backofficeMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Admin View`,
+    description: `Management dashboard screen for tracking orders, warehouse stock, and business finances.`
+  };
+}
+
+function packageMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Helper`,
+    description: `Shared library component providing reusable styles, design elements, or API communications.`
+  };
+}
+
+function docsMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Guide`,
+    description: `Technical documentation outlining architectural specs, operational rules, or audit reports.`
+  };
+}
+
+function configMeta(rawName) {
+  const readable = readableOf(rawName, null);
+  return {
+    name: `${readable} Settings`,
+    description: `Configures runtime environment options, service credentials, and server defaults.`
+  };
+}
+
+function fallbackMeta(rawName, existingName) {
   const fallback = existingName || cleanTitle(rawName);
   return {
     name: fallback,
@@ -172,43 +167,82 @@ function generateMeta(filePath, existingName) {
   };
 }
 
-let updatedFilesCount = 0;
-let updatedRoutesCount = 0;
+const FILE_RULES = [
+  { matches: (p) => p.includes('/database/migrations/'), describe: (rawName) => migrationMeta(rawName) },
+  { matches: (p) => p.includes('/tests/'), describe: (rawName) => testsMeta(rawName) },
+  { matches: (p) => p.includes('/Controllers/'), describe: (rawName) => controllerMeta(rawName) },
+  { matches: (p) => p.includes('/Requests/'), describe: (rawName) => requestMeta(rawName) },
+  { matches: (p) => p.includes('/Middleware/'), describe: (rawName) => middlewareMeta(rawName) },
+  { matches: (p) => p.includes('/app/Models/'), describe: (rawName) => modelMeta(rawName) },
+  { matches: (p) => p.includes('/app/Services/Ai/'), describe: (rawName) => aiToolMeta(rawName) },
+  { matches: (p) => p.includes('/app/Services/'), describe: (rawName) => serviceMeta(rawName) },
+  { matches: (p) => p.includes('/app/Console/'), describe: (rawName) => consoleMeta(rawName) },
+  { matches: (p) => p.includes('/apps/storefront/'), describe: (rawName, normalizedPath) => storefrontMeta(rawName, normalizedPath) },
+  { matches: (p) => p.includes('/apps/pos/'), describe: (rawName) => posMeta(rawName) },
+  { matches: (p) => p.includes('/apps/backoffice/'), describe: (rawName) => backofficeMeta(rawName) },
+  { matches: (p) => p.includes('/packages/'), describe: (rawName) => packageMeta(rawName) },
+  { matches: (p) => p.endsWith('.md') || p.includes('/docs/'), describe: (rawName) => docsMeta(rawName) },
+  { matches: (p) => p.endsWith('.json') || p.endsWith('.yml') || p.endsWith('.yaml') || p.includes('/config/'), describe: (rawName) => configMeta(rawName) },
+];
 
-for (const file of files) {
-  const fullPath = path.join(descDir, file);
-  const data = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-  let changed = false;
-
-  if (data.files) {
-    for (const [fp, obj] of Object.entries(data.files)) {
-      if (!obj.description || obj.description.trim() === '') {
-        const meta = generateMeta(fp, obj.name);
-        obj.name = meta.name;
-        obj.description = meta.description;
-        changed = true;
-        updatedFilesCount++;
-      }
-    }
+function generateMeta(filePath, existingName) {
+  const normalizedPath = normalizeSeparators(filePath);
+  const rawName = path.basename(normalizedPath, path.extname(normalizedPath));
+  const rule = FILE_RULES.find((rule) => rule.matches(normalizedPath));
+  if (rule) {
+    return rule.describe(rawName, normalizedPath);
   }
-
-  if (data.routes) {
-    for (const [rp, obj] of Object.entries(data.routes)) {
-      if (!obj.description || obj.description.trim() === '') {
-        const [method, routePath] = rp.split(' ');
-        const cleanPath = routePath.replace(/^\//, '').replace(/[\/_]/g, ' ');
-        const readable = cleanTitle(cleanPath);
-        obj.name = `${readable} Handler`;
-        obj.description = `Processes ${method} web requests to handle ${readable.toLowerCase()} in the store platform.`;
-        changed = true;
-        updatedRoutesCount++;
-      }
-    }
-  }
-
-  if (changed) {
-    fs.writeFileSync(fullPath, JSON.stringify(data, null, 2));
-  }
+  return fallbackMeta(rawName, existingName);
 }
 
-console.log(`Successfully updated ${updatedFilesCount} file descriptions and ${updatedRoutesCount} route descriptions.`);
+function isMissingDescription(entry) {
+  return !entry.description || entry.description.trim() === '';
+}
+
+function describeRoute(routeKey) {
+  const [method, routePath] = routeKey.split(' ');
+  const readable = cleanTitle(routePath.replace(/^\//, '').replace(/[\/_]/g, ' '));
+  return {
+    name: `${readable} Handler`,
+    description: `Processes ${method} web requests to handle ${readable.toLowerCase()} in the store platform.`
+  };
+}
+
+function fillMissingEntries(section, describe) {
+  let filledCount = 0;
+  for (const [key, entry] of Object.entries(section ?? {})) {
+    if (!isMissingDescription(entry)) {
+      continue;
+    }
+    const meta = describe(key, entry.name);
+    entry.name = meta.name;
+    entry.description = meta.description;
+    filledCount++;
+  }
+  return filledCount;
+}
+
+function processDescriptionFile(fileName) {
+  const fullPath = path.join(DESCRIPTIONS_DIR, fileName);
+  const document = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+  const filesFilled = fillMissingEntries(document.files, (filePath, existingName) => generateMeta(filePath, existingName));
+  const routesFilled = fillMissingEntries(document.routes, (routeKey) => describeRoute(routeKey));
+  if (filesFilled + routesFilled > 0) {
+    fs.writeFileSync(fullPath, JSON.stringify(document, null, 2));
+  }
+  return { filesFilled, routesFilled };
+}
+
+function main() {
+  const files = fs.readdirSync(DESCRIPTIONS_DIR).filter((file) => file.endsWith('.json'));
+  let updatedFilesCount = 0;
+  let updatedRoutesCount = 0;
+  for (const file of files) {
+    const { filesFilled, routesFilled } = processDescriptionFile(file);
+    updatedFilesCount += filesFilled;
+    updatedRoutesCount += routesFilled;
+  }
+  console.log(`Successfully updated ${updatedFilesCount} file descriptions and ${updatedRoutesCount} route descriptions.`);
+}
+
+main();

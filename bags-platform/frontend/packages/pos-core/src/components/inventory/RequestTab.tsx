@@ -85,22 +85,15 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
   const currentSource = sources.find((s) => s.id === src);
 
   return (
-    <div
-      className="grid"
-      style={{
-        gridTemplateColumns: 'minmax(0, 1fr) 340px',
-        gap: 16,
-        alignItems: 'start',
-      }}
-    >
-      <div className="card" style={{ overflow: 'visible' }}>
-        <div className="card-head">
+    <div className="grid tr-request-grid">
+      <div className="card tr-request-items-card">
+        <div className="card-head tr-card-head">
           <h3>الأصناف المطلوبة</h3>
           <span className="meta">
             {fmt(lines.length)} أصناف · {fmt(lines.reduce((s, l) => s + l.qty, 0))} قطعة
           </span>
         </div>
-        <div style={{ padding: 16, position: 'relative' }}>
+        <div className="tr-search-wrap">
           <Search value={q} onChange={setQ} placeholder="أضف صنفًا بالاسم أو الكود…" />
           {res.length > 0 && (
             <div className="scan-results" style={{ insetInline: 16 }}>
@@ -121,7 +114,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
             </div>
           )}
         </div>
-        <table className="tbl">
+        <table className="tbl tr-tbl tr-request-tbl">
           <thead>
             <tr>
               <th>الصنف</th>
@@ -137,10 +130,10 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
               if (!p) return null;
               return (
                 <tr key={l.id}>
-                  <td>
+                  <td className="tr-col-product">
                     <div className="row gap-3">
                       <PImg p={p} size="xs" />
-                      <div>
+                      <div className="grow">
                         <div className="fw-5">{p.name}</div>
                         <div className="mono t-3" style={{ fontSize: 11 }}>
                           {p.sku}
@@ -148,13 +141,16 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
                       </div>
                     </div>
                   </td>
-                  <td className={cx('n', p.stock <= p.reorder && 't-warn fw-6')}>
+                  <td className={cx('n tr-col-stock', p.stock <= p.reorder && 't-warn fw-6')} data-label="رصيدنا">
                     {fmt(p.stock)}
                   </td>
-                  <td className="n t-2">{fmt(p.reorder)}</td>
-                  <td style={{ textAlign: 'center' }}>
+                  <td className="n t-2 tr-col-reorder" data-label="حد الطلب">
+                    {fmt(p.reorder)}
+                  </td>
+                  <td className="tr-col-stepper" data-label="الكمية المطلوبة">
                     <div className="stepper-q">
                       <button
+                        aria-label="زيادة الكمية"
                         onClick={() =>
                           setLines((x) =>
                             x.map((y) => (y.id === l.id ? { ...y, qty: y.qty + 1 } : y))
@@ -165,6 +161,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
                       </button>
                       <span>{fmt(l.qty)}</span>
                       <button
+                        aria-label="إنقاص الكمية"
                         onClick={() =>
                           setLines((x) =>
                             x.map((y) =>
@@ -177,8 +174,9 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
                       </button>
                     </div>
                   </td>
-                  <td>
+                  <td className="tr-col-remove">
                     <button
+                      aria-label="حذف الصنف"
                       className="icon-btn sm"
                       onClick={() => setLines((x) => x.filter((y) => y.id !== l.id))}
                     >
@@ -198,12 +196,12 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
           />
         )}
         {suggestions.length > 0 && (
-          <div style={{ padding: 16, borderTop: '1px solid var(--line)' }}>
+          <div className="tr-suggestions">
             <div className="section-label row gap-2" style={{ marginBottom: 10 }}>
               <Icon n="sparkle" s={13} className="t-acc" />
               مقترح — أصناف تحت حد الطلب
             </div>
-            <div className="row gap-2 wrap">
+            <div className="row gap-2 wrap tr-suggestions-list">
               {suggestions.map((p) => (
                 <button
                   key={p.id}
@@ -219,7 +217,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
           </div>
         )}
       </div>
-      <div className="card card-pad col gap-4" style={{ position: 'sticky', top: 0 }}>
+      <div className="card card-pad col gap-4 tr-side-card">
         <div className="col gap-2">
           <span className="fs-13 fw-5">الفرع المصدر</span>
           <div className="col gap-2">
@@ -233,16 +231,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
                 role="radio"
                 aria-checked={src === s.id}
                 onClick={() => setSrc(s.id)}
-                className="row gap-3"
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 12,
-                  border:
-                    '1.5px solid ' +
-                    (src === s.id ? 'var(--acc)' : 'var(--line-strong)'),
-                  background: src === s.id ? 'var(--acc-tint)' : 'var(--bg-card)',
-                  textAlign: 'start',
-                }}
+                className="row gap-3 tr-source-btn"
               >
                 <span className="radio-dot" />
                 <Icon n={s.kind} s={17} className="t-3" />
@@ -253,14 +242,13 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
         </div>
         {currentSource && (
           <div
-            className="route"
-            style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--bg-sunken)' }}
+            className="route tr-route-preview"
           >
             <Icon n="warehouse" s={15} />
             <span className="truncate">{currentSource.name}</span>
             <span className="ln" />
             <Icon n="store" s={15} className="t-acc" />
-            {branch?.name || 'الفرع'}
+            <span className="truncate">{branch?.name || 'الفرع'}</span>
           </div>
         )}
         <Field
@@ -279,7 +267,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
           />
         </Field>
         <button
-          className="btn btn-accent btn-lg"
+          className="btn btn-accent btn-lg tr-submit-btn"
           disabled={src === null || !lines.length || busy}
           onClick={handleSubmit}
         >

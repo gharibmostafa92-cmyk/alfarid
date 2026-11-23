@@ -16,6 +16,7 @@ use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Shared\IdempotencyFingerprint;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -23,6 +24,17 @@ use Illuminate\Support\Facades\DB;
  */
 class ProductService
 {
+    private const GENERATED_CODE_PAD_LENGTH = 5;
+
+    /** @var list<string> */
+    private const PRODUCT_RELATIONS = ['category.media', 'variants.media', 'media'];
+
+    /** @var list<string> */
+    private const PRODUCT_MEDIA_COLLECTIONS = ['images', 'video', 'images_staging', 'video_staging'];
+
+    /** @var list<string> */
+    private const VARIANT_MEDIA_COLLECTIONS = ['images', 'images_staging'];
+
     public function __construct(private ProductPublishabilityChecker $publishability) {}
 
     /**
@@ -39,19 +51,11 @@ class ProductService
         // Replay existing product on retried create_key to prevent duplicate entries and numbered slug suffixes.
         $createKey = is_string($data['create_key'] ?? null) && $data['create_key'] !== '' ? $data['create_key'] : null;
         unset($data['create_key']);
-        foreach (['code', 'slug'] as $field) {
-            if (isset($data[$field]) && is_string($data[$field])) {
-                $trimmed = trim($data[$field]);
-                if ($trimmed === '') {
-                    unset($data[$field]);
-                } else {
-                    $data[$field] = $trimmed;
-                }
-            }
-        }
+        $data = $this->normalizeCreateInput($data);
         $requestHash = IdempotencyFingerprint::hash($data);
+
         if ($createKey !== null) {
-            $existing = Product::withTrashed()->where('created_by', $user->id)->where('create_key', $createKey)->first();
+            $existing = $this->findExistingByCreateKey($user->id, $createKey);
             if ($existing) {
                 return $this->replayCreation($existing, $requestHash);
             }
@@ -60,69 +64,28 @@ class ProductService
         // Retry once on generated slug or code races and surface explicit collisions as 409 conflicts.
         $autoSlug = empty($data['slug'] ?? null);
         $autoCode = empty($data['code'] ?? null);
+
         for ($attempt = 0; ; $attempt++) {
             try {
-                return DB::transaction(function () use ($data, $user, $createKey, $requestHash) {
-                    CatalogLock::tree(shared: true);
-                    $data['brand_id'] = null;
-                    $data['supplier_id'] = null;
-                    $variants = $data['variants'] ?? [];
-                    unset($data['variants']);
-                    $data = array_filter($data, fn ($value) => $value !== null);
-
-                    if (($data['status'] ?? 'draft') !== ProductStatus::Draft->value) {
-                        throw new BusinessException('يجب إنشاء المنتج كمسودة ثم رفع صوره ونشره', ['status' => ['الحالة المسموحة عند الإنشاء هي draft']]);
-                    }
-
-                    $data['slug'] = $data['slug'] ?? SlugService::make(Product::class, $data['name_en']);
-                    $data['created_by'] = $user->id;
-                    $data['create_key'] = $createKey;
-                    $data['create_request_hash'] = $createKey !== null ? $requestHash : null;
-                    // Enforce draft status on creation before media upload and publishing.
-                    $data['status'] = ProductStatus::Draft->value;
-
-                    // Shared-lock category to prevent concurrent deletion while assigning new product to it.
-                    $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
-
-                    $product = Product::create($data);
-                    if (empty($data['code'])) {
-                        $baseCode = 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT);
-                        $code = $baseCode;
-                        $suffix = 1;
-                        while (Product::withTrashed()->where('code', $code)->whereKeyNot($product->id)->exists()) {
-                            $code = $baseCode.'-'.$suffix;
-                            $suffix++;
-                        }
-                        $product->updateQuietly(['code' => $code]);
-                    }
-
-                    foreach ($variants as $v) {
-                        app(VariantService::class)->create($product, $v);
-                    }
-
-                    return $product->fresh(['category.media', 'variants.media', 'media']);
-                });
+                return $this->executeCreateTransaction($data, $user, $createKey, $requestHash);
             } catch (UniqueConstraintViolationException $e) {
                 // A concurrent retry with the same key may have won the race.
                 if ($createKey !== null) {
-                    $winner = Product::withTrashed()->where('created_by', $user->id)->where('create_key', $createKey)->first();
+                    $winner = $this->findExistingByCreateKey($user->id, $createKey);
                     if ($winner) {
                         return $this->replayCreation($winner, $requestHash);
                     }
                 }
-                // Distinguish slug collisions from product code or variant SKU/barcode unique violations.
-                $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
-                $isSlugConflict = str_contains($driverMessage, 'products_slug_lower_unique')
-                    || str_contains($driverMessage, '(slug)');
-                $isCodeConflict = str_contains($driverMessage, 'products_code_unique')
-                    || str_contains($driverMessage, '(code)');
-                if ($attempt === 0 && (($autoSlug && $isSlugConflict) || ($autoCode && $isCodeConflict))) {
+
+                $driverMessage = $this->extractDriverMessage($e);
+                if ($this->shouldRetryAutoGeneratedConflict($driverMessage, $attempt, $autoSlug, $autoCode)) {
                     if ($autoSlug) {
                         $data['slug'] = SlugService::make(Product::class, $data['name_en']);
                     }
 
                     continue;
                 }
+
                 $this->throwUniqueConflict($e, $driverMessage);
             }
         }
@@ -142,64 +105,20 @@ class ProductService
     {
         $expectedVersion = $data['expected_version'] ?? null;
         unset($data['expected_version']);
-        if (! empty($data['expected_updated_at']) && $expectedVersion === null) {
-            throw new BusinessException('أعد تحميل المنتج لإرسال رقم الإصدار قبل الحفظ.', ['expected_version' => ['رقم الإصدار مطلوب.']]);
-        }
+        $this->assertVersionPresentIfTimestampSent($data, $expectedVersion);
         unset($data['expected_updated_at']);
 
         // Catch concurrent unique slug collisions during updates and convert to 409 conflict responses.
         try {
-            return DB::transaction(function () use ($product, $data, $user, $expectedVersion) {
-                CatalogLock::tree(shared: true);
-                // Exclusive lock product row during update to ensure publishability invariants hold against concurrent writes.
-                $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
-
-                if ($expectedVersion !== null && (int) $expectedVersion !== (int) $product->lock_version) {
-                    throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-                }
-
-                unset($data['brand_id'], $data['supplier_id']);
-                $newStatus = isset($data['status']) ? ProductStatus::from($data['status']) : null;
-                unset($data['status']);
-
-                if (array_key_exists('slug', $data) && empty($data['slug'])) {
-                    $data['slug'] = SlugService::make(Product::class, $data['name_en'] ?? $product->name_en, $product->id);
-                }
-                $this->lockReference(Category::class, (int) ($data['category_id'] ?? $product->category_id), 'category_id');
-
-                if (array_key_exists('is_featured', $data) && $data['is_featured'] === null) {
-                    unset($data['is_featured']);
-                }
-
-                $product->update($data);
-
-                if ($newStatus && $newStatus !== $product->status) {
-                    $this->changeStatus($product, $newStatus, $user);
-                } elseif ($product->status === ProductStatus::Published) {
-                    // Re-validate publishability invariants when updating an already published product.
-                    $this->assertPublishable($product);
-                }
-
-                DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
-
-                return $product->fresh(['category.media', 'variants.media', 'media']);
-            });
+            return DB::transaction(fn () => $this->applyProductUpdate(
+                $product,
+                $data,
+                $user,
+                $expectedVersion !== null ? (int) $expectedVersion : null,
+            ));
         } catch (UniqueConstraintViolationException $e) {
-            $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
-            $this->throwUniqueConflict($e, $driverMessage);
+            $this->throwUniqueConflict($e, $this->extractDriverMessage($e));
         }
-    }
-
-    private function replayCreation(Product $product, string $requestHash): Product
-    {
-        if ($product->trashed()) {
-            throw new BusinessException('المنتج الخاص بطلب الإنشاء محذوف بالفعل.', [], 409);
-        }
-        if ($product->create_request_hash !== null && ! hash_equals($product->create_request_hash, $requestHash)) {
-            throw new BusinessException('تم إنشاء المنتج من الطلب السابق ببيانات مختلفة؛ أعد تحميله قبل التعديل.', ['product_id' => [$product->id]], 409);
-        }
-
-        return $product->fresh(['category.media', 'variants.media', 'media']);
     }
 
     /**
@@ -218,27 +137,26 @@ class ProductService
             CatalogLock::tree(shared: true);
             // Lock product and parent category to prevent concurrent changes between validation and publish commit.
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
-            if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
-                throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-            }
+            $this->assertExpectedVersion($product, $expectedVersion);
+
             if ($product->category_id) {
                 $this->lockReference(Category::class, (int) $product->category_id, 'category_id');
             }
             $product->refresh();
 
-            if ($product->status !== $status && ($product->status === ProductStatus::Published || $status === ProductStatus::Published) && ! $user->can('products.publish')) {
-                throw new BusinessException('ليس لديك صلاحية تغيير نشر المنتجات', [], 403);
-            }
+            $this->assertPublishPermissionForTransition($product, $status, $user);
 
             if ($status === ProductStatus::Published) {
                 $this->assertPublishable($product);
                 $product->published_at ??= now();
             }
+
             $product->status = $status;
             $product->save();
 
-            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
+            $this->scheduleStorefrontCacheInvalidation();
         });
+
         $product->refresh();
     }
 
@@ -254,13 +172,6 @@ class ProductService
         $this->publishability->assertPublishable($product);
     }
 
-    private function lockReference(string $model, int $id, string $field): void
-    {
-        if (! $model::whereKey($id)->sharedLock()->first()) {
-            throw new BusinessException('أحد المراجع المطلوبة لم يعد متاحًا', [$field => ['القيمة المحددة غير موجودة أو محذوفة']]);
-        }
-    }
-
     /**
      * Soft-deletes a product and its associated variants if no positive inventory balances exist.
      *
@@ -274,39 +185,18 @@ class ProductService
     {
         DB::transaction(function () use ($product, $user, $expectedVersion): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
-            if ($user && $product->status === ProductStatus::Published && ! $user->can('products.publish')) {
-                throw new BusinessException('حذف منتج منشور يتطلب صلاحية النشر.', [], 403);
-            }
-            if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
-                throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-            }
+            $this->assertDeletableByUser($product, $user);
+            $this->assertExpectedVersion($product, $expectedVersion);
+
             // Lock all variant rows in deterministic ID order before checking inventory balances to prevent concurrent stock receipts.
             $lockedIds = ProductVariant::where('product_id', $product->id)->orderBy('id')->lockForUpdate()->pluck('id');
-            // Prevent soft-deleting products referenced by active (uncompleted) orders; historical delivered/cancelled/returned orders are allowed.
-            if ($lockedIds->isNotEmpty() && OrderItem::query()
-                ->whereIn('product_variant_id', $lockedIds)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', [
-                    OrderStatus::Pending->value,
-                    OrderStatus::Confirmed->value,
-                    OrderStatus::Processing->value,
-                    OrderStatus::Shipped->value,
-                ]))
-                ->exists()) {
-                throw new BusinessException('لا يمكن حذف منتج مرتبط بطلبات نشطة؛ استخدم الأرشفة بدلًا من الحذف.');
-            }
-            // Prevent soft-deleting products with non-zero stock to avoid stranding physical inventory.
-            if (StockLevel::query()->whereIn('product_variant_id', $lockedIds)->hasNonZeroBalance()->exists()) {
-                throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
-            }
-            // Soft-delete variants one model at a time so the deleted event
-            // fires (ProductVariant::booted removes dangling cart items);
-            // a mass query delete would silently skip it.
-            foreach ($product->variants()->orderBy('id')->get() as $variant) {
-                $variant->delete();
-            }
+            $this->assertNoActiveOrdersForVariants($lockedIds);
+            $this->assertNoStockBalances($lockedIds, 'لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
+
+            $this->softDeleteVariantsIndividually($product);
             $product->delete();
 
-            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
+            $this->scheduleStorefrontCacheInvalidation();
         });
     }
 
@@ -323,34 +213,310 @@ class ProductService
             $product = Product::withTrashed()->whereKey($product->id)->lockForUpdate()->firstOrFail();
             $variants = $product->variants()->withTrashed()->reorder('id')->lockForUpdate()->get();
             $variantIds = $variants->pluck('id');
-            if ($variantIds->isNotEmpty() && (OrderItem::query()->whereIn('product_variant_id', $variantIds)->exists()
-                || ReturnRequestItem::query()->whereIn('product_variant_id', $variantIds)->exists())) {
-                throw new BusinessException('لا يمكن الحذف النهائي لمنتج مرتبط بطلبات أو مرتجعات؛ احتفظ به مؤرشفًا أو محذوفًا مؤقتًا.');
-            }
-            if (StockLevel::query()->whereIn('product_variant_id', $variantIds)->hasNonZeroBalance()->exists()) {
-                throw new BusinessException('لا يمكن الحذف النهائي لمنتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
-            }
-            foreach ($variants as $variant) {
-                $variant->clearMediaCollection('images');
-                $variant->clearMediaCollection('images_staging');
-                $variant->forceDelete();
-            }
-            $product->clearMediaCollection('images');
-            $product->clearMediaCollection('video');
-            $product->clearMediaCollection('images_staging');
-            $product->clearMediaCollection('video_staging');
+
+            $this->assertNoOrderOrReturnHistory($variantIds);
+            $this->assertNoStockBalances($variantIds, 'لا يمكن الحذف النهائي لمنتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
+
+            $this->purgeProductAndVariantMedia($product, $variants);
             $product->forceDelete();
 
-            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
+            $this->scheduleStorefrontCacheInvalidation();
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeCreateInput(array $data): array
+    {
+        foreach (['code', 'slug'] as $field) {
+            if (isset($data[$field]) && is_string($data[$field])) {
+                $trimmed = trim($data[$field]);
+                if ($trimmed === '') {
+                    unset($data[$field]);
+                } else {
+                    $data[$field] = $trimmed;
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    private function findExistingByCreateKey(int $userId, string $createKey): ?Product
+    {
+        return Product::withTrashed()
+            ->where('created_by', $userId)
+            ->where('create_key', $createKey)
+            ->first();
+    }
+
+    private function replayCreation(Product $product, string $requestHash): Product
+    {
+        if ($product->trashed()) {
+            throw new BusinessException('المنتج الخاص بطلب الإنشاء محذوف بالفعل.', [], 409);
+        }
+        if ($product->create_request_hash !== null && ! hash_equals($product->create_request_hash, $requestHash)) {
+            throw new BusinessException('تم إنشاء المنتج من الطلب السابق ببيانات مختلفة؛ أعد تحميله قبل التعديل.', ['product_id' => [$product->id]], 409);
+        }
+
+        return $this->freshProduct($product);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function executeCreateTransaction(array $data, User $user, ?string $createKey, string $requestHash): Product
+    {
+        return DB::transaction(function () use ($data, $user, $createKey, $requestHash): Product {
+            CatalogLock::tree(shared: true);
+            $data['brand_id'] = null;
+            $data['supplier_id'] = null;
+            $variants = $data['variants'] ?? [];
+            unset($data['variants']);
+            $data = array_filter($data, fn ($value) => $value !== null);
+
+            if (($data['status'] ?? 'draft') !== ProductStatus::Draft->value) {
+                throw new BusinessException('يجب إنشاء المنتج كمسودة ثم رفع صوره ونشره', ['status' => ['الحالة المسموحة عند الإنشاء هي draft']]);
+            }
+
+            $data['slug'] = $data['slug'] ?? SlugService::make(Product::class, $data['name_en']);
+            $data['created_by'] = $user->id;
+            $data['create_key'] = $createKey;
+            $data['create_request_hash'] = $createKey !== null ? $requestHash : null;
+            // Enforce draft status on creation before media upload and publishing.
+            $data['status'] = ProductStatus::Draft->value;
+
+            // Shared-lock category to prevent concurrent deletion while assigning new product to it.
+            $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
+
+            $product = Product::create($data);
+            if (empty($data['code'])) {
+                $this->assignGeneratedProductCode($product);
+            }
+
+            foreach ($variants as $variantData) {
+                app(VariantService::class)->create($product, $variantData);
+            }
+
+            return $this->freshProduct($product);
+        });
+    }
+
+    private function assignGeneratedProductCode(Product $product): void
+    {
+        $baseCode = 'P'.str_pad((string) $product->id, self::GENERATED_CODE_PAD_LENGTH, '0', STR_PAD_LEFT);
+        $code = $baseCode;
+        $suffix = 1;
+
+        while (Product::withTrashed()->where('code', $code)->whereKeyNot($product->id)->exists()) {
+            $code = $baseCode.'-'.$suffix;
+            $suffix++;
+        }
+
+        $product->updateQuietly(['code' => $code]);
+    }
+
+    private function shouldRetryAutoGeneratedConflict(string $driverMessage, int $attempt, bool $autoSlug, bool $autoCode): bool
+    {
+        if ($attempt !== 0) {
+            return false;
+        }
+
+        return ($autoSlug && $this->isSlugConflict($driverMessage))
+            || ($autoCode && $this->isCodeConflict($driverMessage));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function assertVersionPresentIfTimestampSent(array $data, mixed $expectedVersion): void
+    {
+        if (! empty($data['expected_updated_at']) && $expectedVersion === null) {
+            throw new BusinessException('أعد تحميل المنتج لإرسال رقم الإصدار قبل الحفظ.', ['expected_version' => ['رقم الإصدار مطلوب.']]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function applyProductUpdate(Product $product, array $data, User $user, ?int $expectedVersion): Product
+    {
+        CatalogLock::tree(shared: true);
+        // Exclusive lock product row during update to ensure publishability invariants hold against concurrent writes.
+        $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+        $this->assertExpectedVersion($product, $expectedVersion);
+
+        unset($data['brand_id'], $data['supplier_id']);
+        $newStatus = isset($data['status']) ? ProductStatus::from($data['status']) : null;
+        unset($data['status']);
+
+        if (array_key_exists('slug', $data) && empty($data['slug'])) {
+            $data['slug'] = SlugService::make(Product::class, $data['name_en'] ?? $product->name_en, $product->id);
+        }
+        $this->lockReference(Category::class, (int) ($data['category_id'] ?? $product->category_id), 'category_id');
+
+        if (array_key_exists('is_featured', $data) && $data['is_featured'] === null) {
+            unset($data['is_featured']);
+        }
+
+        $product->update($data);
+
+        if ($newStatus && $newStatus !== $product->status) {
+            $this->changeStatus($product, $newStatus, $user);
+        } elseif ($product->status === ProductStatus::Published) {
+            // Re-validate publishability invariants when updating an already published product.
+            $this->assertPublishable($product);
+        }
+
+        $this->scheduleStorefrontCacheInvalidation();
+
+        return $this->freshProduct($product);
+    }
+
+    private function assertPublishPermissionForTransition(Product $product, ProductStatus $targetStatus, User $user): void
+    {
+        $involvesPublishedState = $product->status === ProductStatus::Published || $targetStatus === ProductStatus::Published;
+
+        if ($product->status !== $targetStatus && $involvesPublishedState && ! $user->can('products.publish')) {
+            throw new BusinessException('ليس لديك صلاحية تغيير نشر المنتجات', [], 403);
+        }
+    }
+
+    private function assertDeletableByUser(Product $product, ?User $user): void
+    {
+        if ($user && $product->status === ProductStatus::Published && ! $user->can('products.publish')) {
+            throw new BusinessException('حذف منتج منشور يتطلب صلاحية النشر.', [], 403);
+        }
+    }
+
+    /**
+     * @param  Collection<int, int>  $variantIds
+     */
+    private function assertNoActiveOrdersForVariants(Collection $variantIds): void
+    {
+        if ($variantIds->isEmpty()) {
+            return;
+        }
+
+        // Prevent soft-deleting products referenced by active (uncompleted) orders; historical delivered/cancelled/returned orders are allowed.
+        $hasActiveOrders = OrderItem::query()
+            ->whereIn('product_variant_id', $variantIds)
+            ->whereHas('order', fn ($q) => $q->whereIn('status', [
+                OrderStatus::Pending->value,
+                OrderStatus::Confirmed->value,
+                OrderStatus::Processing->value,
+                OrderStatus::Shipped->value,
+            ]))
+            ->exists();
+
+        if ($hasActiveOrders) {
+            throw new BusinessException('لا يمكن حذف منتج مرتبط بطلبات نشطة؛ استخدم الأرشفة بدلًا من الحذف.');
+        }
+    }
+
+    private function softDeleteVariantsIndividually(Product $product): void
+    {
+        // Soft-delete variants one model at a time so the deleted event
+        // fires (ProductVariant::booted removes dangling cart items);
+        // a mass query delete would silently skip it.
+        foreach ($product->variants()->orderBy('id')->get() as $variant) {
+            $variant->delete();
+        }
+    }
+
+    /**
+     * @param  Collection<int, int>  $variantIds
+     */
+    private function assertNoOrderOrReturnHistory(Collection $variantIds): void
+    {
+        if ($variantIds->isEmpty()) {
+            return;
+        }
+
+        $hasHistory = OrderItem::query()->whereIn('product_variant_id', $variantIds)->exists()
+            || ReturnRequestItem::query()->whereIn('product_variant_id', $variantIds)->exists();
+
+        if ($hasHistory) {
+            throw new BusinessException('لا يمكن الحذف النهائي لمنتج مرتبط بطلبات أو مرتجعات؛ احتفظ به مؤرشفًا أو محذوفًا مؤقتًا.');
+        }
+    }
+
+    /**
+     * @param  Collection<int, ProductVariant>  $variants
+     */
+    private function purgeProductAndVariantMedia(Product $product, Collection $variants): void
+    {
+        foreach ($variants as $variant) {
+            foreach (self::VARIANT_MEDIA_COLLECTIONS as $collection) {
+                $variant->clearMediaCollection($collection);
+            }
+            $variant->forceDelete();
+        }
+
+        foreach (self::PRODUCT_MEDIA_COLLECTIONS as $collection) {
+            $product->clearMediaCollection($collection);
+        }
+    }
+
+    /**
+     * @param  Collection<int, int>  $variantIds
+     */
+    private function assertNoStockBalances(Collection $variantIds, string $message): void
+    {
+        if (StockLevel::query()->whereIn('product_variant_id', $variantIds)->hasNonZeroBalance()->exists()) {
+            throw new BusinessException($message);
+        }
+    }
+
+    private function assertExpectedVersion(Product $product, ?int $expectedVersion): void
+    {
+        if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
+            throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+        }
+    }
+
+    private function lockReference(string $model, int $id, string $field): void
+    {
+        if (! $model::whereKey($id)->sharedLock()->first()) {
+            throw new BusinessException('أحد المراجع المطلوبة لم يعد متاحًا', [$field => ['القيمة المحددة غير موجودة أو محذوفة']]);
+        }
+    }
+
+    private function freshProduct(Product $product): Product
+    {
+        return $product->fresh(self::PRODUCT_RELATIONS);
+    }
+
+    private function scheduleStorefrontCacheInvalidation(): void
+    {
+        DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
+    }
+
+    private function extractDriverMessage(UniqueConstraintViolationException $e): string
+    {
+        return (string) ($e->errorInfo[2] ?? $e->getMessage());
+    }
+
+    private function isSlugConflict(string $driverMessage): bool
+    {
+        return str_contains($driverMessage, 'products_slug_lower_unique')
+            || str_contains($driverMessage, '(slug)');
+    }
+
+    private function isCodeConflict(string $driverMessage): bool
+    {
+        return str_contains($driverMessage, 'products_code_unique')
+            || str_contains($driverMessage, '(code)');
     }
 
     private function throwUniqueConflict(UniqueConstraintViolationException $e, string $driverMessage): never
     {
-        if (str_contains($driverMessage, 'products_slug_lower_unique') || str_contains($driverMessage, '(slug)')) {
+        if ($this->isSlugConflict($driverMessage)) {
             throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
         }
-        if (str_contains($driverMessage, 'products_code_unique') || str_contains($driverMessage, '(code)')) {
+        if ($this->isCodeConflict($driverMessage)) {
             throw new BusinessException('كود المنتج مستخدم بالفعل؛ اختر قيمة أخرى.', ['code' => ['كود المنتج مستخدم بالفعل.']], 409);
         }
         if (str_contains($driverMessage, 'create_key')) {

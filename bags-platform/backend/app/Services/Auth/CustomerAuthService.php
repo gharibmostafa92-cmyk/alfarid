@@ -35,6 +35,22 @@ use Illuminate\Validation\ValidationException;
  */
 class CustomerAuthService
 {
+    private const MAX_PASSWORD_BYTES = 72;
+
+    private const COMMERCIAL_MIN_PASSWORD_LENGTH = 12;
+
+    private const PLAIN_RESET_TOKEN_LENGTH = 64;
+
+    private const SHA256_HEX_LENGTH = 64;
+
+    private const RESET_THROTTLE_SECONDS = 60;
+
+    private const RESET_TOKEN_TTL_MINUTES = 60;
+
+    private const REMEMBER_TOKEN_LENGTH = 60;
+
+    private const LOGIN_FAILURE_SAMPLE_RATE = 10;
+
     public function __construct(
         private readonly CustomerEmailOutbox $customerEmails,
     ) {}
@@ -51,10 +67,10 @@ class CustomerAuthService
         if ($verified !== null) {
             return $verified;
         }
-        $contacts = $query->commercial()->limit(2)->get();
-        $customer = $contacts->count() === 1 ? $contacts->first() : null;
 
-        return $customer;
+        $contacts = $query->commercial()->limit(2)->get();
+
+        return $contacts->count() === 1 ? $contacts->first() : null;
     }
 
     /**
@@ -65,18 +81,11 @@ class CustomerAuthService
         if (config('hashing.driver', 'bcrypt') === 'bcrypt') {
             return sprintf('$2y$%02d$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.', (int) config('hashing.bcrypt.rounds', 12));
         }
+
         static $hashes = [];
         $key = json_encode(config('hashing'));
 
         return $hashes[$key] ??= Hash::make('not-a-customer-password');
-    }
-
-    /**
-     * Compute HMAC key for phone/email to prevent rainbow-table reversal on small phone number spaces in audit logs.
-     */
-    private function identifierKey(string $identifier): string
-    {
-        return hash_hmac('sha256', $identifier, (string) config('app.key'));
     }
 
     /**
@@ -85,37 +94,17 @@ class CustomerAuthService
      */
     public function registerRetail(array $data): Customer
     {
-        // Defense-in-depth: bcrypt truncates past 72 bytes, so reject early
-        // on every entry path even when request validation already caps it.
-        if (strlen((string) ($data['password'] ?? '')) > 72) {
-            throw ValidationException::withMessages(['password' => 'كلمة المرور يجب ألا تتجاوز 72 بايت.']);
-        }
+        $this->assertPasswordWithinBcryptLimit((string) ($data['password'] ?? ''));
+
         try {
             return DB::transaction(function () use ($data): Customer {
                 $this->lockRegistrationEmail($data['email'] ?? null);
-                $verified = app(CustomerPhoneVerificationService::class)->consume($data);
+                $phoneVerified = app(CustomerPhoneVerificationService::class)->consume($data);
 
-                $customer = Customer::query()->make([
-                    'name' => $data['name'],
-                    'email' => $data['email'] ?? null,
-                    'phone' => $data['phone'],
-                    'password' => $data['password'],
-                    'type' => CustomerType::Retail,
-                    'phone_verified_at' => $verified ? now() : null,
-                ]);
-                $customer->forceFill(['status' => CustomerStatus::Approved, 'approved_at' => now()])->save();
+                $customer = $this->createRetailCustomer($data, $phoneVerified);
                 CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'store']);
                 $this->customerEmails->welcome($customer);
-
-                DB::afterCommit(static function () use ($customer): void {
-                    if (config('services.resend.capture_enabled') !== true && filled($customer->email)) {
-                        try {
-                            $customer->notify(new CustomerWelcomeNotification);
-                        } catch (\Throwable $exception) {
-                            report($exception);
-                        }
-                    }
-                });
+                $this->scheduleWelcomeNotification($customer);
 
                 return $customer;
             });
@@ -147,9 +136,11 @@ class CustomerAuthService
         if ($email === null || trim($email) === '') {
             return;
         }
-        $email = mb_strtolower(trim($email));
-        AccountEmailLock::acquire($email);
-        Validator::make(['email' => $email], [
+
+        $normalized = mb_strtolower(trim($email));
+        AccountEmailLock::acquire($normalized);
+
+        Validator::make(['email' => $normalized], [
             'email' => [new UniqueCustomerEmail, new EmailNotUsedByOtherAccountType('customers', true)],
         ])->validate();
     }
@@ -163,49 +154,11 @@ class CustomerAuthService
      */
     public function login(string $identifier, string $password): Customer
     {
-        $emailLogin = str_contains($identifier, '@');
-        $identifier = Customer::normalizeIdentifier($identifier) ?? '';
-        $dummyHash = self::dummyHash();
-        $customer = $this->findForLogin($identifier);
+        $normalizedIdentifier = Customer::normalizeIdentifier($identifier) ?? '';
+        $customer = $this->verifyCredentialsOrFail($normalizedIdentifier, $password, self::dummyHash());
 
-        $hasPassword = $customer !== null && is_string($customer->password) && $customer->password !== '';
-        $validPassword = Hash::check($password, $hasPassword ? $customer->password : $dummyHash) && $hasPassword;
-        if ($customer === null || ! $validPassword) {
-            // Avoid inserting unbounded audit log rows for nonexistent identifiers during stuffing attacks;
-            // log sampled info metric instead, keyed by HMAC.
-            if ($customer === null) {
-                if (random_int(1, 10) === 1) {
-                    logger()->info('customer.login_failed', ['identifier_key' => $this->identifierKey($identifier)]);
-                }
-            } else {
-                defer(fn () => CustomerAuditLog::record($customer, 'login_failed', null, ['identifier_key' => $this->identifierKey($identifier)]))->always();
-            }
-            throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
-        }
-
-        if ($customer->status === CustomerStatus::Suspended) {
-            CustomerAuditLog::record($customer, 'login_failed', null, ['reason' => 'suspended']);
-            throw new BusinessException('هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.', [], 403, 'account_inactive');
-        }
-
-        if ((bool) config('auth.require_phone_verification', false) && $customer->phone_verified_at === null) {
-            throw new BusinessException('يرجى توثيق رقم الهاتف أولاً.', [], 403, 'phone_verification_required');
-        }
-
-        if (Hash::needsRehash($customer->password)) {
-            $original = $customer->password;
-            $replacement = Hash::make($password);
-            if ($customer->newQuery()->whereKey($customer->id)->where('password', $original)->update(['password' => $replacement]) === 1) {
-                $customer->forceFill(['password' => $replacement])->syncOriginalAttribute('password');
-            } else {
-                // Verify against freshly persisted hash if a concurrent request completed the rehash first.
-                $fresh = $customer->newQuery()->whereKey($customer->id)->value('password');
-                if (! is_string($fresh) || ! Hash::check($password, $fresh)) {
-                    throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
-                }
-                $customer->forceFill(['password' => $fresh])->syncOriginalAttribute('password');
-            }
-        }
+        $this->assertAccountCanLogin($customer);
+        $this->rehashPasswordIfNeeded($customer, $password);
         CustomerAuditLog::record($customer, 'login_succeeded', null);
 
         return $customer;
@@ -240,57 +193,24 @@ class CustomerAuthService
         }
 
         $customer = $this->findForPasswordReset($email, $phone);
-
         if ($customer === null || $customer->status === CustomerStatus::Suspended) {
             return;
         }
 
-        $plainToken = Str::random(64);
+        $plainToken = Str::random(self::PLAIN_RESET_TOKEN_LENGTH);
         $key = $customer->getEmailForPasswordReset();
         // Pin the budget timestamp once: a slow provider failure must refund
         // the hour/day bucket the quota was claimed from, not the later one.
-        $budgetAt = CarbonImmutable::now((string) config('app.business_timezone', 'Africa/Cairo'));
+        $budgetAt = CarbonImmutable::now($this->businessTimezone());
 
-        $stored = DB::transaction(function () use ($customer, $key, $plainToken, $email, $networkKey, $budgetAt): bool {
-            $current = Customer::query()->lockForUpdate()->find($customer->id);
-            if ($current === null || $current->status === CustomerStatus::Suspended) {
-                return false;
-            }
-            if ($email) {
-                $emailMatches = mb_strtolower((string) $current->email) === mb_strtolower(trim($email));
-                $mayUseEmail = $current->email_verified_at !== null || $current->isCommercialTier();
-                if (! $emailMatches || ! $mayUseEmail) {
-                    return false;
-                }
-            }
-            $existing = DB::table('password_reset_tokens')->where('email', $key)->first();
-            if ($existing && $existing->created_at !== null && now()->subSeconds(60)->lt(Carbon::parse($existing->created_at))) {
-                return false;
-            }
-            if (! app(CustomerMessageBudget::class)->claim('reset:customer:'.$customer->id, sms: ! $email, networkKey: $networkKey, at: $budgetAt)) {
-                return false;
-            }
-            DB::table('password_reset_tokens')->updateOrInsert(
-                ['email' => $key], ['token' => hash('sha256', $plainToken), 'created_at' => now()],
-            );
-
-            DB::afterCommit(function () use ($customer, $key, $plainToken, $email, $networkKey, $budgetAt): void {
-                try {
-                    $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
-                } catch (\Throwable $exception) {
-                    // The token never reached the customer: drop it so the
-                    // queued retry regenerates a fresh one instead of hitting
-                    // the 60s throttle on a dead token, refund the budget,
-                    // and rethrow so the job retries with backoff.
-                    $this->handleResetDeliveryFailure($customer, $key, $plainToken, ! $email, $networkKey, $budgetAt, $exception);
-                }
-            });
-
-            return true;
-        });
-        if (! $stored) {
-            return;
-        }
+        DB::transaction(fn () => $this->attemptStoreResetToken(
+            $customer,
+            $key,
+            $plainToken,
+            $email,
+            $networkKey,
+            $budgetAt,
+        ));
     }
 
     /**
@@ -331,17 +251,9 @@ class CustomerAuthService
                 report($refundException);
             }
         }
+
         report($exception);
         throw $exception;
-    }
-
-    private function isAmbiguousDeliveryTimeout(\Throwable $exception): bool
-    {
-        $message = mb_strtolower($exception->getMessage());
-
-        return str_contains($message, 'timed out')
-            || str_contains($message, 'curl error 28')
-            || str_contains($message, 'timeout');
     }
 
     /**
@@ -355,71 +267,18 @@ class CustomerAuthService
         $dummyHash = self::dummyHash();
         $email = isset($data['email']) ? trim((string) $data['email']) : '';
         $phone = isset($data['phone']) ? trim((string) $data['phone']) : '';
+
         DB::transaction(function () use ($data, $dummyHash, $email, $phone): void {
-            $customer = $this->findForPasswordReset($email !== '' ? $email : null, $phone !== '' ? $phone : null);
-            if ($customer !== null) {
-                $customer = Customer::query()->lockForUpdate()->find($customer->id);
-            }
-            if ($customer !== null && $email !== '') {
-                $emailMatches = mb_strtolower((string) $customer->email) === mb_strtolower($email);
-                $mayUseEmail = $customer->email_verified_at !== null || $customer->isCommercialTier();
-                if (! $emailMatches || ! $mayUseEmail) {
-                    $customer = null;
-                }
-            }
+            $customer = $this->lockCustomerForPasswordReset($email, $phone);
             $key = $customer?->getEmailForPasswordReset();
-            if (! is_string($key) || $key === '') {
-                Hash::check((string) ($data['token'] ?? ''), $dummyHash);
-                throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
-            }
-            $row = DB::table('password_reset_tokens')->where('email', $key)->lockForUpdate()->first();
-            $storedToken = $row?->token ?? '';
-            $validToken = strlen($storedToken) === 64 ? hash_equals($storedToken, hash('sha256', $data['token']))
-                : Hash::check($data['token'], $storedToken ?: $dummyHash);
-            $createdAt = $row?->created_at !== null ? Carbon::parse($row->created_at) : null;
-            if ($customer === null || $customer->status === CustomerStatus::Suspended || $row === null
-                || $createdAt === null || now()->subMinutes(60)->gte($createdAt)
-                || now()->lt($createdAt) || ! $validToken) {
-                throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
-            }
-            if (strlen((string) ($data['password'] ?? '')) > 72) {
-                throw ValidationException::withMessages(['password' => 'كلمة المرور يجب ألا تتجاوز 72 بايت.']);
-            }
-            if ($customer->isCommercialTier() && mb_strlen($data['password']) < 12) {
-                throw ValidationException::withMessages(['password' => 'كلمة المرور يجب أن تكون 12 حرفًا على الأقل.']);
-            }
-            $customer->forceFill(['password' => $data['password'], 'remember_token' => Str::random(60)])->save();
-            $customer->tokens()->delete();
-            DB::table('password_reset_tokens')->where('email', $key)->delete();
-            CustomerAuditLog::record($customer, 'password_reset', null);
+            $plainToken = (string) ($data['token'] ?? '');
+
+            $this->assertValidResetToken($customer, $key, $plainToken, $dummyHash);
+
+            $password = (string) ($data['password'] ?? '');
+            $this->assertNewPasswordValid($customer, $password);
+            $this->applyPasswordReset($customer, (string) $key, $password);
         });
-    }
-
-    /**
-     * Resolve the customer a password reset may address.
-     *
-     * Commercial accounts match findForLogin, including an unverified login email.
-     * Retail email resets still require email_verified_at.
-     */
-    private function findForPasswordReset(?string $email, ?string $phone): ?Customer
-    {
-        if (is_string($email) && trim($email) !== '') {
-            $customer = $this->findForLogin($email);
-            if ($customer === null) {
-                return null;
-            }
-            if ($customer->email_verified_at !== null || $customer->isCommercialTier()) {
-                return $customer;
-            }
-
-            return null;
-        }
-
-        if (! is_string($phone) || trim($phone) === '') {
-            return null;
-        }
-
-        return Customer::query()->where('phone', Customer::normalizePhone($phone))->first();
     }
 
     /**
@@ -433,22 +292,337 @@ class CustomerAuthService
         $verifiedHash = $customer->getAuthPassword();
 
         return DB::transaction(function () use ($customer, $name, $verifiedHash): string {
-            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
-            if ($customer->getAuthPassword() !== $verifiedHash) {
-                throw new BusinessException("بيانات الدخول غير صحيحة.", [], 401);
+            $lockedCustomer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            if ($lockedCustomer->getAuthPassword() !== $verifiedHash) {
+                throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
             }
-            if ($customer->status === CustomerStatus::Suspended) {
+            if ($lockedCustomer->status === CustomerStatus::Suspended) {
                 throw new BusinessException('هذا الحساب موقوف.', [], 403);
             }
 
-            StaffTokenService::pruneAndCap($customer, (int) config('auth.customer_max_tokens', 10), (int) config('auth.customer_token_minutes'));
+            StaffTokenService::pruneAndCap(
+                $lockedCustomer,
+                (int) config('auth.customer_max_tokens', 10),
+                (int) config('auth.customer_token_minutes'),
+            );
 
             // Scope the token to its channel instead of granting wildcard abilities,
             // and keep the lifetime short because these tokens live in localStorage.
-            $token = $customer->createToken($name, [$name], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes'))));
-            CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);
+            $token = $lockedCustomer->createToken(
+                $name,
+                [$name],
+                now()->addMinutes(max(1, (int) config('auth.customer_token_minutes'))),
+            );
+            CustomerAuditLog::record($lockedCustomer, 'token_issued', null, [
+                'token_id' => $token->accessToken->id,
+                'channel' => $name,
+            ]);
 
             return $token->plainTextToken;
         });
+    }
+
+    private function createRetailCustomer(array $data, bool $phoneVerified): Customer
+    {
+        $customer = Customer::query()->make([
+            'name' => $data['name'],
+            'email' => $data['email'] ?? null,
+            'phone' => $data['phone'],
+            'password' => $data['password'],
+            'type' => CustomerType::Retail,
+            'phone_verified_at' => $phoneVerified ? now() : null,
+        ]);
+        $customer->forceFill(['status' => CustomerStatus::Approved, 'approved_at' => now()])->save();
+
+        return $customer;
+    }
+
+    private function scheduleWelcomeNotification(Customer $customer): void
+    {
+        DB::afterCommit(static function () use ($customer): void {
+            if (config('services.resend.capture_enabled') !== true && filled($customer->email)) {
+                try {
+                    $customer->notify(new CustomerWelcomeNotification);
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            }
+        });
+    }
+
+    private function verifyCredentialsOrFail(string $identifier, string $password, string $dummyHash): Customer
+    {
+        $customer = $this->findForLogin($identifier);
+        $hasPassword = $customer !== null && is_string($customer->password) && $customer->password !== '';
+        $validPassword = Hash::check($password, $hasPassword ? $customer->password : $dummyHash) && $hasPassword;
+
+        if ($customer === null || ! $validPassword) {
+            $this->recordFailedLogin($customer, $identifier);
+            throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+        }
+
+        return $customer;
+    }
+
+    private function recordFailedLogin(?Customer $customer, string $identifier): void
+    {
+        // Avoid inserting unbounded audit log rows for nonexistent identifiers during stuffing attacks;
+        // log sampled info metric instead, keyed by HMAC.
+        if ($customer === null) {
+            if (random_int(1, self::LOGIN_FAILURE_SAMPLE_RATE) === 1) {
+                logger()->info('customer.login_failed', ['identifier_key' => $this->identifierKey($identifier)]);
+            }
+
+            return;
+        }
+
+        defer(fn () => CustomerAuditLog::record(
+            $customer,
+            'login_failed',
+            null,
+            ['identifier_key' => $this->identifierKey($identifier)],
+        ))->always();
+    }
+
+    private function assertAccountCanLogin(Customer $customer): void
+    {
+        if ($customer->status === CustomerStatus::Suspended) {
+            CustomerAuditLog::record($customer, 'login_failed', null, ['reason' => 'suspended']);
+            throw new BusinessException('هذا الحساب موقوف. يرجى التواصل مع خدمة العملاء.', [], 403, 'account_inactive');
+        }
+
+        if ((bool) config('auth.require_phone_verification', false) && $customer->phone_verified_at === null) {
+            throw new BusinessException('يرجى توثيق رقم الهاتف أولاً.', [], 403, 'phone_verification_required');
+        }
+    }
+
+    private function rehashPasswordIfNeeded(Customer $customer, string $password): void
+    {
+        if (! Hash::needsRehash($customer->password)) {
+            return;
+        }
+
+        $original = $customer->password;
+        $replacement = Hash::make($password);
+        $updated = $customer->newQuery()
+            ->whereKey($customer->id)
+            ->where('password', $original)
+            ->update(['password' => $replacement]);
+
+        if ($updated === 1) {
+            $customer->forceFill(['password' => $replacement])->syncOriginalAttribute('password');
+
+            return;
+        }
+
+        // Verify against freshly persisted hash if a concurrent request completed the rehash first.
+        $fresh = $customer->newQuery()->whereKey($customer->id)->value('password');
+        if (! is_string($fresh) || ! Hash::check($password, $fresh)) {
+            throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+        }
+
+        $customer->forceFill(['password' => $fresh])->syncOriginalAttribute('password');
+    }
+
+    private function attemptStoreResetToken(
+        Customer $customer,
+        string $key,
+        string $plainToken,
+        ?string $email,
+        ?string $networkKey,
+        CarbonImmutable $budgetAt,
+    ): bool {
+        $current = Customer::query()->lockForUpdate()->find($customer->id);
+        if ($current === null || $current->status === CustomerStatus::Suspended) {
+            return false;
+        }
+        if ($email && ! $this->canUseEmailForPasswordReset($current, $email)) {
+            return false;
+        }
+        if ($this->hasRecentResetToken($key)) {
+            return false;
+        }
+
+        $claimed = app(CustomerMessageBudget::class)->claim(
+            'reset:customer:'.$customer->id,
+            sms: ! $email,
+            networkKey: $networkKey,
+            at: $budgetAt,
+        );
+        if (! $claimed) {
+            return false;
+        }
+
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $key],
+            ['token' => hash('sha256', $plainToken), 'created_at' => now()],
+        );
+
+        $this->scheduleResetNotification($customer, $key, $plainToken, $email, $networkKey, $budgetAt);
+
+        return true;
+    }
+
+    private function hasRecentResetToken(string $key): bool
+    {
+        $existing = DB::table('password_reset_tokens')->where('email', $key)->first();
+
+        return $existing !== null
+            && $existing->created_at !== null
+            && now()->subSeconds(self::RESET_THROTTLE_SECONDS)->lt(Carbon::parse($existing->created_at));
+    }
+
+    private function scheduleResetNotification(
+        Customer $customer,
+        string $key,
+        string $plainToken,
+        ?string $email,
+        ?string $networkKey,
+        CarbonImmutable $budgetAt,
+    ): void {
+        DB::afterCommit(function () use ($customer, $key, $plainToken, $email, $networkKey, $budgetAt): void {
+            try {
+                $channel = $email ? 'mail' : CustomerSmsChannel::class;
+                $customer->notify(new CustomerPasswordReset($plainToken, $channel));
+            } catch (\Throwable $exception) {
+                // The token never reached the customer: drop it so the
+                // queued retry regenerates a fresh one instead of hitting
+                // the 60s throttle on a dead token, refund the budget,
+                // and rethrow so the job retries with backoff.
+                $this->handleResetDeliveryFailure($customer, $key, $plainToken, ! $email, $networkKey, $budgetAt, $exception);
+            }
+        });
+    }
+
+    private function lockCustomerForPasswordReset(string $email, string $phone): ?Customer
+    {
+        $customer = $this->findForPasswordReset($email !== '' ? $email : null, $phone !== '' ? $phone : null);
+        if ($customer !== null) {
+            $customer = Customer::query()->lockForUpdate()->find($customer->id);
+        }
+
+        if ($customer !== null && $email !== '' && ! $this->canUseEmailForPasswordReset($customer, $email)) {
+            return null;
+        }
+
+        return $customer;
+    }
+
+    private function assertValidResetToken(?Customer $customer, ?string $key, string $plainToken, string $dummyHash): void
+    {
+        if (! is_string($key) || $key === '') {
+            Hash::check($plainToken, $dummyHash);
+            throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
+        }
+
+        $row = DB::table('password_reset_tokens')->where('email', $key)->lockForUpdate()->first();
+        $validToken = $this->isResetTokenValid($row, $plainToken, $dummyHash);
+        $createdAt = $row?->created_at !== null ? Carbon::parse($row->created_at) : null;
+
+        if ($customer === null
+            || $customer->status === CustomerStatus::Suspended
+            || $row === null
+            || $createdAt === null
+            || now()->subMinutes(self::RESET_TOKEN_TTL_MINUTES)->gte($createdAt)
+            || now()->lt($createdAt)
+            || ! $validToken) {
+            throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
+        }
+    }
+
+    private function isResetTokenValid(?object $row, string $plainToken, string $dummyHash): bool
+    {
+        $storedToken = $row?->token ?? '';
+
+        return strlen($storedToken) === self::SHA256_HEX_LENGTH
+            ? hash_equals($storedToken, hash('sha256', $plainToken))
+            : Hash::check($plainToken, $storedToken ?: $dummyHash);
+    }
+
+    private function assertNewPasswordValid(Customer $customer, string $password): void
+    {
+        $this->assertPasswordWithinBcryptLimit($password);
+
+        if ($customer->isCommercialTier() && mb_strlen($password) < self::COMMERCIAL_MIN_PASSWORD_LENGTH) {
+            throw ValidationException::withMessages(['password' => 'كلمة المرور يجب أن تكون 12 حرفًا على الأقل.']);
+        }
+    }
+
+    private function applyPasswordReset(Customer $customer, string $key, string $password): void
+    {
+        $customer->forceFill([
+            'password' => $password,
+            'remember_token' => Str::random(self::REMEMBER_TOKEN_LENGTH),
+        ])->save();
+
+        $customer->tokens()->delete();
+        DB::table('password_reset_tokens')->where('email', $key)->delete();
+        CustomerAuditLog::record($customer, 'password_reset', null);
+    }
+
+    /**
+     * Resolve the customer a password reset may address.
+     *
+     * Commercial accounts match findForLogin, including an unverified login email.
+     * Retail email resets still require email_verified_at.
+     */
+    private function findForPasswordReset(?string $email, ?string $phone): ?Customer
+    {
+        if (is_string($email) && trim($email) !== '') {
+            $customer = $this->findForLogin($email);
+
+            return $customer !== null && $this->isEmailResetEligible($customer)
+                ? $customer
+                : null;
+        }
+
+        if (! is_string($phone) || trim($phone) === '') {
+            return null;
+        }
+
+        return Customer::query()->where('phone', Customer::normalizePhone($phone))->first();
+    }
+
+    private function canUseEmailForPasswordReset(Customer $customer, string $email): bool
+    {
+        $emailMatches = mb_strtolower((string) $customer->email) === mb_strtolower(trim($email));
+
+        return $emailMatches && $this->isEmailResetEligible($customer);
+    }
+
+    private function isEmailResetEligible(Customer $customer): bool
+    {
+        return $customer->email_verified_at !== null || $customer->isCommercialTier();
+    }
+
+    private function assertPasswordWithinBcryptLimit(string $password): void
+    {
+        // Defense-in-depth: bcrypt truncates past 72 bytes, so reject early
+        // on every entry path even when request validation already caps it.
+        if (strlen($password) > self::MAX_PASSWORD_BYTES) {
+            throw ValidationException::withMessages(['password' => 'كلمة المرور يجب ألا تتجاوز 72 بايت.']);
+        }
+    }
+
+    /**
+     * Compute HMAC key for phone/email to prevent rainbow-table reversal on small phone number spaces in audit logs.
+     */
+    private function identifierKey(string $identifier): string
+    {
+        return hash_hmac('sha256', $identifier, (string) config('app.key'));
+    }
+
+    private function businessTimezone(): string
+    {
+        return (string) config('app.business_timezone', 'Africa/Cairo');
+    }
+
+    private function isAmbiguousDeliveryTimeout(\Throwable $exception): bool
+    {
+        $message = mb_strtolower($exception->getMessage());
+
+        return str_contains($message, 'timed out')
+            || str_contains($message, 'curl error 28')
+            || str_contains($message, 'timeout');
     }
 }

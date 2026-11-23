@@ -78,7 +78,7 @@ export function TransfersPage({ toast, branch }: TransfersPageProps) {
             </p>
           </div>
         </div>
-        <div className="tabs" style={{ marginBottom: 18 }}>
+        <div className="tabs tr-tabs">
           <button
             aria-selected={tab === 'receive'}
             onClick={() => setTab('receive')}

@@ -78,11 +78,12 @@ class ConcurrentIndex
 
     private static function concurrently(): string
     {
-        if (DB::transactionLevel() === 0) {
-            return 'CONCURRENTLY ';
-        }
         if (app()->environment('testing')) {
             return '';
+        }
+
+        if (DB::transactionLevel() === 0) {
+            return 'CONCURRENTLY ';
         }
 
         throw new \LogicException('Concurrent index builds require an independent migration.');

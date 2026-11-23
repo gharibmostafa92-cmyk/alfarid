@@ -39,8 +39,12 @@ class CustomerManagementService
 
     private const MAX_TOTAL_DOCUMENTS = 10;
 
+    private const COMMERCIAL_LEGAL_FIELDS = ['company_name', 'tax_number', 'commercial_register'];
+
     /**
      * Paginate customers with search, type, and status filtering.
+     *
+     * @param  array<string, mixed>  $filters
      */
     public function paginate(array $filters): LengthAwarePaginator
     {
@@ -67,71 +71,20 @@ class CustomerManagementService
     }
 
     /**
-     * Merge the execution channel marker (AI vs REST) into audit metadata.
-     * REST calls pass an empty $via, so their recorded metadata stays
-     * byte-identical to before; AI calls carry channel/conversation/action.
-     */
-    private function viaMeta(array $via, array $meta = []): array
-    {
-        return $via === [] ? $meta : [...$meta, 'via' => $via];
-    }
-
-    /**
-     * Acquire a transactional advisory lock and re-validate customer email uniqueness under concurrency.
-     *
-     * @param  string|null  $email  Email address to claim.
-     * @param  int|null  $ignoreId  Customer ID to exclude from unique checks during updates.
-     */
-    private function claimEmail(?string $email, ?int $ignoreId = null): void
-    {
-        if ($email === null || trim($email) === '') {
-            return;
-        }
-        $email = mb_strtolower(trim($email));
-        AccountEmailLock::acquire($email);
-        Validator::make(['email' => $email], [
-            'email' => [new UniqueCustomerEmail($ignoreId), new EmailNotUsedByOtherAccountType('customers')],
-        ])->validate();
-    }
-
-    /**
-     * Assert that the specified customer group exists and is currently active.
-     */
-    private function assertActiveGroup(?int $groupId): void
-    {
-        if ($groupId !== null && ! CustomerGroup::query()->whereKey($groupId)->where('is_active', true)->exists()) {
-            throw new BusinessException('مجموعة العملاء غير موجودة أو معطلة.', ['customer_group_id' => ['اختر مجموعة مفعّلة.']]);
-        }
-    }
-
-    /**
      * Create customer record from admin console.
      * Enforces Approved status for retail and Pending for wholesale accounts.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $via
      *
      * @throws BusinessException If attempting to directly create an approved wholesale account
      */
     public function create(array $data, ?int $actorId = null, array $via = []): Customer
     {
-        $data['type'] ??= CustomerType::Retail->value;
-        // Internal callers (AI tools, jobs) may pass enum objects; compare canonical values everywhere below.
-        $data['type'] = $data['type'] instanceof CustomerType ? $data['type']->value : $data['type'];
-        $data['status'] = ($data['status'] ?? null) instanceof CustomerStatus ? $data['status']->value : ($data['status'] ?? null);
-        $data['credit_limit'] ??= 0;
-        // Default status by type unless explicitly provided: retail is approved, wholesale requires review.
-        $data['status'] ??= $data['type'] === CustomerType::Retail->value
-            ? CustomerStatus::Approved
-            : CustomerStatus::Pending;
+        $data = $this->normalizeCreationAttributes($data);
+        $this->assertValidCreationPolicy($data['type'], $data['status']);
 
-        $isApproved = in_array($data['status'], [CustomerStatus::Approved, CustomerStatus::Approved->value], true);
-        $isRetail = in_array($data['type'], [CustomerType::Retail, CustomerType::Retail->value], true);
-
-        if ($isRetail && ! $isApproved) {
-            throw new BusinessException('حسابات التجزئة يجب أن تكون معتمدة عند إنشائها.');
-        }
-
-        if ($isApproved && ! $isRetail) {
-            throw new BusinessException('أنشئ حساب الجملة قيد المراجعة ثم استخدم مسار الاعتماد.');
-        }
+        $isApproved = $data['status'] === CustomerStatus::Approved->value;
 
         try {
             return DB::transaction(function () use ($data, $actorId, $via, $isApproved): Customer {
@@ -155,60 +108,40 @@ class CustomerManagementService
     /**
      * Update customer profile, credentials, and business identity.
      * Invalidates active sessions and reset tokens if credentials change.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $via
      */
     public function update(Customer $customer, array $data, ?int $actorId = null, array $via = []): Customer
     {
         try {
             return DB::transaction(function () use ($customer, $data, $actorId, $via): Customer {
                 $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+
                 $newGroupId = array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null
-                    ? (int) $data['customer_group_id'] : null;
+                    ? (int) $data['customer_group_id']
+                    : null;
                 $oldGroupId = $customer->customer_group_id === null ? null : (int) $customer->customer_group_id;
-                $sensitiveChange = (array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit)
-                    || (array_key_exists('customer_group_id', $data) && $newGroupId !== $oldGroupId);
-                if ($sensitiveChange) {
-                    if (array_key_exists('expected_version', $data) && $data['expected_version'] !== null) {
-                        if ((int) $data['expected_version'] !== (int) $customer->lock_version) {
-                            throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-                        }
-                    } elseif (! empty($data['expected_updated_at'])) {
-                        $expected = Carbon::parse($data['expected_updated_at'])->utc()->timestamp;
-                        // Fail closed on a stale copy: two consoles editing the same
-                        // credit limit must not silently overwrite each other.
-                        if ($expected !== $customer->updated_at->copy()->utc()->timestamp) {
-                            throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
-                        }
-                    } else {
-                        throw new BusinessException('يجب تمرير رمز التزامن لتعديل الحدود المالية للعميل.', [], 409);
-                    }
-                }
+
+                $this->assertOptimisticLockIfSensitiveChange($customer, $data, $newGroupId, $oldGroupId);
                 unset($data['expected_version'], $data['expected_updated_at']);
-                unset($data['expected_updated_at']);
+
                 if (isset($data['email']) && $data['email'] !== $customer->email) {
                     $this->claimEmail($data['email'], $customer->id);
                 }
-                if (array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null
-                    && (int) $data['customer_group_id'] !== (int) $customer->customer_group_id) {
-                    $this->assertActiveGroup((int) $data['customer_group_id']);
+                if ($newGroupId !== null && $newGroupId !== $oldGroupId) {
+                    $this->assertActiveGroup($newGroupId);
                 }
                 if (isset($data['type']) && $data['type'] !== $customer->type->value) {
                     throw new BusinessException('تغيير نوع الحساب المعتمد يتطلب استخدام مسار الاعتماد.');
                 }
-                if ($customer->isWholesaleApproved()) {
-                    foreach (['company_name', 'tax_number', 'commercial_register'] as $field) {
-                        if (array_key_exists($field, $data) && blank($data[$field])) {
-                            throw new BusinessException('لا يمكن مسح بيانات الجملة لحساب معتمد.', [$field => ['هذا الحقل مطلوب.']]);
-                        }
-                    }
-                }
-                $businessIdentityChanged = collect(['company_name', 'tax_number', 'commercial_register'])
-                    ->contains(fn ($field) => array_key_exists($field, $data) && $data[$field] !== $customer->{$field});
-                $credentialsChanged = array_key_exists('password', $data)
-                    || (isset($data['email']) && $data['email'] !== $customer->email)
-                    || (isset($data['phone']) && $data['phone'] !== $customer->phone)
-                    || (array_key_exists('email', $data) && $data['email'] === null && $customer->email !== null);
-                $phoneChanged = (isset($data['phone']) && $data['phone'] !== $customer->phone)
-                    || (array_key_exists('whatsapp_phone', $data) && $data['whatsapp_phone'] !== $customer->whatsapp_phone);
+
+                $this->assertApprovedWholesaleDataNotCleared($customer, $data);
+
+                $businessIdentityChanged = $this->hasBusinessIdentityChanges($customer, $data);
+                $credentialsChanged = $this->hasCredentialChanges($customer, $data);
+                $phoneChanged = $this->hasPhoneChanges($customer, $data);
+
                 if (isset($data['phone']) && $data['phone'] !== $customer->phone) {
                     $customer->forceFill(['phone_verified_at' => null]);
                 }
@@ -216,24 +149,9 @@ class CustomerManagementService
                     DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
                 }
 
-                // Track previous and new values for financial attributes in the audit payload.
-                $financial = [];
-                if (array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit) {
-                    $financial['credit_limit'] = ['before' => (string) $customer->credit_limit, 'after' => (string) $data['credit_limit']];
-                }
-                if (array_key_exists('customer_group_id', $data)) {
-                    $old = $customer->customer_group_id === null ? null : (int) $customer->customer_group_id;
-                    $new = $data['customer_group_id'] === null ? null : (int) $data['customer_group_id'];
-                    if ($old !== $new) {
-                        $financial['customer_group_id'] = ['before' => $old, 'after' => $new];
-                    }
-                }
-                if (array_key_exists('whatsapp_opt_in', $data)) {
-                    $data['whatsapp_opt_in_at'] = $data['whatsapp_opt_in']
-                        ? ($customer->whatsapp_opt_in_at ?? now())
-                        : null;
-                    unset($data['whatsapp_opt_in']);
-                }
+                $financialDiff = $this->buildFinancialAuditDiff($customer, $data, $oldGroupId, $newGroupId);
+                $this->syncWhatsAppOptIn($customer, $data);
+
                 $customer->fill(Arr::except($data, ['credit_limit']));
                 if (array_key_exists('credit_limit', $data)) {
                     $customer->forceFill(['credit_limit' => $data['credit_limit']]);
@@ -243,9 +161,13 @@ class CustomerManagementService
                     $this->revokeSessionsAndResetTokens($customer);
                 }
                 $customer->save();
-                CustomerAuditLog::record($customer, $credentialsChanged ? 'credentials_changed' : 'updated', $actorId, $this->viaMeta($via, ['fields' => array_keys($data)] + ($financial !== [] ? ['changes' => $financial] : [])));
+
+                $auditMeta = $this->viaMeta($via, ['fields' => array_keys($data)] + ($financialDiff !== [] ? ['changes' => $financialDiff] : []));
+                CustomerAuditLog::record($customer, $credentialsChanged ? 'credentials_changed' : 'updated', $actorId, $auditMeta);
+
                 if ($businessIdentityChanged) {
-                    CustomerAuditLog::record($customer, 'business_identity_changed', $actorId, $this->viaMeta($via, ['fields' => array_keys(array_intersect_key($data, array_flip(['company_name', 'tax_number', 'commercial_register'])))]));
+                    $legalFields = array_keys(array_intersect_key($data, array_flip(self::COMMERCIAL_LEGAL_FIELDS)));
+                    CustomerAuditLog::record($customer, 'business_identity_changed', $actorId, $this->viaMeta($via, ['fields' => $legalFields]));
                 }
 
                 return $customer->load('customerGroup');
@@ -262,9 +184,7 @@ class CustomerManagementService
     {
         DB::transaction(function () use ($customer, $actorId): void {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
-            $customer->tokens()->delete();
-            DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
-            DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
+            $this->revokeSessionsAndResetTokens($customer);
             CustomerAuditLog::record($customer, 'deleted', $actorId);
             $customer->delete();
         });
@@ -274,41 +194,26 @@ class CustomerManagementService
      * Approve customer application (wholesale/distributor).
      * Validates verified supporting documents and assigns group, credit limit, and approver timestamp.
      *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $via
+     *
      * @throws BusinessException If documents unverified or required legal info missing
      */
     public function approve(Customer $customer, array $data, int $adminId, array $via = []): Customer
     {
         return DB::transaction(function () use ($customer, $data, $adminId, $via): Customer {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
-            if ($customer->status === CustomerStatus::Suspended) {
-                throw new BusinessException('الحساب موقوف؛ استخدم إعادة التفعيل بدل الاعتماد.');
-            }
-            // Internal callers may pass enum objects; compare canonical values.
-            $requestedType = $data['type'] ?? null;
-            $requestedType = $requestedType instanceof CustomerType ? $requestedType->value : $requestedType;
+
+            $requestedType = isset($data['type']) ? $this->canonicalTypeValue($data['type']) : null;
+            $targetType = $requestedType ?? $customer->type->value;
+
+            $this->assertApprovable($customer, $requestedType);
             $this->assertActiveGroup(array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null ? (int) $data['customer_group_id'] : null);
-            if ($customer->status === CustomerStatus::Approved && ($requestedType ?? $customer->type->value) === $customer->type->value) {
-                throw new BusinessException('هذا الحساب معتمد بالفعل.');
-            }
-            $legal = [];
+            $this->assertDocumentsAllowApproval($customer, $targetType);
 
-            // Exclude rejected documents from blocking approval; only pending documents require resolution.
-            if ($customer->documents()->where('status', CustomerDocumentStatus::Pending->value)->exists()) {
-                throw new BusinessException('راجع المستندات المعلقة (اعتمد السليم وارفض غير السليم) قبل اعتماد الحساب.');
-            }
-            if (($requestedType ?? $customer->type->value) !== CustomerType::Retail->value) {
-                if (! $customer->documents()->where('status', CustomerDocumentStatus::Verified->value)->exists()) {
-                    throw new BusinessException('يلزم مستند موثّق واحد على الأقل لاعتماد حساب الجملة أو الموزع.');
-                }
-                foreach (['company_name', 'tax_number', 'commercial_register'] as $field) {
-                    $legal[$field] = $data[$field] ?? $customer->{$field};
-                    if (blank($legal[$field])) {
-                        throw new BusinessException('بيانات الجملة مطلوبة قبل الاعتماد.', [$field => ['هذا الحقل مطلوب لاعتماد حساب الجملة أو الموزع.']]);
-                    }
-                }
-            }
+            $legal = $this->resolveCommercialLegalFieldsForApproval($customer, $data, $targetType);
+            $previousType = $this->canonicalTypeValue($customer->type);
 
-            $previousType = $customer->type instanceof CustomerType ? $customer->type->value : (string) $customer->type;
             $customer->forceFill([
                 ...$legal,
                 'status' => CustomerStatus::Approved,
@@ -321,13 +226,24 @@ class CustomerManagementService
                 'credit_limit' => $data['credit_limit'] ?? $customer->credit_limit,
                 'type' => $data['type'] ?? $customer->type,
             ])->save();
-            $nextType = $customer->type instanceof CustomerType ? $customer->type->value : (string) $customer->type;
+
+            $nextType = $this->canonicalTypeValue($customer->type);
             if ($nextType !== $previousType) {
                 // A channel change invalidates previously issued tokens: force
                 // re-authentication so the new token matches the new channel.
                 $customer->tokens()->delete();
             }
-            CustomerAuditLog::record($customer, 'approved', $adminId, $this->viaMeta($via, ['type' => $customer->type->value, 'credit_limit' => $customer->credit_limit, 'customer_group_id' => $customer->customer_group_id]));
+
+            CustomerAuditLog::record(
+                $customer,
+                'approved',
+                $adminId,
+                $this->viaMeta($via, [
+                    'type' => $customer->type->value,
+                    'credit_limit' => $customer->credit_limit,
+                    'customer_group_id' => $customer->customer_group_id,
+                ])
+            );
 
             if ($customer->isCommercialTier()) {
                 WholesaleApplicationReviewed::dispatch($customer, 'approved');
@@ -339,6 +255,8 @@ class CustomerManagementService
 
     /**
      * Reject a pending customer application with a recorded reason.
+     *
+     * @param  array<string, mixed>  $via
      *
      * @throws BusinessException If customer is not in Pending status
      */
@@ -366,6 +284,8 @@ class CustomerManagementService
 
     /**
      * Suspend customer account and revoke all active sessions immediately.
+     *
+     * @param  array<string, mixed>  $via
      */
     public function suspend(Customer $customer, string $reason, ?int $actorId = null, array $via = []): Customer
     {
@@ -384,64 +304,6 @@ class CustomerManagementService
             CustomerAuditLog::record($customer, 'suspended', $actorId, $this->viaMeta($via, ['reason' => $reason, 'previous_status' => $previous]));
 
             return $customer->load('customerGroup');
-        });
-    }
-
-    private function revokeSessionsAndResetTokens(Customer $customer): void
-    {
-        $customer->tokens()->delete();
-        DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
-        DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
-    }
-
-    /**
-     * Restore a soft-deleted customer account.
-     */
-    public function restore(Customer $customer, ?int $actorId, array $via = []): Customer
-    {
-        return DB::transaction(function () use ($customer, $actorId, $via): Customer {
-            $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($customer->id);
-            if (! $customer->trashed()) {
-                throw new BusinessException('الحساب غير محذوف.');
-            }
-
-            // Re-claim email under lock in case another account registered the same address while deleted.
-            try {
-                $this->claimEmail($customer->email, $customer->id);
-            } catch (ValidationException) {
-                throw new BusinessException('لا يمكن الاستعادة: البريد '.$customer->email.' مستخدم الآن بحساب نشط آخر. غيّر بريد الحساب الآخر أولاً.');
-            }
-            if ($customer->phone !== null && Customer::query()->whereNull('deleted_at')->where('phone', $customer->phone)->where('id', '!=', $customer->id)->exists()) {
-                throw new BusinessException('لا يمكن الاستعادة: رقم الهاتف '.$customer->phone.' مستخدم الآن بحساب نشط آخر.');
-            }
-            try {
-                $customer->restore();
-            } catch (UniqueConstraintViolationException) {
-                throw new BusinessException('لا يمكن الاستعادة: بيانات الحساب تتعارض مع حساب نشط آخر.');
-            }
-            CustomerAuditLog::record($customer, 'restored', $actorId, $this->viaMeta($via));
-
-            return $customer->load('customerGroup');
-        });
-    }
-
-    /**
-     * Review supporting customer verification document status (verified/rejected).
-     */
-    public function reviewDocument(Customer $customer, CustomerDocument $document, CustomerDocumentStatus|string $status, int $actorId, ?string $note = null, array $via = []): CustomerDocument
-    {
-        $status = $status instanceof CustomerDocumentStatus ? $status : CustomerDocumentStatus::tryFrom($status);
-        if (! in_array($status, [CustomerDocumentStatus::Verified, CustomerDocumentStatus::Rejected], true)) {
-            throw new BusinessException('حالة مراجعة المستند يجب أن تكون معتمدًا أو مرفوضًا.');
-        }
-
-        return DB::transaction(function () use ($customer, $document, $status, $actorId, $note, $via) {
-            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
-            $document = $customer->documents()->whereKey($document->id)->lockForUpdate()->firstOrFail();
-            $document->forceFill(['status' => $status->value, 'reviewed_by' => $actorId, 'reviewed_at' => now(), 'review_note' => $note])->save();
-            CustomerAuditLog::record($customer, 'document_reviewed', $actorId, $this->viaMeta($via, ['document_id' => $document->id, 'status' => $status->value]));
-
-            return $document;
         });
     }
 
@@ -464,23 +326,74 @@ class CustomerManagementService
                 throw new BusinessException('الحساب مش موقوف.');
             }
 
-            // Revert to pre-suspension status to prevent rejected applications from silently re-entering pending queue.
-            $target = CustomerStatus::tryFrom((string) ($restoreTo ?? $locked->pre_suspension_status));
-            if ($target === null || $target === CustomerStatus::Suspended) {
-                $target = $locked->approved_at ? CustomerStatus::Approved : CustomerStatus::Pending;
+            $target = $this->resolveReactivationTargetStatus($locked, $restoreTo);
+
+            if ($target === CustomerStatus::Approved && $locked->isCommercialTier()) {
+                $this->assertCommercialLegalAttributesComplete($locked);
             }
 
-            // Explicit attribute check prevents PostgreSQL check constraint violations when reactivating approved wholesale accounts.
-            if ($target === CustomerStatus::Approved && $locked->isCommercialTier()) {
-                $missing = array_values(array_filter(['company_name', 'tax_number', 'commercial_register'], fn ($f) => blank($locked->{$f})));
-                if ($missing !== []) {
-                    throw new BusinessException('لا يمكن إعادة تفعيل حساب جملة وبياناته القانونية ناقصة؛ كمّلها الأول.', array_fill_keys($missing, ['هذا الحقل مطلوب.']));
-                }
-            }
-            $locked->forceFill(['status' => $target, 'suspension_reason' => null, 'pre_suspension_status' => null])->save();
+            $locked->forceFill([
+                'status' => $target,
+                'suspension_reason' => null,
+                'pre_suspension_status' => null,
+            ])->save();
+
             CustomerAuditLog::record($locked, 'reactivated', $actorId, $this->viaMeta($via, ['status' => $target->value]));
 
             return $locked->fresh(['customerGroup']);
+        });
+    }
+
+    /**
+     * Restore a soft-deleted customer account.
+     *
+     * @param  array<string, mixed>  $via
+     */
+    public function restore(Customer $customer, ?int $actorId, array $via = []): Customer
+    {
+        return DB::transaction(function () use ($customer, $actorId, $via): Customer {
+            $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($customer->id);
+            if (! $customer->trashed()) {
+                throw new BusinessException('الحساب غير محذوف.');
+            }
+
+            $this->assertRestoreEligibility($customer);
+
+            try {
+                $customer->restore();
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('لا يمكن الاستعادة: بيانات الحساب تتعارض مع حساب نشط آخر.');
+            }
+            CustomerAuditLog::record($customer, 'restored', $actorId, $this->viaMeta($via));
+
+            return $customer->load('customerGroup');
+        });
+    }
+
+    /**
+     * Review supporting customer verification document status (verified/rejected).
+     *
+     * @param  array<string, mixed>  $via
+     */
+    public function reviewDocument(Customer $customer, CustomerDocument $document, CustomerDocumentStatus|string $status, int $actorId, ?string $note = null, array $via = []): CustomerDocument
+    {
+        $status = $status instanceof CustomerDocumentStatus ? $status : CustomerDocumentStatus::tryFrom($status);
+        if (! in_array($status, [CustomerDocumentStatus::Verified, CustomerDocumentStatus::Rejected], true)) {
+            throw new BusinessException('حالة مراجعة المستند يجب أن تكون معتمدًا أو مرفوضًا.');
+        }
+
+        return DB::transaction(function () use ($customer, $document, $status, $actorId, $note, $via) {
+            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            $document = $customer->documents()->whereKey($document->id)->lockForUpdate()->firstOrFail();
+            $document->forceFill([
+                'status' => $status->value,
+                'reviewed_by' => $actorId,
+                'reviewed_at' => now(),
+                'review_note' => $note,
+            ])->save();
+            CustomerAuditLog::record($customer, 'document_reviewed', $actorId, $this->viaMeta($via, ['document_id' => $document->id, 'status' => $status->value]));
+
+            return $document;
         });
     }
 
@@ -517,5 +430,346 @@ class CustomerManagementService
 
             return $document;
         }, [[$file, 'customer_documents/'.$customer->id]]);
+    }
+
+    // ---------- Stepdown Private Helpers ----------
+
+    /**
+     * Normalizes input attributes for customer creation, guaranteeing scalar types and defaults.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeCreationAttributes(array $data): array
+    {
+        $data['type'] ??= CustomerType::Retail->value;
+        $data['type'] = $this->canonicalTypeValue($data['type']);
+        $data['status'] = isset($data['status']) ? $this->canonicalStatusValue($data['status']) : null;
+        $data['credit_limit'] ??= 0;
+
+        $data['status'] ??= $data['type'] === CustomerType::Retail->value
+            ? CustomerStatus::Approved->value
+            : CustomerStatus::Pending->value;
+
+        return $data;
+    }
+
+    /**
+     * Enforces the policy that retail accounts must be created approved,
+     * while wholesale accounts must be created pending review.
+     */
+    private function assertValidCreationPolicy(string $type, string $status): void
+    {
+        $isRetail = $type === CustomerType::Retail->value;
+        $isApproved = $status === CustomerStatus::Approved->value;
+
+        if ($isRetail && ! $isApproved) {
+            throw new BusinessException('حسابات التجزئة يجب أن تكون معتمدة عند إنشائها.');
+        }
+
+        if ($isApproved && ! $isRetail) {
+            throw new BusinessException('أنشئ حساب الجملة قيد المراجعة ثم استخدم مسار الاعتماد.');
+        }
+    }
+
+    /**
+     * Validates concurrency token (lock_version or expected_updated_at) when modifying sensitive financial fields.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function assertOptimisticLockIfSensitiveChange(Customer $customer, array $data, ?int $newGroupId, ?int $oldGroupId): void
+    {
+        $creditLimitChanged = array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit;
+        $groupChanged = array_key_exists('customer_group_id', $data) && $newGroupId !== $oldGroupId;
+
+        if (! $creditLimitChanged && ! $groupChanged) {
+            return;
+        }
+
+        if (array_key_exists('expected_version', $data) && $data['expected_version'] !== null) {
+            if ((int) $data['expected_version'] !== (int) $customer->lock_version) {
+                throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
+
+            return;
+        }
+
+        if (! empty($data['expected_updated_at'])) {
+            $expected = Carbon::parse($data['expected_updated_at'])->utc()->timestamp;
+            // Fail closed on a stale copy: two consoles editing the same
+            // credit limit must not silently overwrite each other.
+            if ($expected !== $customer->updated_at->copy()->utc()->timestamp) {
+                throw new BusinessException('تعدّل ملف العميل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
+
+            return;
+        }
+
+        throw new BusinessException('يجب تمرير رمز التزامن لتعديل الحدود المالية للعميل.', [], 409);
+    }
+
+    /**
+     * Prevents clearing required commercial legal data on an already approved wholesale account.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function assertApprovedWholesaleDataNotCleared(Customer $customer, array $data): void
+    {
+        if (! $customer->isWholesaleApproved()) {
+            return;
+        }
+
+        foreach (self::COMMERCIAL_LEGAL_FIELDS as $field) {
+            if (array_key_exists($field, $data) && blank($data[$field])) {
+                throw new BusinessException('لا يمكن مسح بيانات الجملة لحساب معتمد.', [$field => ['هذا الحقل مطلوب.']]);
+            }
+        }
+    }
+
+    /**
+     * Checks if business identity fields differ from the customer's persisted attributes.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function hasBusinessIdentityChanges(Customer $customer, array $data): bool
+    {
+        return collect(self::COMMERCIAL_LEGAL_FIELDS)
+            ->contains(fn ($field) => array_key_exists($field, $data) && $data[$field] !== $customer->{$field});
+    }
+
+    /**
+     * Checks if password, email, or phone attributes are changing.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function hasCredentialChanges(Customer $customer, array $data): bool
+    {
+        return array_key_exists('password', $data)
+            || (isset($data['email']) && $data['email'] !== $customer->email)
+            || (isset($data['phone']) && $data['phone'] !== $customer->phone)
+            || (array_key_exists('email', $data) && $data['email'] === null && $customer->email !== null);
+    }
+
+    /**
+     * Checks if regular phone or WhatsApp phone numbers are changing.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function hasPhoneChanges(Customer $customer, array $data): bool
+    {
+        return (isset($data['phone']) && $data['phone'] !== $customer->phone)
+            || (array_key_exists('whatsapp_phone', $data) && $data['whatsapp_phone'] !== $customer->whatsapp_phone);
+    }
+
+    /**
+     * Computes the before/after change map for financial attributes (credit limit, customer group).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, array{before: mixed, after: mixed}>
+     */
+    private function buildFinancialAuditDiff(Customer $customer, array $data, ?int $oldGroupId, ?int $newGroupId): array
+    {
+        $financial = [];
+        if (array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit) {
+            $financial['credit_limit'] = [
+                'before' => (string) $customer->credit_limit,
+                'after' => (string) $data['credit_limit'],
+            ];
+        }
+        if (array_key_exists('customer_group_id', $data) && $oldGroupId !== $newGroupId) {
+            $financial['customer_group_id'] = [
+                'before' => $oldGroupId,
+                'after' => $newGroupId,
+            ];
+        }
+
+        return $financial;
+    }
+
+    /**
+     * Synchronizes whatsapp_opt_in_at timestamp based on the incoming boolean flag.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function syncWhatsAppOptIn(Customer $customer, array &$data): void
+    {
+        if (! array_key_exists('whatsapp_opt_in', $data)) {
+            return;
+        }
+
+        $data['whatsapp_opt_in_at'] = $data['whatsapp_opt_in']
+            ? ($customer->whatsapp_opt_in_at ?? now())
+            : null;
+        unset($data['whatsapp_opt_in']);
+    }
+
+    /**
+     * Validates that the customer is eligible to transition to Approved status.
+     */
+    private function assertApprovable(Customer $customer, ?string $requestedType): void
+    {
+        if ($customer->status === CustomerStatus::Suspended) {
+            throw new BusinessException('الحساب موقوف؛ استخدم إعادة التفعيل بدل الاعتماد.');
+        }
+
+        $targetType = $requestedType ?? $customer->type->value;
+        if ($customer->status === CustomerStatus::Approved && $targetType === $customer->type->value) {
+            throw new BusinessException('هذا الحساب معتمد بالفعل.');
+        }
+    }
+
+    /**
+     * Ensures pending documents are resolved and commercial tiers have at least one verified document.
+     */
+    private function assertDocumentsAllowApproval(Customer $customer, string $targetType): void
+    {
+        // Exclude rejected documents from blocking approval; only pending documents require resolution.
+        if ($customer->documents()->where('status', CustomerDocumentStatus::Pending->value)->exists()) {
+            throw new BusinessException('راجع المستندات المعلقة (اعتمد السليم وارفض غير السليم) قبل اعتماد الحساب.');
+        }
+
+        if ($targetType !== CustomerType::Retail->value) {
+            if (! $customer->documents()->where('status', CustomerDocumentStatus::Verified->value)->exists()) {
+                throw new BusinessException('يلزم مستند موثّق واحد على الأقل لاعتماد حساب الجملة أو الموزع.');
+            }
+        }
+    }
+
+    /**
+     * Validates and extracts required commercial legal fields for an approved account.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function resolveCommercialLegalFieldsForApproval(Customer $customer, array $data, string $targetType): array
+    {
+        if ($targetType === CustomerType::Retail->value) {
+            return [];
+        }
+
+        $legal = [];
+        foreach (self::COMMERCIAL_LEGAL_FIELDS as $field) {
+            $legal[$field] = $data[$field] ?? $customer->{$field};
+            if (blank($legal[$field])) {
+                throw new BusinessException('بيانات الجملة مطلوبة قبل الاعتماد.', [$field => ['هذا الحقل مطلوب لاعتماد حساب الجملة أو الموزع.']]);
+            }
+        }
+
+        return $legal;
+    }
+
+    /**
+     * Determines the appropriate status to revert a suspended customer to.
+     */
+    private function resolveReactivationTargetStatus(Customer $customer, ?string $restoreTo): CustomerStatus
+    {
+        // Revert to pre-suspension status to prevent rejected applications from silently re-entering pending queue.
+        $target = CustomerStatus::tryFrom((string) ($restoreTo ?? $customer->pre_suspension_status));
+        if ($target === null || $target === CustomerStatus::Suspended) {
+            $target = $customer->approved_at ? CustomerStatus::Approved : CustomerStatus::Pending;
+        }
+
+        return $target;
+    }
+
+    /**
+     * Checks that all required commercial legal attributes are populated before reactivating an approved account.
+     */
+    private function assertCommercialLegalAttributesComplete(Customer $customer): void
+    {
+        // Explicit attribute check prevents PostgreSQL check constraint violations when reactivating approved wholesale accounts.
+        $missing = array_values(array_filter(
+            self::COMMERCIAL_LEGAL_FIELDS,
+            fn ($f) => blank($customer->{$f})
+        ));
+
+        if ($missing !== []) {
+            throw new BusinessException('لا يمكن إعادة تفعيل حساب جملة وبياناته القانونية ناقصة؛ كمّلها الأول.', array_fill_keys($missing, ['هذا الحقل مطلوب.']));
+        }
+    }
+
+    /**
+     * Validates that a soft-deleted customer does not conflict with active emails or phone numbers upon restoration.
+     */
+    private function assertRestoreEligibility(Customer $customer): void
+    {
+        // Re-claim email under lock in case another account registered the same address while deleted.
+        try {
+            $this->claimEmail($customer->email, $customer->id);
+        } catch (ValidationException) {
+            throw new BusinessException('لا يمكن الاستعادة: البريد '.$customer->email.' مستخدم الآن بحساب نشط آخر. غيّر بريد الحساب الآخر أولاً.');
+        }
+
+        if ($customer->phone !== null && Customer::query()->whereNull('deleted_at')->where('phone', $customer->phone)->where('id', '!=', $customer->id)->exists()) {
+            throw new BusinessException('لا يمكن الاستعادة: رقم الهاتف '.$customer->phone.' مستخدم الآن بحساب نشط آخر.');
+        }
+    }
+
+    /**
+     * Revokes all active Sanctum tokens, clears password reset tokens, and wipes channel associations.
+     */
+    private function revokeSessionsAndResetTokens(Customer $customer): void
+    {
+        $customer->tokens()->delete();
+        DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
+        DB::table('customer_channels')->where('customer_id', $customer->id)->delete();
+    }
+
+    /**
+     * Merge the execution channel marker (AI vs REST) into audit metadata.
+     * REST calls pass an empty $via, so their recorded metadata stays
+     * byte-identical to before; AI calls carry channel/conversation/action.
+     *
+     * @param  array<string, mixed>  $via
+     * @param  array<string, mixed>  $meta
+     * @return array<string, mixed>
+     */
+    private function viaMeta(array $via, array $meta = []): array
+    {
+        return $via === [] ? $meta : [...$meta, 'via' => $via];
+    }
+
+    /**
+     * Acquire a transactional advisory lock and re-validate customer email uniqueness under concurrency.
+     *
+     * @param  string|null  $email  Email address to claim.
+     * @param  int|null  $ignoreId  Customer ID to exclude from unique checks during updates.
+     */
+    private function claimEmail(?string $email, ?int $ignoreId = null): void
+    {
+        if ($email === null || trim($email) === '') {
+            return;
+        }
+        $email = mb_strtolower(trim($email));
+        AccountEmailLock::acquire($email);
+        Validator::make(['email' => $email], [
+            'email' => [new UniqueCustomerEmail($ignoreId), new EmailNotUsedByOtherAccountType('customers')],
+        ])->validate();
+    }
+
+    /**
+     * Assert that the specified customer group exists and is currently active.
+     */
+    private function assertActiveGroup(?int $groupId): void
+    {
+        if ($groupId !== null && ! CustomerGroup::query()->whereKey($groupId)->where('is_active', true)->exists()) {
+            throw new BusinessException('مجموعة العملاء غير موجودة أو معطلة.', ['customer_group_id' => ['اختر مجموعة مفعّلة.']]);
+        }
+    }
+
+    /**
+     * Returns the canonical string representation of a customer type.
+     */
+    private function canonicalTypeValue(CustomerType|string $type): string
+    {
+        return $type instanceof CustomerType ? $type->value : (string) $type;
+    }
+
+    /**
+     * Returns the canonical string representation of a customer status.
+     */
+    private function canonicalStatusValue(CustomerStatus|string $status): string
+    {
+        return $status instanceof CustomerStatus ? $status->value : (string) $status;
     }
 }

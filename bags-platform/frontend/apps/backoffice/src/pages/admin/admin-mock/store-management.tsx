@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, Toggle, toast } from './ui';
 import { adminApi } from './api/endpoints';
 import { fromApi, localInputToDate, toFormData } from './banner-mappers';
@@ -207,15 +208,25 @@ function BannerSkeleton() {
   return (
     <div className="space-y-2.5">
       {[0, 1, 2, 3].map(i => (
-        <div key={i} className="v-subcard p-3 flex items-center gap-4" style={{ opacity: 1 - i * 0.15 }}>
-          <div className="sk w-7 h-7 !rounded-full" />
-          <div className="sk w-[168px] h-[63px] !rounded-xl" />
+        <div
+          key={i}
+          className="v-subcard p-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4"
+          style={{ opacity: 1 - i * 0.15 }}
+        >
+          <div className="sk w-7 h-7 !rounded-full hidden sm:block shrink-0" />
+          <div className="sk w-full h-[112px] sm:w-[168px] sm:h-[63px] !rounded-xl shrink-0" />
           <div className="flex-1 space-y-2">
             <div className="sk h-3.5 w-1/2" />
             <div className="sk h-3 w-1/3" />
             <div className="sk h-3 w-2/5" />
           </div>
-          <div className="sk w-9 h-5 !rounded-full" />
+          <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0">
+            <div className="sk w-9 h-5 !rounded-full" />
+            <div className="flex items-center gap-2 sm:hidden">
+              <div className="sk w-9 h-9 !rounded-full" />
+              <div className="sk w-9 h-9 !rounded-full" />
+            </div>
+          </div>
         </div>
       ))}
     </div>
@@ -227,11 +238,12 @@ interface BannerFormProps {
   open: boolean;
   initial: BannerItem | null;
   defaultPlacement: 'slider' | 'middle' | 'popup';
+  portalTarget: HTMLElement | null;
   onClose: () => void;
   onSave: (item: BannerItem, onProgress: (p: number) => void) => Promise<Record<string, string> | null>;
 }
 
-function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: BannerFormProps) {
+function BannerForm({ open, initial, defaultPlacement, portalTarget, onClose, onSave }: BannerFormProps) {
   const blank: Omit<BannerItem, 'id'> = {
     title: '',
     image: null,
@@ -455,31 +467,39 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
 
   useEffect(() => {
     if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) closeForm(); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
   }, [open, busy]);
 
   if (!open) return null;
 
-  return (
+  const modalNode = (
     <div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in"
+      className="!mt-0 fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in"
       style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(4px)' }}
       onMouseDown={e => e.target === e.currentTarget && !busy && closeForm()}
     >
       <div
         role="dialog"
         aria-modal="true"
-        className="v-card w-full shadow-2xl flex flex-col max-h-[92vh] rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] v-pop-in pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        className="v-card w-full shadow-2xl flex flex-col max-h-[92dvh] rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] v-pop-in pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         style={{ maxWidth: 760 }}
       >
-        <div className="flex items-start justify-between gap-4 p-6 pb-4 v-border-b">
-          <div>
-            <h3 className="font-display text-[19px] font-semibold c-primary">
+        <div className="sm:hidden pt-2.5 flex justify-center shrink-0" aria-hidden="true">
+          <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border-strong)' }} />
+        </div>
+        <div className="flex items-start justify-between gap-3 p-4 pb-3.5 sm:p-6 sm:pb-4 v-border-b">
+          <div className="min-w-0">
+            <h3 className="font-display text-[18px] sm:text-[19px] font-semibold c-primary">
               {initial ? 'تعديل بانر' : 'إضافة بانر'}
             </h3>
-            <p className="text-[12px] c-secondary mt-0.5">
+            <p className="text-[12px] c-secondary mt-0.5 truncate">
               {initial ? initial.title : `سيُضاف إلى «${P.label}»`}
             </p>
           </div>
@@ -487,13 +507,14 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
             type="button"
             onClick={closeForm}
             disabled={busy}
-            className="w-8 h-8 rounded-full v-subcard flex items-center justify-center c-secondary hover:c-primary shrink-0 transition"
+            aria-label="إغلاق"
+            className="w-10 h-10 sm:w-8 sm:h-8 rounded-full v-subcard flex items-center justify-center c-secondary hover:c-primary shrink-0 transition"
           >
             <Icon name="close" className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="px-6 py-5 overflow-y-auto flex-1 space-y-5">
+        <div className="px-4 py-4 sm:px-6 sm:py-5 overflow-y-auto overscroll-contain flex-1 space-y-4 sm:space-y-5">
           {/* Title */}
           <div>
             <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
@@ -575,7 +596,7 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
                 onClick={() => fileRef.current?.click()}
                 onDragOver={e => e.preventDefault()}
                 onDrop={e => { e.preventDefault(); if (e.dataTransfer.files?.[0]) startUpload(e.dataTransfer.files[0]); }}
-                className="w-full rounded-2xl flex flex-col items-center justify-center gap-2 transition hover:opacity-90 py-8"
+                className="w-full rounded-2xl flex flex-col items-center justify-center gap-2 transition hover:opacity-90 py-7 px-4 text-center"
                 style={{
                   border: `1.5px dashed ${err.image ? 'var(--badge-red-text)' : 'var(--border-strong)'}`,
                   background: 'var(--bg-subcard)',
@@ -651,13 +672,13 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
             <div className="text-[12.5px] font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
               مكان العرض <span className="c-orange">*</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
               {Object.entries(BN_PLACEMENTS).map(([k, p]) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => set('placement', k)}
-                  className={`rounded-2xl p-3 flex items-center gap-2.5 text-right border transition ${
+                  className={`rounded-2xl p-2.5 sm:p-3 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-2.5 text-center sm:text-right border transition min-h-[44px] ${
                     f.placement === k ? 'border-[var(--accent-orange)]' : 'border-transparent'
                   }`}
                   style={{ background: f.placement === k ? 'var(--accent-orange-light)' : 'var(--bg-subcard)' }}
@@ -667,7 +688,7 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
                   }`}>
                     <Icon name={p.icon} className="w-4 h-4" />
                   </span>
-                  <span className="text-[12.5px] font-semibold c-primary">{p.label}</span>
+                  <span className="text-[11.5px] sm:text-[12.5px] font-semibold c-primary leading-tight">{p.label}</span>
                 </button>
               ))}
             </div>
@@ -708,8 +729,8 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
           </div>
 
           {/* Schedule & Sort */}
-          <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_1fr] gap-4">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_1fr] gap-3.5 sm:gap-4">
+            <div className="min-w-0">
               <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
                 ترتيب الظهور <span className="c-orange">*</span>
               </label>
@@ -723,41 +744,41 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
               {err.sort && <div className="text-[11px] mt-1 font-medium" style={{ color: 'var(--badge-red-text)' }}>{err.sort}</div>}
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
                 بداية العرض
                 <span className="text-[11px] font-normal c-muted mr-1.5">{f.start ? '' : '· فارغ = فوراً'}</span>
               </label>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 min-w-0">
                 <input
                   type="datetime-local"
-                  className={`inp num text-start text-[12px] ${err.start ? 'err' : ''}`}
+                  className={`inp num text-start text-[12px] w-full min-w-0 ${err.start ? 'err' : ''}`}
                   value={f.start || ''}
                   onChange={e => { set('start', e.target.value); setErr(x => ({ ...x, start: null, end: null })); }}
                 />
                 {err.start && <div className="text-[11px] mt-1 font-medium" style={{ color: 'var(--badge-red-text)' }}>{err.start}</div>}
                 {f.start && (
-                  <button type="button" className="icon-btn shrink-0" title="مسح" onClick={() => set('start', '')}>
+                  <button type="button" className="icon-btn shrink-0" title="مسح" aria-label="مسح بداية العرض" onClick={() => set('start', '')}>
                     <Icon name="close" className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
                 نهاية العرض
                 <span className="text-[11px] font-normal c-muted mr-1.5">{f.end ? '' : '· فارغ = دائم'}</span>
               </label>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 min-w-0">
                 <input
                   type="datetime-local"
-                  className={`inp num text-start text-[12px] ${err.end ? 'err' : ''}`}
+                  className={`inp num text-start text-[12px] w-full min-w-0 ${err.end ? 'err' : ''}`}
                   value={f.end || ''}
                   onChange={e => set('end', e.target.value)}
                 />
                 {f.end && (
-                  <button type="button" className="icon-btn shrink-0" title="مسح" onClick={() => set('end', '')}>
+                  <button type="button" className="icon-btn shrink-0" title="مسح" aria-label="مسح نهاية العرض" onClick={() => set('end', '')}>
                     <Icon name="close" className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -783,10 +804,10 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
           </div>
         </div>
 
-        <div className="p-5 pt-3 flex items-center justify-start gap-2.5 flex-row-reverse v-border-t">
+        <div className="p-4 pt-3 sm:p-5 sm:pt-3 flex items-center justify-start gap-2.5 flex-row-reverse v-border-t">
           <button
             type="button"
-            className="btn btn-dark min-w-[110px]"
+            className="btn btn-dark flex-1 sm:flex-none sm:min-w-[120px]"
             onClick={submit}
             disabled={busy || upl.state === 'uploading'}
           >
@@ -797,19 +818,22 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
               </>
             ) : 'حفظ البانر'}
           </button>
-          <button type="button" className="btn btn-soft" onClick={closeForm} disabled={busy}>
+          <button type="button" className="btn btn-soft flex-1 sm:flex-none" onClick={closeForm} disabled={busy}>
             إلغاء
           </button>
-          <span className="flex-1" />
-          {upl.state === 'uploading' && <span className="text-[11.5px] c-muted">انتظر اكتمال رفع الصورة</span>}
+          <span className="hidden sm:inline flex-1" />
+          {upl.state === 'uploading' && <span className="text-[11.5px] c-muted hidden sm:inline">انتظر اكتمال رفع الصورة</span>}
         </div>
       </div>
     </div>
   );
+
+  return portalTarget ? createPortal(modalNode, portalTarget) : modalNode;
 }
 
 // ============ Main Store Management Screen Component ============
 export function StoreManagementTab({ can }: { can?: (perm: string) => boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
   const toggleInFlight = useRef(new Set<string>());
   const canEdit = can ? can('store.manage') : false;
 
@@ -846,6 +870,18 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
   const [form, setForm] = useState<{ open: boolean; initial: BannerItem | null }>({ open: false, initial: null });
   const [del, setDel] = useState<BannerItem | null>(null);
   const [delBusy, setDelBusy] = useState(false);
+
+  useEffect(() => {
+    if (!del) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !delBusy) setDel(null); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [del, delBusy]);
   const [busyToggle, setBusyToggle] = useState<Set<string>>(() => new Set());
 
   const inTab = items.filter(b => b.placement === tab);
@@ -925,34 +961,35 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
 
   const P = BN_PLACEMENTS[tab] || BN_PLACEMENTS.slider;
   const liveInTab = inTab.filter(b => bnStatus(b) === 'live').sort((a, b) => a.sort - b.sort);
+  const portalTarget = sectionRef.current?.closest('.admin-mock-surface') as HTMLElement | null;
 
   return (
-    <section className="space-y-6 fade-in" data-screen-label="Store Management">
+    <section ref={sectionRef} className="space-y-4 sm:space-y-6 fade-in" data-screen-label="Store Management">
       {/* Sub-header info and Add button */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-5 rounded-[22px] v-card">
-        <div>
-          <h2 className="font-display text-[20px] font-semibold c-primary flex items-center gap-2.5">
-            <span className="w-8 h-8 rounded-xl flex items-center justify-center text-white v-accent-btn">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 p-4 sm:p-5 rounded-[20px] sm:rounded-[22px] v-card">
+        <div className="min-w-0">
+          <h2 className="font-display text-[17px] sm:text-[20px] font-semibold c-primary flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl flex items-center justify-center text-white v-accent-btn shrink-0">
               <Icon name="storefront" className="w-4 h-4" />
             </span>
             <span>إدارة المتجر — السلايدر والبانرات</span>
           </h2>
-          <p className="text-[12.5px] c-secondary mt-1">
+          <p className="text-[12px] sm:text-[12.5px] c-secondary mt-1 leading-relaxed">
             إدارة الصور والإعلانات الظاهرة في واجهة المتجر ومواعيد عرضها وروابط التوجيه.
           </p>
         </div>
-        <div>
+        <div className="w-full sm:w-auto shrink-0">
           {canEdit ? (
             <button
               type="button"
-              className="btn btn-dark flex items-center gap-2"
+              className="btn btn-dark w-full sm:w-auto flex items-center justify-center gap-2"
               onClick={openNew}
             >
               <Icon name="plus" className="w-3.5 h-3.5" />
               <span>إضافة بانر جديد</span>
             </button>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[12px] c-muted px-3.5 py-2 rounded-full v-subcard">
+            <span className="inline-flex items-center justify-center gap-1.5 text-[12px] c-muted px-3.5 py-2 rounded-full v-subcard w-full sm:w-auto">
               <Icon name="eye" className="w-3.5 h-3.5" /> صلاحية مشاهدة فقط
             </span>
           )}
@@ -960,7 +997,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
       </div>
 
       {/* Placement Tabs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3.5">
         {Object.entries(BN_PLACEMENTS).map(([k, p]) => {
           const on = tab === k;
           return (
@@ -968,7 +1005,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
               key={k}
               type="button"
               onClick={() => { setTab(k as any); setSf('all'); setQ(''); }}
-              className={`text-right rounded-[20px] p-4 flex items-center gap-3.5 transition ${
+              className={`rounded-[16px] sm:rounded-[20px] p-2.5 sm:p-4 flex flex-col sm:flex-row items-center text-center sm:text-right gap-1.5 sm:gap-3.5 transition min-h-[44px] ${
                 on ? 'shadow-xs' : 'hover:opacity-90'
               }`}
               style={{
@@ -978,7 +1015,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
               }}
             >
               <span
-                className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0"
                 style={{
                   background: on ? 'var(--accent-orange)' : 'var(--icon-well-bg)',
                   color: on ? '#fff' : 'var(--text-secondary)',
@@ -986,11 +1023,11 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
               >
                 <Icon name={p.icon} className="w-4 h-4" />
               </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[14px] font-semibold">{p.label}</span>
-                <span className="block text-[11px] truncate opacity-70">{p.hint}</span>
+              <span className="flex-1 min-w-0 w-full">
+                <span className="block text-[11.5px] sm:text-[14px] font-semibold leading-tight truncate sm:whitespace-normal">{p.label}</span>
+                <span className="hidden sm:block text-[11px] truncate opacity-70 mt-0.5">{p.hint}</span>
               </span>
-              <span className="num font-display text-[22px] font-bold">
+              <span className="num font-display text-[15px] sm:text-[22px] font-bold leading-none">
                 {phase === 'ready' || !on ? tabCount(k) : '—'}
               </span>
             </button>
@@ -999,21 +1036,41 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
       </div>
 
       {/* Main Grid: Banners list (8 cols) + Live Preview (4 cols) */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-5 items-start">
         {/* Banners List */}
-        <div className="xl:col-span-8 v-card p-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 v-border-b">
-            <div className="flex items-center gap-2.5">
-              <h3 className="font-display text-[16px] font-semibold c-primary">{P.label}</h3>
+        <div className="xl:col-span-8 v-card p-3.5 sm:p-5 space-y-3.5 sm:space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 v-border-b">
+            <div className="flex items-center justify-between sm:justify-start gap-2.5">
+              <h3 className="font-display text-[15.5px] sm:text-[16px] font-semibold c-primary">{P.label}</h3>
               {phase === 'ready' && (
                 <span className="text-[11.5px] c-muted">| &nbsp;{rows.length} من {inTab.length}</span>
               )}
             </div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <div className="seg">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full sm:w-auto">
+              <div className="v-subcard px-3 py-2 sm:py-1.5 rounded-full flex items-center gap-2 w-full sm:w-44 order-first sm:order-last">
+                <Icon name="search" className="w-3.5 h-3.5 c-muted shrink-0" />
+                <input
+                  value={q}
+                  onChange={e => setQ(e.target.value)}
+                  placeholder="بحث بالعنوان"
+                  className="bg-transparent text-[13px] sm:text-[12px] outline-none w-full min-w-0 c-primary"
+                />
+                {q && (
+                  <button
+                    type="button"
+                    aria-label="مسح البحث"
+                    onClick={() => setQ('')}
+                    className="w-5 h-5 rounded-full flex items-center justify-center c-muted hover:c-primary shrink-0"
+                  >
+                    <Icon name="close" className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <div className="seg !flex-nowrap overflow-x-auto max-w-full w-full sm:w-auto order-last sm:order-first">
                 <button
                   type="button"
-                  className={sf === 'all' ? 'on' : ''}
+                  className={`shrink-0 ${sf === 'all' ? 'on' : ''}`}
                   onClick={() => setSf('all')}
                 >
                   الكل
@@ -1022,23 +1079,13 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
                   <button
                     key={k}
                     type="button"
-                    className={sf === k ? 'on' : ''}
+                    className={`shrink-0 ${sf === k ? 'on' : ''}`}
                     onClick={() => setSf(k)}
                   >
                     {s.label}
                     {phase === 'ready' && <span className="num c-muted mr-1">({stCount(k)})</span>}
                   </button>
                 ))}
-              </div>
-
-              <div className="v-subcard px-3 py-1.5 rounded-full flex items-center gap-2">
-                <Icon name="search" className="w-3.5 h-3.5 c-muted" />
-                <input
-                  value={q}
-                  onChange={e => setQ(e.target.value)}
-                  placeholder="بحث بالعنوان"
-                  className="bg-transparent text-[12px] outline-none w-28 sm:w-36 c-primary"
-                />
               </div>
             </div>
           </div>
@@ -1094,7 +1141,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
           )}
 
           {phase === 'ready' && rows.length > 0 && (
-            <div className="space-y-2.5">
+            <div className="space-y-3 sm:space-y-2.5">
               {rows.map(b => {
                 const st = bnStatus(b);
                 const tgt = bnTarget(b);
@@ -1105,12 +1152,12 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
                 return (
                   <div
                     key={b.id}
-                    className="v-subcard p-3 flex items-center gap-4 fade-in transition-opacity"
+                    className="v-subcard p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 fade-in transition-opacity"
                     style={{ opacity: st === 'disabled' ? 0.72 : 1 }}
                   >
-                    {/* Sort Index */}
+                    {/* Desktop Sort Index */}
                     <div
-                      className="num w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
+                      className="num hidden sm:flex w-7 h-7 rounded-full items-center justify-center text-[12px] font-bold shrink-0"
                       title="ترتيب الظهور"
                       style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}
                     >
@@ -1119,26 +1166,46 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
 
                     {/* Thumbnail */}
                     <div
-                      className="rounded-xl overflow-hidden shrink-0"
+                      className={`relative rounded-xl overflow-hidden shrink-0 ${
+                        tab === 'popup' ? 'w-full sm:w-[72px] aspect-[16/9] sm:aspect-[4/5]' : 'w-full sm:w-[160px]'
+                      }`}
                       style={{
-                        width: tab === 'popup' ? 72 : 160,
-                        aspectRatio: P.ratio,
+                        aspectRatio: tab === 'popup' ? undefined : P.ratio,
                         boxShadow: '0 0 0 1px var(--border-subtle)',
                       }}
                     >
-                      <BannerArt b={b} />
+                      {tab === 'popup' ? (
+                        <div className="w-full h-full flex items-center justify-center hatched sm:block sm:bg-none">
+                          <div className="h-[88%] sm:h-full sm:w-full rounded-lg sm:rounded-none overflow-hidden" style={{ aspectRatio: '4 / 5' }}>
+                            <BannerArt b={b} />
+                          </div>
+                        </div>
+                      ) : (
+                        <BannerArt b={b} />
+                      )}
+                      {/* Mobile Sort Badge */}
+                      <span
+                        className="sm:hidden num absolute top-2 right-2 px-2 py-0.5 rounded-full text-[11px] font-bold shadow-sm"
+                        style={{
+                          background: 'rgba(24, 21, 28, 0.78)',
+                          color: '#fff',
+                          backdropFilter: 'blur(8px)',
+                        }}
+                      >
+                        #{b.sort}
+                      </span>
                     </div>
 
                     {/* Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-[13.5px] c-primary truncate">{b.title}</span>
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-start sm:items-center justify-between sm:justify-start gap-2 flex-wrap">
+                        <span className="font-semibold text-[14px] sm:text-[13.5px] c-primary leading-snug line-clamp-2 sm:truncate">{b.title}</span>
                         <span className={`badge ${BN_STATUS[st].cls}`}>
                           <span className="dot" /> {BN_STATUS[st].label}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-1.5 mt-1.5 text-[12px] min-w-0">
+                      <div className="flex items-center gap-1.5 text-[12px] min-w-0">
                         <span className="c-muted shrink-0">
                           <Icon name={L.icon} className="w-3.5 h-3.5" />
                         </span>
@@ -1154,8 +1221,8 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 mt-1.5 text-[11.5px] c-secondary">
-                        <Icon name="calendar" className="w-3 h-3 c-muted" />
+                      <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-[11.5px] c-secondary">
+                        <Icon name="calendar" className="w-3 h-3 c-muted shrink-0" />
                         {s ? (
                           <span className="num">{s.d} <span className="c-muted">{s.t}</span></span>
                         ) : (
@@ -1171,40 +1238,44 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div className="flex flex-col items-center gap-1">
+                    <div className="flex items-center justify-between sm:justify-end gap-3 pt-2.5 mt-0.5 sm:pt-0 sm:mt-0 border-t border-[var(--border-subtle)] sm:border-t-0 shrink-0">
+                      <div className="flex flex-row sm:flex-col items-center gap-2 sm:gap-1">
                         {busyToggle.has(b.id) ? (
-                          <span className="w-9 h-5 flex items-center justify-center">
+                          <span className="w-11 h-6 sm:w-9 sm:h-5 flex items-center justify-center">
                             <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent-orange)] border-t-transparent animate-spin" />
                           </span>
                         ) : (
                           <Toggle on={b.active} disabled={!canEdit} onChange={() => toggle(b)} />
                         )}
-                        <span className="text-[10px] c-muted">{b.active ? 'مفعّل' : 'معطّل'}</span>
+                        <span className="text-[11px] sm:text-[10px] font-medium sm:font-normal c-secondary sm:c-muted">
+                          {b.active ? 'مفعّل' : 'معطّل'}
+                        </span>
                       </div>
 
                       {canEdit ? (
-                        <div className="flex items-center gap-0.5">
+                        <div className="flex items-center gap-2 sm:gap-0.5">
                           <button
                             type="button"
                             className="icon-btn"
                             title="تعديل"
+                            aria-label={`تعديل ${b.title}`}
                             onClick={() => setForm({ open: true, initial: b })}
                           >
-                            <Icon name="edit" className="w-3.5 h-3.5" />
+                            <Icon name="edit" className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                           </button>
                           <button
                             type="button"
                             className="icon-btn"
                             title="حذف"
+                            aria-label={`حذف ${b.title}`}
                             onClick={() => setDel(b)}
                           >
-                            <Icon name="trash" className="w-3.5 h-3.5" />
+                            <Icon name="trash" className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                           </button>
                         </div>
                       ) : (
                         <span className="icon-btn" title="لا تملك الصلاحية">
-                          <Icon name="lock" className="w-3.5 h-3.5" />
+                          <Icon name="lock" className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                         </span>
                       )}
                     </div>
@@ -1216,7 +1287,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
         </div>
 
         {/* Live Preview Card */}
-        <div className="xl:col-span-4 v-card p-5 xl:sticky xl:top-5 space-y-3">
+        <div className="xl:col-span-4 v-card p-3.5 sm:p-5 xl:sticky xl:top-5 space-y-3">
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-display text-[15px] font-semibold c-primary">معاينة الواجهة</h3>
             <span className="text-[11px] c-muted">
@@ -1238,24 +1309,30 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
         open={form.open}
         initial={form.initial}
         defaultPlacement={tab}
+        portalTarget={portalTarget}
         onClose={() => setForm({ open: false, initial: null })}
         onSave={save}
       />
 
       {/* Delete Confirmation Modal */}
-      {del && (
-        <div
-          className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in"
-          style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(4px)' }}
-          onMouseDown={e => e.target === e.currentTarget && !delBusy && setDel(null)}
-        >
-          <div role="dialog" aria-modal="true" className="v-card p-6 w-full max-w-md shadow-2xl v-pop-in space-y-4 rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      {del && (() => {
+        const delNode = (
+          <div
+            className="!mt-0 fixed inset-0 z-[65] flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in"
+            style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(4px)' }}
+            onMouseDown={e => e.target === e.currentTarget && !delBusy && setDel(null)}
+          >
+          <div role="dialog" aria-modal="true" className="v-card p-4 sm:p-6 w-full max-w-md max-h-[92dvh] overflow-y-auto overscroll-contain shadow-2xl v-pop-in space-y-4 rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="sm:hidden -mt-1 flex justify-center" aria-hidden="true">
+              <span className="w-9 h-1 rounded-full" style={{ background: 'var(--border-strong)' }} />
+            </div>
             <div className="flex items-start justify-between gap-4">
               <h3 className="font-display text-[18px] font-semibold c-primary">حذف البانر؟</h3>
               <button
                 type="button"
+                aria-label="إغلاق"
                 onClick={() => !delBusy && setDel(null)}
-                className="w-8 h-8 rounded-full v-subcard flex items-center justify-center c-secondary"
+                className="w-10 h-10 sm:w-8 sm:h-8 rounded-full v-subcard flex items-center justify-center c-secondary"
               >
                 <Icon name="close" className="w-3.5 h-3.5" />
               </button>
@@ -1284,7 +1361,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
             <div className="flex items-center justify-start gap-2.5 flex-row-reverse pt-2 v-border-t">
               <button
                 type="button"
-                className="btn btn-orange"
+                className="btn btn-orange flex-1 sm:flex-none"
                 onClick={doDelete}
                 disabled={delBusy}
               >
@@ -1297,7 +1374,7 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
               </button>
               <button
                 type="button"
-                className="btn btn-soft"
+                className="btn btn-soft flex-1 sm:flex-none"
                 onClick={() => setDel(null)}
                 disabled={delBusy}
               >
@@ -1306,7 +1383,9 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
             </div>
           </div>
         </div>
-      )}
+        );
+        return portalTarget ? createPortal(delNode, portalTarget) : delNode;
+      })()}
     </section>
   );
 }

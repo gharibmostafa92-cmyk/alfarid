@@ -211,3 +211,7 @@ docs/superpowers/
 # ------------------------------------------
 /_archive_unused/
 
+
+# Client AI Portal State (Local only)
+.sections-tracker.json
+*.tracker.json

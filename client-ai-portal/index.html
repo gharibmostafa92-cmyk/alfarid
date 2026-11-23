@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-type="software" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="page-type" content="software">
+  <meta name="site-kind" content="software">
+  <title>بوابة حوكمة وقدرات الذكاء الاصطناعي (VARYA) | منظومة الفريد لتجارة وتوزيع الشنط</title>
+  <link rel="stylesheet" href="styles/portal.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ========================================================================
+       Top Bar: macOS Chrome (Frosted Space Black)
+       ======================================================================== -->
+  <header class="window-chrome">
+    <div class="chrome-left">
+      <div class="traffic-lights" aria-hidden="true">
+        <span class="traffic-dot traffic-close"></span>
+        <span class="traffic-dot traffic-min"></span>
+        <span class="traffic-dot traffic-max"></span>
+      </div>
+      <div class="window-title">
+        <span style="font-weight: 700;">منظومة VARYA</span>
+        <span style="color: var(--label-tertiary);">/</span>
+        <span>بوابة حوكمة وقدرات الذكاء الاصطناعي</span>
+        <span class="window-badge">v2.4 Enterprise</span>
+      </div>
+    </div>
+
+    <!-- Right Controls: Master Lockdown, Theme, SIEM, Print -->
+    <div class="chrome-right">
+      <button id="audit-drawer-open-btn" class="chrome-icon-btn" type="button" title="فتح سجل الرقابة الأمنية (SIEM Stream)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/></svg>
+      </button>
+
+      <button id="print-dossier-btn" class="chrome-icon-btn" type="button" title="تصدير وثيقة الحوكمة (Print / PDF Dossier)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      </button>
+
+      <button id="theme-toggle-btn" class="chrome-icon-btn" type="button" title="تبديل الوضع اللوني">
+        <!-- Injected by app.js -->
+      </button>
+
+      <div class="master-lockdown-wrapper">
+        <span id="master-lockdown-label" class="lockdown-status-label">المنظومة آمنة ونشطة بالكامل (10/10)</span>
+        <label class="cupertino-switch" title="مفتاح الطوارئ الشامل للإغلاق الأمني">
+          <input type="checkbox" id="master-lockdown-switch">
+          <span class="switch-track">
+            <span class="switch-knob"></span>
+          </span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       Executive Hero Briefing & Metrics
+       ======================================================================== -->
+  <main class="portal-container">
+    <section class="executive-hero">
+      <div class="hero-pill-badge">
+        <span class="pulse-pip"></span>
+        <span>حوكمة ثنائية مشفرة • 68 أداة تشغيلية مقيدة بصمامات أمان Two-Phase Commits</span>
+      </div>
+      <h1>الأقسام التشغيلية لمساعد الذكاء الاصطناعي (VARYA)</h1>
+      <p>
+        دليل تنفيذي وتفاعلي شامل يستعرض بدقة: <strong>ماذا يسأل المستخدم في كل قسم؟ وماذا يحدث هندسياً وأمنياً خلف الكواليس؟</strong> وكيف تضمن الإدارة السيطرة المطلقة عبر مفاتيح الإغلاق الفوري وأقفال القيد المحاسبي المزدوج.
+      </p>
+
+      <div class="quick-metrics-grid">
+        <div class="quick-metric-card">
+          <div class="metric-caption">الأقسام الموثقة بالكامل</div>
+          <div class="metric-num">10 / 10</div>
+          <div class="metric-hint">تغطية تشغيلية شاملة لكافة قطاعات التجارة</div>
+        </div>
+        <div class="quick-metric-card">
+          <div class="metric-caption">أدوات العمليات المدققة</div>
+          <div class="metric-num">68 أداة</div>
+          <div class="metric-hint">أدوات قراءة ومقترحات مقيدة في كود Laravel 13</div>
+        </div>
+        <div class="quick-metric-card">
+          <div class="metric-caption">سرعة الإغلاق الأمني الفوري</div>
+          <div class="metric-num">&lt; 50ms</div>
+          <div class="metric-hint">إبطال فوري لتوكنات Sanctum وعزل المقابس الحية</div>
+        </div>
+        <div class="quick-metric-card">
+          <div class="metric-caption">نافذة التراجع الذكي (Undo)</div>
+          <div class="metric-num">15 دقيقة</div>
+          <div class="metric-hint">تراجع مشفر بالبصمة الرقمية SHA-256 Args Hash</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ========================================================================
+       Sticky Floating Navigation Dock (Jump to ANY of the 10 Sections)
+       ======================================================================== -->
+  <div class="sticky-domain-dock-wrapper">
+    <div class="portal-container">
+      <nav class="sticky-domain-dock" aria-label="التنقل السريع بين أقسام المنظومة">
+        <button class="dock-jump-btn active" data-target="dept-catalog" type="button">1. الكتالوج والمنتجات</button>
+        <button class="dock-jump-btn" data-target="dept-inventory" type="button">2. المخزون والمستودعات</button>
+        <button class="dock-jump-btn" data-target="dept-pricing" type="button">3. التسعير والخصومات</button>
+        <button class="dock-jump-btn" data-target="dept-finance" type="button">4. المالية والخزينة</button>
+        <button class="dock-jump-btn" data-target="dept-wholesale" type="button">5. تجارة الجملة والائتمان</button>
+        <button class="dock-jump-btn" data-target="dept-shipping" type="button">6. الشحن واللوجستيات</button>
+        <button class="dock-jump-btn" data-target="dept-customers" type="button">7. شبكة التجار والاعتماد</button>
+        <button class="dock-jump-btn" data-target="dept-storefront" type="button">8. المتجر الإلكتروني</button>
+        <button class="dock-jump-btn" data-target="dept-admin" type="button">9. أمان الكوادر والواتساب</button>
+        <button class="dock-jump-btn" data-target="dept-settings" type="button">10. إعدادات المنظومة والامتثال</button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       The 10 Full-Stack Department Sections (Self-Contained & Fully Interactive)
+       ======================================================================== -->
+  <div class="portal-container">
+    <div class="departments-flow-stack">
+
+      <!-- ====================================================================
+           1. Catalog & Category Taxonomy Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-catalog">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 01</span>
+              <span class="dept-group-tag">شجرة وتصنيف الأقسام + الكتالوج • 19 أداة مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم إدارة الكتالوج وشجرة الأقسام (Categories)</h2>
+            <div class="dept-meta-subtitle">Domain: Catalog Taxonomy & Media Pipeline (CatalogToolProvider.php)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-catalog">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="catalog" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          يتولى الذكاء الاصطناعي الإدارة الشاملة لهيكل وتصنيفات الأقسام (إنشاء، تعديل، نقل الأقسام مع فحص الحلقات، التحقق من حد العمق الأقصى 3 مستويات، كشف الأقسام الفاضية والمعطلة، وإعادة الترتيب)، بجانب معالجة تدفقات إدخال منتجات الشنط، فحص الصور بالرؤية واقتراح الكلمات المفتاحية للقسم، وتجهيز مسودات الإطلاق وتوليد الباركود الدولي (SKU/EAN-13) في ثوانٍ معدودة.
+        </p>
+
+        <!-- Tools Pills Flow -->
+        <div class="tools-pills-flow">
+          <span class="tool-pill-badge read"><code>list_categories</code> (عرض الشجرة والفلترة)</span>
+          <span class="tool-pill-badge read"><code>get_category</code> (فحص التفاصيل والنشاط)</span>
+          <span class="tool-pill-badge read"><code>EntityResolver::categories</code> (البحث والتطبيع)</span>
+          <span class="tool-pill-badge write"><code>create_category</code> (إنشاء حتى 3 مستويات)</span>
+          <span class="tool-pill-badge write"><code>update_category</code> (تعديل + Undo)</span>
+          <span class="tool-pill-badge write"><code>move_category</code> (نقل وفحص الحلقات)</span>
+          <span class="tool-pill-badge write"><code>reorder_categories</code> (إعادة ترتيب مجمعة)</span>
+          <span class="tool-pill-badge guard"><code>set_category_status</code> (تفعيل/تعطيل + حماية المنتجات)</span>
+          <span class="tool-pill-badge guard"><code>delete_category</code> (حذف الفارغ فقط + تأكيد Slug)</span>
+          <span class="tool-pill-badge read"><code>catalog_health_report</code> (كشف الفاضي والمعطل)</span>
+          <span class="tool-pill-badge write"><code>plan_catalog_fixes</code> (خطة إصلاح الشجرة)</span>
+          <span class="tool-pill-badge read"><code>analyze_product_photos</code> (اقتراح كلمات القسم بالرؤية)</span>
+        </div>
+
+        <!-- Interactive Trial Sandbox with Scenario Switcher -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا تسأل الذكاء الاصطناعي؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <!-- Scenario Switcher Chips -->
+          <div class="scenario-chips-wrapper">
+            <span class="scenario-chips-label">اختر سيناريو التجربة:</span>
+            <button class="scenario-chip active" data-scenario="cat_create" type="button">
+              <span>✨ 1. إنشاء قسم فرعي جديد</span>
+            </button>
+            <button class="scenario-chip" data-scenario="cat_move" type="button">
+              <span>🔀 2. نقل قسم في الشجرة والترتيب</span>
+            </button>
+            <button class="scenario-chip" data-scenario="cat_health" type="button">
+              <span>🩺 3. كشف صحة الأقسام وإصلاح الفاضية</span>
+            </button>
+            <button class="scenario-chip" data-scenario="cat_guards" type="button">
+              <span>🛡️ 4. صمامات التعطيل والحذف المشدد</span>
+            </button>
+            <button class="scenario-chip" data-scenario="product_draft" type="button">
+              <span>👜 5. إضافة منتج ومسودة باركود</span>
+            </button>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال التاجر أو مدير الكتالوج الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"أنشئ قسم فرعي جديد باسم 'شنط كروس جلد طبيعي' (Crossbody Leather Bags) تحت قسم 'شنط حريمي' واقترح الـ slug تلقائياً ورتبه في المركز الثالث."</span>
+              <button class="run-simulation-btn" data-dept="catalog" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- System Reaction Box -->
+          <div class="system-reaction-box" id="reaction-box-catalog">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. التدقيق والتحقق من العمق (Depth Guard)</span>
+                <span class="phase-step-desc">فحص صلاحية <code>categories.create</code> والتحقق من أن عمق القسم لن يتجاوز الحد الأقصى المسموح به (3 مستويات كحد أقصى في الشجرة).</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. فحص حالة الأب وتوليد الـ Slug</span>
+                <span class="phase-step-desc">التحقق من أن قسم 'شنط حريمي' نشط، وتوليد slug فريد <code>crossbody-leather-bags</code> مع دعم تطبيع الحروف العربية.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مقترح ثنائي الطور ومعاينة الشجرة</span>
+                <span class="phase-step-desc">حجز قفل <code>CatalogLock::tree</code> وتجهيز مسودة مقترح <code>AiPendingAction</code> مع شجرة الفروقات category_tree_diff.</span>
+              </div>
+            </div>
+
+            <!-- Two-Phase Commit Proposal Ticket -->
+            <div class="proposal-preview-ticket" id="proposal-ticket-catalog">
+              <div class="ticket-header">
+                <span>PROPOSAL ID: act_cat_create_109</span>
+                <span>SHA-256: 8f4a1c2298fc1c149afbf4c8...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>المقترح الجاهز للاعتماد (Create Category):</strong> إنشاء قسم فرعي "شنط كروس جلد طبيعي" تحت القسم الأب "شنط حريمي".<br>
+                • الـ Slug المولد: <code>crossbody-leather-bags</code> | ترتيب العرض: 3 | عمق الشجرة: المستوى 2 (مقبول).<br>
+                • حماية: يدعم التراجع الفوري (Undo) واستعادة الحالة السابقة خلال 15 دقيقة.
+              </div>
+              <div class="tree-diff-box">
+                <span class="node-root">📁 شنط حريمي (Parent Active)</span><br>
+                &nbsp;&nbsp;├── 📁 شنط يد كلاسيك<br>
+                &nbsp;&nbsp;└── <span class="node-new">✨ [جديد] 📁 شنط كروس جلد طبيعي (sort_order: 3)</span>
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: لن تنفذ أي حركة في قاعدة البيانات إلا بعد اختيارك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="catalog" type="button">إلغاء المقترح</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="catalog" type="button">اعتماد وإنشاء القسم</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dual-State Governance Levers -->
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان للأقسام والكتالوج؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح التشغيل العام:</strong> تعمل الأدوات فقط عند تفعيل <code>ai_catalog_tools_enabled</code> في جدول الإعدادات المركزية <code>SettingService</code>.</li>
+              <li><strong>صلاحيات Spatie RBAC الحبيبية:</strong>
+                <br>• <code>categories.view</code>: قراءة واستعلام شجرة الأقسام وتفاصيلها ومسارات النشاط.
+                <br>• <code>categories.create</code>: إنشاء أقسام رئيسية أو فرعية (حتى 3 مستويات عمق).
+                <br>• <code>categories.update</code>: تعديل الاسم، الوصف، الـ slug، الترتيب، ونقل الأقسام وتغيير حالتها.
+                <br>• <code>categories.delete</code>: حذف الأقسام الفارغة فقط وتأكيد الـ slug.
+              </li>
+              <li><strong>قفل الشجرة الهيكلي (CatalogLock):</strong> حجز <code>CatalogLock::tree(shared|exclusive)</code> أثناء التعديل والنقل لمنع تضارب الشجرة وعزل العمليات المتزامنة.</li>
+              <li><strong>حماية التعارض المتزامن:</strong> فحص <code>lock_version</code> لرفض الكتابة فوق أي تعديل أجراه موظف آخر في نفس التوقيت (Optimistic Locking).</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق وتُعطل الصلاحيات فورياً؟ (Revoke & Safety Levers)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> إبطال فوري لتوكنات الكتالوج في أقل من 50ms، أو إغلاق <code>ai_catalog_tools_enabled</code> لعزل أدوات الأقسام والمنتجات كلياً.</li>
+              <li><strong>حظر تعطيل الأقسام ذات المحتوى المنشور:</strong> ترفض أداة <code>set_category_status</code> تعطيل أي قسم يحتوي على منتجات منشورة نشطة، وتُعرض عينة منها للمطالبة بنقلها أو أرشفتها أولاً.</li>
+              <li><strong>حظر حذف الأقسام غير الفارغة:</strong> ترفض أداة <code>delete_category</code> حذف أي قسم تحته منتجات أو أقسام فرعية، وهي مصنفة عالية الخطورة (<code>high risk</code>) وتشترط كتابة الـ slug صراحة للتأكيد، وبلا تراجع نهائياً.</li>
+              <li><strong>نافذة التراجع الذكي (Undo):</strong> إمكانية استرجاع موضع القسم المنقول، أو اسمه وتعديلاته، أو حالته السابقة خلال 15 دقيقة بتجزئة SHA-256.</li>
+              <li><strong>التوثيق والرقابة الإلزامية:</strong> تُسجل كافة حركات القراءة والتعديل والحذف في سجل التدقيق الأمني <code>StaffAdministration::audit</code>.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">إعادة هيكلة شجرة الأقسام يدوياً تستغرق ساعات مع أخطاء متكررة في مسارات المنتجات المنشورة وعزل الأقسام وظهور فروع فارغة للعملاء بنسبة خطأ 15%.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">فحص شجرة الأقسام، منع الحلقات، التحقق من حد الـ 3 مستويات، كشف الفروع الفارغة، ومعاينة الفروقات قبل وبعد التعديل خلال 1.2 ثانية مع حماية تامة للمنتجات وتراجع فوري Undo.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> لا يمكن حذف أي قسم يحتوي على منتجات أو فروع، ولا يمكن تعطيل قسم تحته منتجات منشورة نشطة دون نقلها، وجميع عمليات التعديل والإنشاء تمر بمقترح ثنائي الطور (Two-Phase Commit).
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           2. Inventory Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-inventory">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 02</span>
+              <span class="dept-group-tag">العمليات الأساسية • 14 أداة مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم إدارة المخزون وحركات المستودعات</h2>
+            <div class="dept-meta-subtitle">Domain: Double-Entry Inventory Ledger & Stock Movement Engine</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-inventory">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="inventory" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          متابعة أرصدة الشنط اللحظية عبر الفروع والمستودعات الرئيسية، حساب حركات العجز والزيادة الناتجة عن الجرد، واقتراح أذونات النقل والتحويل بين الفروع لتغطية النواقص استنادًا إلى معدل المبيعات، مع الالتزام التام بنظام القيد المزدوج للمخزون (Double-Entry Inventory Ledger).
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال أمين المخزن أو مدير الفرع الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"في طلب متزايد على شنط اللابتوب ووتربروف 15.6 بوصة وعندي عجز 25 قطعة في فرع مدينة نصر.. افحص الرصيد المتاح في المستودع الرئيسي وحضّر إذن تحويل مخزني فوري لتغطية العجز."</span>
+              <button class="run-simulation-btn" data-dept="inventory" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-inventory">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. قفل تشاؤمي وفحص</span>
+                <span class="phase-step-desc">تنفيذ استعلام <code>SELECT FOR UPDATE</code> على جدول stock_levels للتأكد من توفر الـ 25 قطعة وعدم حجزها.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. حجز الرصيد وإذن النقل</span>
+                <span class="phase-step-desc">حجز القطع وإصدار وثيقة إذن تحويل مخزني برقم <code>TR-2026-881</code> مع ربط باركود التتبع.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. قيد مخزني مزدوج</span>
+                <span class="phase-step-desc">توليد مقترح Two-Phase Action يضمن خصم الرصيد من المستودع وإضافته للفرع كعملية ذرية غير مجزأة.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-inventory">
+              <div class="ticket-header">
+                <span>PROPOSAL ID: act_inv_8812</span>
+                <span>SHA-256: 8f434346648f6b96df89dda9...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>إذن تحويل مخزني مقترح (TR-2026-881):</strong> نقل 25 حقيبة لابتوب من (المستودع الرئيسي - رصيف 2) إلى (فرع مدينة نصر). الرصيد محجوز بقفل تشاؤمي لمنع التكرار بانتظار توقيع أمين المخزن.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: ترحيل المخزون معلق حتى موافقتك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="inventory" type="button">إلغاء التحويل</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="inventory" type="button">اعتماد إذن التحويل</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> صلاحية موجهة <code>inventory:propose_transfer</code> و <code>stock:audit_read</code>.</li>
+              <li><strong>حدود البيانات:</strong> جداول <code>stock_levels</code> و <code>inventory_movements</code> مع قيد الوصول إلى فرع الموظف فقط.</li>
+              <li><strong>عزل البيئة:</strong> استعلامات PostgreSQL بأقفال تشاؤمية لمنع تعارض الحركات المتزامنة (Race Conditions).</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> إغلاق أذونات النقل فوراً عبر مفتاح <code>AI_INVENTORY_WRITE_LOCK</code> في Redis.</li>
+              <li><strong>التحويل للقراءة فقط:</strong> عزل المساعد ليقتصر على الاستعلام عن رصيد الأصناف بدون صلاحية اقتراح حركات.</li>
+              <li><strong>تجميد الجرد:</strong> حظر اعتماد أي تسويات جردية آلياً عند وجود مراجعة تدقيق مالي نشطة.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">مقارنة جداول إكسل يدوية بين مستودع الجملة وفروع التجزئة تستغرق 3 ساعات أسبوعيًا مع تكرار نفاذ الموديلات الأكثر طلبًا.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">رصد فوري لنسب المخزون واقتراح إذن تحويل متوازن بين الفروع مع فحص أقفال الصفوف في أقل من 1.1 ثانية.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> لا يمكن خصم بضاعة تالفة أو تسجيل عجز يتجاوز 1,000 ج.م دون توقيع إلكتروني لمدير المخازن.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           3. Pricing Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-pricing">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 03</span>
+              <span class="dept-group-tag">المعاملات والمالية • 10 أدوات مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم سياسات التسعير وهوامش الربح والكوبونات</h2>
+            <div class="dept-meta-subtitle">Domain: Pricing Engine, Tier Matrix & Discount Safety (PricingWelcome)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-pricing">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="pricing" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          إدارة شرائح الأسعار المتعددة (قطاعي، جملة، وكيل معتمد)، إنشاء وتدقيق حملات الكوبونات والخصومات الترويجية، فحص هوامش الربح للتأكد من عدم كسر سعر التكلفة المرجعي، وتقديم تحليلات دقيقة لأسباب ظهور الأسعار للعملاء بناءً على تصنيفهم وحجم تعاملاتهم.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال مدير المبيعات الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"عاوز أعمل كود خصم 'EID2026' بخصم 15% على كولكشن شنط السفر والترولي للتجار المسجلين.. اتأكد إن الخصم مش هيكسر هامش الربح التشغيلي الأدنى (28%)."</span>
+              <button class="run-simulation-btn" data-dept="pricing" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-pricing">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. استدعاء التكلفة المرجعية</span>
+                <span class="phase-step-desc">فحص جدول التكلفة عبر <code>CostAccess</code> ومقارنتها بنسبة الخصم المقترحة لكل موديل ترولي.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. التحقق من هامش الربح</span>
+                <span class="phase-step-desc">التأكد الحسابي أن السعر بعد الخصم يحقق هامش ربح 31.4% (أعلى من الحد الأدنى الحاكم 28%).</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مقترح الكوبون المقيد</span>
+                <span class="phase-step-desc">توليد مقترح كوبون مخصص لمجموعة 'تجار جملة مسجلين' فقط ومقيد بانتهاء زمني محدد.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-pricing">
+              <div class="ticket-header">
+                <span>PROPOSAL ID: act_prc_3391</span>
+                <span>SHA-256: 3b5d5c371295504221231617...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>كود خصم مقترح (EID2026):</strong> خصم 15% على شنط السفر لمجموعة 'تجار الجملة'. تم التحقق رياضيًا من سلامة هوامش الأرباح (هامش الربح الأدنى: 31.4% > 28%). الكوبون معلق بانتظار التأكيد.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: تفعيل الخصم معلق حتى اعتمادك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="pricing" type="button">إلغاء الخصم</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="pricing" type="button">اعتماد وتفعيل الكوبون</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> دور <code>pricing:propose_adjustments</code> مقيد بسقف زمني وصلاحية <code>CostAccess</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في جدول <code>price_lists</code> و <code>coupons</code> ولا يمكن التعديل المباشر دون Two-Phase Action.</li>
+              <li><strong>عزل البيئة:</strong> استدعاء معزول للنماذج الحسابية مع تدقيق قيود الفاتورة الضريبية وفق متطلبات مصلحة الضرائب المصرية.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> إلغاء صلاحية مقترحات الأسعار فوراً وإلغاء كافة المقترحات المعلقة بضغطة زر.</li>
+              <li><strong>التراجع الذكي:</strong> استرجاع قائمة الأسعار السابقة فوراً عبر سجل التغييرات التاريخي (Snapshot Rollback).</li>
+              <li><strong>حظر الكوبونات:</strong> تعطيل فوري لكافة الكوبونات المنشأة آلياً عند الشك بأي اختراق أمني.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">تحديث قوائم الأسعار عبر ملفات إكسل قديمة تسبب في بيع 140 قطعة شنطة سفر بسعر أقل من التكلفة المحدثة بهامش خسارة.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">تدقيق تلقائي لشرائح الأسعار قبل اعتمادها، مع حظر رياضي برمجي لأي خصم يتعدى الحد الأدنى لهامش الربح التشغيلي.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> أي تعديل جماعي للأسعار يتجاوز نسبة 15% يتطلب تأكيداً كتابياً مشفراً ومطابقة لكلمة مرور المدير المالي.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           4. Finance Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-finance">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 04</span>
+              <span class="dept-group-tag">المعاملات والمالية • 12 أداة مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم المالية والخزائن وحركات الأدراج والورديات</h2>
+            <div class="dept-meta-subtitle">Domain: Treasury, Cash Registers & Daily Shift Auditing (FinanceWelcome)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-finance">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="finance" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          التدقيق الآلي لإغلاق ورديات الكاشير، الكشف الفوري عن أي عجز أو زيادة غير مبررة في درج النقدية، مطابقة المصروفات والنثريات، وإعداد تقارير المطابقة اليومية (Daily Close Briefing) مع التنبيه الفوري عند وجود أي تحويل مالي معلق بين الخزائن الفرعية والخزينة الرئيسية.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال المحاسب المالي أو مشرف الفرع الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"قفل وردية الكاشير المسائية لفرع المهندسين واعمل مطابقة للنقدية مع إيصالات الدفع الإلكتروني وافحص لو في أي عجز في الدرج."</span>
+              <button class="run-simulation-btn" data-dept="finance" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-finance">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. استخراج بون Z-Report</span>
+                <span class="phase-step-desc">سحب مبيعات الوردية من نقطة البيع (POS): 48,250 ج.م نقدية + 31,400 ج.م فيزا/محافظ.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. مطابقة الدرج والمصروفات</span>
+                <span class="phase-step-desc">مطابقة النقدية مع بونات المصروفات النثرية المسجلة (320 ج.م بوفيه وكهرباء). العجز المحتسب: 0.00 ج.م.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. تجهيز تقرير الإقفال</span>
+                <span class="phase-step-desc">إعداد ملخص الإقفال اليومي (Daily Close Briefing) وتجهيز ترحيل نقدية الدرج للخزينة الرئيسية.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-finance">
+              <div class="ticket-header">
+                <span>SHIFT ID: SH-2026-1123-02</span>
+                <span>SHA-256: 17acba8d2b23a6f1d9d97a61...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>تقرير إقفال وردية الكاشير:</strong> إجمالي المبيعات 79,650 ج.م (نقدية: 48,250 ج.م | إلكتروني: 31,400 ج.م). العجز: 0.00 ج.م (مطابقة تامة). ترحيل النقدية للخزينة الرئيسية معلق بانتظار اعتماد المشرف المالي.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: ترحيل الخزينة معلق حتى اعتمادك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="finance" type="button">إعادة فحص الدرج</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="finance" type="button">اعتماد إقفال الوردية</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> صلاحية قراءة وتدقيق فقط <code>finance:audit_readonly</code> و <code>treasury:view_balances</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في معاملات الخزينة وحركات الوردية المغلقة فقط دون أي صلاحية تعديل في دفتر الأستاذ العام.</li>
+              <li><strong>عزل البيئة:</strong> استعلامات مشفرة بدون إظهار أي أرقام حسابات بنكية أو بيانات بطاقات الدفع لعملاء المنظومة.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> عزل قطاع المالية بالكامل فورياً عن محرك الـ AI وإيقاف أي استعلامات تخص السيولة النقدية.</li>
+              <li><strong>الحظر المصرفي:</strong> حظر إمكانية قراءة إشعارات التحويل البنكية بضغطة زر وتوجيهها للمراجعة البشرية الحصرية.</li>
+              <li><strong>سجل الرقابة الصارم:</strong> تسجيل كل سؤال أو استفسار مالي للموظف في سجل التدقيق الأمني (SIEM Audit Trail).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">انتظار المدير المالي لليوم التالي لمراجعة بونات الإغلاق اليدوية للورديات واكتشاف عجز الدرج بعد فوات الأوان.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">تدقيق فوري لحظة إغلاق الوردية عبر الـ POS، ومطابقة إيصالات الدفع الإلكتروني والنقدي وإرسال ملخص تنفيذي خلال 1.2 ثانية.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> الذكاء الاصطناعي لا يملك أي صلاحية لتحويل أموال أو سحب كاش؛ وظيفته تنحصر في المراجعة والمطابقة والإنذار.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           5. Wholesale Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-wholesale">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 05</span>
+              <span class="dept-group-tag">المعاملات والمالية • 18 أداة مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم تجارة الجملة وعروض الأسعار وسداد المديونيات</h2>
+            <div class="dept-meta-subtitle">Domain: Wholesale Trading, OCR Verification & FIFO Settlement (WholesaleToolProvider)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-wholesale">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="wholesale" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          إعداد ومتابعة عروض أسعار تجار الجملة (Quotations)، الفحص الذكي لإيصالات التحويل البنكي عبر تقنية الـ OCR للتحقق من المبلغ ورقم المعاملة وتاريخ التحويل، وتطبيق سداد المديونيات وفق مبدأ الأقدم فالأقدم (FIFO Debt Allocation) مع تحديث كشف الحساب والحد الائتماني للتاجر آليًا.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال مسؤول مبيعات الجملة أو التاجر الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"وصلنا إيصال تحويل بنكي على واتساب من 'مؤسسة الشروق لتجارة الشنط' بمبلغ 75,000 ج.م.. افحص الإيصال وسدد بيه أقدم الفواتير الآجلة للتاجر."</span>
+              <button class="run-simulation-btn" data-dept="wholesale" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-wholesale">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. قراءة OCR ومكافحة التزييف</span>
+                <span class="phase-step-desc">استخراج رقم المعاملة البنكية وتاريخها والمبلغ (75,000 ج.م) والتحقق من التوقيع الرقمي لمنع تكرار الإيصال.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. توزيع السداد بمبدأ FIFO</span>
+                <span class="phase-step-desc">توزيع المبلغ تلقائياً على فاتورة INV-8821 (45,000 ج.م) والباقي (30,000 ج.م) لفاتورة INV-8840.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مقترح إشعار سداد معلق</span>
+                <span class="phase-step-desc">توليد إشعار سداد <code>PaymentNotice</code> معلق بانتظار نقرة موافقة المحاسب المالي.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-wholesale">
+              <div class="ticket-header">
+                <span>NOTICE ID: PN-2026-9041</span>
+                <span>SHA-256: 5d41402abc4b2a76b9719d91...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>إشعار سداد بنكي مقترح:</strong> إيداع 75,000 ج.م من 'مؤسسة الشروق'. تم توزيع السداد: إغلاق فاتورة INV-8821 بالكامل وسداد جزئي لفاتورة INV-8840. لم يتم ترحيل المبلغ محاسبيًا حتى اعتماده.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: اعتماد السداد يفتح سقف الائتمان للتاجر:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="wholesale" type="button">رفض الإيصال</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="wholesale" type="button">اعتماد السداد وترحيله</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> صلاحية <code>wholesale:propose_quotation</code> و <code>ocr:read_payment_notice</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في مسار إشعارات السداد <code>/wholesale/notices/</code> وعروض أسعار التاجر المحدد فقط.</li>
+              <li><strong>عزل البيئة:</strong> التحقق من الإيصال بمطابقة التوقيع الزمني مع كشف حساب البنك المعتمد ومكافحة تزييف الصور.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> تجميد فوري لاعتماد إشعارات السداد آلياً وتحويل كافة الواردات لصندوق التدقيق اليدوي.</li>
+              <li><strong>عكس السداد (Reverse Approval):</strong> إمكانية التراجع عن أي تسوية بنكية خاطئة وإعادة توزيع المديونية الأصلية فوراً.</li>
+              <li><strong>حظر تعديل الائتمان:</strong> منع الذكاء الاصطناعي بشكل كامل من رفع سقف ائتمان أي تاجر بدون موافقة مجلس الإدارة.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">استلام إيصال الإيداع البنكي على واتساب ومراجعته يدوياً مع كشف البنك وتسجيله في دفاتر الحسابات خلال 4 إلى 8 ساعات.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">قراءة الإيصال عبر OCR ومطابقة رقم العملية وتوزيع المبلغ على الفواتير الآجلة القديمة وتجهيز إشعار السداد في 3.8 ثانية.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> لا يتم اعتماد إشعار السداد البنكي نهائيًا إلا بعد موافقة المحاسب البشري (Approve Payment Notice).
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           6. Shipping Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-shipping">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 06</span>
+              <span class="dept-group-tag">العمليات الأساسية • 8 أدوات مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم الشحن وشركات التوصيل ورسوم المناطق</h2>
+            <div class="dept-meta-subtitle">Domain: Logistics, Carrier Routing & Cash on Delivery (ShippingToolProvider)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-shipping">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="shipping" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          توجيه الشحنات الذكي لشركات الشحن المعتمدة (بوسطة، أرامكس، مندوبي الفروع)، حساب تكلفة التوصيل الدقيقة بناءً على المحافظة والوزن الحجمي لطرود الشنط، وتدقيق رسوم التحصيل عند الاستلام (COD) ومتابعة تسليمات المرتجعات.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال مسؤول اللوجستيات والشحن الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"عندي 35 أوردر جاهزين للشحن لمحافظات الصعيد (أسيوط، سوهاج، قنا).. وجه الأوردرات للشركة الأسرع واحسب إجمالي رسوم التحصيل عند الاستلام (COD)."</span>
+              <button class="run-simulation-btn" data-dept="shipping" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-shipping">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. مقارنة الناقلين والتعريفة</span>
+                <span class="phase-step-desc">فحص جداول شركات الشحن ومطابقة الوزن الحجمي للطرود. اختيار 'بوسطة' كأسرع ناقل (زمن تسليم 48 ساعة).</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. تدقيق مبالغ الـ COD</span>
+                <span class="phase-step-desc">حساب إجمالي نقدية التحصيل عند الاستلام (42,600 ج.م) ورسوم التوصيل والخدمة (48 ج.م للطرد).</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مقترح إصدار البوالص</span>
+                <span class="phase-step-desc">توليد مسودة بوالص الشحن مجمعة بروابط التتبع المباشرة بانتظار أمر الإرسال للطباعة.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-shipping">
+              <div class="ticket-header">
+                <span>DISPATCH BATCH: SHP-2026-441</span>
+                <span>SHA-256: ca978112ca1bbdcafac231b3...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>دفعة شحنات مقترحة (35 أوردر):</strong> الناقل: بوسطة | المحافظات: الصعيد | إجمالي تحصيلات COD المطلوبة: 42,600 ج.م. تم حجز أرقام التتبع بانتظار اعتماد الترحيل النهائي.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: أمر الربط بالناقل معلق حتى اعتمادك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="shipping" type="button">إلغاء الإرسال</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="shipping" type="button">اعتماد وطباعة البوالص</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> صلاحية موجهة <code>shipping:read_rates</code> و <code>shipping:dispatch_order</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في جدول <code>shipping_zones</code> و <code>shipping_companies</code> وبيانات عنوان التوصيل فقط.</li>
+              <li><strong>عزل البيئة:</strong> ربط مع واجهات برمجة تطبيقات شركات الشحن عبر Webhooks مشفرة بدون تمرير أي بيانات مالية حساسة.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> إيقاف فوري للربط التلقائي مع شركات الشحن والتحويل للطباعة والربط اليدوي.</li>
+              <li><strong>تجميد البوالص:</strong> حظر إرسال بوالص الشحن الجديدة تلقائيًا عند توقف نظام التحقق.</li>
+              <li><strong>عزل بيانات العملاء:</strong> حجب أرقام هواتف العملاء وعناوينهم عن الذكاء الاصطناعي بنمط التشفير الكامل (Data Masking).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">تحديد شركة الشحن يدويًا وفق الجداول الورقية، مع تسعير خاطئ لمحافظات الصعيد وتأخر خروج أوردرات المتجر 24 ساعة.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">تحديد أفضل شركة شحن وفق زمن التوصيل وتكلفة الـ COD وإصدار البوليصة برقم تتبع مباشر في أقل من 1.5 ثانية.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> لا يمكن للمساعد تغيير تعريفة الشحن الرسمية أو إلغاء رسوم الشحن المجاني خارج نطاق صلاحيات الحملات المعتمدة.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           7. Customers & Dealers Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-customers">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 07</span>
+              <span class="dept-group-tag">الحوكمة والأمان • 11 أداة مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم إدارة شبكة التجار واعتماد التراخيص والائتمان</h2>
+            <div class="dept-meta-subtitle">Domain: Customer 360, Dealer Onboarding & KYC Compliance (CustomerManagementService)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-customers">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="customers" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          فحص طلبات انضمام التجار الجدد، تدقيق مستندات السجل التجاري والبطاقة الضريبية والتأكد من سريانها، تصنيف العملاء في شرائح تسعيرية ملائمة، ومراقبة نمط سداد كل تاجر لتقديم مقترحات مدروسة بشأن تعديل فترات السماح الائتماني.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال مسؤول علاقات التجار الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"في تاجر جديد باسم 'مكتب النصر للتوزيع' سجل على المنظومة ورفع السجل التجاري والبطاقة الضريبية.. افحص المستندات واعتمد حسابه وحدد شريحة السعر المناسبة."</span>
+              <button class="run-simulation-btn" data-dept="customers" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-customers">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. تدقيق وثائق الـ KYC</span>
+                <span class="phase-step-desc">فحص السجل التجاري والبطاقة الضريبية والتأكد من مطابقة النشاط وعدم وجود حظر ائتماني سابق.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. تصنيف شريحة التاجر</span>
+                <span class="phase-step-desc">إدراج التاجر في شريحة 'جملة ب' مع تحديد فترة سماح 14 يوماً وسقف ائتماني مبدئي 50,000 ج.م.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مقترح اعتماد الحساب</span>
+                <span class="phase-step-desc">توليد مقترح <code>ApproveCustomerRequest</code> بانتظار توقيع مسؤول الحسابات التجارية.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-customers">
+              <div class="ticket-header">
+                <span>DEALER ONBOARDING: DLR-2026-104</span>
+                <span>SHA-256: e10adc3949ba59abbe56e057...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>طلب اعتماد تاجر (مكتب النصر للتوزيع):</strong> تم تدقيق السجل التجاري والبطاقة الضريبية بنجاح. الشريحة المقترحة: جملة ب (خصم 22% على حقائب الظهر). الحساب معلق ولن يتمكن التاجر من الشراء إلا بعد موافقتك.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: تفعيل حساب التاجر معلق حتى اعتمادك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="customers" type="button">رفض الطلب</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="customers" type="button">اعتماد حساب التاجر</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> صلاحية <code>customers:read_kyc</code> و <code>dealers:propose_approval</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في مسار مستندات العملاء <code>/customer_documents/</code> وجداول <code>customer_groups</code>.</li>
+              <li><strong>عزل البيئة:</strong> حفظ الوثائق في مساحات تخزين خاصة ومشفرة (Private Buckets) مع حظر الوصول المباشر للإنترنت.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> إبطال صلاحية مراجعة الوثائق وإلغاء أي جلسات تدقيق مفتوحة للعملاء فورًا.</li>
+              <li><strong>قفل تعديل الشرائح:</strong> منع الذكاء الاصطناعي من تغيير شريحة أي عميل أو منح خصومات تجارية استثنائية.</li>
+              <li><strong>حجب بيانات التواصل:</strong> حجب البريد الإلكتروني وأرقام الاتصال المشفرة فور الاشتباه بأي نشاط استعلام غير معتاد.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">انتظار التاجر 3 أيام لمراجعة أوراقه واعتماد حسابه وبدء الشراء بسعر الجملة، مما يسبب فقدان فرص بيع للمنافسين.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">فحص المستندات الضريبية ومطابقة الكيان التجاري وتجهيز ملف العميل بانتظار نقرة موافقة واحدة خلال أقل من 10 دقائق.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> لا يمكن تفعيل حساب أي تاجر جملة أو منحه سقف ائتماني بدون توقيع صريح من مسؤول الحسابات التجارية.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           8. Storefront Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-storefront">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 08</span>
+              <span class="dept-group-tag">العمليات الأساسية • 9 أدوات مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم واجهة المتجر الإلكتروني والبانرات وتجربة العميل</h2>
+            <div class="dept-meta-subtitle">Domain: Digital Storefront, Banner Orchestration & Cart Diagnostics (StorefrontCapabilitiesTool)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-storefront">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="storefront" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          إدارة بانرات العروض على متجر VARYA الإلكتروني، ترتيب وتفعيل الحملات الإعلانية الموسمية (Back to School، مواسم السفر)، تشخيص مشكلات السلات المتروكة ومسارات إتمام الشراء، ومساعدة فريق التسويق في صياغة نصوص الحملات الترويجية الجذابة.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال مدير التسويق الموجه للذكاء الاصطناعي:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"عاوز أجهز بانر هيدر في المتجر لحملة عروض العيد 'وفر حتى 30% على شنط السفر الفاخرة' يوجه لقسم /category/travel ويشتغل من يوم الأربعاء."</span>
+              <button class="run-simulation-btn" data-dept="storefront" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-storefront">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. صياغة النص والتصميم</span>
+                <span class="phase-step-desc">صياغة النص التسويقي باللغة العربية واختيار الألوان المتناسقة مع هوية متجر Next.js.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. فحص الرابط والجدولة</span>
+                <span class="phase-step-desc">التحقق من صلاحية رابط القسم المستهدف وتحديد موعد تشغيل البانر تلقائيًا من يوم الأربعاء.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مسودة معاينة حية</span>
+                <span class="phase-step-desc">إنشاء مسودة معاينة (Preview Draft) برابط سري خاص بفريق التسويق دون نشره للعامة.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-storefront">
+              <div class="ticket-header">
+                <span>BANNER DRAFT: BNR-2026-08</span>
+                <span>SHA-256: 4b227777d4dd1fc61c6f884f...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>مسودة بانر المتجر:</strong> "وفر حتى 30% على شنط السفر الفاخرة" | الرابط: <code>/category/travel</code> | الجدولة: تبدأ الأربعاء القادم. البانر جاهز للمعاينة في المسودة ولم ينشر لزوار المتجر.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: النشر المباشر معلق حتى اعتمادك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="storefront" type="button">تعديل المسودة</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="storefront" type="button">اعتماد ونشر البانر</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> دور محدد <code>storefront:manage_banners</code> و <code>cart:diagnose</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في جدول <code>storefront_banners</code> وسجلات السلات المتروكة مع إخفاء هوية المستهلكين.</li>
+              <li><strong>عزل البيئة:</strong> ربط غير متزامن مع واجهة Next.js 15 عبر Redis Caching لمنع أي تأثير على سرعة تصفح المتجر.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> تعطيل صلاحية تعديل البانرات فوراً وإرجاع الواجهة للنسخة الثابتة المخزنة مسبقاً.</li>
+              <li><strong>قفل العروض الحية:</strong> إلغاء أي شريط إعلاني منشور عبر الذكاء الاصطناعي خلال أقل من 100ms.</li>
+              <li><strong>عزل كاش الـ CDN:</strong> تفعيل تنظيف كاش Cloudflare فوري عند رصد أي رابط غير صالح.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">تعديل الروابط والبانرات يدويًا عبر مطور الواجهة الأمامية يستغرق يومين لكل حملة ترويجية جديدة.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">اقتراح البانر وصياغة النص وربطه برابط القسم وتحديد تاريخ الانتهاء بطلب محادثة بسيط في ثوانٍ.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> أي تغيير في بانر الواجهة الرئيسية يظهر كمسودة معاينة (Preview Draft) ولا يتم عرضه للمستهلكين إلا بعد اعتماد مسؤول التسويق.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           9. Admin & Staff Security Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-admin">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 09</span>
+              <span class="dept-group-tag">الحوكمة والأمان • 15 أداة مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم إدارة الموظفين وصلاحيات الفروع وبوابة الواتساب</h2>
+            <div class="dept-meta-subtitle">Domain: Staff RBAC, Session Governance & WhatsApp Staff Gateway (WhatsAppChannelPolicy)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-admin">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="admin" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          إدارة أدوار وصلاحيات موظفي الفروع والمستودعات (Spatie RBAC)، الرقابة الصارمة على جلسات الواتساب الخاصة بفريق العمل عبر المصادقة برمز PIN السري، مراقبة نشاط الموظفين والكشف عن أي محاولة لتخطي الصلاحيات أو تسريب البيانات الحساسة.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال مدير الفرع أو مسؤول الأمن السيبراني:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"الموظف أحمد من فرع التجمع بيحاول يستعلم عن تقرير مبيعات الفرع من الواتساب.. اتأكد من هويته واطلب رمز الـ PIN السري واقفل الجلسة لو دخل الرمز غلط."</span>
+              <button class="run-simulation-btn" data-dept="admin" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-admin">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. مطابقة الهاتف والدور</span>
+                <span class="phase-step-desc">مطابقة رقم هاتف الموظف (+201004829104) والتحقق من ارتباطه بفرع التجمع حصرًا وصلاحية كاشير.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. فحص رمز الـ PIN السري</span>
+                <span class="phase-step-desc">مطالبة الموظف بإدخال رمز الـ PIN المشفر بملح خاص بالجلسة (Session Salt) مع مهلة 60 ثانية.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. جلسة مؤقتة مقيدة بـ 15 دقيقة</span>
+                <span class="phase-step-desc">فتح جلسة استعلام آمنة محصورة بفرع التجمع فقط تنتهي تلقائيًا بعد 15 دقيقة خمول.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-admin">
+              <div class="ticket-header">
+                <span>WHATSAPP AUTH: SESS-2026-992</span>
+                <span>SHA-256: ef2d127de37b942baad06145...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>جلسة واتساب موثقة:</strong> الموظف: أحمد علي | الفرع: التجمع الخامس | رمز الـ PIN: تم التحقق بنجاح | الصلاحية: استعلام مبيعات الفرع فقط. سيتم تسجيل كافة الرسائل في سجل الرقابة الأمني.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: الرقابة مستمرة على الجلسة:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="admin" type="button">إنهاء الجلسة فوراً</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="admin" type="button">تأكيد أمان الجلسة</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> دور رقابي <code>staff:audit_sessions</code> و <code>branch:view_locations</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في سجلات الدخول وجلسات الموظفين النشطة دون كشف كلمات المرور أو التوكنات السرية.</li>
+              <li><strong>عزل البيئة:</strong> التحقق من موقع IP الفرع وربط أجهزة الـ POS ببصمة جهاز معتمدة ومسجلة مسبقًا.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> إنهاء فوري لكافة جلسات الواتساب النشطة (Force WhatsApp Logout) وإبطال توكنات الربط.</li>
+              <li><strong>تجميد جلسة الموظف:</strong> قفل حساب أي موظف فور إدخال رمز PIN خاطئ لـ 3 مرات متتالية.</li>
+              <li><strong>عزل قنوات التواصل:</strong> حظر إرسال أي تقارير حساسة عبر قنوات الواتساب وتوجيهها حصرًا للوحة التحكم الرسمية.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">مخاطر استخدام موظف الهاتف الشخصي للوصول لبيانات النظام بدون رقابة أو سجل تدقيق، مع خطر سرقة الهاتف وتسريب البيانات.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">ربط رقم هاتف الموظف بحسابه عبر توكن مؤقت مع قفل الجلسة برمز PIN وإلغاء صلاحيات العمليات الحساسة خارج بيئة الفرع.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> لا يمكن إنشاء أدوار جديدة أو ترقية صلاحيات أي موظف إلى مسؤول نظام (Super Admin) عبر المساعد نهائياً.
+        </div>
+      </section>
+
+
+      <!-- ====================================================================
+           10. Settings & Compliance Department
+           ==================================================================== -->
+      <section class="department-full-card" id="dept-settings">
+        <header class="dept-header-row">
+          <div class="dept-title-area">
+            <div class="dept-badge-group">
+              <span class="dept-num-tag">قسم 10</span>
+              <span class="dept-group-tag">الحوكمة والأمان • 7 أدوات مدققة</span>
+            </div>
+            <h2 class="dept-main-title">قسم إعدادات المنظومة والامتثال الضريبي</h2>
+            <div class="dept-meta-subtitle">Domain: System Configuration, Tax Compliance & Operational Rules (SettingService)</div>
+          </div>
+          <div class="dept-controls-area">
+            <div class="status-indicator-pill" id="status-pill-settings">
+              <span class="pulse-pip"></span>
+              <span>صلاحيات مدارة (نشط ومراقب)</span>
+            </div>
+            <button class="apple-btn apple-btn-danger dept-killswitch-btn" data-dept="settings" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>محاكاة الإغلاق الفوري (Kill-Switch)</span>
+            </button>
+          </div>
+        </header>
+
+        <p class="dept-lead-text">
+          متابعة إعدادات الترقيم التسلسلي للفواتير، ضبط نسب ضريبة القيمة المضافة وفق القانون المصري، تحديد نوافذ الإرجاع والاستبدال لفروع التجزئة والمتجر الإلكتروني، وإدارة هوية الشركة وشعارات المطبوعات الرسمية بما يضمن الامتثال القانوني الكامل.
+        </p>
+
+        <!-- Interactive Trial Sandbox -->
+        <div class="interactive-trial-sandbox">
+          <div class="sandbox-header">
+            <div class="sandbox-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>تجربة تفاعلية: ماذا يسأل المستخدم؟ وماذا يحدث في النظام؟</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--label-tertiary);">Live Sandbox Simulation</span>
+          </div>
+
+          <div class="prompt-ask-card">
+            <div class="prompt-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>سؤال المدير التنفيذي أو المستشار القانوني:</span>
+            </div>
+            <div class="prompt-speech-bubble">
+              <span>"حدث نافذة الاسترجاع والاستبدال في فواتير المنظومة ومطبوعات الـ POS لتكون 14 يوماً وتأكد من كتابة الرقم الضريبي للشركة وفق متطلبات الفاتورة الإلكترونية."</span>
+              <button class="run-simulation-btn" data-dept="settings" type="button">
+                <span>أرسل الطلب وجرّب المحاكاة</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="system-reaction-box" id="reaction-box-settings">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--label-secondary);">ماذا يحدث خلف الكواليس خطوة بخطوة:</div>
+            <div class="reaction-phases-timeline">
+              <div class="phase-step">
+                <span class="phase-step-title">1. تدقيق نصوص القانون</span>
+                <span class="phase-step-desc">فحص نصوص قانون حماية المستهلك رقم 181 لسنة 2018 ولائحة مصلحة الضرائب المصرية.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">2. فحص ديباجة الفاتورة</span>
+                <span class="phase-step-desc">التأكد من الترقيم التسلسلي غير القابل للكسر ووضوح الباركود الضريبي (QR Code) على البون.</span>
+              </div>
+              <div class="phase-step">
+                <span class="phase-step-title">3. مقترح تعديل الإعدادات</span>
+                <span class="phase-step-desc">توليد مقترح <code>SettingsPendingAction</code> معلق بانتظار توقيع الإدارة التنفيذية.</span>
+              </div>
+            </div>
+
+            <div class="proposal-preview-ticket" id="proposal-ticket-settings">
+              <div class="ticket-header">
+                <span>CONFIG CHANGE: SET-2026-03</span>
+                <span>SHA-256: 7c6a5e01f56a64458e0a16b2...</span>
+              </div>
+              <div class="ticket-body-content">
+                <strong>تعديل مقترح لإعدادات الفواتير:</strong> نافذة الإرجاع: 14 يوماً | طباعة الرقم الضريبي: نعم | ديباجة الفاتورة: متوافقة مع متطلبات مصلحة الضرائب المصرية. التعديل معلق ولن يطبق على نقاط البيع إلا بعد توقيع الرئيس التنفيذي.
+              </div>
+              <div class="ticket-actions-bar">
+                <span style="font-size: 0.75rem; color: var(--label-tertiary);">الضابط البشري: تعديل السياسات العامة يتطلب موافقتك:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="apple-btn apple-btn-danger ticket-abort-btn" data-dept="settings" type="button">إلغاء التعديل</button>
+                  <button class="apple-btn apple-btn-restore ticket-confirm-btn" data-dept="settings" type="button">اعتماد وتعميم الإعدادات</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="governance-levers-grid">
+          <div class="lever-panel">
+            <div class="lever-header grant">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+              <span>كيف تُمنح الصلاحيات بأمان؟ (Grant Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>هوية التوكن والنطاق:</strong> صلاحية قراءة وتهيئة <code>settings:audit_read</code> و <code>settings:propose_update</code>.</li>
+              <li><strong>حدود البيانات:</strong> محصور في جدول <code>settings</code> مع منع التعديل المباشر دون المرور بدورة Two-Phase Commit.</li>
+              <li><strong>عزل البيئة:</strong> تشفير كامل لبيانات الهوية والربط الخارجي مع التحقق الدوري من صحة الإعدادات التشغيلية.</li>
+            </ul>
+          </div>
+
+          <div class="lever-panel">
+            <div class="lever-header revoke">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span>كيف تُسحب وتُغلق الصلاحيات فورياً؟ (Revoke Protocol)</span>
+            </div>
+            <ul class="lever-items-list">
+              <li><strong>مفتاح الإيقاف الفوري (Kill-Switch):</strong> تجميد فوري لصلاحيات تعديل الإعدادات والرجوع إلى النسخة الاحتياطية المعتمدة (Default Config).</li>
+              <li><strong>قفل الترقيم:</strong> منع الذكاء الاصطناعي من إجراء أي تغيير على تسلسل الفواتير أو بونات الـ POS.</li>
+              <li><strong>تنبيه الامتثال:</strong> إرسال إشعار فوري لإدارة الرقابة القانونية عند أي محاولة لتغيير نسب الضرائب.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="dept-transformation-row">
+          <div class="transform-box manual">
+            <div class="transform-box-label">❌ النمط اليدوي السابق:</div>
+            <div class="transform-box-desc">تعديل الإعدادات الحساسة يدويًا بدون تدقيق يسبب عدم تطابق ترقيم الفواتير ووقوع غرامات ضريبية على المنشأة.</div>
+          </div>
+          <div class="transform-box ai">
+            <div class="transform-box-label">⚡ أتمتة VARYA AI الذكية:</div>
+            <div class="transform-box-desc">فحص توافق قواعد الترقيم الضريبي والتحقق من صحة نوافذ الاستبدال المحددة بـ 14 يومًا بموجب قانون حماية المستهلك.</div>
+          </div>
+        </div>
+
+        <div class="dept-safety-callout">
+          <strong>الضابط الأمني الحاكم:</strong> أي تعديل في إعدادات الضريبة أو الترقيم المالي يتطلب اعتماداً صريحاً من المدير التنفيذي (CEO).
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Executive Footer
+       ======================================================================== -->
+  <footer class="executive-footer">
+    <div class="portal-container footer-inner-content">
+      <div>
+        <div style="font-weight: 700; color: var(--label-primary); margin-bottom: 0.25rem;">
+          منظومة الفريد لتجارة وتوزيع الشنط | VARYA Platform
+        </div>
+        <div style="color: var(--label-tertiary);">بنية تحتية هندسية موثقة ومعتمدة وفق مبادئ القيد المزدوج وأقفال Concurrency Locks.</div>
+      </div>
+      <div style="display: flex; gap: 1rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--label-tertiary);">
+        <span>PostgreSQL 16 ACID</span>
+        <span>•</span>
+        <span>Laravel 13 Sanctum</span>
+        <span>•</span>
+        <span>Two-Phase Commits</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ========================================================================
+       Slide-over SIEM Audit Drawer
+       ======================================================================== -->
+  <div class="audit-drawer-backdrop" id="audit-drawer-backdrop">
+    <div class="audit-drawer">
+      <div class="drawer-header">
+        <div class="drawer-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/></svg>
+          <span>سجل الرقابة والتدقيق الأمني اللحظي (SIEM Stream)</span>
+        </div>
+        <button id="audit-drawer-close-btn" class="chrome-icon-btn" type="button" title="إغلاق">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="drawer-content">
+        <div class="audit-log-item">
+          <div class="log-meta-line">
+            <span>2026-11-23 01:52:10 UTC</span>
+            <span style="color: var(--state-active);">STATUS: GRANTED (200)</span>
+          </div>
+          <div class="log-action-text">ACTOR: staff_nasrcity | ACTION: query_stock_level</div>
+          <div style="color: var(--label-tertiary);">HASH: 8f4343...aa4 | SCOPE: branch:read_only | LATENCY: 38ms</div>
+        </div>
+
+        <div class="audit-log-item">
+          <div class="log-meta-line">
+            <span>2026-11-23 01:51:45 UTC</span>
+            <span style="color: var(--state-warn);">STATUS: PENDING_CONFIRM</span>
+          </div>
+          <div class="log-action-text">ACTOR: catalog_bot | ACTION: propose_product_draft</div>
+          <div style="color: var(--label-tertiary);">ULID: act_cat_9041 | HASH: e3b0c4...855 | GUARD: 2-Phase Lock</div>
+        </div>
+
+        <div class="audit-log-item">
+          <div class="log-meta-line">
+            <span>2026-11-23 01:49:12 UTC</span>
+            <span style="color: var(--state-active);">STATUS: COMMITTED (201)</span>
+          </div>
+          <div class="log-action-text">ACTOR: finance_officer | ACTION: confirm_shift_close</div>
+          <div style="color: var(--label-tertiary);">SHIFT: SH-2026-1123-02 | CASH_VARIANCE: 0.00 EGP | ACID: OK</div>
+        </div>
+
+        <div class="audit-log-item">
+          <div class="log-meta-line">
+            <span>2026-11-23 01:45:01 UTC</span>
+            <span style="color: var(--state-safe);">STATUS: OCR_VERIFIED</span>
+          </div>
+          <div class="log-action-text">ACTOR: wholesale_agent | ACTION: parse_cib_receipt</div>
+          <div style="color: var(--label-tertiary);">AMOUNT: 75,000 EGP | DEALER: DLR-2026-104 | FIFO_ALLOCATION: 2 Invoices</div>
+        </div>
+
+        <div class="audit-log-item">
+          <div class="log-meta-line">
+            <span>2026-11-23 01:40:19 UTC</span>
+            <span style="color: var(--state-active);">STATUS: PIN_AUTH_PASS</span>
+          </div>
+          <div class="log-action-text">ACTOR: whatsapp_staff | PHONE: +201004829104</div>
+          <div style="color: var(--label-tertiary);">GATEWAY: Baileys Staff Inbound | SESSION_TTL: 15-Min Salted Token</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="scripts/app.js"></script>
+</body>
+</html>

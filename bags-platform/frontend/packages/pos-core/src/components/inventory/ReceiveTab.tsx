@@ -79,15 +79,8 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
   };
 
   return (
-    <div
-      className="grid"
-      style={{
-        gridTemplateColumns: '320px minmax(0, 1fr)',
-        gap: 16,
-        alignItems: 'start',
-      }}
-    >
-      <div className="tr-list">
+    <div className="grid tr-receive-grid">
+      <div className={cx('tr-list', list.length === 1 && 'is-single')}>
         {list.map((x) => (
           <button
             key={x.id}
@@ -126,8 +119,8 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
           </button>
         ))}
       </div>
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <div className="card-head">
+      <div className="card tr-detail-card">
+        <div className="card-head tr-card-head">
           <div className="col">
             <h3>{t.number}</h3>
             <span className="fs-12 t-3">
@@ -135,14 +128,14 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
             </span>
           </div>
           <button
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary btn-sm tr-match-btn"
             onClick={() => setEdits(null)}
           >
             <Icon n="check" s={14} />
             الكل مطابق
           </button>
         </div>
-        <table className="tbl">
+        <table className="tbl tr-tbl tr-receive-tbl">
           <thead>
             <tr>
               <th>الصنف</th>
@@ -161,10 +154,10 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
               const stock = p?.stock || 0;
               return (
                 <tr key={lineId} className={d !== 0 ? 'selected' : ''}>
-                  <td>
+                  <td className="tr-col-product">
                     <div className="row gap-3">
                       <PImg p={p} size="xs" />
-                      <div>
+                      <div className="grow">
                         <div className="fw-5">{p?.name}</div>
                         <div className="mono t-3" style={{ fontSize: 11 }}>
                           {p?.sku}
@@ -172,9 +165,13 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
                       </div>
                     </div>
                   </td>
-                  <td className="n fw-6">{fmt(i.qty)}</td>
-                  <td style={{ textAlign: 'center' }}>
+                  <td className="n fw-6 tr-col-shipped" data-label="المشحون">
+                    {fmt(i.qty)}
+                  </td>
+                  <td className="tr-col-received" data-label="المستلم فعليًا">
                     <input
+                      inputMode="numeric"
+                      aria-label={`الكمية المستلمة من ${p?.name ?? 'الصنف'}`}
                       className={cx('qty-input', d !== 0 && 'bad')}
                       value={rec[lineId] ?? ''}
                       onChange={(e) =>
@@ -182,10 +179,11 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
                       }
                     />
                   </td>
-                  <td className="n">
+                  <td className="n tr-col-diff" data-label="الفرق">
                     {d === 0 ? (
-                      <span className="t-ok">
+                      <span className="t-ok tr-match-pill">
                         <Icon n="check" s={15} w={2.4} />
+                        <span className="tr-mobile-only">مطابق</span>
                       </span>
                     ) : (
                       <span className="badge b-bad num">
@@ -194,7 +192,7 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
                       </span>
                     )}
                   </td>
-                  <td className="n">
+                  <td className="n tr-col-after" data-label="الرصيد بعد">
                     <span className="t-3 num">{fmt(stock)}</span>{' '}
                     <Icon n="arrowLeft" s={12} className="t-3" />{' '}
                     <b className="num">{fmt(stock + r)}</b>
@@ -204,14 +202,7 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
             })}
           </tbody>
         </table>
-        <div
-          className="row gap-3"
-          style={{
-            padding: '14px 16px',
-            borderTop: '1px solid var(--line)',
-            background: 'var(--bg-sunken)',
-          }}
-        >
+        <div className="row gap-3 tr-receive-foot">
           <div className="grow col gap-1">
             <div className="fs-13">
               <b className="num">{fmt(got)}</b> من <b className="num">{fmt(shipped)}</b> قطعة{' '}
@@ -230,7 +221,7 @@ export function ReceiveTab({ toast, list, onReceived }: ReceiveTabProps) {
               </div>
             )}
           </div>
-          <button className="btn btn-accent btn-lg" onClick={handleReceive} disabled={busy}>
+          <button className="btn btn-accent btn-lg tr-submit-btn" onClick={handleReceive} disabled={busy}>
             <Icon n="check" s={16} w={2.4} />
             {busy ? 'جاري الاستلام...' : 'تأكيد الاستلام ورفع الرصيد'}
           </button>

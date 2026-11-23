@@ -11,6 +11,10 @@ use Illuminate\Support\Str;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected bool $dropViews = true;
+
+    protected bool $dropTypes = true;
+
     protected function setUp(): void
     {
         parent::setUp();

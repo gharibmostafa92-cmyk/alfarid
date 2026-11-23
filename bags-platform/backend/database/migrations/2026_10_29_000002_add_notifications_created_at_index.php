@@ -18,8 +18,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('notifications', function (Blueprint $table): void {
-            $table->dropIndex('notifications_created_at_idx');
-        });
+        \Illuminate\Support\Facades\DB::statement('DROP INDEX IF EXISTS notifications_created_at_idx');
     }
 };

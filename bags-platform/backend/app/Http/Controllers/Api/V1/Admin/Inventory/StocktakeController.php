@@ -41,10 +41,59 @@ class StocktakeController extends Controller implements HasMiddleware
         ];
     }
 
-    /**
-     * List paginated physical stocktake sessions with branch access constraints.
-     */
     public function index(Request $request): AnonymousResourceCollection
+    {
+        return StocktakeResource::collection($this->stocktakes->paginate($this->listingFilters($request)));
+    }
+
+    public function store(StoreStocktakeRequest $request): JsonResponse
+    {
+        $stocktake = $this->stocktakes->create(
+            $request->validated(),
+            $request->user()->id,
+            $this->requiredIdempotencyKey($request)
+        );
+
+        return StocktakeResource::make($stocktake)
+            ->additional(['message' => 'تم إنشاء جلسة الجرد بنجاح'])
+            ->response()
+            ->setStatusCode(201);
+    }
+
+    public function show(Request $request, Stocktake $stocktake): StocktakeResource
+    {
+        $this->branchAccess->assertBranch($request->user()->id, $stocktake->branch_id);
+
+        return StocktakeResource::make($this->stocktakes->find($stocktake->id));
+    }
+
+    public function update(UpdateStocktakeRequest $request, Stocktake $stocktake): StocktakeResource
+    {
+        return StocktakeResource::make($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
+    }
+
+    public function updateItems(UpdateStocktakeItemsRequest $request, Stocktake $stocktake): StocktakeResource
+    {
+        $items = $request->validated()['items'];
+
+        return StocktakeResource::make($this->stocktakes->upsertSomeItems($stocktake, $items, $request->user()->id));
+    }
+
+    public function destroy(Request $request, Stocktake $stocktake): JsonResponse
+    {
+        $this->stocktakes->delete($stocktake, $request->user()->id);
+
+        return response()->json(['message' => 'تم حذف جلسة الجرد بنجاح']);
+    }
+
+    public function approve(Request $request, Stocktake $stocktake): StocktakeResource
+    {
+        $stocktake = $this->stocktakes->approve($stocktake, $request->user()->id);
+
+        return StocktakeResource::make($stocktake)->additional(['message' => 'تم اعتماد الجرد وتسوية الفروق']);
+    }
+
+    private function listingFilters(Request $request): array
     {
         $filters = $request->validate([
             'branch_id' => ['nullable', 'integer', 'min:1'],
@@ -53,68 +102,14 @@ class StocktakeController extends Controller implements HasMiddleware
         ]);
 
         $filters['staff_branch_id'] = $this->branchAccess->restrictedBranch($request->user());
+        $this->assertBranchFilterAllowed($filters);
+
+        return $filters;
+    }
+
+    private function assertBranchFilterAllowed(array $filters): void
+    {
         abort_if($filters['staff_branch_id'] !== null && isset($filters['branch_id'])
             && (int) $filters['branch_id'] !== $filters['staff_branch_id'], 403);
-
-        return StocktakeResource::collection($this->stocktakes->paginate($filters));
-    }
-
-    /**
-     * Create a new physical stocktake session under an active branch.
-     */
-    public function store(StoreStocktakeRequest $request): JsonResponse
-    {
-        $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));
-
-        return StocktakeResource::make($stocktake)
-            ->additional(['message' => 'تم إنشاء جلسة الجرد بنجاح'])
-            ->response()
-            ->setStatusCode(201);
-    }
-
-    /**
-     * Retrieve stocktake session details, lines, and counted variances.
-     */
-    public function show(Request $request, Stocktake $stocktake): StocktakeResource
-    {
-        $this->branchAccess->assertBranch($request->user()->id, $stocktake->branch_id);
-
-        return StocktakeResource::make($this->stocktakes->find($stocktake->id));
-    }
-
-    /**
-     * Update stocktake session details and reset/replace counted lines.
-     */
-    public function update(UpdateStocktakeRequest $request, Stocktake $stocktake): StocktakeResource
-    {
-        return StocktakeResource::make($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
-    }
-
-    /**
-     * Incrementally upsert counted stocktake lines without deleting unmentioned items.
-     */
-    public function updateItems(UpdateStocktakeItemsRequest $request, Stocktake $stocktake): StocktakeResource
-    {
-        return StocktakeResource::make($this->stocktakes->upsertSomeItems($stocktake, $request->validated()['items'], $request->user()->id));
-    }
-
-    /**
-     * Delete an unapproved stocktake session.
-     */
-    public function destroy(Request $request, Stocktake $stocktake): JsonResponse
-    {
-        $this->stocktakes->delete($stocktake, $request->user()->id);
-
-        return response()->json(['message' => 'تم حذف جلسة الجرد بنجاح']);
-    }
-
-    /**
-     * Approve stocktake session and post automated variance adjustment movements.
-     */
-    public function approve(Request $request, Stocktake $stocktake): StocktakeResource
-    {
-        $stocktake = $this->stocktakes->approve($stocktake, $request->user()->id);
-
-        return StocktakeResource::make($stocktake)->additional(['message' => 'تم اعتماد الجرد وتسوية الفروق']);
     }
 }

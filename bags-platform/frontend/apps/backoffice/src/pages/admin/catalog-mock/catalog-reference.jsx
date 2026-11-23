@@ -1440,18 +1440,18 @@ function ChipInput({ values, onChange, placeholder, suggestions = [], ltr }) {
   const add = (x) => { x = x.trim(); if (x && !values.includes(x)) onChange([...values, x]); setT(''); };
   return (
     <div>
-      <div className="v-input !h-auto min-h-[42px] flex flex-wrap items-center gap-1.5 py-1.5 !px-2">
+      <div className="v-input !h-auto min-h-[44px] flex flex-wrap items-center gap-1.5 py-1.5 !px-2">
         {values.map((v) => (
-          <span key={v} className="inline-flex items-center gap-1 ps-2.5 pe-1 h-7 rounded-full text-[12px] font-semibold" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-field)' }}>
+          <span key={v} className="inline-flex items-center gap-1 ps-2.5 pe-1 h-8 sm:h-7 rounded-full text-[12px] font-semibold" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-field)' }}>
             <span className={ltr ? 'ltr' : ''}>{v}</span>
-            <button onClick={() => onChange(values.filter((x) => x !== v))} className="w-5 h-5 rounded-full inline-flex items-center justify-center t-3 hover:bg-[var(--bg-subcard-hover)]"><Icon name="x" size={11} /></button>
+            <button type="button" onClick={() => onChange(values.filter((x) => x !== v))} className="w-6 h-6 sm:w-5 sm:h-5 rounded-full inline-flex items-center justify-center t-3 hover:bg-[var(--bg-subcard-hover)] active:scale-95 transition"><Icon name="x" size={11} /></button>
           </span>
         ))}
         <input value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(t); } if (e.key === 'Backspace' && !t && values.length) onChange(values.slice(0, -1)); }}
-          placeholder={values.length ? '' : placeholder} className={cx('flex-1 min-w-[90px] h-7 bg-transparent outline-none text-[12.5px] px-1.5', ltr && 'ltr')} style={{ color: 'var(--text-primary)' }} />
+          placeholder={values.length ? '' : placeholder} className={cx('flex-1 min-w-[90px] h-8 sm:h-7 bg-transparent outline-none text-[13px] sm:text-[12.5px] px-1.5', ltr && 'ltr')} style={{ color: 'var(--text-primary)' }} />
       </div>
       {suggestions.filter((s) => !values.includes(s)).length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">{suggestions.filter((s) => !values.includes(s)).map((s) => <button key={s} onClick={() => add(s)} className="h-6 px-2 rounded-full text-[11px] font-medium v-well hover:t-1 flex items-center gap-1"><Icon name="plus" size={10} /><span className={ltr ? 'ltr' : ''}>{s}</span></button>)}</div>
+        <div className="flex flex-wrap gap-1.5 sm:gap-1 mt-2.5 sm:mt-2">{suggestions.filter((s) => !values.includes(s)).map((s) => <button type="button" key={s} onClick={() => add(s)} className="h-8 sm:h-6 px-3 sm:px-2 rounded-full text-[11.5px] sm:text-[11px] font-medium v-well hover:t-1 active:scale-[0.97] transition flex items-center gap-1"><Icon name="plus" size={10} /><span className={ltr ? 'ltr' : ''}>{s}</span></button>)}</div>
       )}
     </div>
   );
@@ -1467,27 +1467,29 @@ function ColorAxis({ colors, onChange }) {
   };
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-2.5">
-        {colors.map((c) => (
-          <span key={c.en} className="inline-flex items-center gap-2 ps-1.5 pe-1 h-9 rounded-full text-[12px] font-semibold" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-field)' }}>
-            <Swatch c={c.hex} size={22} />{c.ar}<span className="t-3 font-medium ltr">{c.en}</span>
-            <button onClick={() => onChange(colors.filter((x) => x !== c))} className="w-6 h-6 rounded-full inline-flex items-center justify-center t-3 hover:bg-[var(--bg-subcard)]"><Icon name="x" size={11} /></button>
-          </span>
-        ))}
-      </div>
+      {colors.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2.5">
+          {colors.map((c) => (
+            <span key={c.en} className="inline-flex items-center gap-2 ps-1.5 pe-1.5 h-9 rounded-full text-[12px] font-semibold" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-field)' }}>
+              <Swatch c={c.hex} size={22} />{c.ar}<span className="t-3 font-medium ltr">{c.en}</span>
+              <button type="button" onClick={() => onChange(colors.filter((x) => x !== c))} className="w-6 h-6 rounded-full inline-flex items-center justify-center t-3 hover:bg-[var(--bg-subcard)] active:scale-95 transition"><Icon name="x" size={11} /></button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-[44px_1fr] sm:flex items-start gap-2">
-        <label className="w-[44px] h-[44px] sm:w-[42px] sm:h-[42px] rounded-[13px] relative overflow-hidden cursor-pointer shrink-0" style={{ background: draft.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.1)' }}>
+        <label className="w-[44px] h-[44px] sm:w-[42px] sm:h-[42px] rounded-[13px] relative overflow-hidden cursor-pointer shrink-0 active:scale-95 transition" style={{ background: draft.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.1)' }}>
           <input type="color" value={draft.hex} onChange={(e) => setDraft({ ...draft, hex: e.target.value })} className="opacity-0 absolute inset-0 cursor-pointer" />
         </label>
         <input className="v-input flex-1 min-w-0" placeholder="اسم اللون (عربي)" value={draft.ar} onChange={(e) => setDraft({ ...draft, ar: e.target.value })} />
         <div className="col-span-2 flex items-center gap-2 sm:flex-1">
           <input className={cx('v-input ltr flex-1 min-w-0', err && 'is-error')} placeholder="Color name (EN) *" value={draft.en} onChange={(e) => { setDraft({ ...draft, en: e.target.value }); setErr(null); }} onKeyDown={(e) => e.key === 'Enter' && add(draft)} />
-          <button type="button" className="btn btn-soft !h-[44px] sm:!h-[42px] !rounded-[13px] shrink-0" onClick={() => add(draft)}><Icon name="plus" size={14} /></button>
+          <button type="button" className="btn btn-soft !h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-3.5 !rounded-[13px] shrink-0" onClick={() => add(draft)}><Icon name="plus" size={15} /></button>
         </div>
       </div>
       {err && <div className="text-[11.5px] font-medium mt-1.5 flex items-center gap-1" style={{ color: 'var(--badge-red-text)' }}><Icon name="alertCircle" size={12} />{err}</div>}
-      <div className="flex flex-wrap gap-1 mt-2">{PRESET_COLORS.filter((p) => !colors.some((c) => c.en === p.en)).map((p) => (
-        <button key={p.en} onClick={() => add(p)} className="h-7 ps-1 pe-2.5 rounded-full text-[11px] font-medium v-well hover:t-1 flex items-center gap-1.5"><Swatch c={p.hex} size={18} />{p.ar}</button>
+      <div className="flex flex-wrap gap-1.5 sm:gap-1 mt-2.5 sm:mt-2">{PRESET_COLORS.filter((p) => !colors.some((c) => c.en === p.en)).map((p) => (
+        <button type="button" key={p.en} onClick={() => add(p)} className="h-8 sm:h-7 ps-1.5 sm:ps-1 pe-3 sm:pe-2.5 rounded-full text-[11.5px] sm:text-[11px] font-medium v-well hover:t-1 active:scale-[0.97] transition flex items-center gap-1.5"><Swatch c={p.hex} size={18} />{p.ar}</button>
       ))}</div>
     </div>
   );
@@ -1499,6 +1501,7 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
   const [open, setOpen] = useState({});
   const [bulk, setBulk] = useState({ field: 'retail', value: '' });
   const [genNote, setGenNote] = useState(null);
+  const [mobileAxis, setMobileAxis] = useState('colors');
   const gridRef = useRef(null);
   const priceCols = [
     { k: 'retail', l: 'سعر التجزئة', req: channel !== 'wholesale' },
@@ -1506,6 +1509,8 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
     ...(canCost ? [{ k: 'cost', l: 'التكلفة', req: false }] : []),
     { k: 'compare', l: 'سعر المقارنة', req: false },
   ];
+  const inlinePriceCols = priceCols.filter((c) => c.req || c.k === 'retail' || c.k === 'wholesale');
+  const extraPriceCols = priceCols.filter((c) => !inlinePriceCols.some((x) => x.k === c.k));
   const combos = (axes.colors.length || 1) * (axes.sizes.length || 1) * (axes.capacities.length || 1);
   const anyAxis = axes.colors.length + axes.sizes.length + axes.capacities.length > 0;
 
@@ -1546,61 +1551,93 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
   const allSel = rows.length > 0 && sel.length === rows.length;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <ConfirmDialog open={!!deleting} onClose={()=>setDeleting(null)} title="حذف المتغير؟" message="سيتم حذفه عند الحفظ، وستحذف الصور المرتبطة بهذا المتغير أيضاً." danger onConfirm={()=>setRows(rows.filter(r=>r._id!==deleting._id))}/>
       {/* Mode question */}
-      <div className="v-card p-6">
-        <div className="font-display text-[16px] font-semibold t-1">المنتج ده بمتغير واحد، ولا ألوان ومقاسات متعددة؟</div>
-        <div className="grid md:grid-cols-2 gap-3 mt-4">
+      <div className="v-card p-4 sm:p-6">
+        <div className="font-display text-[15px] sm:text-[16px] font-semibold t-1">المنتج ده بمتغير واحد، ولا ألوان ومقاسات متعددة؟</div>
+        <div className="grid md:grid-cols-2 gap-2.5 sm:gap-3 mt-3.5 sm:mt-4">
           {[['single', 'متغير واحد', 'سعر وSKU واحد للمنتج كله', 'box'], ['matrix', 'متغيرات متعددة', 'تركيبات من اللون × المقاس × السعة', 'grid']].map(([k, l, s, ic]) => (
-            <button key={k} onClick={() => setMode(k)} className={cx('rounded-[18px] p-4 text-start border transition flex items-center gap-3.5', mode === k ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-field)] hover:bg-[var(--bg-subcard)]')}>
-              <span className={cx('w-11 h-11 rounded-full flex items-center justify-center', mode === k ? 'bg-acc' : 'v-well')}><Icon name={ic} size={18} /></span>
-              <span className="flex-1"><span className="block text-[14px] font-semibold t-1">{l}</span><span className="block text-[12px] t-3">{s}</span></span>
-              <span className={cx('w-5 h-5 rounded-full border-2 flex items-center justify-center', mode === k ? 'border-[var(--accent)]' : 'border-[var(--border-field)]')}>{mode === k && <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent)]" />}</span>
+            <button type="button" key={k} onClick={() => setMode(k)} className={cx('rounded-[16px] sm:rounded-[18px] p-3.5 sm:p-4 text-start border transition active:scale-[0.985] flex items-center gap-3 sm:gap-3.5 min-h-[60px]', mode === k ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-field)] hover:bg-[var(--bg-subcard)]')}>
+              <span className={cx('w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center shrink-0', mode === k ? 'bg-acc' : 'v-well')}><Icon name={ic} size={18} /></span>
+              <span className="flex-1 min-w-0"><span className="block text-[13.5px] sm:text-[14px] font-semibold t-1">{l}</span><span className="block text-[11.5px] sm:text-[12px] t-3 truncate">{s}</span></span>
+              <span className={cx('w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0', mode === k ? 'border-[var(--accent)]' : 'border-[var(--border-field)]')}>{mode === k && <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent)]" />}</span>
             </button>
           ))}
         </div>
       </div>
 
       {mode === 'matrix' && (
-        <div className="v-card p-6">
-          <div className="flex items-start justify-between gap-3 mb-5">
-            <div><div className="font-display text-[16px] font-semibold t-1 flex items-center gap-2"><Icon name="wand" size={17} className="t-acc" />مولّد المتغيرات</div><div className="text-[12.5px] t-2 mt-0.5">اختار المحاور اللي محتاجها — إعادة التوليد بتحافظ على القيم اللي كتبتها.</div></div>
+        <div className="v-card p-4 sm:p-6">
+          <div className="flex items-start justify-between gap-3 mb-4 sm:mb-5">
+            <div><div className="font-display text-[15px] sm:text-[16px] font-semibold t-1 flex items-center gap-2"><Icon name="wand" size={17} className="t-acc" />مولّد المتغيرات</div><div className="text-[12px] sm:text-[12.5px] t-2 mt-0.5">اختار المحاور اللي محتاجها — إعادة التوليد بتحافظ على القيم اللي كتبتها.</div></div>
           </div>
-          <div className="grid lg:grid-cols-3 gap-4">
+
+          {/* Mobile & Tablet: Segmented axis switcher */}
+          <div className="lg:hidden space-y-3">
+            <div className="seg w-full grid grid-cols-3 !p-1">
+              {[
+                { k: 'colors', l: 'اللون', ic: 'palette', count: axes.colors.length },
+                { k: 'sizes', l: 'المقاس', ic: 'ruler', count: axes.sizes.length },
+                { k: 'capacities', l: 'السعة', ic: 'layers', count: axes.capacities.length },
+              ].map((ax) => (
+                <button type="button" key={ax.k} onClick={() => setMobileAxis(ax.k)} className={cx('!py-2 !px-2 min-h-[40px] flex items-center justify-center gap-1.5 text-[12.5px]', mobileAxis === ax.k && 'on')}>
+                  <Icon name={ax.ic} size={14} className={mobileAxis === ax.k ? 't-acc' : 't-3'} />
+                  <span>{ax.l}</span>
+                  {ax.count > 0 && <span className={cx('min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold num inline-flex items-center justify-center', mobileAxis === ax.k ? 'bg-acc' : 'v-well')}>{ax.count}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="v-subcard p-3.5 sm:p-4">
+              {mobileAxis === 'colors' && <ColorAxis colors={axes.colors} onChange={(c) => setAxes({ ...axes, colors: c })} />}
+              {mobileAxis === 'sizes' && <ChipInput ltr values={axes.sizes} onChange={(s) => setAxes({ ...axes, sizes: s })} placeholder="اكتب واضغط Enter" suggestions={['200×90', '240×160', '280×180', 'Twin', 'Queen', 'King']} />}
+              {mobileAxis === 'capacities' && <ChipInput values={axes.capacities} onChange={(s) => setAxes({ ...axes, capacities: s })} placeholder="مثال: ٣ مقاعد" suggestions={['٢ مقعد', '٣ مقاعد', '٥ مقاعد']} />}
+            </div>
+          </div>
+
+          {/* Desktop: 3-column axis grid */}
+          <div className="hidden lg:grid lg:grid-cols-3 gap-4">
             <div className="v-subcard p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold t-1 mb-3"><Icon name="palette" size={15} className="t-2" />اللون<span className="text-[11px] t-3 font-medium ms-auto num">{axes.colors.length}</span></div><ColorAxis colors={axes.colors} onChange={(c) => setAxes({ ...axes, colors: c })} /></div>
             <div className="v-subcard p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold t-1 mb-3"><Icon name="ruler" size={15} className="t-2" />المقاس<span className="text-[11px] t-3 font-medium ms-auto num">{axes.sizes.length}</span></div><ChipInput ltr values={axes.sizes} onChange={(s) => setAxes({ ...axes, sizes: s })} placeholder="اكتب واضغط Enter" suggestions={['200×90', '240×160', '280×180', 'Twin', 'Queen', 'King']} /></div>
             <div className="v-subcard p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold t-1 mb-3"><Icon name="layers" size={15} className="t-2" />السعة<span className="text-[11px] t-3 font-medium ms-auto num">{axes.capacities.length}</span></div><ChipInput values={axes.capacities} onChange={(s) => setAxes({ ...axes, capacities: s })} placeholder="مثال: ٣ مقاعد" suggestions={['٢ مقعد', '٣ مقاعد', '٥ مقاعد']} /></div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 mt-5 pt-5 v-border-t">
-            <div className="flex items-center gap-2 text-[13px]">
-              <span className="font-display text-[22px] font-bold t-1 num">{anyAxis ? combos : 0}</span><span className="t-2">تركيبة</span>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 sm:mt-5 pt-4 sm:pt-5 v-border-t">
+            <div className="flex items-center flex-wrap gap-2 text-[13px]">
+              <span className="font-display text-[20px] sm:text-[22px] font-bold t-1 num">{anyAxis ? combos : 0}</span><span className="t-2">تركيبة</span>
               <span className="t-3 text-[12px] num">({axes.colors.length || 1} × {axes.sizes.length || 1} × {axes.capacities.length || 1})</span>
               {combos > 100 && <Badge tone="red">الحد الأقصى ١٠٠ متغير في الطلب</Badge>}
             </div>
-            <button className="btn btn-ink" disabled={!anyAxis} onClick={generate}><Icon name="sparkle" size={14} />{rows.length ? 'إعادة توليد التركيبات' : 'توليد التركيبات'}</button>
+            <button type="button" className="btn btn-ink w-full sm:w-auto" disabled={!anyAxis} onClick={generate}><Icon name="sparkle" size={14} />{rows.length ? 'إعادة توليد التركيبات' : 'توليد التركيبات'}</button>
           </div>
-          {genNote && <div className="pop mt-3 v-subcard p-3 flex flex-wrap items-center gap-3 text-[12px]"><Icon name="checkCircle" size={15} style={{ color: 'var(--badge-green-text)' }} /><span className="t-1">تم التوليد:</span><Badge tone="green">{genNote.added} جديد</Badge><Badge tone="blue">{genNote.kept} محفوظ بقيمه</Badge>{genNote.removed > 0 && <Badge tone="red">{genNote.removed} اتشال</Badge>}<button className="ms-auto t-3 hover:t-1" onClick={() => setGenNote(null)}><Icon name="x" size={13} /></button></div>}
+          {genNote && <div className="pop mt-3 v-subcard p-3 flex flex-wrap items-center gap-2 sm:gap-3 text-[12px]"><Icon name="checkCircle" size={15} style={{ color: 'var(--badge-green-text)' }} /><span className="t-1">تم التوليد:</span><Badge tone="green">{genNote.added} جديد</Badge><Badge tone="blue">{genNote.kept} محفوظ بقيمه</Badge>{genNote.removed > 0 && <Badge tone="red">{genNote.removed} اتشال</Badge>}<button type="button" className="ms-auto t-3 hover:t-1 p-1" onClick={() => setGenNote(null)}><Icon name="x" size={13} /></button></div>}
         </div>
       )}
 
       {/* Grid */}
       <div className="v-card overflow-hidden">
-        <div className="p-4 flex flex-wrap items-center justify-between gap-3 v-border-b">
-          <div className="flex items-center gap-2.5 ps-1">
+        <div className="p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 v-border-b">
+          <div className="flex items-center gap-2 ps-1">
             <div className="font-display text-[15px] font-semibold t-1">{mode === 'single' ? 'السعر والتعريف' : 'المتغيرات'}</div>
-            {mode === 'matrix' && <span className="text-[12px] t-3 num">{rows.length} / 100</span>}
+            {mode === 'matrix' && <span className="text-[11.5px] sm:text-[12px] font-semibold px-2 py-0.5 rounded-full v-well t-2 num">{rows.length} / 100</span>}
             {!canCost && <Badge tone="amber"><Icon name="eyeOff" size={11} />التكلفة مخفية</Badge>}
           </div>
           {mode === 'matrix' && rows.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               {sel.length > 0 ? (
-                <div className="pop flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-1.5 w-full sm:w-auto p-2.5 sm:p-0 sm:h-10 sm:ps-3 sm:pe-1 rounded-[18px] sm:rounded-full bg-ink">
-                  <span className="text-[12px] font-semibold num">{sel.length} محدد</span>
-                  <select value={bulk.field} onChange={(e) => setBulk({ ...bulk, field: e.target.value })} className="h-9 sm:h-8 rounded-full px-2.5 text-[12px] bg-white/10 outline-none">{priceCols.map((c) => <option key={c.k} value={c.k} className="text-black">{c.l}</option>)}</select>
-                  <input value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && applyBulk()} placeholder="0.00" className="w-24 flex-1 sm:flex-initial h-9 sm:h-8 rounded-full px-3 text-[12px] bg-white/10 outline-none ltr num" />
-                  <button type="button" onClick={applyBulk} className="h-9 sm:h-8 px-3.5 rounded-full bg-acc text-[12px] font-semibold">تطبيق</button>
-                  <button type="button" onClick={() => setSel([])} className="w-9 h-9 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center hover:bg-white/10"><Icon name="x" size={13} /></button>
+                <div className="pop w-full sm:w-auto p-3 sm:p-0 sm:h-10 sm:ps-3 sm:pe-1 rounded-[18px] sm:rounded-full bg-ink flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-semibold num">{sel.length} محدد</span>
+                    <div className="flex items-center gap-1.5 sm:contents">
+                      <select value={bulk.field} onChange={(e) => setBulk({ ...bulk, field: e.target.value })} className="h-9 sm:h-8 rounded-full px-3 sm:px-2.5 text-[12px] bg-white/10 outline-none">{priceCols.map((c) => <option key={c.k} value={c.k} className="text-black">{c.l}</option>)}</select>
+                      <button type="button" onClick={() => setSel([])} className="sm:hidden w-9 h-9 rounded-full inline-flex items-center justify-center bg-white/10 hover:bg-white/20" aria-label="إلغاء التحديد"><Icon name="x" size={14} /></button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 sm:contents">
+                    <input inputMode="decimal" value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && applyBulk()} placeholder="0.00" className="flex-1 sm:w-24 sm:flex-initial h-10 sm:h-8 rounded-full px-3.5 sm:px-3 text-[13px] sm:text-[12px] bg-white/10 outline-none ltr num" />
+                    <button type="button" onClick={applyBulk} className="h-10 sm:h-8 px-4 sm:px-3.5 rounded-full bg-acc text-[12.5px] sm:text-[12px] font-semibold shrink-0 active:scale-[0.97] transition">تطبيق</button>
+                    <button type="button" onClick={() => setSel([])} className="hidden sm:inline-flex w-8 h-8 rounded-full items-center justify-center hover:bg-white/10"><Icon name="x" size={13} /></button>
+                  </div>
                 </div>
               ) : <span className="text-[11.5px] t-3 hidden lg:flex items-center gap-1.5"><Icon name="keyboard" size={13} /><kbd>↑</kbd><kbd>↓</kbd><kbd>Enter</kbd> للتنقل بين الخلايا</span>}
 
@@ -1684,58 +1721,124 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
               </tbody>
             </table>
           </div>
-          {/* Mobile: summary rows with expandable details */}
-          <div className="md:hidden v-divide">
+          {/* Mobile: Apple-style grouped cards with inline pricing */}
+          <div className="md:hidden p-3 space-y-3">
             {mode === 'matrix' && rows.length > 1 && (
-              <div className="px-4 py-2.5 flex items-center justify-between bg-[var(--bg-subcard)] text-[12px]">
-                <label className="flex items-center gap-2 font-medium t-1 cursor-pointer" onClick={() => setSel(allSel ? [] : rows.map((r) => r._id))}>
+              <div className="px-3 py-2 rounded-[14px] flex items-center justify-between bg-[var(--bg-subcard)] text-[12px]">
+                <label className="flex items-center gap-2.5 font-semibold t-1 cursor-pointer min-h-[36px]" onClick={() => setSel(allSel ? [] : rows.map((r) => r._id))}>
                   <Check on={allSel} mixed={sel.length > 0 && !allSel} />
                   <span>تحديد الكل للتعديل الجماعي</span>
                 </label>
-                <span className="t-3 num">{sel.length}/{rows.length}</span>
+                <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full v-well t-2 num">{sel.length}/{rows.length}</span>
               </div>
             )}
             {rows.map((r) => {
-              const e = errs[r._id] || {}; const isOpen = open[r._id] ?? (mode === 'single');
+              const e = errs[r._id] || {};
+              const hasExtraError = !!(e.sku || e.barcode || e.color_en || extraPriceCols.some((c) => e[c.k]));
+              const isOpen = open[r._id] ?? hasExtraError;
               const isSelected = sel.includes(r._id);
-              return (
-                <div key={r._id} className={cx('p-4 transition', r.status === 'inactive' && 'opacity-55', e.dup && 'bg-[var(--badge-red-bg)]')}>
-                  <div className="flex items-center gap-2.5">
-                    {mode === 'matrix' && <Check on={isSelected} onChange={() => setSel(isSelected ? sel.filter((x) => x !== r._id) : [...sel, r._id])} />}
-                    <button type="button" className="flex-1 min-w-0 flex items-center gap-3 text-start" onClick={() => setOpen({ ...open, [r._id]: !isOpen })}>
-                      {r.color ? <Swatch c={r.color.hex} size={30} /> : <span className="w-[30px] h-[30px] rounded-full v-well shrink-0" />}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <div className="text-[13px] font-semibold t-1 truncate">{[r.color && r.color.ar, r.size, r.capacity].filter(Boolean).join(' · ') || 'المتغير الأساسي'}</div>
-                          {r.status === 'inactive' && <Badge tone="gray">غير نشط</Badge>}
-                        </div>
-                        <div className="text-[11.5px] t-3 num mt-0.5">
-                          {r.retail ? fmtMoney(r.retail) + ' ج.م' : 'بدون سعر'}
-                          {r.sku ? ` · ${r.sku}` : ''}
-                        </div>
-                        {(e.dup || e.color_en) && <div className="text-[10.5px] font-semibold mt-0.5" style={{ color: 'var(--badge-red-text)' }}>{e.dup ? `تركيبة مكررة — ${e.dup}` : e.color_en}</div>}
+              const titleText = [r.color && r.color.ar, r.size, r.capacity].filter(Boolean).join(' · ') || 'المتغير الأساسي';
+              const subText = [r.color && r.color.en, r.size, r.capacity].filter(Boolean).join(' / ');
+
+              if (mode === 'single') {
+                return (
+                  <div key={r._id} className="space-y-4 p-1">
+                    <div>
+                      <div className="text-[11.5px] font-semibold t-2 mb-2.5">الأسعار</div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {priceCols.map((c) => (
+                          <Field key={c.k} label={c.l} required={c.req} error={e[c.k]}>
+                            <Input ltr suffix="ج.م" inputMode="decimal" className="num !h-11" value={r[c.k]} placeholder="0.00" error={e[c.k]} onChange={(ev) => upd(r._id, { [c.k]: ev.target.value })} />
+                          </Field>
+                        ))}
                       </div>
-                      {Object.keys(e).length > 0 && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--badge-red-text)' }} />}
-                      <Icon name="chevDown" size={16} className={cx('t-3 transition shrink-0', isOpen && 'rotate-180')} />
-                    </button>
-                  </div>
-                  {isOpen && (
-                    <div className="pop space-y-3 mt-4 pt-3 v-border-t">
-                      <div className="grid grid-cols-2 gap-3">
-                        <Field label="SKU" error={e.sku}><input className="v-input ltr" value={r.sku} placeholder="تلقائي" onChange={(ev) => upd(r._id, { sku: ev.target.value })} /></Field>
-                        <Field label="الباركود" error={e.barcode}><input className="v-input ltr" value={r.barcode} placeholder="من السيرفر" onChange={(ev) => upd(r._id, { barcode: ev.target.value })} /></Field>
-                        {priceCols.map((c) => <Field key={c.k} label={c.l} required={c.req} error={e[c.k]}><input className={cx('v-input ltr num', e[c.k] && 'is-error')} value={r[c.k]} placeholder={c.req ? '0.00' : '—'} onChange={(ev) => upd(r._id, { [c.k]: ev.target.value })} /></Field>)}
-                        {mode === 'matrix' && r.color && <Field label="اسم اللون (EN)" required error={e.color_en}><input className={cx('v-input ltr', e.color_en && 'is-error')} value={r.color.en} onChange={(ev) => upd(r._id, { color: { ...r.color, en: ev.target.value } })} /></Field>}
-                        <Field label="وزن المتغير"><Input ltr suffix="كجم" value={r.weight} onChange={(ev) => upd(r._id, { weight: ev.target.value })} placeholder="0.0" /></Field>
-                        <Field label="حد تنبيه المخزون"><Input ltr value={r.reorder} onChange={(ev) => upd(r._id, { reorder: ev.target.value })} placeholder="0" /></Field>
-                        <Field label="الترتيب"><Input ltr value={r.order} onChange={(ev) => upd(r._id, { order: ev.target.value })} /></Field>
+                    </div>
+                    <div className="pt-3 v-border-t">
+                      <div className="text-[11.5px] font-semibold t-2 mb-2.5">التعريف والمخزون</div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <Field label="SKU" error={e.sku}><Input ltr className="!h-11" value={r.sku} placeholder="تلقائي" error={e.sku} onChange={(ev) => upd(r._id, { sku: ev.target.value })} /></Field>
+                        <Field label="الباركود" error={e.barcode}><Input ltr inputMode="numeric" className="!h-11" value={r.barcode} placeholder="من السيرفر" error={e.barcode} onChange={(ev) => upd(r._id, { barcode: ev.target.value })} /></Field>
+                      </div>
+                    </div>
+                    <div className="v-subcard p-3.5 space-y-3">
+                      <div className="grid grid-cols-3 gap-2">
+                        <Field label="الوزن"><Input ltr suffix="كجم" inputMode="decimal" className="!h-10 !bg-[var(--bg-card)]" value={r.weight} onChange={(ev) => upd(r._id, { weight: ev.target.value })} placeholder="0.0" /></Field>
+                        <Field label="حد التنبيه"><Input ltr inputMode="numeric" className="!h-10 !bg-[var(--bg-card)]" value={r.reorder} onChange={(ev) => upd(r._id, { reorder: ev.target.value })} placeholder="0" /></Field>
+                        <Field label="الترتيب"><Input ltr inputMode="numeric" className="!h-10 !bg-[var(--bg-card)]" value={r.order} onChange={(ev) => upd(r._id, { order: ev.target.value })} /></Field>
                       </div>
                       <div className="flex items-center justify-between pt-2 v-border-t">
-                        <div className="flex items-center gap-2.5">
-                          <Toggle on={r.status === 'active'} onChange={(on) => upd(r._id, { status: on ? 'active' : 'inactive' })} />
-                          <span className="text-[12.5px] font-medium t-1">{r.status === 'active' ? 'متغير نشط' : 'غير نشط'}</span>
-                        </div>
-                        {mode === 'matrix' && <button type="button" onClick={() => setDeleting(r)} className="btn btn-sm btn-danger"><Icon name="trash" size={14} />حذف</button>}
+                        <span className="text-[12.5px] font-medium t-1">{r.status === 'active' ? 'متغير نشط' : 'غير نشط'}</span>
+                        <Toggle on={r.status === 'active'} onChange={(on) => upd(r._id, { status: on ? 'active' : 'inactive' })} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={r._id} className={cx('rounded-[18px] p-3.5 border transition', r.status === 'inactive' && 'opacity-60', e.dup ? 'bg-[var(--badge-red-bg)] border-[var(--badge-red-text)]' : isSelected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'bg-[var(--bg-subcard)] border-[var(--border-subtle)]')}>
+                  {/* Card Header */}
+                  <div className="flex items-center gap-2.5">
+                    <label className="w-8 h-9 flex items-center justify-center shrink-0 cursor-pointer">
+                      <Check on={isSelected} onChange={() => setSel(isSelected ? sel.filter((x) => x !== r._id) : [...sel, r._id])} />
+                    </label>
+                    {r.color ? <Swatch c={r.color.hex} size={32} /> : <span className="w-8 h-8 rounded-full bg-[var(--bg-card)] border border-dashed shrink-0" style={{ borderColor: 'var(--border-field)' }} />}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[13.5px] font-semibold t-1 truncate">{titleText}</span>
+                        {r.status === 'inactive' && <Badge tone="gray">غير نشط</Badge>}
+                      </div>
+                      {subText && <div className="text-[11px] t-3 ltr text-end truncate">{subText}</div>}
+                    </div>
+                    <button type="button" title="حذف المتغير" onClick={() => setDeleting(r)} className="w-9 h-9 rounded-full inline-flex items-center justify-center t-3 hover:text-[var(--badge-red-text)] hover:bg-[var(--badge-red-bg)] active:scale-95 transition shrink-0">
+                      <Icon name="trash" size={15} />
+                    </button>
+                  </div>
+
+                  {(e.dup || e.color_en) && (
+                    <div className="mt-2 px-2.5 py-1.5 rounded-[10px] text-[11px] font-semibold flex items-center gap-1.5 b-red">
+                      <Icon name="alertCircle" size={12} />
+                      <span>{e.dup ? `تركيبة مكررة — ${e.dup}` : e.color_en}</span>
+                    </div>
+                  )}
+
+                  {/* Always-visible primary price inputs */}
+                  <div className={cx('grid gap-2.5 mt-3', inlinePriceCols.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>
+                    {inlinePriceCols.map((c) => (
+                      <Field key={c.k} label={c.l} required={c.req} error={e[c.k]}>
+                        <Input ltr suffix="ج.م" inputMode="decimal" className="num !h-11 !bg-[var(--bg-card)]" value={r[c.k]} placeholder="0.00" error={e[c.k]} onChange={(ev) => upd(r._id, { [c.k]: ev.target.value })} />
+                      </Field>
+                    ))}
+                  </div>
+
+                  {/* Secondary details toggle */}
+                  <button type="button" onClick={() => setOpen({ ...open, [r._id]: !isOpen })} className="w-full mt-3 pt-2.5 v-border-t flex items-center justify-between text-[12px] font-semibold t-2 hover:t-1 active:opacity-75 transition min-h-[36px]">
+                    <span className="flex items-center gap-1.5">
+                      <span>SKU، الباركود، والمزيد</span>
+                      {r.sku && !isOpen && <span className="text-[11px] font-normal t-3 ltr">({r.sku})</span>}
+                      {hasExtraError && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--badge-red-text)' }} />}
+                    </span>
+                    <Icon name="chevDown" size={15} className={cx('t-3 transition-transform duration-200', isOpen && 'rotate-180')} />
+                  </button>
+
+                  {isOpen && (
+                    <div className="pop space-y-3 mt-3 pt-3 v-border-t">
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <Field label="SKU" error={e.sku}><Input ltr className="!h-11 !bg-[var(--bg-card)]" value={r.sku} placeholder="تلقائي" error={e.sku} onChange={(ev) => upd(r._id, { sku: ev.target.value })} /></Field>
+                        <Field label="الباركود" error={e.barcode}><Input ltr inputMode="numeric" className="!h-11 !bg-[var(--bg-card)]" value={r.barcode} placeholder="من السيرفر" error={e.barcode} onChange={(ev) => upd(r._id, { barcode: ev.target.value })} /></Field>
+                        {extraPriceCols.map((c) => (
+                          <Field key={c.k} label={c.l} error={e[c.k]}>
+                            <Input ltr suffix="ج.م" inputMode="decimal" className="num !h-11 !bg-[var(--bg-card)]" value={r[c.k]} placeholder="0.00" error={e[c.k]} onChange={(ev) => upd(r._id, { [c.k]: ev.target.value })} />
+                          </Field>
+                        ))}
+                        {r.color && <Field label="اسم اللون (EN)" required error={e.color_en}><Input ltr className="!h-11 !bg-[var(--bg-card)]" value={r.color.en} error={e.color_en} onChange={(ev) => upd(r._id, { color: { ...r.color, en: ev.target.value } })} /></Field>}
+                        <Field label="وزن المتغير"><Input ltr suffix="كجم" inputMode="decimal" className="!h-11 !bg-[var(--bg-card)]" value={r.weight} onChange={(ev) => upd(r._id, { weight: ev.target.value })} placeholder="0.0" /></Field>
+                        <Field label="حد تنبيه المخزون"><Input ltr inputMode="numeric" className="!h-11 !bg-[var(--bg-card)]" value={r.reorder} onChange={(ev) => upd(r._id, { reorder: ev.target.value })} placeholder="0" /></Field>
+                        <Field label="الترتيب"><Input ltr inputMode="numeric" className="!h-11 !bg-[var(--bg-card)]" value={r.order} onChange={(ev) => upd(r._id, { order: ev.target.value })} /></Field>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 v-border-t">
+                        <span className="text-[12.5px] font-medium t-1">{r.status === 'active' ? 'متغير نشط' : 'غير نشط'}</span>
+                        <Toggle on={r.status === 'active'} onChange={(on) => upd(r._id, { status: on ? 'active' : 'inactive' })} />
                       </div>
                     </div>
                   )}

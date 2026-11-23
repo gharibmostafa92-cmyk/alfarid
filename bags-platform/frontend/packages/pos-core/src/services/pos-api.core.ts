@@ -157,7 +157,7 @@ export class PosApiService {
 
   /** Same payload → same key (server replays the same sale); different payload → new key. */
   private idemKey(scope: string, payload: unknown): string {
-    const hash = JSON.stringify(payload);
+    const hash = JSON.stringify(payload ?? null);
     const cur = this.idemDrafts.get(scope);
     if (cur && cur.hash === hash) return cur.key;
     const draft = { hash, key: uuid() };
@@ -169,12 +169,46 @@ export class PosApiService {
     return { timeout: DEFAULT_TIMEOUT_MS, ...config };
   }
 
+  private async postIdempotent<T = any>(
+    url: string,
+    scope: string,
+    body: unknown,
+    explicitKey?: string,
+    runner: <R>(fn: () => Promise<R>) => Promise<R> = (fn) => fn(),
+  ): Promise<T> {
+    const key = explicitKey ?? this.idemKey(scope, body);
+    const response = await runner(() =>
+      this.call(() => this.http.post(url, body, this.withTimeout({ headers: { 'Idempotency-Key': key } }))),
+    );
+    this.idemDrafts.delete(scope);
+    return response;
+  }
+
+  private assertFiniteNumber(value: number): void {
+    if (!Number.isFinite(value)) {
+      throw new PosApiError(422, 'المبلغ المدخل غير صالح', 'validation');
+    }
+  }
+
+  private assertNonNegativeAmount(amount: number): void {
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new PosApiError(422, 'المبلغ المدخل غير صالح', 'validation');
+    }
+  }
+
+  private deductLocalStock(items: { id: number; qty: number }[]): void {
+    for (const item of items) {
+      const product = this.byId.get(item.id);
+      if (product) product.stock = Math.max(0, product.stock - item.qty);
+    }
+  }
+
   // ---- bootstrap / actor ----
   public syncActor(actor?: ActorInput | null): void {
     if (!actor || !actor.name) return;
     const actorBranchId = actor.branch?.id || actor.branch_id || 0;
-    const isNewUser = this.cashier && actor.id != null && this.cashier.id !== actor.id;
-    const isNewBranch = this.branch && actorBranchId > 0 && this.branch.id !== actorBranchId;
+    const isNewUser = Boolean(this.cashier && actor.id != null && this.cashier.id !== actor.id);
+    const isNewBranch = Boolean(this.branch && actorBranchId > 0 && this.branch.id !== actorBranchId);
 
     if (isNewUser) {
       clearReceiptArchive();
@@ -183,31 +217,10 @@ export class PosApiService {
     }
 
     if (isNewUser || isNewBranch) {
-      this.currentShift = null;
-      this.shiftLoaded = false;
-      this.drawers = null;
-      this.held = [];
-      this.heldCount = 0;
-      this.transfersIn = [];
-      this.stocktakeId = null;
-      this.catalogEtag = null;
-      this.catalogActorGeneration += 1;
-      this.catalogLoadedAt = 0;
-      this.byId.clear();
-      this.byCode.clear();
-      this.searchIndex = [];
-      this.idemDrafts.clear();
+      this.resetActorScopedState();
     }
 
-    const first = actor.roles?.[0];
-    this.cashier = {
-      id: actor.id ?? this.cashier?.id ?? 0,
-      name: actor.name,
-      initials: initialsOf(actor.name),
-      role: (typeof first === 'string' ? first : first?.name) || 'كاشير',
-      version: actor.version,
-      perms: actor.permissions ?? [],
-    };
+    this.cashier = this.buildCashierFromActor(actor);
     if (actor.branch?.name) {
       this.branch = {
         id: actor.branch.id || actor.branch_id || 0,
@@ -217,6 +230,35 @@ export class PosApiService {
       };
     }
     this.notify();
+  }
+
+  private resetActorScopedState(): void {
+    this.currentShift = null;
+    this.shiftLoaded = false;
+    this.drawers = null;
+    this.held = [];
+    this.heldCount = 0;
+    this.transfersIn = [];
+    this.stocktakeId = null;
+    this.catalogEtag = null;
+    this.catalogActorGeneration += 1;
+    this.catalogLoadedAt = 0;
+    this.byId.clear();
+    this.byCode.clear();
+    this.searchIndex = [];
+    this.idemDrafts.clear();
+  }
+
+  private buildCashierFromActor(actor: ActorInput): CashierUser {
+    const firstRole = actor.roles?.[0];
+    return {
+      id: actor.id ?? this.cashier?.id ?? 0,
+      name: actor.name ?? '',
+      initials: initialsOf(actor.name ?? ''),
+      role: (typeof firstRole === 'string' ? firstRole : firstRole?.name) || 'كاشير',
+      version: actor.version,
+      perms: actor.permissions ?? [],
+    };
   }
 
   public bootstrap(): Promise<void> {
@@ -291,10 +333,10 @@ export class PosApiService {
 
   public async openShift(treasuryId: number, openingCash: number): Promise<PosShift> {
     // F-10: stable key per payload so a retried open replays the same shift.
-    const body = { treasury_id: treasuryId, opening_cash: openingCash };
-    const key = this.idemKey('shift-open', body);
-    const r = await this.call(() => this.http.post(EP.SHIFTS_OPEN, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })));
-    this.idemDrafts.delete('shift-open');
+    const r = await this.postIdempotent(EP.SHIFTS_OPEN, 'shift-open', {
+      treasury_id: treasuryId,
+      opening_cash: openingCash,
+    });
     this.currentShift = mapShift(r.data.data);
     this.shiftLoaded = true;
     this.drawers = null;
@@ -304,15 +346,11 @@ export class PosApiService {
 
   public async closeShift(actualClosingCash: number, notes?: string): Promise<PosShift> {
     // F-10: stable key per payload so a retried close replays the summary (F-15: finite guard).
-    if (!Number.isFinite(actualClosingCash) || actualClosingCash < 0) {
-      throw new PosApiError(422, 'المبلغ المدخل غير صالح', 'validation');
-    }
-    const body = { actual_closing_cash: actualClosingCash, notes: notes || null };
-    const key = this.idemKey('shift-close', body);
-    const r = await this.call(() =>
-      this.http.post(EP.SHIFTS_CLOSE, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
-    );
-    this.idemDrafts.delete('shift-close');
+    this.assertNonNegativeAmount(actualClosingCash);
+    const r = await this.postIdempotent(EP.SHIFTS_CLOSE, 'shift-close', {
+      actual_closing_cash: actualClosingCash,
+      notes: notes || null,
+    });
     const closed = mapShift(r.data.data);
     this.currentShift = null;
     this.shiftLoaded = true;
@@ -322,20 +360,12 @@ export class PosApiService {
   }
 
   public async recordExpense(amount: number, category: string, notes?: string, idempotencyKey?: string): Promise<any> {
-    const body = {
-      amount,
-      category,
-      notes: notes || null,
-    };
-    const key = idempotencyKey || this.idemKey('expense', body);
-    const r = await this.call(() =>
-      this.http.post(
-        EP.SALES_EXPENSES,
-        body,
-        this.withTimeout({ headers: { 'Idempotency-Key': key } }),
-      ),
+    const r = await this.postIdempotent(
+      EP.SALES_EXPENSES,
+      'expense',
+      { amount, category, notes: notes || null },
+      idempotencyKey || undefined,
     );
-    this.idemDrafts.delete('expense');
     await this.refreshShift();
     return r.data;
   }
@@ -506,12 +536,22 @@ export class PosApiService {
     idempotencyKey?: string,
   ): Promise<{ order: PastSale; invoiceNumber: string }> {
     // F-15: never send NaN/Infinity totals to the server.
-    for (const amount of [payload.cash_amount, payload.card_amount]) {
-      if (!Number.isFinite(amount) || (amount as number) < 0) {
-        throw new PosApiError(422, 'المبلغ المدخل غير صالح', 'validation');
-      }
-    }
-    const body = {
+    this.assertNonNegativeAmount(payload.cash_amount);
+    this.assertNonNegativeAmount(payload.card_amount);
+
+    const body = this.buildCreateSaleBody(payload);
+    const r = await this.postIdempotent(EP.SALES, 'sale', body, idempotencyKey, runPosSaleWithTrace);
+    const d = r.data.data;
+
+    this.deductLocalStock(payload.items.map((i) => ({ id: i.product_variant_id, qty: i.qty })));
+    const order = this.buildPastSaleSummary(Number(d.id), d.order_number, payload);
+    void this.refreshShift();
+    this.notify();
+    return { order, invoiceNumber: d.order_number };
+  }
+
+  private buildCreateSaleBody(payload: CreateSalePayload) {
+    return {
       items: payload.items.map((i) => {
         const reason = i.override_reason ?? payload.override_reason;
         const isManual = i.unit_price !== undefined && (payload.override_price || Boolean(i.override_reason));
@@ -532,19 +572,12 @@ export class PosApiService {
       ...(payload.held_sale_ids && payload.held_sale_ids.length > 0 ? { held_sale_ids: payload.held_sale_ids } : {}),
       notes: payload.notes ?? null,
     };
-    const key = idempotencyKey ?? this.idemKey('sale', body);
-    const r = await runPosSaleWithTrace(() => this.call(() =>
-      this.http.post(EP.SALES, body, { headers: { 'Idempotency-Key': key }, timeout: 15000 }),
-    ));
-    this.idemDrafts.delete('sale');
-    const d = r.data.data;
-    for (const i of payload.items) {
-      const p = this.byId.get(i.product_variant_id);
-      if (p) p.stock = Math.max(0, p.stock - i.qty);
-    }
-    const order: PastSale = {
-      id: Number(d.id),
-      number: d.order_number,
+  }
+
+  private buildPastSaleSummary(orderId: number, orderNumber: string, payload: CreateSalePayload): PastSale {
+    return {
+      id: orderId,
+      number: orderNumber,
       date: new Date().toLocaleString('ar-EG'),
       cashier: this.cashier?.name ?? '',
       customer: 'عميل نقدي',
@@ -555,9 +588,6 @@ export class PosApiService {
         price: i.unit_price ?? this.byId.get(i.product_variant_id)?.price ?? 0,
       })),
     };
-    void this.refreshShift();
-    this.notify();
-    return { order, invoiceNumber: d.order_number };
   }
 
   // ---- held sales ----
@@ -596,11 +626,7 @@ export class PosApiService {
       customer_id: customer?.id ?? null,
       notes: note,
     };
-    const key = this.idemKey('hold', body);
-    const r = await this.call(() =>
-      this.http.post(EP.SALES_HOLD, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
-    );
-    this.idemDrafts.delete('hold');
+    const r = await this.postIdempotent(EP.SALES_HOLD, 'hold', body);
     const h = mapHeld(r.data.data);
     this.held.unshift(h);
     this.heldCount = this.held.length;
@@ -611,11 +637,7 @@ export class PosApiService {
   /** Soft lease on resume: the held row stays in DB until createSale completes or explicit delete. */
   public async resumeHeldSale(ref: string): Promise<PosHeldSale> {
     const id = this.heldId(ref);
-    const key = this.idemKey(`resume:${id}`, { id });
-    const r = await this.call(() =>
-      this.http.post(EP.SALE_HELD_RESUME(id), undefined, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
-    );
-    this.idemDrafts.delete(`resume:${id}`);
+    const r = await this.postIdempotent(EP.SALE_HELD_RESUME(id), `resume:${id}`, undefined);
     // F-04: keep the row in the local drawer while the 5-minute server lease
     // is alive. Removing it locally hid the lease and produced ghost invoices
     // that reappeared with 409s; the row leaves on checkout or explicit delete.
@@ -677,12 +699,9 @@ export class PosApiService {
     saleId: number,
     items: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
   ): Promise<ProcessReturnResult> {
-    const body = { items: this.groupReturnLines(items) };
-    const key = this.idemKey(`return:${saleId}`, body);
-    const r = await this.call(() =>
-      this.http.post(EP.SALE_RETURN(saleId), body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
-    );
-    this.idemDrafts.delete(`return:${saleId}`);
+    const r = await this.postIdempotent(EP.SALE_RETURN(saleId), `return:${saleId}`, {
+      items: this.groupReturnLines(items),
+    });
     this.restock(items);
     void this.refreshShift();
     this.notify();
@@ -699,27 +718,8 @@ export class PosApiService {
     payment: ExchangePaymentOptions = {},
   ): Promise<ProcessReturnResult> {
     // F-15: never send a non-finite difference to the server.
-    if (!Number.isFinite(netDiff)) {
-      throw new PosApiError(422, 'المبلغ المدخل غير صالح', 'validation');
-    }
-    const dueCents = Math.max(0, toCents(netDiff));
-    const method = payment.method ?? 'cash';
-    let cashCents = 0;
-    let cardCents = 0;
-    if (dueCents > 0) {
-      if (method === 'card') {
-        cardCents = dueCents;
-      } else if (method === 'mixed') {
-        const reqCash = toCents(payment.cashAmount ?? 0);
-        if (reqCash <= 0 || reqCash >= dueCents) {
-          throw new PosApiError(422, 'في الدفع المختلط، يجب تحديد جزء نقدي وجزء بالبطاقة', 'validation');
-        }
-        cashCents = reqCash;
-        cardCents = dueCents - cashCents;
-      } else {
-        cashCents = dueCents;
-      }
-    }
+    this.assertFiniteNumber(netDiff);
+    const { cashCents, cardCents } = this.resolveExchangeTender(netDiff, payment);
     const body = {
       returned_items: this.groupReturnLines(returnItems),
       exchange_items: exchangeItems.map((i) => ({
@@ -730,19 +730,36 @@ export class PosApiService {
       cash_amount: toApi(cashCents),
       card_amount: toApi(cardCents),
     };
-    const key = this.idemKey(`exchange:${saleId}`, body);
-    const r = await this.call(() =>
-      this.http.post(EP.SALE_EXCHANGE(saleId), body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
-    );
-    this.idemDrafts.delete(`exchange:${saleId}`);
+    const r = await this.postIdempotent(EP.SALE_EXCHANGE(saleId), `exchange:${saleId}`, body);
     this.restock(returnItems);
-    for (const i of exchangeItems) {
-      const p = this.byId.get(i.id);
-      if (p) p.stock = Math.max(0, p.stock - i.qty);
-    }
+    this.deductLocalStock(exchangeItems);
     void this.refreshShift();
     this.notify();
     return r.data.data;
+  }
+
+  private resolveExchangeTender(
+    netDiff: number,
+    payment: ExchangePaymentOptions,
+  ): { cashCents: number; cardCents: number } {
+    const dueCents = Math.max(0, toCents(netDiff));
+    if (dueCents === 0) {
+      return { cashCents: 0, cardCents: 0 };
+    }
+
+    const method = payment.method ?? 'cash';
+    if (method === 'card') {
+      return { cashCents: 0, cardCents: dueCents };
+    }
+    if (method !== 'mixed') {
+      return { cashCents: dueCents, cardCents: 0 };
+    }
+
+    const cashCents = toCents(payment.cashAmount ?? 0);
+    if (cashCents <= 0 || cashCents >= dueCents) {
+      throw new PosApiError(422, 'في الدفع المختلط، يجب تحديد جزء نقدي وجزء بالبطاقة', 'validation');
+    }
+    return { cashCents, cardCents: dueCents - cashCents };
   }
 
   // ---- transfers ----
@@ -757,12 +774,10 @@ export class PosApiService {
     const t = this.transfersIn.find((x) => x.id === transferId);
     if (!t) throw new PosApiError(404, 'التحويل غير موجود', 'not_found');
     const items = t.items.map((i) => ({ id: i.transferItemId, received_qty: quantities[i.transferItemId ?? i.id] ?? i.qty }));
-    const body = { items, expected_version: t.version };
-    const key = this.idemKey(`receive:${transferId}`, body);
-    await this.call(() =>
-      this.http.post(EP.TRANSFER_RECEIVE(transferId), body, this.withTimeout({ headers: { 'Idempotency-Key': key } })),
-    );
-    this.idemDrafts.delete(`receive:${transferId}`);
+    await this.postIdempotent(EP.TRANSFER_RECEIVE(transferId), `receive:${transferId}`, {
+      items,
+      expected_version: t.version,
+    });
     this.transfersIn = this.transfersIn.filter((x) => x.id !== transferId);
     void this.loadCatalog(true).catch(() => undefined);
     this.notify();
@@ -774,14 +789,11 @@ export class PosApiService {
   }
 
   public async requestTransfer(fromBranchId: number, items: { id: number; qty: number }[], notes?: string): Promise<string> {
-    const body = {
+    const r = await this.postIdempotent(EP.TRANSFER_REQUESTS, 'transfer', {
       from_branch_id: fromBranchId,
       items: items.map((i) => ({ product_variant_id: i.id, requested_qty: i.qty })),
       notes: notes ?? null,
-    };
-    const key = this.idemKey('transfer', body);
-    const r = await this.call(() => this.http.post(EP.TRANSFER_REQUESTS, body, this.withTimeout({ headers: { 'Idempotency-Key': key } })));
-    this.idemDrafts.delete('transfer');
+    });
     this.notify();
     return r.data.data?.transfer_number ?? '';
   }
@@ -801,8 +813,34 @@ export class PosApiService {
     await this.loadCatalog().catch(() => undefined);
     const counts: Record<number, number> = {};
     for (const i of d.items ?? []) counts[Number(i.product_variant_id)] = Number(i.counted_qty ?? 0);
-    const scope = (d.items ?? []).map(
-      (i: any): PosProduct =>
+    const scope = this.mapStocktakeScope(d.items ?? []);
+    // F-14: server-side scan history powers the log panel and last-scan card
+    // on the real API, including after a page reload.
+    const recentScans = (d.recent_scans ?? []) as any[];
+    const first = recentScans[0];
+    return {
+      session: {
+        id: d.id,
+        code: d.stocktake_number,
+        status: d.status,
+        counts,
+        log: this.mapStocktakeLog(recentScans),
+        lastScan: first
+          ? {
+              id: Number(first.product_variant_id),
+              qty: Number(first.qty ?? 0),
+              via: 'barcode' as const,
+              name: first.product_name ?? first.sku ?? undefined,
+            }
+          : undefined,
+      },
+      scope,
+    };
+  }
+
+  private mapStocktakeScope(items: any[]): PosProduct[] {
+    return items.map(
+      (i): PosProduct =>
         this.byId.get(Number(i.product_variant_id)) ?? {
           id: Number(i.product_variant_id),
           sku: String(i.sku ?? ''),
@@ -816,41 +854,24 @@ export class PosApiService {
           h: 0,
         },
     );
-    // F-14: server-side scan history powers the log panel and last-scan card
-    // on the real API, including after a page reload.
-    const timeAr = (iso?: string): string => {
-      try {
-        return new Date(iso ?? Date.now()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-      } catch {
-        return '';
-      }
-    };
-    const log = ((d.recent_scans ?? []) as any[]).map((s) => ({
+  }
+
+  private mapStocktakeLog(recentScans: any[]) {
+    return recentScans.map((s) => ({
       id: Number(s.product_variant_id),
       add: Number(s.qty ?? 0),
       via: 'barcode' as const,
-      t: timeAr(s.created_at),
+      t: this.formatScanTimeAr(s.created_at),
       name: s.product_name ?? s.sku ?? undefined,
     }));
-    const first = ((d.recent_scans ?? []) as any[])[0];
-    return {
-      session: {
-        id: d.id,
-        code: d.stocktake_number,
-        status: d.status,
-        counts,
-        log,
-        lastScan: first
-          ? {
-              id: Number(first.product_variant_id),
-              qty: Number(first.qty ?? 0),
-              via: 'barcode' as const,
-              name: first.product_name ?? first.sku ?? undefined,
-            }
-          : undefined,
-      },
-      scope,
-    };
+  }
+
+  private formatScanTimeAr(iso?: string): string {
+    try {
+      return new Date(iso ?? Date.now()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
   }
 
   public async recordStocktakeScan(

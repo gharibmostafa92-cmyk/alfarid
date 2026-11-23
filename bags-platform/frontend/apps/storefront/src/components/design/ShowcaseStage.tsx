@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { StoreImage } from '../StoreImage';
 
@@ -23,6 +23,8 @@ interface ShowcaseStageProps {
   onNavigate: (direction: number) => void;
   onSelectIndex?: (index: number) => void;
   onExplore?: () => void;
+  focusKey?: number;
+  isMatched?: boolean;
 }
 
 function getSlotRole(index: number, activeIndex: number, total: number): 'center' | 'left' | 'right' | 'off-left' | 'off-right' {
@@ -38,6 +40,10 @@ function getSlotRole(index: number, activeIndex: number, total: number): 'center
   return diff < 0 ? 'off-left' : 'off-right';
 }
 
+function rubberband(overshoot: number, dimension = 260, constant = 0.55): number {
+  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+
 /** The interactive three-slot 3D stage used when browsing and configuring a product. */
 export function ShowcaseStage({
   previous,
@@ -49,30 +55,99 @@ export function ShowcaseStage({
   onNavigate,
   onSelectIndex,
   onExplore,
+  focusKey = 0,
+  isMatched = false,
 }: ShowcaseStageProps) {
-  const dragStart = useRef<{ x: number; y: number; active: boolean } | null>(null);
+  const dragStart = useRef<{
+    x: number;
+    y: number;
+    active: boolean;
+    lockedAxis: 'x' | 'y' | null;
+    history: Array<{ x: number; t: number }>;
+  } | null>(null);
   const [dragX, setDragX] = useState(0);
+  const [isFocusing, setIsFocusing] = useState(false);
+
+  useEffect(() => {
+    if (!focusKey) return;
+    setIsFocusing(true);
+    const timer = window.setTimeout(() => setIsFocusing(false), 560);
+    return () => window.clearTimeout(timer);
+  }, [focusKey]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!canNavigate) return;
     if ((e.target as HTMLElement).closest('button')) return;
-    dragStart.current = { x: e.clientX, y: e.clientY, active: true };
+    dragStart.current = {
+      x: e.clientX,
+      y: e.clientY,
+      active: true,
+      lockedAxis: null,
+      history: [{ x: e.clientX, t: performance.now() }],
+    };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragStart.current?.active) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
-      setDragX(Math.max(-140, Math.min(140, dx)));
+    const state = dragStart.current;
+    if (!state?.active) return;
+    const dx = e.clientX - state.x;
+    const dy = e.clientY - state.y;
+
+    if (!state.lockedAxis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      state.lockedAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+      if (state.lockedAxis === 'x') {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore if pointer capture is unavailable
+        }
+      }
     }
+
+    if (state.lockedAxis !== 'x') return;
+
+    const now = performance.now();
+    state.history.push({ x: e.clientX, t: now });
+    if (state.history.length > 5) state.history.shift();
+
+    if (!canNavigate) {
+      // Soft rubber-band resistance on single-image products
+      setDragX(rubberband(dx, 180, 0.35));
+      return;
+    }
+
+    const clamped = Math.abs(dx) > 120 ? Math.sign(dx) * (120 + rubberband(Math.abs(dx) - 120, 140)) : dx;
+    setDragX(clamped);
   };
 
-  const handlePointerEnd = () => {
-    if (!dragStart.current?.active) return;
-    dragStart.current.active = false;
-    if (Math.abs(dragX) > 45) {
-      onNavigate(dragX < 0 ? 1 : -1);
+  const handlePointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStart.current;
+    if (!state?.active) return;
+    state.active = false;
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore if pointer capture was not held
+    }
+
+    if (canNavigate && state.lockedAxis === 'x') {
+      let velocity = 0;
+      const history = state.history;
+      if (history.length >= 2) {
+        const first = history[0];
+        const last = history[history.length - 1];
+        const dt = (last.t - first.t) / 1000;
+        if (dt > 0.005) {
+          velocity = (last.x - first.x) / dt;
+        }
+      }
+
+      if (Math.abs(dragX) > 40 || Math.abs(velocity) > 320) {
+        const dir = dragX !== 0 ? (dragX < 0 ? 1 : -1) : velocity < 0 ? 1 : -1;
+        onNavigate(dir);
+      }
     }
     setDragX(0);
   };
@@ -82,7 +157,7 @@ export function ShowcaseStage({
 
   return (
     <div
-      className={`showcase-stage-scene${dragX !== 0 ? ' is-dragging' : ''}`}
+      className={`showcase-stage-scene${dragX !== 0 ? ' is-dragging' : ''}${isMatched ? ' is-matched' : ''}${isFocusing ? ' is-focusing' : ''}`}
       role="region"
       aria-label="Interactive product stage"
       tabIndex={0}
