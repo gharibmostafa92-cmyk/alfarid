@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog\Tools;
 
+use App\Services\Ai\ItemDocumentCatalogLink;
+
 use App\Enums\Catalog\Occasion;
 use App\Enums\Orders\SalesChannel;
 use App\Http\Requests\Admin\Catalog\StoreProductRequest;
@@ -63,6 +65,7 @@ final class CreateProductDraftTool implements LocksTargets, WriteTool
                 'type' => 'OBJECT',
                 'required' => ['category_id', 'name_ar', 'name_en', 'sales_channel'],
                 'properties' => (object) [
+                    ...ItemDocumentCatalogLink::properties(),
                     'category_id' => ['type' => 'INTEGER'],
                     'name_ar' => ['type' => 'STRING'],
                     'name_en' => ['type' => 'STRING'],
@@ -255,7 +258,7 @@ final class CreateProductDraftTool implements LocksTargets, WriteTool
         return $this->proposals->make(
             $actor,
             $this->name(),
-            $validated,
+            $validated + ItemDocumentCatalogLink::prepare($args, $this->proposals->conversation()?->id, count($validated['variants'])),
             risk: $this->risk(),
             title: "إنشاء مسودة منتج: {$validated['name_ar']} (".count($matrixRows).' متغير)',
             before: null,
@@ -283,6 +286,8 @@ final class CreateProductDraftTool implements LocksTargets, WriteTool
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $data = $action->args;
+        $document = ItemDocumentCatalogLink::lock($action);
+        unset($data['document_draft_id'], $data['document_variant_lines'], $data['document_draft_version']);
         $data['status'] = 'draft';
         if (! CostAccess::canView($actor) && isset($data['variants']) && is_array($data['variants'])) {
             foreach ($data['variants'] as $idx => $v) {
@@ -291,6 +296,9 @@ final class CreateProductDraftTool implements LocksTargets, WriteTool
         }
 
         $product = $this->products->create($data, $actor);
+        if ($document) {
+            ItemDocumentCatalogLink::record($action, $document, $product->variants()->orderBy('id')->pluck('sku')->all());
+        }
 
         StaffAdministration::audit(
             $actor,

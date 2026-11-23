@@ -10,6 +10,7 @@ return [
         'api_key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL'),
         'invoice_model' => env('GEMINI_INVOICE_MODEL'),
+        'invoice_timeout_seconds' => (int) env('GEMINI_INVOICE_TIMEOUT_SECONDS', 50),
         'timeout_seconds' => (int) env('GEMINI_TIMEOUT_SECONDS', 20),
         'max_output_tokens' => (int) env('GEMINI_MAX_OUTPUT_TOKENS', 2048),
         'max_images' => 5,

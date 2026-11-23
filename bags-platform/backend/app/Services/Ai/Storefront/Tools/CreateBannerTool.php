@@ -124,7 +124,7 @@ final class CreateBannerTool implements ExecutesOutsideTransaction, WriteTool
             'banner',
             $banner->id,
             ['title', 'position', 'link_type', 'link_value'],
-            null,
+            [],
             ['title' => $banner->title, 'position' => $banner->position?->value],
             ['channel' => 'ai', 'tool' => $this->name(), 'conversation_id' => $action->conversation_id, 'action_id' => $action->id],
         );

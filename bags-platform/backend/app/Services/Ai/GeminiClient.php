@@ -194,11 +194,13 @@ class GeminiClient
      * @param  array<string, mixed>  $schema  Target JSON schema specification.
      * @param  list<UploadedFile>|UploadedFile|null  $images  Optional raster images, or a single Ogg voice note or PDF receipt.
      * @param  string|null  $model  Specific model identifier to route to.
+     * @param  int|null  $timeoutSeconds  Optional timeout for structured document reads.
+     * @param  int  $serviceUnavailableAttempts  Maximum attempts when the provider returns HTTP 503.
      * @return array{data: array<string, mixed>, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
      *
      * @throws GeminiException If API fails, format is invalid, or generation is incomplete.
      */
-    public function generateStructured(string $prompt, array $schema, array|UploadedFile|null $images = null, ?string $model = null): array
+    public function generateStructured(string $prompt, array $schema, array|UploadedFile|null $images = null, ?string $model = null, ?int $timeoutSeconds = null, int $serviceUnavailableAttempts = 2): array
     {
         [$key, $model] = self::resolveConfig($model);
         if (trim($prompt) === '') {
@@ -223,11 +225,12 @@ class GeminiClient
             ],
         ];
 
-        for ($attempt = 0; $attempt < 2; $attempt++) {
+        $maxAttempts = max(2, min(3, $serviceUnavailableAttempts));
+        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
             try {
                 $response = Http::acceptJson()->asJson()->withHeaders(['x-goog-api-key' => $key])
                     ->withOptions(['verify' => config('services.integrations.ca_bundle') ?: true])
-                    ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
+                    ->connectTimeout(5)->timeout(max(1, $timeoutSeconds ?? (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
             } catch (ConnectionException $e) {
                 // Retry connect failures only to avoid duplicate token consumption on server read timeouts.
@@ -236,11 +239,24 @@ class GeminiClient
 
                     continue;
                 }
+                $cause = $e->getPrevious();
+                $context = $cause instanceof \GuzzleHttp\Exception\ConnectException || $cause instanceof \GuzzleHttp\Exception\RequestException
+                    ? $cause->getHandlerContext() : [];
+                preg_match('/cURL error (\d+)/i', $e->getMessage(), $transportError);
+                logger()->warning('gemini.structured_connection_failed', [
+                    'model' => $model,
+                    'errno' => $context['errno'] ?? ($transportError[1] ?? null),
+                    'elapsed_seconds' => $context['total_time'] ?? null,
+                    'uploaded_bytes' => $context['size_upload'] ?? null,
+                ]);
                 throw new GeminiException('تعذّر الاتصال بخدمة Gemini.');
             }
-            if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
+            $retryable = $response->status() === 503
+                ? $attempt + 1 < $maxAttempts
+                : ($response->status() === 429 || $response->serverError()) && $attempt === 0;
+            if ($retryable) {
                 logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'http_'.$response->status()]);
-                usleep($this->retryAfterSeconds($response->header('Retry-After')) * 1_000_000);
+                usleep(max($attempt === 0 ? 1 : 3, $this->retryAfterSeconds($response->header('Retry-After'))) * 1_000_000);
 
                 continue;
             }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Admin\Ai\AiActionController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiAdministrationController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiAttachmentController;
+use App\Http\Controllers\Api\V1\Admin\Ai\AiItemDocumentDraftController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiConversationController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiMentionController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiMessageController;
@@ -398,6 +399,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             // stream plus a store call run two models concurrently.
             Route::post('conversations/{conversation}/messages', [AiMessageController::class, 'store'])->middleware(['throttle:ai-chat', PreventConcurrentAiStream::class])->name('conversations.messages.store');
             Route::post('conversations/{conversation}/attachments', [AiAttachmentController::class, 'store'])->middleware('throttle:ai-attachments')->name('conversations.attachments.store');
+            Route::get('item-document-drafts/{draft}', [AiItemDocumentDraftController::class, 'show'])->whereUlid('draft')->name('item-document-drafts.show');
+            Route::patch('item-document-drafts/{draft}', [AiItemDocumentDraftController::class, 'update'])->whereUlid('draft')->name('item-document-drafts.update');
             Route::post('actions/{action}/confirm', [AiActionController::class, 'confirm'])->middleware('permission:ai_agent.execute')->name('actions.confirm');
             Route::post('actions/{action}/cancel', [AiActionController::class, 'cancel'])->name('actions.cancel');
             Route::post('actions/{action}/undo', [AiActionController::class, 'undo'])->middleware('permission:ai_agent.execute')->name('actions.undo');

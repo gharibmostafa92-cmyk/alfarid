@@ -247,6 +247,22 @@ final class AgentOrchestrator
         $context = $this->prepareTurnContext($actor, $turn);
         $userMessage = $this->recordUserMessage($conv, $context['text'], $context['parts']);
 
+        if ($context['attachments'] !== [] && ($conv->channel ?: 'web') === 'web'
+            && preg_match('/(?:كشف|فاتور[ةه]|استلام)\s+(?:استلام\s+)?(?:ال)?[إأا]نتاج/u', $context['text'])
+            && preg_match('/(?:اقر[أا]|قراءة|استخرج|حل[ّ]?ل|اعرض|سج[ّ]?ل|استلم)/u', $context['text'])) {
+            if (! app()->runningInConsole() && ! isset($_SERVER['LARAVEL_OCTANE'])) {
+                set_time_limit(self::MAX_CYCLE_SECONDS + 5);
+            }
+            if ($progress) {
+                $progress('بقرأ بنود كشف الإنتاج…');
+            }
+
+            return $this->dispatchShortcut($actor, $conv, [
+                'name' => 'read_item_document',
+                'args' => ['attachment_ids' => $context['attachments']],
+            ]);
+        }
+
         if (($shortcutReply = $this->handleFinanceShortcut($actor, $conv, $context['text'])) !== null) {
             return $shortcutReply;
         }
@@ -337,6 +353,11 @@ final class AgentOrchestrator
             return null;
         }
 
+        return $this->dispatchShortcut($actor, $conv, $shortcut);
+    }
+
+    private function dispatchShortcut(User $actor, AiConversation $conv, array $shortcut): AgentReply
+    {
         $outcome = $this->registry->dispatch($actor, $conv, $shortcut);
         $blocks = $outcome->uiBlock ? [$outcome->uiBlock] : [];
         $reply = $outcome->message ?? ($outcome->type === 'proposal' ? 'راجع الاقتراح قبل التأكيد.' : '');
@@ -522,10 +543,21 @@ final class AgentOrchestrator
         $executedCalls = array_slice($calls, 0, self::MAX_CALLS_PER_STEP);
         $excessCalls = array_slice($calls, self::MAX_CALLS_PER_STEP);
         $inspections = 0;
+        $documentReadFinished = false;
 
         foreach ($executedCalls as $call) {
+            if ($documentReadFinished) {
+                $responses = array_merge($responses, ToolOutcome::denied('استنى مراجعة بنود المستند قبل تجهيز أي إجراء.', auditable: false)->asFunctionResponse($call)['parts']);
+
+                continue;
+            }
             // Check elapsed time before each call because network socket waits are excluded from max_execution_time.
-            if (microtime(true) - $cycleStartedAt >= self::MAX_CYCLE_SECONDS - self::TOOL_CALL_RESERVE_SECONDS) {
+            $readsDocument = in_array($call['name'], ['read_item_document', 'read_catalog_invoice'], true)
+                && ! isset($call['args']['document_draft_id']);
+            $reserve = $readsDocument
+                ? max(self::TOOL_CALL_RESERVE_SECONDS, Inventory\Tools\ReadItemDocumentTool::SERVICE_UNAVAILABLE_ATTEMPTS * Inventory\Tools\ReadItemDocumentTool::timeoutSeconds() + 5)
+                : self::TOOL_CALL_RESERVE_SECONDS;
+            if (microtime(true) - $cycleStartedAt >= self::MAX_CYCLE_SECONDS - $reserve) {
                 $responses = array_merge($responses, ToolOutcome::denied('الوقت المسموح للطلب خلص؛ كمّل في رسالة جديدة.', auditable: false)->asFunctionResponse($call)['parts']);
 
                 continue;
@@ -549,7 +581,8 @@ final class AgentOrchestrator
             }
 
             $responses = array_merge($responses, $response['parts']);
-            $halted = $halted || $outcome->haltsLoop();
+            $documentReadFinished = $readsDocument;
+            $halted = $halted || $outcome->haltsLoop() || $documentReadFinished;
             if ($outcome->uiBlock) {
                 if ($outcome->type === 'data') {
                     $readBlocks[] = $outcome->uiBlock;
@@ -557,7 +590,7 @@ final class AgentOrchestrator
                     $blocks[] = $outcome->uiBlock;
                 }
             }
-            if ($outcome->type === 'denied') {
+            if ($outcome->type === 'denied' || $documentReadFinished) {
                 $denials[] = $outcome->message;
             }
         }

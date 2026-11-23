@@ -2354,6 +2354,23 @@
             }
         },
         {
+            "id": "egy-inv-document-read",
+            "text": "اقرأ بنود صورة كشف الإنتاج المرفقة بالكود 01ARZ3NDEKTSV4RRFFQ69G5FAV عشان أراجعها قبل الاستلام",
+            "tool": "read_item_document",
+            "args": {
+                "attachment_ids": ["01ARZ3NDEKTSV4RRFFQ69G5FAV"]
+            }
+        },
+        {
+            "id": "egy-catalog-invoice-read",
+            "text": "اقرأ صورة الفاتورة 01ARZ3NDEKTSV4RRFFQ69G5FAV عشان نسجل الأصناف الناقصة من المورد رقم 12",
+            "tool": "read_catalog_invoice",
+            "args": {
+                "attachment_ids": ["01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+                "supplier_id": 12
+            }
+        },
+        {
             "id": "egy-inv-85",
             "text": "استلمت دفعة الإنتاج B-102 ميتين قطعة بـ 170 جنيه",
             "tool": "receive_production",

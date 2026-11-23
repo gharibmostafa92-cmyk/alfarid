@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog\Tools;
 
+use App\Services\Ai\ItemDocumentCatalogLink;
+
 use App\Exceptions\BusinessException;
 use App\Http\Requests\Admin\Catalog\VariantRules;
 use App\Models\AiPendingAction;
@@ -60,6 +62,7 @@ final class AddVariantsTool implements LocksTargets, WriteTool
                 'type' => 'OBJECT',
                 'required' => ['product_id', 'variant_matrix'],
                 'properties' => (object) [
+                    ...ItemDocumentCatalogLink::properties(),
                     'product_id' => ['type' => 'INTEGER'],
                     'variant_matrix' => [
                         'type' => 'OBJECT',
@@ -208,7 +211,7 @@ final class AddVariantsTool implements LocksTargets, WriteTool
             [
                 'product_id' => $product->id,
                 'variants' => $newVariants,
-            ],
+            ] + ItemDocumentCatalogLink::prepare($args, $this->proposals->conversation()?->id, count($newVariants)),
             risk: $this->risk(),
             title: 'إضافة '.count($newVariants)." متغير للمنتج {$product->code}",
             before: ['variants_count' => $product->variants->count()],
@@ -232,6 +235,7 @@ final class AddVariantsTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
+        $document = ItemDocumentCatalogLink::lock($action);
         $product = Product::findOrFail((int) $action->args['product_id']);
         $expected = $action->expected_versions['product:'.$product->id] ?? null;
         if ($expected !== null && (int) $product->lock_version !== (int) $expected) {
@@ -257,6 +261,10 @@ final class AddVariantsTool implements LocksTargets, WriteTool
 
             return $ids;
         });
+        if ($document) {
+            $skus = $product->variants()->whereIn('id', $createdIds)->pluck('sku', 'id');
+            ItemDocumentCatalogLink::record($action, $document, array_map(fn ($id) => $skus[$id], $createdIds));
+        }
 
         StaffAdministration::audit(
             $actor,

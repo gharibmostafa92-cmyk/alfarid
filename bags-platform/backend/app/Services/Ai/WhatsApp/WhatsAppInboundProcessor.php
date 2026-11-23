@@ -637,6 +637,27 @@ final class WhatsAppInboundProcessor
             return ['text' => $text, 'attachments' => [], 'selection' => null];
         }
         $type = (string) ($media['type'] ?? '');
+        if ($type === 'audio') {
+            try {
+                $bytes = $this->gateway->downloadMedia((string) ($media['id'] ?? ''));
+                $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
+                if (strlen($bytes) > 4 * 1024 * 1024) {
+                    return 'التسجيل أكبر من 4 ميجا.';
+                }
+                if ($mime !== 'audio/ogg') {
+                    return 'ابعت تسجيل صوتي من واتساب أو اكتب طلبك.';
+                }
+                $transcript = app(WhatsAppVoiceTranscriber::class)->transcribe($bytes, $mime);
+            } catch (WhatsAppGatewayException $e) {
+                return $e->getCode() === 413 ? 'التسجيل أكبر من 4 ميجا.' : 'التسجيل مش متاح، ابعته تاني.';
+            } catch (\Exception) {
+                return 'تعذر قراءة التسجيل. جرّب تاني أو اكتب طلبك.';
+            }
+
+            return $transcript === null
+                ? 'الكلام في التسجيل مش واضح. ابعته تاني أو اكتب طلبك.'
+                : ['text' => $transcript, 'attachments' => [], 'selection' => null];
+        }
         if ($type !== 'image') {
             return 'ابعت نص أو صورة.';
         }

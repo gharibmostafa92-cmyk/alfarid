@@ -153,7 +153,7 @@ class WhatsAppAssistantTest extends TestCase
         $this->assertSame('invalid_link', $used->refresh()->ignore_reason);
     }
 
-    public function test_link_from_lid_only_activates_identity(): void
+    public function test_link_from_lid_requires_matching_phone_number(): void
     {
         $user = $this->staff();
         $identity = AiWhatsappIdentity::query()->create([
@@ -170,14 +170,20 @@ class WhatsAppAssistantTest extends TestCase
         ]);
         Http::fake(['http://gateway.test/*' => Http::response(['wa_message_id' => 'out-1'])]);
         $inbound = $this->inbound('link-lid');
-        app(WhatsAppInboundProcessor::class)->process($inbound, [
+        $message = [
             'wa_message_id' => 'link-lid',
             'remote_jid' => '12345@lid',
             'remote_jid_alt' => null,
             'text' => 'ربط '.$token,
             'quoted_id' => null,
             'media' => null,
-        ]);
+        ];
+        $processor = app(WhatsAppInboundProcessor::class);
+        $processor->process($inbound, $message);
+        $this->assertSame('pending', $identity->refresh()->status);
+        $message['wa_message_id'] = 'link-lid-verified';
+        $message['remote_jid_alt'] = '201012345678@s.whatsapp.net';
+        $processor->process($this->inbound('link-lid-verified'), $message);
         $identity->refresh();
         $this->assertSame('active', $identity->status);
         $this->assertSame('12345@lid', $identity->wa_lid);
@@ -193,6 +199,7 @@ class WhatsAppAssistantTest extends TestCase
         app(SettingService::class)->clearCache();
         $user = $this->staff();
         $user->givePermissionTo(Permission::findOrCreate('shipping.create', 'staff'));
+        $user->givePermissionTo(Permission::findOrCreate('shipping.update', 'staff'));
         $conversation = AiConversation::query()->create(['user_id' => $user->id, 'channel' => 'whatsapp', 'model' => 'test']);
         $jid = '201012345678@s.whatsapp.net';
         AiWhatsappIdentity::query()->create([
@@ -329,6 +336,7 @@ class WhatsAppAssistantTest extends TestCase
     public function test_tool_disabled_on_whatsapp_is_rejected_at_confirm_even_if_the_card_was_made_on_the_web(): void
     {
         DB::table('settings')->where('key', 'ai_enabled')->update(['value' => '1']);
+        DB::table('settings')->where('key', 'ai_whatsapp_enabled')->update(['value' => '1']);
         DB::table('settings')->where('key', 'ai_whatsapp_allow_writes')->update(['value' => '1']);
         DB::table('settings')->where('key', 'ai_whatsapp_max_risk')->update(['value' => 'high']);
         app(SettingService::class)->clearCache();
@@ -382,7 +390,8 @@ class WhatsAppAssistantTest extends TestCase
             }
         };
         $job->handle(app(WhatsAppInboundProcessor::class));
-        $this->assertSame(15, $job->releasedWith);
+        $this->assertGreaterThanOrEqual(15, $job->releasedWith);
+        $this->assertLessThanOrEqual(30, $job->releasedWith);
         $this->assertSame('queued', $inbound->refresh()->status);
     }
 

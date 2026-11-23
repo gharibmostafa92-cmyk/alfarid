@@ -18,6 +18,30 @@ use Illuminate\Support\Facades\DB;
  */
 class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
 {
+    public function test_full_branch_take_keeps_counts_empty_and_reuses_sessions(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $otherBranch = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $otherVariant = ProductVariant::factory()->create();
+        $this->seedStock($token, $branch, $variant, 8);
+        $this->seedStock($token, $otherBranch, $otherVariant, 9);
+        $movements = StockMovement::query()->count();
+
+        $service = app(StocktakeService::class);
+        $scopes = $service->fullBranchScopes($branch->id, $admin->id);
+        $this->assertSame(1, $scopes[0]['items_count']);
+        [$stocktake] = $service->createFullBranch($branch->id, $admin->id, $scopes, null, 'full-branch-test');
+        [$retried] = $service->createFullBranch($branch->id, $admin->id, $scopes, null, 'full-branch-test');
+
+        $this->assertSame($stocktake->id, $retried->id);
+        $this->assertSame($variant->id, $stocktake->items->sole()->product_variant_id);
+        $this->assertNull($stocktake->items->sole()->counted_qty);
+        $this->assertSame($movements, StockMovement::query()->count());
+    }
+
     private function activateVariantProduct(ProductVariant $variant): void
     {
         $variant->product()->update(['status' => 'published']);

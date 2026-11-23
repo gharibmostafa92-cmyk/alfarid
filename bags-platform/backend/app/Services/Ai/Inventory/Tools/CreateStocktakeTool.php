@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory\Tools;
 
-use App\Enums\Inventory\StocktakeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
+use App\Models\Location;
 use App\Models\Stocktake;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
@@ -42,13 +42,13 @@ final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, 
     {
         return [
             'name' => $this->name(),
-            'description' => 'فتح جلسة جرد جديدة في فرع (وموقع اختياري) مع بنود اختيارية بعدّ مبدئي.',
+            'description' => 'فتح جلسة جرد في فرع. استخدم all_stocked_variants لجرد كل أصناف الفرع في جميع مواقعه. اسأل المستخدم لو الفرع مش واضح.',
             'parameters' => [
                 'type' => 'OBJECT',
-                'required' => ['branch_id'],
                 'properties' => (object) [
                     'branch_id' => ['type' => 'INTEGER'],
                     'branch_query' => ['type' => 'STRING'],
+                    'item_scope' => ['type' => 'STRING', 'enum' => ['all_stocked_variants']],
                     'location_id' => ['type' => 'INTEGER'],
                     'notes' => ['type' => 'STRING'],
                     'items' => ['type' => 'ARRAY', 'items' => [
@@ -69,6 +69,13 @@ final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, 
     public function prepare(User $actor, array $args): ToolOutcome
     {
         $args = InventoryArgs::normalize($args);
+        if (isset($args['item_scope'], $args['branch_query']) && ! isset($args['branch_id'])) {
+            $branch = $this->resolver->exactBranch($actor, (string) $args['branch_query']);
+            if ($branch === null) {
+                return ToolOutcome::denied('اسم الفرع مش واضح أو خارج نطاقك. حدد الفرع المطلوب.', auditable: false);
+            }
+            $args['branch_id'] = $branch->id;
+        }
         $scope = InventoryArgs::scopeBranch($actor, $this->branches, $args);
         if ($scope instanceof ToolOutcome) {
             return $scope;
@@ -76,6 +83,33 @@ final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, 
         if ($scope['branch'] === null) {
             return ToolOutcome::denied('حدد الفرع بـ branch_id.', auditable: false);
         }
+        if (isset($args['item_scope'])) {
+            if ($args['item_scope'] !== 'all_stocked_variants' || array_key_exists('items', $args) || isset($args['location_id'])) {
+                return ToolOutcome::denied('الجرد الشامل يتطلب تحديد الفرع فقط من غير موقع أو بنود يدوية.', auditable: false);
+            }
+            $branch = $scope['branch'];
+            try {
+                $scopes = $this->stocktakes->fullBranchScopes($branch->id, $actor->id);
+            } catch (BusinessException $e) {
+                return ToolOutcome::denied($e->getMessage(), auditable: false);
+            }
+            if ($scopes === []) {
+                return ToolOutcome::denied('الفرع مفيهوش أصناف مسجلة في المخزون.', auditable: false);
+            }
+            $locations = Location::query()->whereIn('id', array_column($scopes, 'location_id'))->pluck('name', 'id');
+            $summary = array_map(fn (array $row): string => ($locations->get($row['location_id']) ?? 'مخزون الفرع').' — '.$row['items_count'].' صنف', $scopes);
+
+            return $this->proposals->make(
+                $actor,
+                $this->name(),
+                ['branch_id' => $branch->id, 'full_scopes' => $scopes, 'notes' => $args['notes'] ?? null],
+                risk: $this->risk(),
+                title: "جرد شامل — {$branch->name}",
+                before: ['sessions' => []],
+                after: ['branch' => $branch->name, 'locations' => implode('، ', $summary)],
+            );
+        }
+
         $items = [];
         if (array_key_exists('items', $args)) {
             $parsed = $this->parseCountItems($actor, $args['items']);
@@ -144,6 +178,21 @@ final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
         $a = $action->args;
+        if (isset($a['full_scopes'])) {
+            $sessions = $this->stocktakes->createFullBranch(
+                (int) $a['branch_id'], $actor->id, $a['full_scopes'], $a['notes'] ?? null, 'ai-stocktake:'.$action->id,
+            );
+
+            $numbers = array_map(fn (Stocktake $session): string => $session->stocktake_number, $sessions);
+
+            return ToolOutcome::result(true, 'اتفتحت جلسات الجرد: '.implode('، ', $numbers), [
+                'sessions' => array_map(fn (Stocktake $session): array => [
+                    'stocktake_id' => $session->id,
+                    'stocktake_number' => $session->stocktake_number,
+                    'deep_link' => '#/stocktakes/'.$session->id,
+                ], $sessions),
+            ]);
+        }
         $stocktake = $this->stocktakes->create([
             'branch_id' => (int) $a['branch_id'],
             'location_id' => $a['location_id'] ?? null,

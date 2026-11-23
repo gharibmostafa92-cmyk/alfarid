@@ -22,6 +22,7 @@ use App\Models\StockTransfer;
 use App\Models\User;
 use App\Notifications\Inventory\InventoryAnomalyDigestNotification;
 use App\Notifications\Inventory\TransferSuggestionNotification;
+use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\DomainRouter;
 use App\Services\Ai\Inventory\InventoryToolProvider;
 use App\Services\Ai\Inventory\InventoryWelcome;
@@ -306,6 +307,75 @@ class InventoryAiToolsTest extends TestCase
             'args' => ['branch_id' => $branch->id, 'batch_number' => 'batch-ai-1', 'items' => [['variant_id' => $variant->id, 'quantity' => 1, 'unit_cost' => 100]]],
         ]);
         $this->assertSame('denied', $retry->type);
+    }
+
+    public function test_receive_production_uses_saved_document_and_rejects_reuploaded_source(): void
+    {
+        DB::table('settings')->where('key', 'ai_inventory_vision_enabled')->update(['value' => '1']);
+        app(SettingService::class)->clearCache();
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'inventory.adjust', 'inventory.view_cost', 'inventory.view', 'inventory.all_branches']);
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create(['cost_price' => 100, 'is_active' => true]);
+        $conversation = $this->conv($admin);
+        Storage::fake('ai_private');
+        $image = UploadedFile::fake()->image('production.jpg')->getContent();
+        $dimensions = getimagesizefromstring($image);
+        $comment = str_repeat('x', 60000);
+        $image = substr($image, 0, 2).str_repeat("\xFF\xFE".pack('n', strlen($comment) + 2).$comment, 9).substr($image, 2);
+        $path = 'sheets/production.jpg';
+        Storage::disk('ai_private')->put($path, $image);
+        $attachment = AiAttachment::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $admin->id, 'path' => $path, 'mime' => 'image/jpeg',
+            'size' => strlen($image), 'sha256' => hash('sha256', $image),
+        ]);
+        $extracted = ['rows' => [['sku' => $variant->sku, 'quantity' => '١', 'manufacturing_unit_cost' => '١١٠']]];
+        $readResponse = [
+            'candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => json_encode($extracted)]]]]],
+            'usageMetadata' => ['promptTokenCount' => 10, 'candidatesTokenCount' => 5],
+        ];
+        Http::fakeSequence()->pushStatus(503)->pushStatus(503)->push($readResponse)->push($readResponse);
+        $registry = app(ToolRegistry::class);
+        $read = fn () => $registry->dispatch($admin, $conversation, [
+            'name' => 'read_item_document', 'args' => ['attachment_ids' => [$attachment->id]],
+        ]);
+        $reply = app(AgentOrchestrator::class)->handle($admin, $conversation, [
+            'text' => 'اقرأ صورة كشف استلام الإنتاج للمراجعة',
+            'attachments' => [$attachment->id],
+        ]);
+        Http::assertSentCount(3);
+        if (function_exists('exif_read_data')) {
+            Http::assertSent(function ($request) use ($image, $dimensions) {
+                $transmitted = base64_decode($request['contents'][0]['parts'][1]['inlineData']['data'], true);
+                $newDimensions = getimagesizefromstring($transmitted);
+
+                return strlen($transmitted) < strlen($image)
+                    && $newDimensions[0] === $dimensions[0]
+                    && $newDimensions[1] === $dimensions[1];
+            });
+        }
+        $this->assertSame('item_document_review', $reply->blocks[0]['type']);
+        $this->assertSame($variant->sku, $reply->blocks[0]['rows'][0]['matched_sku']);
+        $id = $reply->blocks[0]['draft_id'];
+        $this->withToken($admin->createToken('test')->plainTextToken)->patchJson("/api/v1/admin/ai/item-document-drafts/{$id}", [
+            'version' => 0, 'edits' => [['quantity' => '٢']],
+        ])->assertOk()->assertJsonPath('version', 1);
+        $args = ['branch_id' => $branch->id, 'batch_number' => 'SCAN-ONE', 'document_draft_id' => $id,
+            'items' => [['variant_id' => $variant->id, 'quantity' => 999, 'unit_cost' => 1]]];
+        $proposal = $registry->dispatch($admin, $conversation, ['name' => 'receive_production', 'args' => $args]);
+        $this->assertSame('proposal', $proposal->type);
+        $action = AiPendingAction::findOrFail($proposal->data['pending_action_id']);
+        $this->assertSame(2, $action->args['items'][0]['quantity']);
+        $result = app(PendingActionService::class)->confirm($admin, $action);
+        $this->assertSame('result', $result->type);
+        $this->assertDatabaseHas('ai_item_document_drafts', ['id' => $id, 'receipt_id' => $result->data['receipt_id']]);
+
+        $args['document_draft_id'] = $read()->data['document_draft_id'];
+        $args['batch_number'] = 'SCAN-TWO';
+        $this->patchJson("/api/v1/admin/ai/item-document-drafts/{$args['document_draft_id']}", [
+            'version' => 0, 'edits' => [],
+        ])->assertOk();
+        $this->assertSame('denied', $registry->dispatch($admin, $conversation, ['name' => 'receive_production', 'args' => $args])->type);
     }
 
     public function test_receive_production_denied_without_cost_access(): void

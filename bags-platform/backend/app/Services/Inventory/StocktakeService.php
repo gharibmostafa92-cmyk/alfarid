@@ -273,6 +273,59 @@ class StocktakeService
         });
     }
 
+    public function fullBranchScopes(int $branchId, int $userId): array
+    {
+        app(BranchAccess::class)->assertBranch($userId, $branchId);
+
+        return StockLevel::query()->where('branch_id', $branchId)
+            ->orderBy('location_id')->orderBy('product_variant_id')
+            ->get(['location_id', 'product_variant_id'])
+            ->groupBy('location_id')
+            ->map(function (Collection $levels) use ($branchId): array {
+                $locationId = $levels->first()->location_id;
+                $this->assertScopedLocation($branchId, $locationId);
+                $variantIds = $levels->pluck('product_variant_id')->unique()->values()->all();
+
+                return [
+                    'location_id' => $locationId,
+                    'items_count' => count($variantIds),
+                    'fingerprint' => hash('sha256', implode(',', $variantIds)),
+                ];
+            })->values()->all();
+    }
+
+    public function createFullBranch(int $branchId, int $userId, array $scopes, ?string $notes, string $key): array
+    {
+        return DB::transaction(function () use ($branchId, $userId, $scopes, $notes, $key): array {
+            app(BranchAccess::class)->assertBranch($userId, $branchId);
+            app(BranchAccess::class)->lockActiveBranch($branchId);
+            if ($scopes != $this->fullBranchScopes($branchId, $userId)) {
+                throw new BusinessException('أصناف الفرع اتغيرت. اطلب معاينة جرد جديدة.');
+            }
+
+            $sessions = [];
+            $limit = max(1, (int) config('inventory.stocktake_max_items', 500));
+            foreach ($scopes as $scope) {
+                $variantIds = StockLevel::query()->where('branch_id', $branchId)
+                    ->where('location_id', $scope['location_id'])
+                    ->distinct()->orderBy('product_variant_id')->pluck('product_variant_id')->all();
+                if (hash('sha256', implode(',', $variantIds)) !== $scope['fingerprint']) {
+                    throw new BusinessException('أصناف الفرع اتغيرت. اطلب معاينة جرد جديدة.');
+                }
+                foreach (array_chunk($variantIds, $limit) as $part => $batch) {
+                    $sessions[] = $this->create([
+                        'branch_id' => $branchId,
+                        'location_id' => $scope['location_id'],
+                        'notes' => $notes,
+                        'items' => array_map(fn ($id): array => ['product_variant_id' => $id], $batch),
+                    ], $userId, $key.':'.($scope['location_id'] ?? 'branch').':'.$part);
+                }
+            }
+
+            return $sessions;
+        });
+    }
+
     private function doCreate(array $data, int $userId): Stocktake
     {
         return DB::transaction(function () use ($data, $userId): Stocktake {

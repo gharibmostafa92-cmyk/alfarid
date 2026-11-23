@@ -29,6 +29,7 @@ use App\Services\Ai\Inventory\Tools\ListStocktakesTool;
 use App\Services\Ai\Inventory\Tools\ListTransfersTool;
 use App\Services\Ai\Inventory\Tools\LowStockListTool;
 use App\Services\Ai\Inventory\Tools\ParseCountSheetTool;
+use App\Services\Ai\Inventory\Tools\ReadItemDocumentTool;
 use App\Services\Ai\Inventory\Tools\ReceiveProductionTool;
 use App\Services\Ai\Inventory\Tools\ReceiveTransferTool;
 use App\Services\Ai\Inventory\Tools\RecordCountsTool;
@@ -81,6 +82,7 @@ final class InventoryToolProvider implements ToolProvider
         ApproveStocktakeTool::class,
         CancelStocktakeTool::class,
         ParseCountSheetTool::class,
+        ReadItemDocumentTool::class,
         // Phase 5: proactive + what-if
         WhatIfProductionCostTool::class,
         WhatIfTransferCoverageTool::class,
@@ -115,6 +117,10 @@ final class InventoryToolProvider implements ToolProvider
     {
         if (! $this->enabled()) {
             return true;
+        }
+
+        if ($name === 'read_item_document') {
+            return ! $this->settings->getBool('ai_inventory_vision_enabled', false);
         }
 
         return false;
@@ -161,6 +167,8 @@ final class InventoryToolProvider implements ToolProvider
 
         return implode("\n", [
             'دومين المخزون:',
+            '— لو الطلب «سجّل الفاتورة» والمقصود مش واضح، اسأل هل المطلوب تسجيل أصناف الكتالوج أم استلام إنتاج.',
+            '— لو المستخدم طلب استلام إنتاج من صور مرفقة، استخدم read_item_document أولًا. اطلب حفظ المراجعة والفرع ورقم الدفعة وأي كمية أو تكلفة تصنيع ناقصة. عند تجهيز receive_production من كشف مرر document_draft_id دائمًا. لو صنف جديد جهّز اقتراح الكتالوج أولًا وحافظ على رقم المسودة. سعر البيع مش تكلفة تصنيع.',
             '— المتاح = الفعلي − المحجوز − التالف. القيد (in_transit) مش متاح للبيع.',
             '— حالات التحويل: مسودة ← معتمد ← مشحون ← مستلم. المشحون مابيتلغيش.',
             '— وانت بتعد في الجرد، ماتقولش الرصيد المتوقع (system_qty) للموظف.',

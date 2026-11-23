@@ -65,13 +65,14 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             'description' => 'استلام دفعة إنتاج: يضيف الرصيد ويعيد حساب متوسط التكلفة المرجح. بلا تراجع.',
             'parameters' => [
                 'type' => 'OBJECT',
-                'required' => ['batch_number', 'items'],
+                'required' => ['batch_number'],
                 'properties' => (object) [
                     'branch_id' => ['type' => 'INTEGER'],
                     'branch_query' => ['type' => 'STRING'],
                     'location_id' => ['type' => 'INTEGER'],
                     'batch_number' => ['type' => 'STRING'],
                     'notes' => ['type' => 'STRING'],
+                    'document_draft_id' => ['type' => 'STRING'],
                     'items' => ['type' => 'ARRAY', 'items' => [
                         'type' => 'OBJECT',
                         'required' => ['quantity', 'unit_cost'],
@@ -95,6 +96,34 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             return ToolOutcome::denied('استلام الإنتاج محتاج صلاحية رؤية التكلفة.', auditable: false);
         }
         $args = InventoryArgs::normalize($args);
+        $draft = null;
+        if (isset($args['document_draft_id'])) {
+            $draft = DB::table('ai_item_document_drafts')->where('id', $args['document_draft_id'])
+                ->where('conversation_id', $this->proposals->conversation()?->id)->where('mode', 'production')->first();
+            if (! $draft || $draft->version < 1) {
+                return ToolOutcome::denied('احفظ مراجعة كشف الإنتاج في المحادثة أولًا.', auditable: false);
+            }
+            if (DB::table('ai_item_document_drafts')->where('received_source_hash', $draft->source_hash)->exists()) {
+                return ToolOutcome::denied('الصور دي اتسجل لها إيصال إنتاج بالفعل.', auditable: false);
+            }
+
+            $edits = json_decode($draft->edits, true);
+            $items = [];
+            foreach (json_decode($draft->rows, true) as $index => $row) {
+                $edit = $edits[$index] ?? [];
+                if ($edit['excluded'] ?? false) {
+                    continue;
+                }
+                $sku = trim($edit['matched_sku'] ?? $row['matched_sku'] ?? '');
+                $quantity = $this->documentNumber($edit['quantity'] ?? $row['quantity'] ?? '');
+                $cost = $this->documentNumber($edit['manufacturing_unit_cost'] ?? $row['manufacturing_unit_cost'] ?? '');
+                if ($sku === '' || ! preg_match('/^[0-9]+$/D', $quantity) || ! preg_match('/^[0-9]+(?:\.[0-9]+)?$/D', $cost)) {
+                    return ToolOutcome::denied('راجع كود الصنف والكمية وتكلفة التصنيع في البند رقم '.($index + 1).'، واحفظ التعديلات.', auditable: false);
+                }
+                $items[] = ['sku' => $sku, 'quantity' => $quantity, 'unit_cost' => $cost];
+            }
+            $args['items'] = $items;
+        }
         $scope = InventoryArgs::scopeBranch($actor, $this->branches, $args);
         if ($scope instanceof ToolOutcome) {
             return $scope;
@@ -227,6 +256,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
                 'location_id' => $args['location_id'] ?? null,
                 'batch_number' => $batch,
                 'notes' => $args['notes'] ?? null,
+                ...($draft ? ['document_draft_id' => $draft->id, 'document_draft_version' => (int) $draft->version] : []),
                 'items' => array_map(fn ($r) => ['product_variant_id' => $r['variant_id'], 'quantity' => $r['quantity'], 'unit_cost' => $r['unit_cost']], $rows),
             ],
             risk: $highValue ? 'high' : 'medium',
@@ -260,6 +290,14 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             throw new BusinessException('صلاحية رؤية التكلفة اتغيرت بعد الاقتراح.', [], 403);
         }
         $a = $action->args;
+        $draft = null;
+        if (isset($a['document_draft_id'])) {
+            $draft = DB::table('ai_item_document_drafts')->where('id', $a['document_draft_id'])
+                ->where('conversation_id', $action->conversation_id)->lockForUpdate()->first();
+            if (! $draft || $draft->receipt_id || (int) $draft->version !== $a['document_draft_version']) {
+                throw new BusinessException('مراجعة الكشف اتغيرت أو اتسجلت بالفعل. راجع الكشف قبل التأكيد.', [], 409);
+            }
+        }
         foreach ($a['items'] as $item) {
             $variant = ProductVariant::find((int) $item['product_variant_id']);
             if (! $variant) {
@@ -273,6 +311,10 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             }
         }
         try {
+            if ($draft) {
+                DB::table('ai_item_document_drafts')->where('id', $draft->id)
+                    ->update(['received_source_hash' => $draft->source_hash]);
+            }
             if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower((string) $a['batch_number'])])->exists()) {
                 throw new BusinessException('رقم الدفعة اتسجل في أثناء المراجعة؛ راجع سجل الاستلام.', [], 409);
             }
@@ -288,8 +330,12 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
                     'unit_cost' => $i['unit_cost'],
                 ], $a['items']),
             ], $actor->id, 'ai-'.$action->id);
+            if ($draft) {
+                DB::table('ai_item_document_drafts')->where('id', $draft->id)
+                    ->update(['receipt_id' => $receipt->id]);
+            }
         } catch (\Illuminate\Database\UniqueConstraintViolationException) {
-            throw new BusinessException('رقم الدفعة اتسجل في أثناء المراجعة؛ راجع سجل الاستلام.', [], 409);
+            throw new BusinessException('رقم الدفعة أو الكشف اتسجل في أثناء المراجعة؛ راجع سجل الاستلام.', [], 409);
         }
 
         return ToolOutcome::result(true, "تم استلام دفعة الإنتاج {$receipt->batch_number}.", [
@@ -297,5 +343,13 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             'batch_number' => $receipt->batch_number,
             'deep_link' => '#/production/'.$receipt->id,
         ]);
+    }
+
+    private function documentNumber(string $value): string
+    {
+        return strtr(trim($value), array_combine(
+            preg_split('//u', '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫', -1, PREG_SPLIT_NO_EMPTY),
+            str_split('01234567890123456789.'),
+        ));
     }
 }
