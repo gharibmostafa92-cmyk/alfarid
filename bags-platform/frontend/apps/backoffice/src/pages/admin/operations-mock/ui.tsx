@@ -139,6 +139,12 @@ export const ICON_PATHS: Record<string, ReactNode> = {
     </>
   ),
   check: <path d="M20 6L9 17l-5-5" />,
+  copy: (
+    <>
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </>
+  ),
   upload: (
     <>
       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
@@ -537,7 +543,7 @@ export function PageHead({
   back?: { onClick: () => void; label: string };
 }) {
   return (
-    <div className="stg stg-1 flex flex-wrap items-end justify-between gap-4 pt-1" dir="rtl">
+    <div className="stg stg-1 flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4 pt-1" dir="rtl">
       <div className="min-w-0 flex-1 text-right">
         {back && (
           <button onClick={back.onClick} className="btn btn-ghost btn-xs mb-2 -ms-2">
@@ -545,12 +551,12 @@ export function PageHead({
             {back.label}
           </button>
         )}
-        <h1 className="font-display text-[30px] sm:text-[36px] font-medium tracking-[-0.01em] leading-tight tx1 break-words text-right">
+        <h1 className="font-display text-[26px] sm:text-[36px] font-medium tracking-[-0.01em] leading-tight tx1 break-words text-right">
           {title}
         </h1>
-        {sub && <p className="text-[13.5px] mt-1 tx2 pretty break-words text-right">{sub}</p>}
+        {sub && <p className="text-[13px] sm:text-[13.5px] mt-1 tx2 pretty break-words text-right">{sub}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2.5 shrink-0">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -774,12 +780,12 @@ export function TabsBar({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="v-pill p-1.5 inline-flex items-center gap-1 stg stg-2 flex-wrap max-w-full rounded-2xl sm:rounded-full">
+    <div className="v-pill p-1.5 flex w-full sm:w-auto sm:inline-flex items-center gap-1 stg stg-2 flex-wrap max-w-full rounded-2xl sm:rounded-full">
       {tabs.map((t) => (
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
-          className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-[12.5px] sm:text-[13px] font-medium transition active:scale-[0.97] active:transition-none select-none [touch-action:manipulation] flex items-center gap-1.5 min-h-[38px]"
+          className="flex-1 sm:flex-initial justify-center whitespace-nowrap px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl sm:rounded-full text-[12px] sm:text-[13px] font-medium transition active:scale-[0.97] active:transition-none select-none [touch-action:manipulation] flex items-center gap-1.5 min-h-[44px] sm:min-h-[38px]"
           style={
             value === t.value
               ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }
@@ -820,41 +826,43 @@ export function DataTable<T extends Record<string, any>>({
   foot?: ReactNode;
 }) {
   return (
-    <div className="overflow-x-auto -mx-1 px-1">
-      <table className={'tbl' + (compact ? ' compact' : '')}>
-        <thead>
-          <tr>
-            {cols.map((c, i) => (
-              <th key={i} style={{ width: c.w, textAlign: c.align }}>
-                {c.h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
+    <div className="min-w-0">
+      <div className="overflow-x-auto -mx-1 px-1">
+        <table className={'tbl' + (compact ? ' compact' : '')}>
+          <thead>
             <tr>
-              <td colSpan={cols.length} className="text-center !py-10 tx3">
-                {empty}
-              </td>
-            </tr>
-          )}
-          {rows.map((r, ri) => (
-            <tr
-              key={r.id ?? ri}
-              className={onRow ? 'clickable' : ''}
-              onClick={onRow ? () => onRow(r) : undefined}
-            >
-              {cols.map((c, ci) => (
-                <td key={ci} style={{ textAlign: c.align }}>
-                  {c.r ? c.r(r, ri) : c.k ? r[c.k] : null}
-                </td>
+              {cols.map((c, i) => (
+                <th key={i} style={{ width: c.w, textAlign: c.align }}>
+                  {c.h}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-        {foot}
-      </table>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={cols.length} className="text-center !py-10 tx3">
+                  {empty}
+                </td>
+              </tr>
+            )}
+            {rows.map((r, ri) => (
+              <tr
+                key={r.id ?? ri}
+                className={onRow ? 'clickable' : ''}
+                onClick={onRow ? () => onRow(r) : undefined}
+              >
+                {cols.map((c, ci) => (
+                  <td key={ci} style={{ textAlign: c.align }}>
+                    {c.r ? c.r(r, ri) : c.k ? r[c.k] : null}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {foot}
     </div>
   );
 }
@@ -890,19 +898,19 @@ export function Pager({
   const endItem = total === 0 ? 0 : Math.min(total, cur * safePer);
   const items = pagerWindow(cur, pages);
   return (
-    <div className="flex items-center justify-between pt-4 text-[12px] tx2">
-      <span>
+    <div className="flex flex-wrap items-center justify-between gap-2 pt-4 text-[12px] tx2">
+      <span className="whitespace-nowrap">
         عرض <Num>{startItem}–{endItem}</Num> من{' '}
         <Num>{total}</Num>
       </span>
       <div className="flex items-center gap-1.5">
         <button
-          className="icon-btn !w-7 !h-7"
+          className="icon-btn sm:!w-7 sm:!h-7 sm:!min-w-[28px] sm:!min-h-[28px]"
           disabled={cur <= 1}
           onClick={() => onPage && onPage(cur - 1)}
           aria-label="الصفحة السابقة"
         >
-          <Icon name="chevR" size={13} />
+          <Icon name="chevR" size={14} />
         </button>
         {items.map((item, i) =>
           item === '...' ? (
@@ -912,7 +920,7 @@ export function Pager({
               key={item}
               onClick={() => onPage && onPage(item)}
               aria-current={cur === item ? 'page' : undefined}
-              className={'w-7 h-7 rounded-full text-[11.5px] font-semibold num ' + (cur === item ? '' : 'tx2')}
+              className={'w-11 h-11 sm:w-7 sm:h-7 rounded-full text-[12.5px] sm:text-[11.5px] font-semibold num inline-flex items-center justify-center transition active:scale-[0.94] [touch-action:manipulation] ' + (cur === item ? '' : 'tx2')}
               style={
                 cur === item
                   ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }

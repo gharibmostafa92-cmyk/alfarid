@@ -16,7 +16,7 @@ import { StockPage } from './inventory/StockPage';
 import { TransfersPage } from './inventory/TransfersPage';
 import { StocktakePage } from './inventory/StocktakePage';
 import { Icon } from './ui/Icons';
-import { useToast } from './ui/SharedUI';
+import { egp, fmt, useToast } from './ui/SharedUI';
 import { pos } from '../services/pos-data-source';
 import { usePosCart, posCartStore, clearPosCartStorage } from '../stores/pos-cart.store';
 import { createScanDetector, isRapidScannerKey } from '../lib/barcode-scanner';
@@ -24,7 +24,7 @@ import { beepError, beepSuccess } from '../lib/sound';
 import { createPendingSaleManager, clearPendingSaleStorage, type PendingSaleDraft } from '../lib/pending-sale';
 import { createTabCoordinator } from '../lib/tab-coordinator';
 import { getLastReceipt, clearReceiptArchive, scopeFromOwner, type ArchivedReceipt } from '../lib/receipt-archive';
-import { toCents, fromCents } from '../lib/money';
+import { computeCartTotals, toCents, fromCents } from '../lib/money';
 import { isCancel, normalizeError } from '../lib/pos-error';
 import type {
   AppScreen,
@@ -47,6 +47,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   const [accountOpen, setAccountOpen] = useState(false);
 
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('terminal');
+  const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [currentShift, setCurrentShift] = useState<PosShift | null>(null);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [cashier, setCashier] = useState<CashierUser | null>(null);
@@ -491,6 +492,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
       // it); hiding it locally created ghost invoices. It leaves the drawer
       // on checkout (handleSalePaid) or explicit delete.
       setCurrentScreen('terminal');
+      setMobileTab('cart');
       toast(`تم استرجاع الفاتورة ${resumed.ref}`);
     } catch (err) {
       if (!isCancel(err)) {
@@ -533,12 +535,14 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
     }
     posCartStore.getState().clearCart();
     setResumedHeldId(null);
+    setMobileTab('catalog');
     checkPendingSale();
   };
 
   const handleClearCart = useCallback(() => {
     posCartStore.getState().clearCart();
     setResumedHeldId(null);
+    setMobileTab('catalog');
   }, []);
 
   // F-17: logging out ends the trust boundary — drop every cached receipt
@@ -758,35 +762,104 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
             }}
           />}
 
-          {currentScreen === 'terminal' && (
-            <div className="sale">
-              <Catalog
-                cart={cart}
-                customer={customer}
-                onAdd={handleAddToCart}
-                scanRef={scanInputRef}
-              />
-              <Cart
-                cart={cart}
-                setCart={setCart}
-                customer={customer}
-                setCustomer={setCustomer as (c: Customer | null) => void}
-                discount={discount}
-                setDiscount={setDiscount}
-                onHold={() => setIsHoldOpen(true)}
-                onHeld={() => setIsHeldOpen(true)}
-                heldCount={heldCount}
-                onPay={() => void handlePay()}
-                onClear={handleClearCart}
-                lastAdded={lastAdded}
-                toast={toast}
-                cashier={cashier}
-                quote={quote}
-                isQuoting={isQuoting}
-                maxDiscountPercent={maxDiscountPercent}
-              />
-            </div>
-          )}
+          {currentScreen === 'terminal' && (() => {
+            const mobileCartCount = cart.reduce((sum, l) => sum + l.qty, 0);
+            const mobileTotal = quote ? quote.grand_total : computeCartTotals(cart, discount, maxDiscountPercent).total;
+            return (
+              <div className="sale" data-mobile-tab={mobileTab}>
+                <div className="pos-mobile-tabs" role="tablist" aria-label="أقسام شاشة البيع">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobileTab === 'catalog'}
+                    onClick={() => setMobileTab('catalog')}
+                  >
+                    <Icon n="bag" s={16} />
+                    <span>المنتجات</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mobileTab === 'cart'}
+                    onClick={() => setMobileTab('cart')}
+                  >
+                    <Icon n="pos" s={16} />
+                    <span>الفاتورة</span>
+                    {mobileCartCount > 0 && (
+                      <span className="badge-count num">{fmt(mobileCartCount)}</span>
+                    )}
+                  </button>
+                </div>
+                <Catalog
+                  cart={cart}
+                  customer={customer}
+                  onAdd={handleAddToCart}
+                  scanRef={scanInputRef}
+                />
+                <Cart
+                  cart={cart}
+                  setCart={setCart}
+                  customer={customer}
+                  setCustomer={setCustomer as (c: Customer | null) => void}
+                  discount={discount}
+                  setDiscount={setDiscount}
+                  onHold={() => setIsHoldOpen(true)}
+                  onHeld={() => setIsHeldOpen(true)}
+                  heldCount={heldCount}
+                  onPay={() => void handlePay()}
+                  onClear={handleClearCart}
+                  lastAdded={lastAdded}
+                  toast={toast}
+                  cashier={cashier}
+                  quote={quote}
+                  isQuoting={isQuoting}
+                  maxDiscountPercent={maxDiscountPercent}
+                />
+                {mobileTab === 'catalog' && (
+                  <div className="pos-mobile-dock">
+                    {cart.length > 0 ? (
+                      <>
+                        <button
+                          type="button"
+                          className="pos-mobile-dock-summary"
+                          onClick={() => setMobileTab('cart')}
+                        >
+                          <span className="pos-mobile-dock-count num">{fmt(mobileCartCount)}</span>
+                          <span className="col" style={{ textAlign: 'start', minWidth: 0 }}>
+                            <span className="fs-12 t-2">عرض الفاتورة</span>
+                            <b className={isQuoting ? 'num fs-16 quoting' : 'num fs-16'}>
+                              {egp(mobileTotal)} <small className="fs-12 fw-5 t-3">ج.م</small>
+                            </b>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-accent pos-mobile-dock-pay"
+                          onClick={() => void handlePay()}
+                        >
+                          <span>إتمام الدفع</span>
+                          <Icon n="check" s={17} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="fs-13 t-2 truncate">اضغط على أي صنف لإضافته للفاتورة</span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary pos-mobile-dock-held"
+                          onClick={() => setIsHeldOpen(true)}
+                        >
+                          <Icon n="inbox" s={16} />
+                          <span>المعلقة</span>
+                          {heldCount > 0 && <span className="badge-count num">{fmt(heldCount)}</span>}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {currentScreen === 'stock' && <StockPage branch={branch} />}
 

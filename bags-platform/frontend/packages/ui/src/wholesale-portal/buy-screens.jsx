@@ -18,7 +18,7 @@ const QUOTE_ST = { priced_by_admin: 'priced', converted_to_order: 'converted' };
 
 /* ---------- 6. Dashboard ---------- */
 export const Dashboard = () => {
-  const { go, account, dash } = useApp();
+  const { go, account, dash, cartTotalQty } = useApp();
   const pct = account?.credit_limit ? Math.round(((account.used_credit ?? 0) / account.credit_limit) * 100) : 0;
   const invoices = (dash?.latest_invoices || []).map((o) => ({
     id: o.id, number: o.order_number, date: day(o.created_at),
@@ -36,8 +36,27 @@ export const Dashboard = () => {
   ];
   return (
     <>
-      <PageHead en="Dashboard" ar={<>أهلًا {String(account?.name || '').trim().split(/\s+/).filter(Boolean)[0] || 'تاجرنا'} — {account?.company || ''}</>} />
+      <PageHead en="Dashboard" ar={<>أهلًا {String(account?.name || '').trim().split(/\s+/).filter(Boolean)[0] || 'تاجرنا'} — {account?.company || ''}</>}>
+        <button className="btn-pill" onClick={() => go('quick')}><i className="fa-solid fa-bolt" aria-hidden="true" /> طلب سريع</button>
+        <button className="btn-pill is-dark" onClick={() => go('catalog')}><i className="fa-solid fa-table-cells-large" aria-hidden="true" /> تصفح الكتالوج</button>
+      </PageHead>
       <Async rows={3} cols={4} empty={<Empty title="لا توجد بيانات بعد" />}>
+        {cartTotalQty > 0 && (
+          <div className="dash-cart-banner">
+            <div className="dash-cart-banner-info">
+              <span className="dash-cart-banner-ic" aria-hidden="true"><i className="fa-solid fa-bag-shopping" /></span>
+              <div>
+                <strong>لديك <span className="num">{cartTotalQty}</span> قطعة في سلة الجملة</strong>
+                <div className="muted small">يمكنك مراجعة الكميات وشرائح الأسعار وإتمام الطلب الآن.</div>
+              </div>
+            </div>
+            <button type="button" className="btn-pill is-dark sm" onClick={() => go('cart')}>
+              <span>استكمال الطلب</span>
+              <i className="fa-solid fa-arrow-left" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+
         <div className="kpis">
           <div className="kpi is-ink">
             <span className="kpi-en">CREDIT LIMIT</span><span className="kpi-label">حد الائتمان</span>
@@ -46,55 +65,63 @@ export const Dashboard = () => {
           <div className="kpi">
             <span className="kpi-en">USED CREDIT</span><span className="kpi-label">المستخدم من الائتمان</span>
             <span className="kpi-value">{fmt(account?.used_credit ?? 0, 0)}<small>EGP</small></span>
-            <div className="kpi-bar"><span style={{ width: pct + '%' }} /></div>
+            <div className="kpi-bar"><span style={{ width: Math.min(100, pct) + '%' }} /></div>
             <span className="kpi-foot"><span className="num">{pct}%</span> من الحد</span>
           </div>
           <div className="kpi">
             <span className="kpi-en">AVAILABLE</span><span className="kpi-label">المتاح للشراء الآجل</span>
             <span className="kpi-value" style={{ color: 'var(--accent)' }}>{fmt(account?.available_credit ?? 0, 0)}<small>EGP</small></span>
           </div>
-          <div className="kpi" style={{ cursor: 'pointer' }} onClick={() => go('orders')}>
+          <div className="kpi is-click" role="button" tabIndex={0} onClick={() => go('orders')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('orders'); } }}>
             <span className="kpi-en">IN PROGRESS</span><span className="kpi-label">طلبات جاري تنفيذها</span>
             <span className="kpi-value">{account?.in_progress_orders_count ?? 0}</span>
-            <span className="kpi-foot">عرض الطلبات <i className="fa-solid fa-arrow-left" style={{ fontSize: 10 }} /></span>
+            <span className="kpi-foot">عرض الطلبات <i className="fa-solid fa-arrow-left" style={{ fontSize: 10 }} aria-hidden="true" /></span>
           </div>
         </div>
 
         <div className="dash-shortcuts">
           {shortcuts.map(([r, ic, l, en]) => (
             <button key={r} className="dash-sc" onClick={() => go(r)}>
-              <i className={`fa-solid ${ic}`} />
+              <i className={`fa-solid ${ic}`} aria-hidden="true" />
               <span><b>{l}</b><small>{en}</small></span>
-              <i className="fa-solid fa-arrow-left dash-sc-arrow" />
+              <i className="fa-solid fa-arrow-left dash-sc-arrow" aria-hidden="true" />
             </button>
           ))}
         </div>
 
         <div className="dash-tables">
           <Panel title="آخر الفواتير" en="LATEST 5 INVOICES" body={false} action={<button className="btn-link muted" onClick={() => go('invoices')}>عرض الكل</button>}>
-            <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th>رقم الطلب</th><th>الحالة</th><th>الدفع</th><th>السداد</th><th className="t-end">الإجمالي</th></tr></thead>
-              <tbody>{invoices.slice(0, 5).map((o) => (
-                <tr key={o.id} className="is-click" onClick={() => go('order', o.id)}>
-                  <td><div className="strong num">{o.number}</div><div className="soft small num">{o.date}</div></td>
-                  <td><Badge map={ORDER_STATUS} k={o.status} /></td>
-                  <td>{PAY_METHOD[o.method]}</td>
-                  <td><Badge map={PAY_STATUS} k={o.pay} /></td>
-                  <td className="t-end strong num">{fmt(o.total)}</td>
-                </tr>))}</tbody>
-            </table></div>
+            {invoices.length === 0 ? (
+              <Empty icon="fa-file-lines" title="لا توجد فواتير بعد" desc="ستظهر أحدث فواتير طلباتك هنا فور تأكيد أول طلب." action={<button className="btn-pill sm" onClick={() => go('catalog')}>بدء أول طلب</button>} />
+            ) : (
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>رقم الطلب</th><th>الحالة</th><th>الدفع</th><th>السداد</th><th className="t-end">الإجمالي</th></tr></thead>
+                <tbody>{invoices.slice(0, 5).map((o) => (
+                  <tr key={o.id} className="is-click" onClick={() => go('order', o.id)}>
+                    <td><div className="strong num">{o.number}</div><div className="soft small num">{o.date}</div></td>
+                    <td><Badge map={ORDER_STATUS} k={o.status} /></td>
+                    <td>{PAY_METHOD[o.method]}</td>
+                    <td><Badge map={PAY_STATUS} k={o.pay} /></td>
+                    <td className="t-end strong num">{fmt(o.total)}</td>
+                  </tr>))}</tbody>
+              </table></div>
+            )}
           </Panel>
           <Panel title="آخر عروض الأسعار" en="LATEST 5 QUOTATIONS" body={false} action={<button className="btn-link muted" onClick={() => go('quotes')}>عرض الكل</button>}>
-            <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th>الرقم</th><th>الحالة</th><th>صالح حتى</th><th className="t-end">الإجمالي</th></tr></thead>
-              <tbody>{quotes.slice(0, 5).map((q) => (
-                <tr key={q.id} className="is-click" onClick={() => go('quote', q.id)}>
-                  <td><div className="strong num">{q.number}</div><div className="soft small num">{q.created}</div></td>
-                  <td><Badge map={QUOTE_STATUS} k={q.status} /></td>
-                  <td className="num">{q.valid_until || '—'}</td>
-                  <td className="t-end strong num">{q.total != null ? fmt(q.total) : '—'}</td>
-                </tr>))}</tbody>
-            </table></div>
+            {quotes.length === 0 ? (
+              <Empty icon="fa-file-signature" title="لا توجد عروض أسعار" desc="اطلب عرض سعر خاص للكميات الكبيرة أو التوريد المخصص." action={<button className="btn-pill sm" onClick={() => go('quoteNew')}>طلب عرض سعر</button>} />
+            ) : (
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>الرقم</th><th>الحالة</th><th>صالح حتى</th><th className="t-end">الإجمالي</th></tr></thead>
+                <tbody>{quotes.slice(0, 5).map((q) => (
+                  <tr key={q.id} className="is-click" onClick={() => go('quote', q.id)}>
+                    <td><div className="strong num">{q.number}</div><div className="soft small num">{q.created}</div></td>
+                    <td><Badge map={QUOTE_STATUS} k={q.status} /></td>
+                    <td className="num">{q.valid_until || '—'}</td>
+                    <td className="t-end strong num">{q.total != null ? fmt(q.total) : '—'}</td>
+                  </tr>))}</tbody>
+              </table></div>
+            )}
           </Panel>
         </div>
       </Async>
@@ -104,9 +131,10 @@ export const Dashboard = () => {
 
 /* ---------- 7. Catalog ---------- */
 export const Catalog = ({ productImageUrl } = {}) => {
-  const { addToCart, toast } = useApp();
+  const { addToCart, toast, go, cartTotalQty } = useApp();
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
+  const [stockOnly, setStockOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(null);
   const [exporting, setExporting] = useState(null);
@@ -120,7 +148,10 @@ export const Catalog = ({ productImageUrl } = {}) => {
     .products({ search: debouncedQ || undefined, page, per_page: 24 }, signal)
     .then((r) => ({ items: (r.data || []).map(mapProduct), meta: pageMeta(r.meta) })), [debouncedQ, page]);
 
-  const list = api.data?.items || [];
+  const rawList = api.data?.items || [];
+  const list = stockOnly
+    ? rawList.filter((p) => p.variants.reduce((a, x) => a + (x.qty || 0), 0) > 0)
+    : rawList;
   const meta = api.data?.meta || { page: 1, pages: 1, total: 0, per: 24 };
 
   const doExport = async (f) => {
@@ -136,19 +167,48 @@ export const Catalog = ({ productImageUrl } = {}) => {
   };
 
   return (
-    <>
+    <div className="cat-page">
       <PageHead en="Price List" ar="كتالوج الجملة بأسعار حسابك وشرائح الكميات">
+        {cartTotalQty > 0 && (
+          <button className="btn-pill is-dark" onClick={() => go('cart')}>
+            <i className="fa-solid fa-bag-shopping" aria-hidden="true" /> السلة (<span className="num">{cartTotalQty}</span>)
+          </button>
+        )}
         <button className="btn-pill" onClick={() => doExport('pdf')} disabled={!!exporting}>{exporting === 'pdf' ? <span className="spin" /> : <i className="fa-regular fa-file-pdf" />} تنزيل PDF</button>
         <button className="btn-pill" onClick={() => doExport('xlsx')} disabled={!!exporting}>{exporting === 'xlsx' ? <span className="spin" /> : <i className="fa-regular fa-file-excel" />} تنزيل Excel</button>
       </PageHead>
-      <section className="panel">
-        <div className="toolbar">
-          <div className="search"><i className="fa-solid fa-magnifying-glass" /><input className="line-input" placeholder="ابحث بالاسم أو SKU…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          <span className="soft small"><span className="num">{meta.total}</span> منتج · الأسعار شاملة خصم حسابك</span>
+      <section className="panel cat-panel">
+        <div className="toolbar cat-toolbar">
+          <div className="search cat-search">
+            <i className="fa-solid fa-magnifying-glass" />
+            <input
+              className="line-input"
+              placeholder="ابحث بالاسم أو SKU…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {q && (
+              <button
+                type="button"
+                className="cat-search-clear"
+                onClick={() => setQ('')}
+                aria-label="مسح البحث"
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            )}
+          </div>
+          <div className="cat-toolbar-filters">
+            <div className="chips" role="group" aria-label="تصفية التوفر">
+              <button type="button" className={`chip${!stockOnly ? ' is-on' : ''}`} onClick={() => setStockOnly(false)}>الكل</button>
+              <button type="button" className={`chip${stockOnly ? ' is-on' : ''}`} onClick={() => setStockOnly(true)}>المتاح فقط</button>
+            </div>
+            <span className="soft small cat-meta-count"><span className="num">{stockOnly ? list.length : meta.total}</span> منتج · الأسعار شاملة خصم حسابك</span>
+          </div>
         </div>
         <DataBoundary api={api}>
           <Async rows={6} cols={6} isEmpty={list.length === 0} empty={<Empty icon="fa-magnifying-glass" title="مفيش نتائج" desc={q ? `مفيش منتج أو SKU يطابق «${q}».` : 'لا توجد منتجات متاحة حاليًا.'} action={q && <button className="btn-pill" onClick={() => setQ('')}>مسح البحث</button>} />}>
-            <div className="tbl-wrap"><table className="tbl cat-tbl">
+            <div className="tbl-wrap cat-tbl-wrap"><table className="tbl cat-tbl">
               <thead><tr><th>المنتج</th><th>المتغيرات</th><th>السعر الأساسي</th><th>سعرك</th><th>شرائح الكميات</th><th>المتاح</th><th></th></tr></thead>
               <tbody>{list.map((p) => {
                 const v = p.variants[0];
@@ -166,16 +226,72 @@ export const Catalog = ({ productImageUrl } = {}) => {
                   </tr>);
               })}</tbody>
             </table></div>
+            <div className="cat-mobile-list">
+              {list.map((p) => {
+                const v = p.variants[0];
+                const stock = p.variants.reduce((a, x) => a + (x.qty || 0), 0);
+                const prices = p.variants.map((x) => x.price).filter((x) => x != null);
+                const minPrice = prices.length ? fmt(Math.min(...prices)) : '—';
+                const hasRange = prices.length > 1 && Math.min(...prices) !== Math.max(...prices);
+                return (
+                  <article key={p.id} className="cat-m-card">
+                    <div className="cat-m-top">
+                      <Thumb src={productImageUrl?.(p.image)} />
+                      <div className="cat-m-info">
+                        <div className="cat-m-head">
+                          <h3 className="prod-name">{p.name_ar}</h3>
+                          {stock === 0
+                            ? <span className="badge danger">نفدت الكمية</span>
+                            : stock < 50
+                              ? <span className="badge warning">متبقي <span className="num">{stock}</span></span>
+                              : <span className="badge success">متاح <span className="num">{stock}</span></span>}
+                        </div>
+                        {p.name_en && <div className="prod-en">{p.name_en}</div>}
+                        <div className="cat-m-prices">
+                          <span className="strong num">{hasRange ? 'من ' : ''}{minPrice}</span>
+                          <span className="strike num small">{fmt(p.base)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {p.variants.length > 0 && (
+                      <div className="cat-m-meta">
+                        <span className="soft small"><strong className="num">{p.variants.length}</strong> متغيرات: {p.variants.map((x) => x.label).join(' · ')}</span>
+                      </div>
+                    )}
+                    {v && v.tiers?.length > 0 && (
+                      <div className="cat-m-tiers">
+                        {v.tiers.map(([m, pr]) => <span key={m} className="tier"><span className="num">{m}+</span> ← <b className="num">{fmt(pr, 0)}</b></span>)}
+                      </div>
+                    )}
+                    <button type="button" className="btn-pill is-dark cat-m-btn" onClick={() => setOpen(p)}>
+                      <i className="fa-solid fa-layer-group" /> اختيار الكمية
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
             <Pager page={meta.page} pages={meta.pages} total={meta.total} per={meta.per} onPage={setPage} />
           </Async>
         </DataBoundary>
       </section>
       <p className="note mt-16"><i className="fa-solid fa-circle-info" />السعر النهائي لكل بند يتحسب في السلة حسب الكمية والشريحة المطبقة وقت الطلب.</p>
+      {cartTotalQty > 0 && (
+        <div className="cat-float-cart">
+          <div className="cat-float-cart-info">
+            <i className="fa-solid fa-bag-shopping" />
+            <span>في السلة <strong className="num">{cartTotalQty}</strong> قطعة</span>
+          </div>
+          <button type="button" className="btn-pill is-dark sm" onClick={() => go('cart')}>
+            <span>عرض السلة</span>
+            <i className="fa-solid fa-arrow-left" />
+          </button>
+        </div>
+      )}
       {open && <VariantModal product={open} imageSrc={productImageUrl?.(open.image)} onClose={() => setOpen(null)} onAdd={async (lines) => {
         const ok = await addToCart(lines.map((l) => ({ variant_id: l.v.id, sku: l.v.sku, qty: l.qty })));
         if (ok) setOpen(null);
       }} />}
-    </>
+    </div>
   );
 };
 
@@ -196,11 +312,11 @@ export const VariantModal = ({ product, imageSrc, onClose, onAdd }) => {
   };
   return (
     <Modal wide title={product.name_ar} onClose={() => { if (!busy) onClose(); }} icon={<Thumb sm src={imageSrc} />}
-      foot={<><span className="muted small" style={{ marginInlineEnd: 'auto' }}>تقديري: <Money v={total} strong /></span>
+      foot={<><span className="muted small modal-est" style={{ marginInlineEnd: 'auto' }}>تقديري: <Money v={total} strong /></span>
         <button className="btn-pill" onClick={onClose} disabled={busy}>إلغاء</button>
-        <button className="btn-pill is-dark" disabled={!lines.length || over || busy} onClick={submit}>{busy ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة للسلة {lines.length > 0 && <span className="num">({lines.reduce((a, l) => a + l.qty, 0)})</span>}</button></>}>
+        <button className="btn-pill is-dark modal-submit" disabled={!lines.length || over || busy} onClick={submit}>{busy ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة للسلة {lines.length > 0 && <span className="num">({lines.reduce((a, l) => a + l.qty, 0)})</span>}</button></>}>
       <p className="prod-en" style={{ textAlign: 'right', marginTop: -10 }}>{product.name_en} · السعر الأساسي <span className="strike">{fmt(product.base)}</span></p>
-      <div className="tbl-wrap mt-16"><table className="tbl">
+      <div className="tbl-wrap mt-16 vm-tbl-wrap"><table className="tbl">
         <thead><tr><th>المتغير</th><th>SKU / باركود</th><th>سعرك</th><th>الشرائح</th><th>المتاح</th><th>الكمية</th></tr></thead>
         <tbody>{product.variants.map((v) => {
           const q = qty[v.id]; const bad = q > (v.qty || 0);
@@ -209,12 +325,82 @@ export const VariantModal = ({ product, imageSrc, onClose, onAdd }) => {
               <td className="strong">{v.label}</td>
               <td><div className="sku">{v.sku}</div><div className="sku soft">{v.barcode}</div></td>
               <td className="strong num">{v.price != null ? fmt(q ? tierPrice(v, q) : v.price) : '—'}</td>
-              <td>{(v.tiers || []).map(([m, pr]) => <span key={m} className="tier" style={q >= m ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : null}><span className="num">{m}+</span> <b className="num">{fmt(pr, 0)}</b></span>)}</td>
+              <td>{(v.tiers || []).map(([m, pr]) => {
+                const isActiveTier = q >= m;
+                const canTap = v.qty >= m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    disabled={!canTap}
+                    onClick={() => canTap && setQty({ ...qty, [v.id]: m })}
+                    className={`tier vm-tier-btn${isActiveTier ? ' is-on' : ''}`}
+                    title={canTap ? `تطبيق شريحة ${m}+ قطعة` : 'الكمية غير متاحة'}
+                  >
+                    <span className="num">{m}+</span> <b className="num">{fmt(pr, 0)}</b>
+                  </button>
+                );
+              })}</td>
               <td className="num">{!v.qty ? <span className="badge danger">نفدت</span> : v.qty}</td>
               <td>{!v.qty ? <span className="soft small">غير متاح</span> : <><Qty value={q} onChange={(n) => setQty({ ...qty, [v.id]: n })} />{bad && <p className="f-error">المتاح <span className="num">{v.qty}</span> فقط</p>}</>}</td>
             </tr>);
         })}</tbody>
       </table></div>
+
+      <div className="vm-cards mt-16">
+        {product.variants.map((v) => {
+          const q = qty[v.id];
+          const bad = q > (v.qty || 0);
+          const activePrice = v.price != null ? fmt(q ? tierPrice(v, q) : v.price) : '—';
+          return (
+            <div key={v.id} className={`vm-card${bad ? ' is-error' : ''}${q > 0 && !bad ? ' is-picked' : ''}`}>
+              <div className="vm-card-top">
+                <div>
+                  <div className="vm-card-label">{v.label}</div>
+                  <div className="sku">{v.sku}{v.barcode ? ` · ${v.barcode}` : ''}</div>
+                </div>
+                <div className="vm-card-stock">
+                  {!v.qty ? <span className="badge danger">نفدت</span> : <span className="badge default">متاح <span className="num">{v.qty}</span></span>}
+                </div>
+              </div>
+
+              <div className="vm-card-mid">
+                <div className="vm-card-price">
+                  <span className="soft small">سعرك للقطعة</span>
+                  <strong className="num">{activePrice}</strong>
+                </div>
+                {v.qty > 0 ? (
+                  <Qty value={q} onChange={(n) => setQty({ ...qty, [v.id]: n })} />
+                ) : (
+                  <span className="soft small">غير متاح</span>
+                )}
+              </div>
+
+              {(v.tiers || []).length > 0 && (
+                <div className="vm-card-tiers">
+                  {v.tiers.map(([m, pr]) => {
+                    const isActiveTier = q >= m;
+                    const canTap = v.qty >= m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        disabled={!canTap}
+                        onClick={() => canTap && setQty({ ...qty, [v.id]: m })}
+                        className={`tier vm-tier-btn${isActiveTier ? ' is-on' : ''}`}
+                      >
+                        <span className="num">{m}+</span> ← <b className="num">{fmt(pr, 0)}</b>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {bad && <p className="f-error">المتاح <span className="num">{v.qty}</span> فقط</p>}
+            </div>
+          );
+        })}
+      </div>
     </Modal>
   );
 };
@@ -237,6 +423,36 @@ export const QuickOrder = () => {
     lookupSeqRef.current += 1;
     lookupAbortRef.current?.abort();
     const r = [...rows]; r[i] = { ...r[i], [k]: v }; if (i === rows.length - 1 && v) r.push(blank()); setRows(r); setLooked(false); setResult(null);
+  };
+  const handleCodePaste = (i, e) => {
+    const text = e.clipboardData?.getData('text') || '';
+    if (!/[\r\n\t]/.test(text)) return;
+    const parsed = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/[\t,;]+|\s{2,}/).map((p) => p.trim()).filter(Boolean);
+        const code = parts[0] || '';
+        const qty = (parts[1] || '').replace(/\D/g, '');
+        return { code, qty };
+      })
+      .filter((item) => item.code)
+      .slice(0, 500);
+    if (!parsed.length) return;
+    e.preventDefault();
+    lookupSeqRef.current += 1;
+    lookupAbortRef.current?.abort();
+    const next = [...rows.slice(0, i), ...parsed, ...rows.slice(i + 1).filter((r) => r.code || r.qty), blank()].slice(0, 500);
+    setRows(next);
+    setLooked(false);
+    setResult(null);
+  };
+  const removeRow = (i) => {
+    const next = rows.filter((_, j) => j !== i);
+    setRows(next.length ? next : [blank()]);
+    setLooked(false);
+    setResult(null);
   };
 
   const lookup = async () => {
@@ -284,55 +500,161 @@ export const QuickOrder = () => {
     }
   };
 
+  const validTotal = valid.reduce((a, l) => a + (l.line_total || 0), 0);
+  const activeCount = rows.filter((r) => r.code && r.code.trim()).length;
+
   return (
-    <>
+    <div className="qo-page">
       <PageHead en="Quick Order" ar="أدخل الأكواد والكميات مباشرة، أو ارفع ملف Excel">
         <Seg value={tab} onChange={setTab} options={[{ value: 'manual', label: 'إدخال مباشر', icon: 'fa-keyboard' }, { value: 'import', label: 'استيراد ملف', icon: 'fa-file-arrow-up' }]} />
       </PageHead>
       {tab === 'manual' ? (
-        <div className="grid-2 grid-summary">
-          <section className="panel">
-            <div className="toolbar">
-              <span className="muted small">الصق من Excel مباشرة: عمود SKU أو باركود، ثم الكمية. حتى <span className="num">500</span> بند.</span>
-              <button className="btn-link muted" onClick={() => { setRows([blank()]); setLooked(false); setResult(null); }}>مسح الكل</button>
-            </div>
-            {skipped?.length > 0 && <div style={{ padding: '0 24px' }}><Banner kind="warn"><b>تم تخطي {skipped.length} بند:</b> {skipped.map((s) => `${s.sku} (${ { not_found_or_inactive: 'الصنف غير موجود أو غير متاح', insufficient_stock: 'الكمية غير متاحة' }[s.reason] || s.reason})`).join('، ')}</Banner></div>}
-            <div className="tbl-wrap"><table className="tbl qo-tbl">
-              <thead><tr><th style={{ width: 36 }}>#</th><th style={{ width: 210 }}>SKU أو باركود</th><th style={{ width: 96 }}>الكمية</th><th>الصنف</th><th>سعر الوحدة</th><th className="t-end">الإجمالي</th><th></th></tr></thead>
-              <tbody>{rows.map((r, i) => {
-                const x = looked ? rowState(r) : null;
-                const st = !x ? null : !x.found ? { err: 'الصنف غير موجود' } : (x.available_qty || 0) === 0 ? { err: 'نفدت الكمية', v: x } : !x.in_stock ? { warn: `المتاح ${x.available_qty} فقط`, v: x } : { ok: true, v: x };
-                return (
-                  <tr key={i} className={st && (st.err ? 'is-error' : st.warn ? 'is-warn' : '')}>
-                    <td className="soft num">{i + 1}</td>
-                    <td><input className={`box-input ltr${st && st.err && !st.v ? ' is-invalid' : ''}`} value={r.code} placeholder="SPH-…" onChange={(e) => set(i, 'code', e.target.value)} /></td>
-                    <td><input className="box-input ltr" value={r.qty} inputMode="numeric" onChange={(e) => set(i, 'qty', e.target.value.replace(/\D/g, ''))} /></td>
-                    <td>{!x ? <span className="soft small">{r.code ? 'اضغط «فحص البنود»' : ''}</span> : st.v ? <><div className="strong small">{st.v.product_name} — {st.v.label || st.v.sku}</div>{st.err ? <p className="f-error" style={{ margin: 0 }}><i className="fa-solid fa-circle-exclamation" />{st.err}</p> : st.warn ? <p className="f-error" style={{ margin: 0, color: '#b45309' }}><i className="fa-solid fa-triangle-exclamation" />{st.warn}</p> : <span className="small" style={{ color: '#047857' }}><i className="fa-solid fa-check" /> متاح</span>}</> : <p className="f-error" style={{ margin: 0 }}><i className="fa-solid fa-circle-xmark" />{st.err}</p>}</td>
-                    <td className="num">{x && x.unit_price != null ? fmt(x.unit_price) : '—'}</td>
-                    <td className="t-end strong num">{x && x.line_total != null ? fmt(x.line_total) : '—'}</td>
-                    <td>{r.code && <button className="btn-link muted" aria-label="حذف" onClick={() => { setRows(rows.filter((_, j) => j !== i)); setLooked(false); setResult(null); }}><i className="fa-solid fa-xmark" /></button>}</td>
-                  </tr>);
-              })}</tbody>
-            </table></div>
-          </section>
-          <aside className="panel" style={{ position: 'sticky', top: 100 }}>
-            <div className="panel-body">
-              <h2 className="panel-title">ملخص الفحص</h2>
-              <div className="mt-16">
-                <div className="sum-row"><span>إجمالي البنود</span><strong className="num">{rows.filter((r) => r.code).length}</strong></div>
-                <div className="sum-row"><span>بنود معروفة</span><strong className="num">{looked ? (result?.meta?.found ?? '—') : '—'}</strong></div>
-                <div className="sum-row"><span>بنود صالحة للإضافة</span><strong className="num" style={{ color: 'var(--accent)' }}>{looked ? valid.length : '—'}</strong></div>
-                <div className="sum-row"><span>بنود بها أخطاء</span><strong className="num" style={{ color: '#b91c1c' }}>{looked ? lines.filter((l) => !l.found || !l.in_stock).length : '—'}</strong></div>
-                <div className="sum-total"><span>قيمة البنود الصالحة</span><span className="num">{looked ? fmt(valid.reduce((a, l) => a + (l.line_total || 0), 0)) : '—'}</span></div>
+        <>
+          <div className="grid-2 grid-summary">
+            <section className="panel">
+              <div className="toolbar qo-toolbar">
+                <span className="muted small">الصق من Excel مباشرة: عمود SKU أو باركود، ثم الكمية. حتى <span className="num">500</span> بند.</span>
+                <button type="button" className="btn-link muted qo-clear-btn" onClick={() => { setRows([blank()]); setLooked(false); setResult(null); setSkipped(null); }}>مسح الكل</button>
               </div>
-              <button className="btn-block mt-24" onClick={lookup} disabled={busy}>{busy ? <span className="spin" /> : <i className="fa-solid fa-magnifying-glass" />} فحص البنود</button>
-              <button className="btn-pill is-dark mt-8" style={{ width: '100%', justifyContent: 'center' }} disabled={!looked || !valid.length || adding} onClick={addValid}>{adding ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة <span className="num">{valid.length}</span> بند صالح للسلة</button>
-              <p className="note mt-16"><i className="fa-solid fa-circle-info" />الفحص للمعاينة فقط؛ الأسعار النهائية بتتأكد في السلة.</p>
+              {skipped?.length > 0 && <div className="qo-banner-pad"><Banner kind="warn"><b>تم تخطي {skipped.length} بند:</b> {skipped.map((s) => `${s.sku} (${ { not_found_or_inactive: 'الصنف غير موجود أو غير متاح', insufficient_stock: 'الكمية غير متاحة' }[s.reason] || s.reason})`).join('، ')}</Banner></div>}
+              <div className="tbl-wrap qo-tbl-wrap"><table className="tbl qo-tbl">
+                <thead><tr><th style={{ width: 36 }}>#</th><th style={{ width: 210 }}>SKU أو باركود</th><th style={{ width: 96 }}>الكمية</th><th>الصنف</th><th>سعر الوحدة</th><th className="t-end">الإجمالي</th><th></th></tr></thead>
+                <tbody>{rows.map((r, i) => {
+                  const x = looked ? rowState(r) : null;
+                  const st = !x ? null : !x.found ? { err: 'الصنف غير موجود' } : (x.available_qty || 0) === 0 ? { err: 'نفدت الكمية', v: x } : !x.in_stock ? { warn: `المتاح ${x.available_qty} فقط`, v: x } : { ok: true, v: x };
+                  return (
+                    <tr key={i} className={st && (st.err ? 'is-error' : st.warn ? 'is-warn' : '')}>
+                      <td className="soft num">{i + 1}</td>
+                      <td><input className={`box-input ltr${st && st.err && !st.v ? ' is-invalid' : ''}`} value={r.code} placeholder="SPH-…" onChange={(e) => set(i, 'code', e.target.value)} onPaste={(e) => handleCodePaste(i, e)} /></td>
+                      <td><input className="box-input ltr" value={r.qty} inputMode="numeric" onChange={(e) => set(i, 'qty', e.target.value.replace(/\D/g, ''))} /></td>
+                      <td>{!x ? <span className="soft small">{r.code ? 'اضغط «فحص البنود»' : ''}</span> : st.v ? <><div className="strong small">{st.v.product_name} — {st.v.label || st.v.sku}</div>{st.err ? <p className="f-error" style={{ margin: 0 }}><i className="fa-solid fa-circle-exclamation" />{st.err}</p> : st.warn ? <p className="f-error" style={{ margin: 0, color: '#b45309' }}><i className="fa-solid fa-triangle-exclamation" />{st.warn}</p> : <span className="small" style={{ color: '#047857' }}><i className="fa-solid fa-check" /> متاح</span>}</> : <p className="f-error" style={{ margin: 0 }}><i className="fa-solid fa-circle-xmark" />{st.err}</p>}</td>
+                      <td className="num">{x && x.unit_price != null ? fmt(x.unit_price) : '—'}</td>
+                      <td className="t-end strong num">{x && x.line_total != null ? fmt(x.line_total) : '—'}</td>
+                      <td>{r.code && <button type="button" className="btn-link muted" aria-label="حذف" onClick={() => removeRow(i)}><i className="fa-solid fa-xmark" /></button>}</td>
+                    </tr>);
+                })}</tbody>
+              </table></div>
+
+              <div className="qo-mobile-list">
+                {rows.map((r, i) => {
+                  const x = looked ? rowState(r) : null;
+                  const st = !x ? null : !x.found ? { err: 'الصنف غير موجود' } : (x.available_qty || 0) === 0 ? { err: 'نفدت الكمية', v: x } : !x.in_stock ? { warn: `المتاح ${x.available_qty} فقط`, v: x } : { ok: true, v: x };
+                  const cardCls = `qo-m-card${st ? (st.err ? ' is-error' : st.warn ? ' is-warn' : ' is-ok') : ''}`;
+                  return (
+                    <article key={i} className={cardCls}>
+                      <div className="qo-m-head">
+                        <div className="qo-m-idx">
+                          <span className="qo-m-num num">#{i + 1}</span>
+                          {st?.ok && <span className="qo-m-pill is-ok"><i className="fa-solid fa-check" /> متاح</span>}
+                          {st?.warn && <span className="qo-m-pill is-warn"><i className="fa-solid fa-triangle-exclamation" /> {st.warn}</span>}
+                          {st?.err && <span className="qo-m-pill is-err"><i className="fa-solid fa-circle-xmark" /> {st.err}</span>}
+                        </div>
+                        {(r.code || rows.length > 1) && (
+                          <button type="button" className="qo-m-del" aria-label="حذف البند" onClick={() => removeRow(i)}>
+                            <i className="fa-solid fa-trash-can" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="qo-m-fields">
+                        <label className="qo-m-field">
+                          <span>SKU أو باركود</span>
+                          <input
+                            className={`box-input ltr${st && st.err && !st.v ? ' is-invalid' : ''}`}
+                            value={r.code}
+                            placeholder="SPH-…"
+                            autoCapitalize="characters"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            onChange={(e) => set(i, 'code', e.target.value)}
+                            onPaste={(e) => handleCodePaste(i, e)}
+                          />
+                        </label>
+                        <label className="qo-m-field">
+                          <span>الكمية</span>
+                          <input
+                            className="box-input ltr"
+                            value={r.qty}
+                            placeholder="0"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            onChange={(e) => set(i, 'qty', e.target.value.replace(/\D/g, ''))}
+                          />
+                        </label>
+                      </div>
+                      {st?.v ? (
+                        <div className="qo-m-result">
+                          <div className="strong small">{st.v.product_name} — {st.v.label || st.v.sku}</div>
+                          <div className="qo-m-prices">
+                            <span className="muted small">سعر الوحدة: <b className="num">{x?.unit_price != null ? fmt(x.unit_price) : '—'}</b></span>
+                            <strong className="num">{x?.line_total != null ? fmt(x.line_total) : '—'}</strong>
+                          </div>
+                        </div>
+                      ) : !x && r.code ? (
+                        <div className="qo-m-hint soft small">أدخل الكمية واضغط «فحص البنود»</div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+                {rows.length < 500 && (
+                  <button
+                    type="button"
+                    className="btn-pill qo-m-add"
+                    onClick={() => setRows([...rows, blank()])}
+                  >
+                    <i className="fa-solid fa-plus" /> إضافة صف جديد
+                  </button>
+                )}
+              </div>
+            </section>
+            <aside className="panel qo-summary-aside">
+              <div className="panel-body">
+                <h2 className="panel-title">ملخص الفحص</h2>
+                <div className="mt-16 qo-sum-grid">
+                  <div className="sum-row"><span>إجمالي البنود</span><strong className="num">{activeCount}</strong></div>
+                  <div className="sum-row"><span>بنود معروفة</span><strong className="num">{looked ? (result?.meta?.found ?? '—') : '—'}</strong></div>
+                  <div className="sum-row"><span>بنود صالحة للإضافة</span><strong className="num" style={{ color: 'var(--accent)' }}>{looked ? valid.length : '—'}</strong></div>
+                  <div className="sum-row"><span>بنود بها أخطاء</span><strong className="num" style={{ color: '#b91c1c' }}>{looked ? lines.filter((l) => !l.found || !l.in_stock).length : '—'}</strong></div>
+                  <div className="sum-total"><span>قيمة البنود الصالحة</span><span className="num">{looked ? fmt(validTotal) : '—'}</span></div>
+                </div>
+                <button className="btn-block mt-24" onClick={lookup} disabled={busy}>{busy ? <span className="spin" /> : <i className="fa-solid fa-magnifying-glass" />} فحص البنود</button>
+                <button className="btn-pill is-dark mt-8" style={{ width: '100%', justifyContent: 'center' }} disabled={!looked || !valid.length || adding} onClick={addValid}>{adding ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة <span className="num">{valid.length}</span> بند صالح للسلة</button>
+                <p className="note mt-16"><i className="fa-solid fa-circle-info" />الفحص للمعاينة فقط؛ الأسعار النهائية بتتأكد في السلة.</p>
+              </div>
+            </aside>
+          </div>
+          {(activeCount > 0 || looked) && (
+            <div className="qo-float-bar" role="region" aria-label="إجراءات الطلب السريع">
+              <div className="qo-float-info">
+                <i className="fa-solid fa-bolt" />
+                <div>
+                  {looked ? (
+                    <>
+                      <strong className="num">{valid.length}</strong> <span>بند صالح</span>
+                      <small className="num">{fmt(validTotal)}</small>
+                    </>
+                  ) : (
+                    <>
+                      <strong className="num">{activeCount}</strong> <span>بند جاهز للفحص</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="qo-float-actions">
+                {looked && valid.length > 0 ? (
+                  <button type="button" className="btn-pill is-dark" disabled={adding} onClick={addValid}>
+                    {adding ? <span className="spin" /> : <i className="fa-solid fa-cart-plus" />} إضافة للسلة
+                  </button>
+                ) : (
+                  <button type="button" className="btn-pill is-dark" disabled={busy || !checkedRows.length} onClick={lookup}>
+                    {busy ? <span className="spin" /> : <i className="fa-solid fa-magnifying-glass" />} فحص البنود
+                  </button>
+                )}
+              </div>
             </div>
-          </aside>
-        </div>
+          )}
+        </>
       ) : <ImportTab />}
-    </>
+    </div>
   );
 };
 
@@ -389,7 +711,7 @@ const ImportTab = () => {
             {stage === 'invalid' && <p className="f-error"><i className="fa-solid fa-circle-exclamation" />حجم الملف أكبر من 5 ميجابايت. قسّم الملف وحاول تاني.</p>}
             {err && <p className="f-error"><i className="fa-solid fa-circle-exclamation" />{err}</p>}
             <Banner kind="warn"><b>الاستيراد بيضيف البنود للسلة مباشرة</b> — مش معاينة. البنود اللي فيها مشاكل هتتخطى وهيظهرلك سببها.</Banner>
-            <div className="row mt-16" style={{ justifyContent: 'flex-end' }}>
+            <div className="row mt-16 qo-imp-actions">
               <button className="btn-pill is-dark" disabled={stage !== 'ready'} onClick={upload}>{stage === 'uploading' ? <><span className="spin" /> جارٍ الاستيراد…</> : <><i className="fa-solid fa-upload" /> استيراد وإضافة للسلة</>}</button>
             </div>
           </>
@@ -406,26 +728,26 @@ const ImportTab = () => {
             {(report?.skipped?.length > 0) && (
               <>
                 <h3 className="f-label mt-24">البنود المتخطاة وأسبابها</h3>
-                <table className="tbl"><thead><tr><th>SKU</th><th>الكمية</th><th>السبب</th></tr></thead>
-                  <tbody>{report.skipped.map((s, i) => <tr key={i}><td className="sku">{s.sku}</td><td className="num">{s.qty || '—'}</td><td style={{ color: '#b91c1c' }}>{SKIP_REASON_LABEL[s.reason] || s.reason}</td></tr>)}</tbody></table>
+                <div className="tbl-wrap"><table className="tbl"><thead><tr><th>SKU</th><th>الكمية</th><th>السبب</th></tr></thead>
+                  <tbody>{report.skipped.map((s, i) => <tr key={i}><td className="sku">{s.sku}</td><td className="num">{s.qty || '—'}</td><td style={{ color: '#b91c1c' }}>{SKIP_REASON_LABEL[s.reason] || s.reason}</td></tr>)}</tbody></table></div>
               </>
             )}
-            <div className="row mt-24"><button className="btn-pill is-dark" onClick={() => go('cart')}><i className="fa-solid fa-bag-shopping" /> فتح السلة</button><button className="btn-pill" onClick={() => { setStage('idle'); setFile(null); setReport(null); }}>استيراد ملف آخر</button></div>
+            <div className="row mt-24 qo-imp-done-actions"><button className="btn-pill is-dark" onClick={() => go('cart')}><i className="fa-solid fa-bag-shopping" /> فتح السلة</button><button className="btn-pill" onClick={() => { setStage('idle'); setFile(null); setReport(null); }}>استيراد ملف آخر</button></div>
           </>
         )}
       </div></section>
       <aside className="panel"><div className="panel-body">
         <h2 className="panel-title">ترتيب الأعمدة</h2>
         <p className="muted small" style={{ lineHeight: 1.8 }}>العمود الأول SKU أو الباركود، والثاني الكمية. صف العناوين اختياري.</p>
-        <table className="tbl imp-sample ltr"><thead><tr><th>A · sku</th><th>B · qty</th></tr></thead>
-          <tbody><tr><td className="sku">SPH-TT-001-BLK</td><td className="num">24</td></tr></tbody></table>
+        <div className="tbl-wrap"><table className="tbl imp-sample ltr"><thead><tr><th>A · sku</th><th>B · qty</th></tr></thead>
+          <tbody><tr><td className="sku">SPH-TT-001-BLK</td><td className="num">24</td></tr></tbody></table></div>
       </div></aside>
     </div>
   );
 };
 
 /* ---------- 10. Cart ---------- */
-const CartRow = ({ line, onCommit, onRemove, busy }) => {
+const CartRow = ({ line, imageSrc, onCommit, onRemove, busy }) => {
   const [qty, setQty] = useState(line.qty);
   const timer = useRef(null);
   useEffect(() => { setQty(line.qty); }, [line.qty]);
@@ -442,7 +764,7 @@ const CartRow = ({ line, onCommit, onRemove, busy }) => {
   const shortage = !line.available || (line.max_qty > 0 && line.qty > line.max_qty);
   return (
     <div className={`cart-row${shortage ? ' is-bad' : ''}`}>
-      <Thumb />
+      <Thumb src={imageSrc} />
       <div className="cart-info">
         <div className="prod-name">{line.name}</div>
         <div className="cart-meta"><span>المتغير</span><b>{line.label}</b><span>SKU</span><b className="sku">{line.sku}</b><span>سعر الوحدة</span><b className="num">{fmt(line.unit)}{line.base != null && line.unit != null && line.unit < line.base && <span className="tier" style={{ marginInlineStart: 8 }}>شريحة كمية</span>}</b></div>
@@ -457,8 +779,9 @@ const CartRow = ({ line, onCommit, onRemove, busy }) => {
   );
 };
 
-export const Cart = () => {
-  const { cart, cartApi, go, toast, applyCartResponse } = useApp();
+export const Cart = ({ productImageUrl } = {}) => {
+  const { cart, cartApi, go, toast, applyCartResponse, productImageUrl: ctxImageUrl } = useApp();
+  const resolveImage = productImageUrl || ctxImageUrl;
   const [coupon, setCoupon] = useState('');
   const [cErr, setCErr] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
@@ -538,7 +861,7 @@ export const Cart = () => {
       </PageHead>
       <div className="grid-2 grid-checkout">
         <section>
-          {lines.map((l) => <CartRow key={l.id} line={l} onCommit={commit} onRemove={remove} busy={busy} />)}
+          {lines.map((l) => <CartRow key={l.id} line={l} imageSrc={resolveImage ? resolveImage(l.image) : l.image} onCommit={commit} onRemove={remove} busy={busy} />)}
         </section>
         <aside style={{ position: 'sticky', top: 100, alignSelf: 'start' }}>
           <h2 className="checkout-heading">ملخص الطلب</h2>
@@ -567,8 +890,9 @@ export const Cart = () => {
 /* ---------- 11. Checkout ---------- */
 const FIELD_MAP = { recipient_name: 'name', recipient_phone: 'phone', recipient_email: 'email', city_id: 'city', shipping_address_line: 'address', shipping_notes: 'notes' };
 
-export const Checkout = ({ terms } = {}) => {
-  const { cart, cartApi, go, toast, account, loadCart, refreshAccount, setLastOrder } = useApp();
+export const Checkout = ({ terms, productImageUrl } = {}) => {
+  const { cart, cartApi, go, toast, account, loadCart, refreshAccount, setLastOrder, productImageUrl: ctxImageUrl } = useApp();
+  const resolveImage = productImageUrl || ctxImageUrl;
   const initialApi = useApi(async () => {
     const [addresses, cities] = await Promise.all([accountEndpoints.addresses(), checkoutEndpoints.cities()]);
     return { addresses, cities };
@@ -757,7 +1081,7 @@ export const Checkout = ({ terms } = {}) => {
           <h2 className="checkout-heading">ملخص الطلب</h2>
           <div className="ck-items">
             {lines.map((l) => (
-              <div key={l.id} className="ck-item"><Thumb sm /><div style={{ flex: 1, minWidth: 0 }}><div className="strong small">{l.name}</div><div className="soft small">{l.label} · <span className="num">×{l.qty}</span></div></div><span className="num strong small">{fmt(l.line_total)}</span></div>))}
+              <div key={l.id} className="ck-item"><Thumb sm src={resolveImage ? resolveImage(l.image) : l.image} /><div style={{ flex: 1, minWidth: 0 }}><div className="strong small">{l.name}</div><div className="soft small">{l.label} · <span className="num">×{l.qty}</span></div></div><span className="num strong small">{fmt(l.line_total)}</span></div>))}
           </div>
           <div className="sum-row"><span>قيمة المنتجات</span><strong className="num">{fmt(preview?.items_total)}</strong></div>
           <div className="sum-row is-neg"><span>الخصم</span><strong className="num">{preview?.coupon_discount ? '− ' + fmt(preview.coupon_discount) : '—'}</strong></div>
@@ -781,8 +1105,9 @@ export const Checkout = ({ terms } = {}) => {
 };
 
 /* ---------- 12. Success ---------- */
-export const OrderSuccess = () => {
-  const { lastOrder, go, route } = useApp();
+export const OrderSuccess = ({ productImageUrl } = {}) => {
+  const { lastOrder, go, route, productImageUrl: ctxImageUrl } = useApp();
+  const resolveImage = productImageUrl || ctxImageUrl;
   const api = useApi((signal) => lastOrder
     ? Promise.resolve(lastOrder)
     : wholesaleEndpoints.order(route.id, signal).then(mapOrder), [lastOrder?.id, route.id]);
@@ -802,7 +1127,7 @@ export const OrderSuccess = () => {
       <p className="success-num num">{o.number}</p>
       <div className="row" style={{ justifyContent: 'center', gap: 8, marginBottom: 24 }}><Badge map={ORDER_STATUS} k={o.status} /><Badge map={PAY_STATUS} k={o.pay} /></div>
       <div style={{ textAlign: 'start' }}>
-        {(o.items || []).map((it) => <div key={it.sku || it.id} className="ck-item"><Thumb sm /><div style={{ flex: 1 }}><div className="strong small">{it.name}</div><div className="sku">{it.sku}</div></div><span className="num small">×{it.qty}</span></div>)}
+        {(o.items || []).map((it) => <div key={it.sku || it.id} className="ck-item"><Thumb sm src={it.image ? (resolveImage ? resolveImage(it.image) : it.image) : undefined} /><div style={{ flex: 1 }}><div className="strong small">{it.name}</div><div className="sku">{it.sku}</div></div><span className="num small">×{it.qty}</span></div>)}
         <div className="sum-row"><span>طريقة الدفع</span><strong>{PAY_METHOD[o.method]}</strong></div>
         <div className="sum-row"><span>عنوان التسليم</span><strong style={{ textAlign: 'left' }}>{o.city} — {o.address}</strong></div>
         <div className="sum-total"><span>الإجمالي</span><span className="num">{fmt(o.total)}</span></div>

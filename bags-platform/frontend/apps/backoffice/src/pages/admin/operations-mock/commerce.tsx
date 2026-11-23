@@ -51,6 +51,7 @@ import {
   fmtInt,
   HatchBar,
   Seg,
+  Empty,
 } from './ui';
 
 export const PL_TYPES: Record<string, string> = {
@@ -84,6 +85,9 @@ export const COUPON_TYPES: Record<string, string> = {
 export function ShippingPage() {
   const [tab, setTab] = useState<'companies' | 'zones' | 'rates'>('companies');
   const [edit, setEditState] = useState<{ kind: 'companies' | 'zones' | 'rates'; row: any } | null>(null);
+  const [q, setQ] = useState('');
+  const [rateCompany, setRateCompany] = useState('');
+  const [rateZone, setRateZone] = useState('');
   const toast = useToast();
   const companies = useRemote((s) => shippingCompaniesApi.all(s).then((rows) => rows.map(mapShipCompany)), []);
   const zones = useRemote((s) => shippingZonesApi.all(s).then((rows) => rows.map(mapShipZone)), []);
@@ -92,6 +96,51 @@ export function ShippingPage() {
   const setEdit = (next: typeof edit) => {
     if (next && (companies.usingMock || zones.usingMock || rates.usingMock)) return toast('البيانات تجريبية — لا يمكن الحفظ', 'red');
     setEditState(next);
+  };
+
+  const activeCompanies = C.filter((c) => c.active).length;
+  const activeZones = Z.filter((z) => z.active).length;
+  const coveredCities = useMemo(() => new Set(Z.flatMap((z) => z.cities)).size, [Z]);
+  const freeShippingRules = RT.filter((r) => r.free !== null && r.free !== undefined).length;
+
+  const companyNameOf = (r: ShipRate) =>
+    C.find((c) => c.code === (r as any).co || c.id === (r as any).companyId)?.name || (r as any).co || '—';
+  const companyIdOf = (r: ShipRate) =>
+    String(C.find((c) => c.code === (r as any).co || c.id === (r as any).companyId)?.id ?? '');
+  const zoneNameOf = (r: ShipRate) => Z.find((z) => z.id === r.zone)?.name || '—';
+
+  const query = q.trim().toLowerCase();
+  const filteredCompanies = useMemo(
+    () => (query ? C.filter((c) => c.name.toLowerCase().includes(query) || c.code.toLowerCase().includes(query)) : C),
+    [C, query],
+  );
+  const filteredZones = useMemo(
+    () =>
+      query
+        ? Z.filter((z) => z.name.toLowerCase().includes(query) || z.cities.some((city) => city.toLowerCase().includes(query)))
+        : Z,
+    [Z, query],
+  );
+  const filteredRates = useMemo(
+    () =>
+      RT.filter((r) => {
+        if (rateCompany && companyIdOf(r) !== rateCompany) return false;
+        if (rateZone && String(r.zone) !== rateZone) return false;
+        if (query) {
+          const cname = companyNameOf(r).toLowerCase();
+          const zname = zoneNameOf(r).toLowerCase();
+          if (!cname.includes(query) && !zname.includes(query)) return false;
+        }
+        return true;
+      }),
+    [RT, C, Z, rateCompany, rateZone, query],
+  );
+
+  const hasFilters = Boolean(q || rateCompany || rateZone);
+  const clearFilters = () => {
+    setQ('');
+    setRateCompany('');
+    setRateZone('');
   };
 
   return (
@@ -107,156 +156,474 @@ export function ShippingPage() {
         }
       />
       <RemoteFeedback state={tab === 'companies' ? companies : tab === 'zones' ? zones : rates} />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 stg stg-2">
+        <button
+          type="button"
+          onClick={() => setTab('companies')}
+          aria-pressed={tab === 'companies'}
+          className={`op-kpi-btn ${tab === 'companies' ? 'is-active' : ''}`}
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[110px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-medium tx2">شركات الشحن</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                <Icon name="truck" size={14} />
+              </span>
+            </div>
+            <div className="font-display text-[26px] font-bold num tabular-nums tx1 my-1.5">
+              {C.length}
+            </div>
+            <div className="text-[11px] tx3">
+              <strong className="tx1 num">{activeCompanies}</strong> مفعّلة حاليًا
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab('zones')}
+          aria-pressed={tab === 'zones'}
+          className={`op-kpi-btn ${tab === 'zones' ? 'is-active' : ''}`}
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[110px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-medium tx2">مناطق التغطية</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                <Icon name="globe" size={14} />
+              </span>
+            </div>
+            <div className="font-display text-[26px] font-bold num tabular-nums tx1 my-1.5">
+              {Z.length}
+            </div>
+            <div className="text-[11px] tx3">
+              <strong className="tx1 num">{activeZones}</strong> مفعّلة · <strong className="tx1 num">{coveredCities}</strong> مدينة
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab('rates')}
+          aria-pressed={tab === 'rates'}
+          className={`op-kpi-btn ${tab === 'rates' ? 'is-active' : ''}`}
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[110px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-medium tx2">أسعار الشحن</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                <Icon name="tag" size={14} />
+              </span>
+            </div>
+            <div className="font-display text-[26px] font-bold num tabular-nums tx1 my-1.5">
+              {RT.length}
+            </div>
+            <div className="text-[11px] tx3">قاعدة تسعير نشطة</div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab('rates')}
+          className="op-kpi-btn"
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[110px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-medium tx2">الشحن المجاني</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0 c-green">
+                <Icon name="check" size={14} />
+              </span>
+            </div>
+            <div className="font-display text-[26px] font-bold num tabular-nums tx1 my-1.5">
+              {freeShippingRules}
+            </div>
+            <div className="text-[11px] tx3">منطقة بحد شحن مجاني</div>
+          </div>
+        </button>
+      </div>
+
       <TabsBar
         value={tab}
-        onChange={(v: any) => setTab(v)}
+        onChange={(v: any) => {
+          setTab(v);
+          clearFilters();
+        }}
         tabs={[
           { value: 'companies', label: 'شركات الشحن', icon: 'truck', count: C.length },
           { value: 'zones', label: 'مناطق الشحن', icon: 'globe', count: Z.length },
           { value: 'rates', label: 'أسعار الشحن', icon: 'tag', count: RT.length },
         ]}
       />
-      {tab === 'companies' && (
-        <Card stg={3}>
-          <DataTable
-            rows={C}
-            onRow={(r: ShipCompany) => setEdit({ kind: 'companies', row: r })}
-            cols={[
-              {
-                h: 'الشركة',
-                r: (c: ShipCompany) => (
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-9 h-9 rounded-[11px] v-sub flex items-center justify-center tx2">
-                      <Icon name="truck" size={15} />
-                    </span>
-                    <span className="font-semibold tx1">{c.name}</span>
-                  </div>
-                ),
-              },
-              {
-                h: 'الكود',
-                r: (c: ShipCompany) => (
-                  <span className="num text-[11.5px] font-semibold v-sub px-2 py-1 rounded-md tx2">{c.code}</span>
-                ),
-              },
-              {
-                h: 'قالب رابط التتبع',
-                r: (c: ShipCompany) =>
-                  c.url ? (
-                    <span className="num text-[11.5px] tx2 ltr clamp1 max-w-[340px]" dir="ltr">
-                      {c.url.split('{awb}')[0]}
-                      <b className="accent">{'{awb}'}</b>
-                      {c.url.split('{awb}')[1]}
-                    </span>
-                  ) : (
-                    <span className="tx3 text-[11.5px]">بدون تتبع</span>
-                  ),
-              },
-              {
-                h: 'تكامل API',
-                r: (c: ShipCompany) => (c.api ? <Badge tone="blue">متصل</Badge> : <span className="tx3 text-[11.5px]">—</span>),
-              },
-              { h: 'التفعيل', r: (c: ShipCompany) => <ActiveDot on={c.active} /> },
-              {
-                h: '',
-                r: (c: ShipCompany) => (
-                  <RowActions>
-                    <button className="icon-btn !w-7 !h-7" onClick={() => setEdit({ kind: 'companies', row: c })}>
-                      <Icon name="edit" size={13} />
-                    </button>
-                  </RowActions>
-                ),
-              },
-            ]}
-          />
-        </Card>
-      )}
-      {tab === 'zones' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {(Z as any[]).map((z: ShipZone) => (
-            <div
-              key={z.id}
-              onClick={() => setEdit({ kind: 'zones', row: z })}
-              className="v-card p-5 cursor-pointer hover:border-[var(--border-strong)] transition space-y-3"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-semibold tx1 text-[14px]">{z.name}</div>
-                  <div className="text-[11.5px] tx3 mt-0.5">
-                    <Num>{z.cities.length}</Num> مدن مشمولة
-                  </div>
-                </div>
-                <ActiveDot on={z.active} />
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {z.cities.map((c) => (
-                  <span key={c} className="v-sub px-2 py-0.5 rounded-md text-[11.5px] tx2">
-                    {c}
-                  </span>
-                ))}
-              </div>
+      <Card stg={3}>
+        <div className="op-filter-shell">
+          <div className="op-filter-primary">
+            <div className="op-search-box">
+              <Icon name="search" size={15} className="tx3 shrink-0" />
+              <input
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={
+                  tab === 'companies'
+                    ? 'ابحث باسم الشركة أو الكود...'
+                    : tab === 'zones'
+                      ? 'ابحث باسم المنطقة أو المدينة...'
+                      : 'ابحث بالشركة أو المنطقة...'
+                }
+                className="op-search-input"
+                aria-label="بحث في الشحن"
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => setQ('')}
+                  className="op-search-clear"
+                  aria-label="مسح البحث"
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
             </div>
-          ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {hasFilters && (
+                <button type="button" className="btn btn-ghost btn-xs" onClick={clearFilters}>
+                  <Icon name="x" size={12} />
+                  مسح الفلاتر
+                </button>
+              )}
+              <span className="v-sub px-3.5 py-1.5 rounded-full text-[12px] font-medium tx2 inline-flex items-center gap-2">
+                <span>المعروض</span>
+                <strong className="tx1 num font-bold">
+                  {fmtNum(tab === 'companies' ? filteredCompanies.length : tab === 'zones' ? filteredZones.length : filteredRates.length)}
+                </strong>
+              </span>
+            </div>
+          </div>
+          {tab === 'rates' && (
+            <div className="op-filter-secondary !grid-cols-1 sm:!grid-cols-2">
+              <FSelect
+                value={rateCompany}
+                onChange={setRateCompany}
+                placeholder="كل شركات الشحن"
+                options={C.map((c) => ({ value: String(c.id), label: c.name }))}
+              />
+              <FSelect
+                value={rateZone}
+                onChange={setRateZone}
+                placeholder="كل مناطق الشحن"
+                options={Z.map((z) => ({ value: String(z.id), label: z.name }))}
+              />
+            </div>
+          )}
         </div>
-      )}
-      {tab === 'rates' && (
-        <Card stg={3}>
-          <DataTable
-            rows={RT}
-            onRow={(r: ShipRate) => setEdit({ kind: 'rates', row: r })}
-            cols={[
-              {
-                h: 'الشركة',
-                r: (r: ShipRate) => (
-                  <span className="font-semibold tx1">
-                    {(C as ShipCompany[]).find((c) => c.code === (r as any).co || c.id === (r as any).companyId)?.name || (r as any).co}
-                  </span>
-                ),
-              },
-              {
-                h: 'المنطقة',
-                r: (r: ShipRate) => (
-                  <span className="tx2">{(Z as ShipZone[]).find((z) => z.id === r.zone)?.name}</span>
-                ),
-              },
-              { h: 'السعر الأساسي', r: (r: ShipRate) => <span className="font-semibold">{fmtMoney(r.base)}</span> },
-              {
-                h: 'حد الشحن المجاني',
-                r: (r: ShipRate) =>
-                  r.free === 0 ? (
-                    <Badge tone="green">مجاني دائمًا</Badge>
-                  ) : r.free ? (
-                    <span className="tx2 font-medium">{fmtMoney(r.free)}</span>
-                  ) : (
-                    <span className="tx3 text-[11.5px]">لا يوجد</span>
-                  ),
-              },
-              {
-                h: 'رسوم COD',
-                r: (r: ShipRate) => (r.cod ? fmtMoney(r.cod) : <span className="tx3 text-[11.5px]">بدون رسوم</span>),
-              },
-              {
-                h: 'مدة التوصيل',
-                r: (r: ShipRate) => (
-                  <span className="num tx2">
-                    {r.min}–{r.max} يوم
-                  </span>
-                ),
-              },
-              {
-                h: '',
-                r: (r: ShipRate) => (
-                  <RowActions>
-                    <button className="icon-btn !w-7 !h-7" onClick={() => setEdit({ kind: 'rates', row: r })}>
-                      <Icon name="edit" size={13} />
+
+        {tab === 'companies' && (
+          <>
+            <div className="hidden md:block op-orders-table-wrap">
+              <DataTable
+                rows={filteredCompanies}
+                onRow={(r: ShipCompany) => setEdit({ kind: 'companies', row: r })}
+                cols={[
+                  {
+                    h: 'الشركة',
+                    r: (c: ShipCompany) => (
+                      <div className="flex items-center gap-3">
+                        <span className="w-9 h-9 rounded-[11px] v-sub flex items-center justify-center tx2 shrink-0">
+                          <Icon name="truck" size={15} />
+                        </span>
+                        <span className="font-semibold tx1">{c.name}</span>
+                      </div>
+                    ),
+                  },
+                  {
+                    h: 'الكود',
+                    r: (c: ShipCompany) => (
+                      <span className="num text-[11.5px] font-semibold v-sub px-2.5 py-1 rounded-md tx2">{c.code}</span>
+                    ),
+                  },
+                  {
+                    h: 'قواعد الأسعار',
+                    r: (c: ShipCompany) => {
+                      const count = RT.filter((r) => (r as any).companyId === c.id || (r as any).co === c.code).length;
+                      return (
+                        <span className="v-sub px-2.5 py-1 rounded-full text-[11.5px] tx2 num">
+                          {count} منطقة
+                        </span>
+                      );
+                    },
+                  },
+                  {
+                    h: 'قالب رابط التتبع',
+                    r: (c: ShipCompany) =>
+                      c.url ? (
+                        <span className="num text-[11.5px] tx2 ltr clamp1 max-w-[380px] block" dir="ltr">
+                          {c.url.split('{awb}')[0]}
+                          <b className="accent">{'{awb}'}</b>
+                          {c.url.split('{awb}')[1]}
+                        </span>
+                      ) : (
+                        <span className="tx3 text-[11.5px]">بدون تتبع</span>
+                      ),
+                  },
+                  {
+                    h: 'تكامل API',
+                    r: (c: ShipCompany) => (c.api ? <Badge tone="blue">متصل</Badge> : <span className="tx3 text-[11.5px]">—</span>),
+                  },
+                  { h: 'التفعيل', r: (c: ShipCompany) => <ActiveDot on={c.active} /> },
+                  {
+                    h: '',
+                    align: 'left',
+                    r: (c: ShipCompany) => (
+                      <RowActions>
+                        <button
+                          type="button"
+                          className="btn btn-soft btn-xs inline-flex items-center gap-1"
+                          onClick={() => setEdit({ kind: 'companies', row: c })}
+                        >
+                          <Icon name="edit" size={12} />
+                          <span>تعديل</span>
+                        </button>
+                      </RowActions>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+            <div className="md:hidden">
+              {filteredCompanies.length === 0 ? (
+                <Empty icon="truck" title="لا توجد شركات شحن" />
+              ) : (
+                <div className="op-order-cards">
+                  {filteredCompanies.map((c: ShipCompany) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setEdit({ kind: 'companies', row: c })}
+                      className="op-order-card"
+                    >
+                      <div className="op-order-card-head">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-9 h-9 rounded-[11px] bg-[var(--bg-card)] border border-[var(--border-subtle)] flex items-center justify-center tx2 shrink-0">
+                            <Icon name="truck" size={15} />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="font-semibold tx1 text-[13.5px] truncate">{c.name}</div>
+                            <div className="num text-[11px] tx3 mt-0.5">{c.code}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {c.api && <Badge tone="blue">API متصل</Badge>}
+                          <ActiveDot on={c.active} />
+                        </div>
+                      </div>
+
+                      <div className="px-3 py-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+                        <div className="text-[10.5px] tx3 mb-1">قالب رابط التتبع</div>
+                        {c.url ? (
+                          <div className="num text-[11.5px] tx2 ltr break-all text-left" dir="ltr">
+                            {c.url.split('{awb}')[0]}
+                            <b className="accent">{'{awb}'}</b>
+                            {c.url.split('{awb}')[1]}
+                          </div>
+                        ) : (
+                          <div className="text-[12px] tx3">بدون تتبع</div>
+                        )}
+                      </div>
+
+                      <div className="op-order-card-foot">
+                        <span className="text-[11.5px] tx3">{c.active ? 'مفعّلة للشحن' : 'غير مفعّلة'}</span>
+                        <span className="btn btn-soft btn-xs inline-flex items-center gap-1 shrink-0">
+                          <Icon name="edit" size={11} />
+                          <span>تعديل</span>
+                        </span>
+                      </div>
                     </button>
-                  </RowActions>
-                ),
-              },
-            ]}
-          />
-        </Card>
-      )}
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {tab === 'zones' && (
+          filteredZones.length === 0 ? (
+            <Empty icon="globe" title="لا توجد مناطق شحن مطابقة" />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredZones.map((z: ShipZone) => {
+                const zoneRatesCount = RT.filter((r) => r.zone === z.id).length;
+                const visibleCities = z.cities.slice(0, 8);
+                const hiddenCitiesCount = Math.max(0, z.cities.length - visibleCities.length);
+                return (
+                  <button
+                    key={z.id}
+                    type="button"
+                    onClick={() => setEdit({ kind: 'zones', row: z })}
+                    className="v-sub p-4 sm:p-5 text-start w-full cursor-pointer hover:border-[var(--border-strong)] hover:-translate-y-0.5 active:scale-[0.985] transition flex flex-col justify-between gap-4 rounded-[18px] border border-[var(--border-subtle)]"
+                  >
+                    <div className="space-y-3 w-full">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold tx1 text-[14.5px] truncate">{z.name}</div>
+                          <div className="text-[11.5px] tx3 mt-0.5 flex items-center gap-2">
+                            <span><Num>{z.cities.length}</Num> مدن مشمولة</span>
+                            <span>·</span>
+                            <span><Num>{zoneRatesCount}</Num> شركة مسعّرة</span>
+                          </div>
+                        </div>
+                        <ActiveDot on={z.active} />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {visibleCities.map((c) => (
+                          <span key={c} className="v-card px-2.5 py-1 rounded-md text-[11.5px] tx2">
+                            {c}
+                          </span>
+                        ))}
+                        {hiddenCitiesCount > 0 && (
+                          <span className="px-2.5 py-1 rounded-md text-[11.5px] font-semibold accent bg-[var(--accent-light)]">
+                            +<Num>{hiddenCitiesCount}</Num> أخرى
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between w-full pt-3 border-t border-[var(--border-subtle)] text-[11.5px] tx3">
+                      <span>تعديل المدن والتفعيل</span>
+                      <Icon name="chevL" size={13} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {tab === 'rates' && (
+          <>
+            <div className="hidden md:block op-orders-table-wrap">
+              <DataTable
+                rows={filteredRates}
+                onRow={(r: ShipRate) => setEdit({ kind: 'rates', row: r })}
+                cols={[
+                  {
+                    h: 'الشركة',
+                    r: (r: ShipRate) => (
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-8 h-8 rounded-[10px] v-sub flex items-center justify-center tx2 shrink-0">
+                          <Icon name="truck" size={14} />
+                        </span>
+                        <span className="font-semibold tx1">{companyNameOf(r)}</span>
+                      </div>
+                    ),
+                  },
+                  {
+                    h: 'المنطقة',
+                    r: (r: ShipRate) => (
+                      <span className="v-sub px-2.5 py-1 rounded-full text-[12px] tx1 font-medium">{zoneNameOf(r)}</span>
+                    ),
+                  },
+                  { h: 'السعر الأساسي', r: (r: ShipRate) => <span className="font-semibold tx1 num">{fmtMoney(r.base)}</span> },
+                  {
+                    h: 'حد الشحن المجاني',
+                    r: (r: ShipRate) =>
+                      r.free === 0 ? (
+                        <Badge tone="green">مجاني دائمًا</Badge>
+                      ) : r.free ? (
+                        <span className="tx2 font-medium num">{fmtMoney(r.free)}</span>
+                      ) : (
+                        <span className="tx3 text-[11.5px]">لا يوجد</span>
+                      ),
+                  },
+                  {
+                    h: 'رسوم COD',
+                    r: (r: ShipRate) => (r.cod ? <span className="num tx1">{fmtMoney(r.cod)}</span> : <span className="tx3 text-[11.5px]">بدون رسوم</span>),
+                  },
+                  {
+                    h: 'مدة التوصيل',
+                    r: (r: ShipRate) => (
+                      <span className="v-sub px-2.5 py-1 rounded-md text-[12px] num tx2">
+                        {r.min}–{r.max} يوم
+                      </span>
+                    ),
+                  },
+                  {
+                    h: '',
+                    align: 'left',
+                    r: (r: ShipRate) => (
+                      <RowActions>
+                        <button
+                          type="button"
+                          className="btn btn-soft btn-xs inline-flex items-center gap-1"
+                          onClick={() => setEdit({ kind: 'rates', row: r })}
+                        >
+                          <Icon name="edit" size={12} />
+                          <span>تعديل</span>
+                        </button>
+                      </RowActions>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+            <div className="md:hidden">
+              {filteredRates.length === 0 ? (
+                <Empty icon="tag" title="لا توجد أسعار شحن" />
+              ) : (
+                <div className="op-order-cards">
+                  {filteredRates.map((r: ShipRate) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setEdit({ kind: 'rates', row: r })}
+                      className="op-order-card"
+                    >
+                      <div className="op-order-card-head">
+                        <div className="min-w-0">
+                          <div className="font-semibold tx1 text-[13.5px] truncate">{companyNameOf(r)}</div>
+                          <div className="text-[11.5px] tx3 mt-0.5 truncate">{zoneNameOf(r)}</div>
+                        </div>
+                        <div className="text-end shrink-0">
+                          <div className="text-[10px] tx3">السعر الأساسي</div>
+                          <div className="font-display font-bold tx1 text-[15px] num">{fmtMoney(r.base)}</div>
+                        </div>
+                      </div>
+
+                      <div className="op-order-card-meta">
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] tx3 mb-0.5">الشحن المجاني</div>
+                          {r.free === 0 ? (
+                            <Badge tone="green">مجاني دائمًا</Badge>
+                          ) : r.free ? (
+                            <div className="text-[12px] tx1 font-medium num">{fmtMoney(r.free)}</div>
+                          ) : (
+                            <div className="text-[12px] tx3">لا يوجد</div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] tx3 mb-0.5">رسوم الدفع عند الاستلام</div>
+                          <div className="text-[12px] tx1 font-medium num">
+                            {r.cod ? fmtMoney(r.cod) : <span className="tx3 font-normal">بدون رسوم</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="op-order-card-foot">
+                        <span className="text-[11.5px] tx2 inline-flex items-center gap-1.5">
+                          <Icon name="clock" size={12} className="tx3" />
+                          <span>التوصيل: <b className="num tx1">{r.min}–{r.max}</b> يوم</span>
+                        </span>
+                        <span className="btn btn-soft btn-xs inline-flex items-center gap-1 shrink-0">
+                          <Icon name="edit" size={11} />
+                          <span>تعديل</span>
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </Card>
       {edit?.kind === 'companies' && <CompanyModal row={edit.row} onClose={() => setEdit(null)} onSaved={companies.reload} />}
       {edit?.kind === 'zones' && <ZoneModal row={edit.row} onClose={() => setEdit(null)} onSaved={zones.reload} />}
       {edit?.kind === 'rates' && <RateModal row={edit.row} companies={C} zones={Z} onClose={() => setEdit(null)} onSaved={rates.reload} />}
@@ -501,6 +868,8 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
   const { busy, run } = useAction();
   const [tab, setTab] = useState<'lists' | 'groups'>('lists');
   const [q, setQ] = useState('');
+  const [gq, setGq] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [ty, setTy] = useState('');
   const [cus, setCus] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -513,6 +882,18 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
   const [page, setPage] = useState(1);
   const dq = useDebounced(q);
   const setFilter = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
+  const activeFilterCount = [ty, cus, grp, br, act, customerSearch.trim()].filter(Boolean).length;
+  const hasAnyFilter = Boolean(q.trim() || activeFilterCount > 0);
+  const clearFilters = () => {
+    setQ('');
+    setTy('');
+    setCus('');
+    setCustomerSearch('');
+    setGrp('');
+    setBr('');
+    setAct('');
+    setPage(1);
+  };
 
   const typeToBackend = (t: string): PriceListType | undefined => {
     if (!t) return undefined;
@@ -528,12 +909,32 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
   const rows = lists.usingMock ? PRICE_LISTS : (lists.data?.data ?? []).map((p: any) => mapPriceList(p));
 
   const groups = useRemote((s) => customerGroupsApi.all(s).then((rows) => rows.map(mapCustomerGroup)), [], { mock: () => CUSTOMER_GROUPS });
+  const filteredGroups = (groups.data ?? []).filter((g: CustomerGroup) => {
+    const term = gq.trim().toLowerCase();
+    if (!term) return true;
+    return [g.name, g.code, g.desc].filter(Boolean).some((v) => String(v).toLowerCase().includes(term));
+  });
   const branchesList = useRemote((s) => branchesApi.list({}, s).then((r) => r.data), []);
   const customers = useRemote(
     (s) => commerceLookupsApi.customers(debouncedCustomerSearch, s),
     [debouncedCustomerSearch],
     { enabled: debouncedCustomerSearch.trim().length >= 3 },
   );
+
+  const typeTone = (t: string) =>
+    ({
+      retail: 'gray',
+      wholesale: 'violet',
+      distributor: 'blue',
+      group: 'orange',
+      customer: 'green',
+    } as const)[t as 'retail'] || 'gray';
+
+  const openList = (p: PriceListRow) =>
+    lists.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : go({ m: 'pricing', id: p.id });
+
+  const openGroup = (g: CustomerGroup) =>
+    groups.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : setGform(g);
 
   return (
     <div className="space-y-5">
@@ -542,11 +943,11 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
         sub="قوائم أسعار التجزئة والجملة، وخصومات مجموعات العملاء، واستيراد الأسعار."
         actions={
           <>
-            <button className="btn btn-soft" onClick={() => toast('افتح قائمة الأسعار ثم استورد', 'accent')}>
+            <button className="btn btn-soft flex-1 sm:flex-initial justify-center" onClick={() => toast('افتح قائمة الأسعار ثم استورد', 'accent')}>
               <Icon name="upload" size={14} />
               استيراد أسعار
             </button>
-            <button className="btn btn-dark" onClick={() => (lists.usingMock || groups.usingMock) ? toast('البيانات تجريبية — لا يمكن الحفظ', 'red') : (tab === 'lists' ? setForm({}) : setGform({}))}>
+            <button className="btn btn-dark flex-1 sm:flex-initial justify-center" onClick={() => (lists.usingMock || groups.usingMock) ? toast('البيانات تجريبية — لا يمكن الحفظ', 'red') : (tab === 'lists' ? setForm({}) : setGform({}))}>
               <Icon name="plus" size={14} />
               {tab === 'lists' ? 'قائمة أسعار' : 'مجموعة عملاء'}
             </button>
@@ -563,137 +964,359 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
         ]}
       />
       {tab === 'lists' && (
-        <Card stg={3}>
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <SearchPill value={q} onChange={setFilter(setQ)} placeholder="اسم القائمة" />
-            <FSelect
-              value={ty}
-              onChange={setFilter(setTy)}
-              placeholder="النوع"
-              options={Object.entries(PL_TYPES).map(([v, l]) => ({ value: v, label: l }))}
-            />
-            <input className="inp inp-sm w-40" value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="ابحث عن عميل" aria-label="بحث عن عميل" />
-            <FSelect value={cus} onChange={setFilter(setCus)} placeholder="العميل" options={(customers.data ?? []).map((c: { id: number; name: string; company_name?: string }) => ({ value: String(c.id), label: c.company_name || c.name }))} />
-            <FSelect
-              value={grp}
-              onChange={setFilter(setGrp)}
-              placeholder="المجموعة"
-              options={(groups.data ?? []).map((g: CustomerGroup) => ({ value: String(g.id), label: g.name }))}
-            />
-            <FSelect value={br} onChange={setFilter(setBr)} placeholder="الفرع" options={(branchesList.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))} />
-            <FSelect
-              value={act}
-              onChange={setFilter(setAct)}
-              placeholder="التفعيل"
-              options={[
-                { value: 'true', label: 'مفعّلة' },
-                { value: 'false', label: 'معطّلة' },
+        <Card stg={3} pad="p-4 sm:p-5">
+          <div className="op-filter-shell mb-4">
+            <div className="op-filter-primary">
+              <div className="op-search-box">
+                <Icon name="search" size={15} className="tx3 shrink-0" />
+                <input
+                  type="search"
+                  value={q}
+                  onChange={(e) => setFilter(setQ)(e.target.value)}
+                  placeholder="ابحث باسم قائمة الأسعار..."
+                  className="op-search-input"
+                  aria-label="بحث في قوائم الأسعار"
+                />
+                {q && (
+                  <button
+                    type="button"
+                    onClick={() => setFilter(setQ)('')}
+                    className="op-search-clear"
+                    aria-label="مسح البحث"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFilters((v) => !v)}
+                  aria-expanded={showFilters || activeFilterCount > 0}
+                  className={`md:hidden pill-inp min-h-[44px] px-4 inline-flex items-center gap-1.5 ${(showFilters || activeFilterCount > 0) ? 'on' : ''}`}
+                >
+                  <Icon name="filter" size={13} />
+                  <span>فلاتر</span>
+                  {activeFilterCount > 0 && <span className="num font-bold">({activeFilterCount})</span>}
+                </button>
+                <div className="flex items-center gap-2">
+                  {hasAnyFilter && (
+                    <button type="button" className="btn btn-ghost btn-xs min-h-[38px]" onClick={clearFilters}>
+                      <Icon name="x" size={12} />
+                      مسح
+                    </button>
+                  )}
+                  <span className="v-sub px-3.5 py-2 rounded-full text-[12px] font-medium tx2 inline-flex items-center gap-2">
+                    <span>المعروض</span>
+                    <strong className="tx1 num font-bold">{fmtInt(lists.data?.meta.total ?? rows.length)}</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`op-filter-secondary lg:!grid-cols-3 ${(showFilters || activeFilterCount > 0) ? '!grid' : '!hidden md:!grid'}`}>
+              <FSelect
+                value={ty}
+                onChange={setFilter(setTy)}
+                placeholder="كل الأنواع"
+                options={Object.entries(PL_TYPES).map(([v, l]) => ({ value: v, label: l }))}
+              />
+              <FSelect
+                value={act}
+                onChange={setFilter(setAct)}
+                placeholder="كل الحالات"
+                options={[
+                  { value: 'true', label: 'مفعّلة' },
+                  { value: 'false', label: 'معطّلة' },
+                ]}
+              />
+              <FSelect
+                value={grp}
+                onChange={setFilter(setGrp)}
+                placeholder="كل المجموعات"
+                options={(groups.data ?? []).map((g: CustomerGroup) => ({ value: String(g.id), label: g.name }))}
+              />
+              <FSelect
+                value={br}
+                onChange={setFilter(setBr)}
+                placeholder="كل الفروع"
+                options={(branchesList.data ?? []).map((b: { id: number; name: string }) => ({ value: String(b.id), label: b.name }))}
+              />
+              <input
+                className="pill-inp col-span-2 md:col-span-1"
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                placeholder="ابحث عن عميل (3 أحرف+)"
+                aria-label="بحث عن عميل"
+              />
+              <FSelect
+                value={cus}
+                onChange={setFilter(setCus)}
+                placeholder="كل العملاء"
+                options={(customers.data ?? []).map((c: { id: number; name: string; company_name?: string }) => ({ value: String(c.id), label: c.company_name || c.name }))}
+              />
+            </div>
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable
+              rows={lists.loading ? [] : rows}
+              empty={lists.loading ? <AdminLoading compact /> : undefined}
+              onRow={openList}
+              cols={[
+                { h: 'الاسم', r: (p: PriceListRow) => <span className="font-semibold tx1">{p.name}</span> },
+                {
+                  h: 'النوع',
+                  r: (p: PriceListRow) => (
+                    <Badge dot={false} tone={typeTone(p.type)}>
+                      {PL_TYPES[p.type] || p.type}
+                    </Badge>
+                  ),
+                },
+                {
+                  h: 'العميل / المجموعة',
+                  r: (p: PriceListRow) => (p.target ? <span className="tx1 text-[12px]">{p.target}</span> : <span className="tx3">—</span>),
+                },
+                {
+                  h: 'الفرع',
+                  r: (p: PriceListRow) => (p.branch ? <span className="tx2 text-[12px]">{p.branch}</span> : <span className="tx3 text-[11.5px]">كل الفروع</span>),
+                },
+                { h: 'العملة', r: () => <span className="num text-[11.5px] font-semibold tx2">EGP</span> },
+                {
+                  h: 'السريان',
+                  r: (p: PriceListRow) => (
+                    <span className="num text-[11.5px] tx2 ltr whitespace-nowrap">
+                      {p.from} → {p.to || '∞'}
+                    </span>
+                  ),
+                },
+                {
+                  h: 'الأولوية',
+                  align: 'center',
+                  r: (p: PriceListRow) => <Num className="font-semibold">{p.prio}</Num>,
+                },
+                {
+                  h: 'البنود',
+                  align: 'center',
+                  r: (p: PriceListRow) => <Num className="tx2">{fmtInt(p.items)}</Num>,
+                },
+                { h: 'التفعيل', r: (p: PriceListRow) => <ActiveDot on={p.active} /> },
               ]}
+              foot={<Pager total={lists.data?.meta.total ?? rows.length} per={20} page={page} onPage={setPage} />}
             />
           </div>
-          <DataTable
-            rows={lists.loading ? [] : rows}
-            empty={lists.loading ? <AdminLoading compact /> : undefined}
-            onRow={(p: PriceListRow) => lists.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : go({ m: 'pricing', id: p.id })}
-            cols={[
-              { h: 'الاسم', r: (p: PriceListRow) => <span className="font-semibold tx1">{p.name}</span> },
-              {
-                h: 'النوع',
-                r: (p: PriceListRow) => (
-                  <Badge
-                    dot={false}
-                    tone={
-                      ({
-                        retail: 'gray',
-                        wholesale: 'violet',
-                        distributor: 'blue',
-                        group: 'orange',
-                        customer: 'green',
-                      } as const)[p.type as 'retail'] || 'gray'
-                    }
-                  >
-                    {PL_TYPES[p.type] || p.type}
-                  </Badge>
-                ),
-              },
-              {
-                h: 'العميل / المجموعة',
-                r: (p: PriceListRow) => (p.target ? <span className="tx1 text-[12px]">{p.target}</span> : <span className="tx3">—</span>),
-              },
-              {
-                h: 'الفرع',
-                r: (p: PriceListRow) => (p.branch ? <span className="tx2 text-[12px]">{p.branch}</span> : <span className="tx3 text-[11.5px]">كل الفروع</span>),
-              },
-              { h: 'العملة', r: () => <span className="num text-[11.5px] font-semibold tx2">EGP</span> },
-              {
-                h: 'السريان',
-                r: (p: PriceListRow) => (
-                  <span className="num text-[11.5px] tx2 ltr">
-                    {p.from} → {p.to || '∞'}
-                  </span>
-                ),
-              },
-              {
-                h: 'الأولوية',
-                align: 'center',
-                r: (p: PriceListRow) => <Num className="font-semibold">{p.prio}</Num>,
-              },
-              {
-                h: 'البنود',
-                align: 'center',
-                r: (p: PriceListRow) => <Num className="tx2">{fmtInt(p.items)}</Num>,
-              },
-              { h: 'التفعيل', r: (p: PriceListRow) => <ActiveDot on={p.active} /> },
-            ]}
-            foot={<Pager total={lists.data?.meta.total ?? rows.length} per={20} page={page} onPage={setPage} />}
-          />
+
+          <div className="md:hidden">
+            {lists.loading ? (
+              <AdminLoading compact />
+            ) : rows.length === 0 ? (
+              <Empty
+                icon="tag"
+                title="لا توجد قوائم أسعار مطابقة"
+                text={hasAnyFilter ? 'جرّب تعديل كلمات البحث أو مسح الفلاتر' : 'أنشئ أول قائمة أسعار لبدء التسعير'}
+              />
+            ) : (
+              <>
+                <div className="op-order-cards">
+                  {rows.map((p: PriceListRow) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => openList(p)}
+                      className="op-order-card"
+                    >
+                      <div className="op-order-card-head">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold tx1 text-[14.5px] truncate">{p.name}</div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge dot={false} tone={typeTone(p.type)}>
+                            {PL_TYPES[p.type] || p.type}
+                          </Badge>
+                          <ActiveDot on={p.active} />
+                        </div>
+                      </div>
+
+                      <div className="op-order-card-meta">
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] tx3">العميل / المجموعة</div>
+                          <div className="text-[12.5px] font-medium tx1 truncate mt-0.5">{p.target || 'عام'}</div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] tx3">الفرع</div>
+                          <div className="text-[12.5px] font-medium tx1 truncate mt-0.5">{p.branch || 'كل الفروع'}</div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] tx3">فترة السريان</div>
+                          <div className="num text-[11.5px] font-medium tx2 ltr inline-block mt-0.5">
+                            {p.from} → {p.to || '∞'}
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] tx3">الأولوية · البنود</div>
+                          <div className="num text-[12.5px] font-semibold tx1 mt-0.5">
+                            {p.prio} · <span className="tx2 font-medium">{fmtInt(p.items)} بند</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="op-order-card-foot">
+                        <span className="text-[11.5px] tx3 inline-flex items-center gap-1.5">
+                          <span className="num font-semibold tx2">EGP</span>
+                          <span>·</span>
+                          <span>{p.active ? 'مفعّلة' : 'معطّلة'}</span>
+                        </span>
+                        <span className="btn btn-soft btn-xs inline-flex items-center gap-1 shrink-0 !min-h-[34px]">
+                          <span>عرض البنود</span>
+                          <Icon name="chevL" size={12} />
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <Pager total={lists.data?.meta.total ?? rows.length} per={20} page={page} onPage={setPage} />
+              </>
+            )}
+          </div>
         </Card>
       )}
       {tab === 'groups' && (
-        <Card stg={3}>
-          <DataTable
-            rows={groups.data ?? []}
-            onRow={(g: CustomerGroup) => groups.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : setGform(g)}
-            cols={[
-              {
-                h: 'المجموعة',
-                r: (g: CustomerGroup) => (
-                  <div className="leading-tight">
-                    <div className="font-semibold tx1">{g.name}</div>
-                    {g.desc && <div className="text-[11.5px] tx3 mt-0.5">{g.desc}</div>}
-                  </div>
-                ),
-              },
-              {
-                h: 'الكود',
-                r: (g: CustomerGroup) => (
-                  <span className="num text-[11.5px] font-semibold v-sub px-2 py-1 rounded-md tx2">{g.code}</span>
-                ),
-              },
-              {
-                h: 'نسبة الخصم',
-                r: (g: CustomerGroup) => (
-                  <div className="flex items-center gap-2.5 min-w-[140px]">
-                    <div className="flex-1">
+        <Card stg={3} pad="p-4 sm:p-5">
+          <div className="op-filter-shell mb-4">
+            <div className="op-filter-primary">
+              <div className="op-search-box">
+                <Icon name="search" size={15} className="tx3 shrink-0" />
+                <input
+                  type="search"
+                  value={gq}
+                  onChange={(e) => setGq(e.target.value)}
+                  placeholder="ابحث باسم المجموعة أو الكود..."
+                  className="op-search-input"
+                  aria-label="بحث في مجموعات العملاء"
+                />
+                {gq && (
+                  <button
+                    type="button"
+                    onClick={() => setGq('')}
+                    className="op-search-clear"
+                    aria-label="مسح البحث"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="v-sub px-3.5 py-2 rounded-full text-[12px] font-medium tx2 inline-flex items-center gap-2">
+                  <span>المعروض</span>
+                  <strong className="tx1 num font-bold">{fmtInt(filteredGroups.length)}</strong>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable
+              rows={groups.loading ? [] : filteredGroups}
+              empty={groups.loading ? <AdminLoading compact /> : undefined}
+              onRow={openGroup}
+              cols={[
+                {
+                  h: 'المجموعة',
+                  r: (g: CustomerGroup) => (
+                    <div className="leading-tight">
+                      <div className="font-semibold tx1">{g.name}</div>
+                      {g.desc && <div className="text-[11.5px] tx3 mt-0.5">{g.desc}</div>}
+                    </div>
+                  ),
+                },
+                {
+                  h: 'الكود',
+                  r: (g: CustomerGroup) => (
+                    <span className="num text-[11.5px] font-semibold v-sub px-2 py-1 rounded-md tx2">{g.code}</span>
+                  ),
+                },
+                {
+                  h: 'نسبة الخصم',
+                  r: (g: CustomerGroup) => (
+                    <div className="flex items-center gap-2.5 min-w-[140px]">
+                      <div className="flex-1">
+                        <HatchBar pct={g.disc * 4} h={10} />
+                      </div>
+                      <Num className="font-semibold">{g.disc}%</Num>
+                    </div>
+                  ),
+                },
+                { h: 'التفعيل', r: (g: CustomerGroup) => <ActiveDot on={g.active} /> },
+                {
+                  h: '',
+                  r: (g: CustomerGroup) => (
+                    <RowActions>
+                      <button
+                        className="icon-btn !w-7 !h-7"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openGroup(g);
+                        }}
+                        aria-label={`تعديل ${g.name}`}
+                      >
+                        <Icon name="edit" size={13} />
+                      </button>
+                    </RowActions>
+                  ),
+                },
+              ]}
+            />
+          </div>
+
+          <div className="md:hidden">
+            {groups.loading ? (
+              <AdminLoading compact />
+            ) : filteredGroups.length === 0 ? (
+              <Empty
+                icon="users"
+                title="لا توجد مجموعات عملاء مطابقة"
+                text={gq ? 'جرّب البحث باسم أو كود آخر' : 'أضف مجموعة عملاء لتخصيص نسب الخصم'}
+              />
+            ) : (
+              <div className="op-order-cards">
+                {filteredGroups.map((g: CustomerGroup) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => openGroup(g)}
+                    className="op-order-card"
+                  >
+                    <div className="op-order-card-head">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold tx1 text-[14.5px] truncate">{g.name}</div>
+                        {g.desc && <div className="text-[12px] tx3 mt-0.5 line-clamp-2">{g.desc}</div>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="num text-[11px] font-semibold v-sub px-2.5 py-1 rounded-lg tx2">{g.code}</span>
+                        <ActiveDot on={g.active} />
+                      </div>
+                    </div>
+
+                    <div className="px-3 py-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] tx3">نسبة الخصم</span>
+                        <Num className="font-bold text-[14px] tx1">{g.disc}%</Num>
+                      </div>
                       <HatchBar pct={g.disc * 4} h={10} />
                     </div>
-                    <Num className="font-semibold">{g.disc}%</Num>
-                  </div>
-                ),
-              },
-              { h: 'التفعيل', r: (g: CustomerGroup) => <ActiveDot on={g.active} /> },
-              {
-                h: '',
-                r: (g: CustomerGroup) => (
-                  <RowActions>
-                    <button className="icon-btn !w-7 !h-7" onClick={() => groups.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : setGform(g)}>
-                      <Icon name="edit" size={13} />
-                    </button>
-                  </RowActions>
-                ),
-              },
-            ]}
-          />
+
+                    <div className="op-order-card-foot">
+                      <span className="text-[11.5px] tx3">{g.active ? 'مفعّلة للعملاء' : 'معطّلة'}</span>
+                      <span className="btn btn-soft btn-xs inline-flex items-center gap-1 shrink-0 !min-h-[34px]">
+                        <Icon name="edit" size={12} />
+                        <span>تعديل</span>
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
       )}
       {form && <PriceListForm row={form.id ? (form as PriceListRow) : null} onClose={() => setForm(null)} onSaved={() => lists.reload()} />}
@@ -1097,16 +1720,16 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
         }
         actions={
           <>
-            <button className="btn btn-soft" disabled={pl.usingMock} onClick={() => setForm(true)}>
+            <button className="btn btn-soft flex-1 sm:flex-initial justify-center" disabled={pl.usingMock} onClick={() => setForm(true)}>
               <Icon name="edit" size={14} />
               تعديل القائمة
             </button>
-            <button className="btn btn-soft" disabled={busy || pl.usingMock || remoteItems.usingMock} onClick={() => run(() => priceListsApi.exportCsv(id, p.name), { toast, success: 'تم تصدير CSV' })}>
+            <button className="btn btn-soft flex-1 sm:flex-initial justify-center" disabled={busy || pl.usingMock || remoteItems.usingMock} onClick={() => run(() => priceListsApi.exportCsv(id, p.name), { toast, success: 'تم تصدير CSV' })}>
               <Icon name="download" size={14} />
               تصدير CSV
             </button>
-            <button className="btn btn-soft" disabled={pl.usingMock} onClick={() => setImp(true)}><Icon name="upload" size={14} />استيراد أسعار</button>
-            <button className="btn btn-dark" disabled={pl.usingMock || remoteItems.usingMock} onClick={() => setEditRow({})}>
+            <button className="btn btn-soft flex-1 sm:flex-initial justify-center" disabled={pl.usingMock} onClick={() => setImp(true)}><Icon name="upload" size={14} />استيراد أسعار</button>
+            <button className="btn btn-dark flex-1 sm:flex-initial justify-center" disabled={pl.usingMock || remoteItems.usingMock} onClick={() => setEditRow({})}>
               <Icon name="plus" size={14} />
               إضافة بند
             </button>
@@ -1115,102 +1738,190 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
       />
       <RemoteFeedback state={pl} />
       <RemoteFeedback state={remoteItems} />
-      <Card stg={2}>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-          <SearchPill value={search} onChange={setSearch} placeholder="بحث في الصفحة الحالية" />
-            <span className="text-[11.5px] tx3">
+      <Card stg={2} pad="p-4 sm:p-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-1 sm:flex-initial min-w-[200px]">
+              <SearchPill value={search} onChange={setSearch} placeholder="بحث في الصفحة الحالية" />
+            </div>
+            <span className="text-[11.5px] tx3 whitespace-nowrap">
               <Num>{remoteItems.data?.meta.total ?? 0}</Num> بند مسجّل
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-[12px] tx2">تعديل نسبة مئوية جماعي:</span>
-            <input type="number" step="0.5" placeholder="+5%" className="inp inp-sm num w-20" value={pct} onChange={(e) => setPct(e.target.value)} />
+            <input type="number" step="0.5" placeholder="+5%" className="inp inp-sm num w-24 min-h-[40px] sm:min-h-0" value={pct} onChange={(e) => setPct(e.target.value)} />
             <button className="btn btn-soft btn-sm" disabled={busy || pl.usingMock || remoteItems.usingMock || !pct} onClick={() => { const v = Number(pct); if (!Number.isFinite(v)) return toast('أدخل نسبة صحيحة', 'red'); void applyPercent(v); }}>
               تطبيق
             </button>
           </div>
         </div>
-        <DataTable
-          rows={items.filter((row) => !dsearch || (row.v.name + ' ' + row.v.sku).toLowerCase().includes(dsearch.toLowerCase()))}
-          cols={[
-            {
-              h: 'المنتج / المتغير',
-              r: (r: any) => (
-                <div className="leading-tight">
-                  <div className="font-medium tx1">{r.v.name}</div>
-                  <div className="text-[11px] tx3 num">{r.v.sku}</div>
-                </div>
-              ),
-            },
-            {
-              h: 'أقل كمية',
-              align: 'center',
-              r: (r: any) => (
-                <input
-                  type="number"
-                  min="1"
-                  className="inp inp-sm num !w-20 text-center"
-                  disabled={pl.usingMock || remoteItems.usingMock}
-                  value={r.min}
-                  onChange={(e) => upd(r.id, 'min', e.target.value)}
-                  onBlur={() => { void saveRow(r.id); }}
+        {(() => {
+          const visibleItems = items.filter((row) => !dsearch || (row.v.name + ' ' + row.v.sku).toLowerCase().includes(dsearch.toLowerCase()));
+          return (
+            <>
+              <div className="hidden md:block">
+                <DataTable
+                  rows={visibleItems}
+                  cols={[
+                    {
+                      h: 'المنتج / المتغير',
+                      r: (r: any) => (
+                        <div className="leading-tight">
+                          <div className="font-medium tx1">{r.v.name}</div>
+                          <div className="text-[11px] tx3 num">{r.v.sku}</div>
+                        </div>
+                      ),
+                    },
+                    {
+                      h: 'أقل كمية',
+                      align: 'center',
+                      r: (r: any) => (
+                        <input
+                          type="number"
+                          min="1"
+                          className="inp inp-sm num !w-20 text-center"
+                          disabled={pl.usingMock || remoteItems.usingMock}
+                          value={r.min}
+                          onChange={(e) => upd(r.id, 'min', e.target.value)}
+                          onBlur={() => { void saveRow(r.id); }}
+                        />
+                      ),
+                    },
+                    {
+                      h: 'السعر (حتى 4 منازل)',
+                      r: (r: any) => (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            step="0.0001"
+                            className="inp inp-sm num !w-28 text-end"
+                            disabled={pl.usingMock || remoteItems.usingMock}
+                            value={r.price}
+                            onChange={(e) => upd(r.id, 'price', e.target.value)}
+                            onBlur={() => { void saveRow(r.id); }}
+                          />
+                          <span className="text-[11px] tx3">EGP</span>
+                        </div>
+                      ),
+                    },
+                    {
+                      h: 'فترة سريان البند',
+                      r: (r: any) => (
+                        <div className="flex items-center gap-1 num text-[11px]">
+                          <input
+                            type="date"
+                            className="inp inp-sm text-[11px] !py-0.5"
+                            disabled={pl.usingMock || remoteItems.usingMock}
+                            value={r.from}
+                            onChange={(e) => upd(r.id, 'from', e.target.value)}
+                            onBlur={() => { void saveRow(r.id); }}
+                          />
+                          <span className="tx3">→</span>
+                          <input
+                            type="date"
+                            className="inp inp-sm text-[11px] !py-0.5"
+                            disabled={pl.usingMock || remoteItems.usingMock}
+                            value={r.to}
+                            onChange={(e) => upd(r.id, 'to', e.target.value)}
+                            onBlur={() => { void saveRow(r.id); }}
+                          />
+                        </div>
+                      ),
+                    },
+                    {
+                      h: '',
+                      r: (r: any) => (
+                        <RowActions>
+                          <button className="icon-btn !w-7 !h-7" disabled={busy || savingIds.has(r.id)} onClick={() => deleteRow(r)}>
+                            <Icon name="trash" size={13} />
+                          </button>
+                        </RowActions>
+                      ),
+                    },
+                  ]}
                 />
-              ),
-            },
-            {
-              h: 'السعر (حتى 4 منازل)',
-              r: (r: any) => (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    step="0.0001"
-                    className="inp inp-sm num !w-28 text-end"
-                    disabled={pl.usingMock || remoteItems.usingMock}
-                    value={r.price}
-                    onChange={(e) => upd(r.id, 'price', e.target.value)}
-                    onBlur={() => { void saveRow(r.id); }}
-                  />
-                  <span className="text-[11px] tx3">EGP</span>
-                </div>
-              ),
-            },
-            {
-              h: 'فترة سريان البند',
-              r: (r: any) => (
-                <div className="flex items-center gap-1 num text-[11px]">
-                  <input
-                    type="date"
-                    className="inp inp-sm text-[11px] !py-0.5"
-                    disabled={pl.usingMock || remoteItems.usingMock}
-                    value={r.from}
-                    onChange={(e) => upd(r.id, 'from', e.target.value)}
-                    onBlur={() => { void saveRow(r.id); }}
-                  />
-                  <span className="tx3">→</span>
-                  <input
-                    type="date"
-                    className="inp inp-sm text-[11px] !py-0.5"
-                    disabled={pl.usingMock || remoteItems.usingMock}
-                    value={r.to}
-                    onChange={(e) => upd(r.id, 'to', e.target.value)}
-                    onBlur={() => { void saveRow(r.id); }}
-                  />
-                </div>
-              ),
-            },
-            {
-              h: '',
-              r: (r: any) => (
-                <RowActions>
-                  <button className="icon-btn !w-7 !h-7" disabled={busy || savingIds.has(r.id)} onClick={() => deleteRow(r)}>
-                    <Icon name="trash" size={13} />
-                  </button>
-                </RowActions>
-              ),
-            },
-          ]}
-        />
+              </div>
+
+              <div className="md:hidden">
+                {visibleItems.length === 0 ? (
+                  <Empty icon="tag" title="لا توجد بنود مطابقة" />
+                ) : (
+                  <div className="op-order-cards">
+                    {visibleItems.map((r: any) => (
+                      <div key={r.id} className="op-order-card !cursor-default active:!transform-none">
+                        <div className="op-order-card-head">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold tx1 text-[13.5px] truncate">{r.v.name}</div>
+                            <div className="num text-[11px] tx3 mt-0.5">{r.v.sku}</div>
+                          </div>
+                          <button
+                            type="button"
+                            className="icon-btn shrink-0"
+                            disabled={busy || savingIds.has(r.id)}
+                            onClick={() => deleteRow(r)}
+                            aria-label={`حذف ${r.v.name}`}
+                          >
+                            <Icon name="trash" size={15} />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <label className="block">
+                            <span className="block text-[11px] tx3 mb-1">أقل كمية</span>
+                            <input
+                              type="number"
+                              min="1"
+                              className="inp num text-center min-h-[42px]"
+                              disabled={pl.usingMock || remoteItems.usingMock}
+                              value={r.min}
+                              onChange={(e) => upd(r.id, 'min', e.target.value)}
+                              onBlur={() => { void saveRow(r.id); }}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="block text-[11px] tx3 mb-1">السعر (EGP)</span>
+                            <input
+                              type="number"
+                              step="0.0001"
+                              className="inp num text-end min-h-[42px]"
+                              disabled={pl.usingMock || remoteItems.usingMock}
+                              value={r.price}
+                              onChange={(e) => upd(r.id, 'price', e.target.value)}
+                              onBlur={() => { void saveRow(r.id); }}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="block text-[11px] tx3 mb-1">من تاريخ</span>
+                            <input
+                              type="date"
+                              className="inp num min-h-[42px]"
+                              disabled={pl.usingMock || remoteItems.usingMock}
+                              value={r.from}
+                              onChange={(e) => upd(r.id, 'from', e.target.value)}
+                              onBlur={() => { void saveRow(r.id); }}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="block text-[11px] tx3 mb-1">إلى تاريخ</span>
+                            <input
+                              type="date"
+                              className="inp num min-h-[42px]"
+                              disabled={pl.usingMock || remoteItems.usingMock}
+                              value={r.to}
+                              onChange={(e) => upd(r.id, 'to', e.target.value)}
+                              onBlur={() => { void saveRow(r.id); }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
         <Pager
           total={remoteItems.data?.meta.total ?? 0}
           page={itemPage}
@@ -1230,14 +1941,24 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
 /* ---------------- PROMOS & COUPONS ---------------- */
 export function PromosPage() {
   const toast = useToast();
-  const { run } = useAction();
   const [tab, setTab] = useState<'promos' | 'coupons'>('promos');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [copiedId, setCopiedId] = useState<string | number | null>(null);
   const [pf, setPf] = useState<PromoRow | null>(null);
   const [cf, setCf] = useState<CouponRow | null>(null);
   const [newPromo, setNewPromo] = useState(false);
   const [newCoupon, setNewCoupon] = useState(false);
   const promos = useRemote((s) => promotionsApi.all(s).then((rows) => rows.map((p) => ({ ...mapPromo(p), targetIds: p.target_ids ?? [], targets: (p.target_ids ?? []).map(String) }))), [], { mock: () => PROMOS });
   const coupons = useRemote((s) => couponsApi.all(s).then((rows) => rows.map(mapCoupon)), [], { mock: () => COUPONS });
+
+  const promoTone = (t: string) =>
+    (({
+      percent: 'orange',
+      amount: 'blue',
+      free_ship: 'green',
+      bxgy: 'violet',
+    } as const)[t as 'percent'] || 'gray');
 
   const promoVal = (p: PromoRow) =>
     p.type === 'percent' ? (
@@ -1248,13 +1969,86 @@ export function PromosPage() {
       <span className="tx3">—</span>
     );
 
+  const openCreate = () => {
+    if (promos.usingMock || coupons.usingMock) {
+      toast('البيانات تجريبية — لا يمكن الحفظ', 'red');
+      return;
+    }
+    if (tab === 'promos') setNewPromo(true);
+    else setNewCoupon(true);
+  };
+
+  const openPromoEdit = (p: PromoRow) => {
+    if (promos.usingMock) {
+      toast('البيانات تجريبية — لا يمكن التعديل', 'red');
+      return;
+    }
+    setPf(p);
+  };
+
+  const openCouponEdit = (c: CouponRow) => {
+    if (coupons.usingMock) {
+      toast('البيانات تجريبية — لا يمكن التعديل', 'red');
+      return;
+    }
+    setCf(c);
+  };
+
+  const copyCouponCode = async (e: React.MouseEvent, c: CouponRow) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(c.code);
+      setCopiedId(c.id);
+      toast(`تم نسخ الكود ${c.code}`, 'green');
+      window.setTimeout(() => {
+        setCopiedId((cur) => (cur === c.id ? null : cur));
+      }, 1800);
+    } catch {
+      toast('تعذر نسخ الكود', 'red');
+    }
+  };
+
+  const allPromos = promos.data ?? [];
+  const allCoupons = coupons.data ?? [];
+  const normQuery = query.trim().toLowerCase();
+
+  const filteredPromos = useMemo(
+    () =>
+      allPromos.filter((p) => {
+        if (statusFilter === 'active' && !p.active) return false;
+        if (statusFilter === 'inactive' && p.active) return false;
+        if (normQuery && !p.name.toLowerCase().includes(normQuery)) return false;
+        return true;
+      }),
+    [allPromos, statusFilter, normQuery],
+  );
+
+  const filteredCoupons = useMemo(
+    () =>
+      allCoupons.filter((c) => {
+        if (statusFilter === 'active' && !c.active) return false;
+        if (statusFilter === 'inactive' && c.active) return false;
+        if (normQuery && !c.code.toLowerCase().includes(normQuery)) return false;
+        return true;
+      }),
+    [allCoupons, statusFilter, normQuery],
+  );
+
+  const hasFilters = normQuery.length > 0 || statusFilter !== 'all';
+  const resetFilters = () => {
+    setQuery('');
+    setStatusFilter('all');
+  };
+
+  const currentListCount = tab === 'promos' ? allPromos.length : allCoupons.length;
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5 op-promos-page">
       <PageHead
         title="العروض والكوبونات"
         sub="العروض تُطبق على نطاق محدد، والكوبونات بأكواد يُدخلها العميل."
         actions={
-          <button className="btn btn-dark" onClick={() => (promos.usingMock || coupons.usingMock) ? toast('البيانات تجريبية — لا يمكن الحفظ', 'red') : (tab === 'promos' ? setNewPromo(true) : setNewCoupon(true))}>
+          <button className="btn btn-dark w-full sm:w-auto" onClick={openCreate}>
             <Icon name="plus" size={14} />
             {tab === 'promos' ? 'عرض ترويجي' : 'كوبون جديد'}
           </button>
@@ -1264,133 +2058,316 @@ export function PromosPage() {
       <Note>العروض مسجلة للإدارة ولا يطبقها الخادم تلقائيًا عند الشراء.</Note>
       <TabsBar
         value={tab}
-        onChange={(v: any) => setTab(v)}
+        onChange={(v: any) => {
+          setTab(v);
+          resetFilters();
+        }}
         tabs={[
-          { value: 'promos', label: 'العروض الترويجية', icon: 'ticket', count: (promos.data ?? []).length },
-          { value: 'coupons', label: 'كوبونات الخصم', icon: 'tag', count: (coupons.data ?? []).length },
+          { value: 'promos', label: 'العروض الترويجية', icon: 'ticket', count: allPromos.length },
+          { value: 'coupons', label: 'كوبونات الخصم', icon: 'tag', count: allCoupons.length },
         ]}
       />
-      {tab === 'promos' && (
-        <Card stg={3}>
-          <DataTable
-            rows={promos.data ?? []}
-            onRow={(p: PromoRow) => promos.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : setPf(p)}
-            cols={[
-              { h: 'اسم العرض', r: (p: PromoRow) => <span className="font-semibold tx1">{p.name}</span> },
-              {
-                h: 'النوع',
-                r: (p: PromoRow) => (
-                  <Badge
-                    dot={false}
-                    tone={
-                      ({
-                        percent: 'orange',
-                        amount: 'blue',
-                        free_ship: 'green',
-                        bxgy: 'violet',
-                      } as const)[p.type as 'percent'] || 'gray'
-                    }
-                  >
-                    {PROMO_TYPES[p.type] || p.type}
-                  </Badge>
-                ),
-              },
-              { h: 'القيمة', r: promoVal },
-              {
-                h: 'الحد الأدنى',
-                r: (p: PromoRow) =>
-                  p.min ? <span className="tx2 font-medium">{fmtMoney(p.min, 0)}</span> : <span className="tx3">—</span>,
-              },
-              {
-                h: 'النطاق والمستهدفات',
-                r: (p: PromoRow) => (
-                  <div className="leading-tight">
-                    <span className="text-[12px] font-medium">{SCOPES[p.scope]}</span>
-                    {p.targets?.length > 0 && (
-                      <div className="text-[11px] tx3 clamp1 mt-0.5">{p.targets.join('، ')}</div>
-                    )}
-                  </div>
-                ),
-              },
-              {
-                h: 'السريان',
-                r: (p: PromoRow) => (
-                  <span className="num text-[11.5px] tx2 ltr">
-                    {p.from} → {p.to || '∞'}
-                  </span>
-                ),
-              },
-              { h: 'التفعيل', r: (p: PromoRow) => <ActiveDot on={p.active} /> },
-              {
-                h: '',
-                r: (p: PromoRow) => (
-                  <RowActions>
-                    <button className="icon-btn !w-7 !h-7" onClick={() => promos.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : setPf(p)}>
-                      <Icon name="edit" size={13} />
-                    </button>
-                  </RowActions>
-                ),
-              },
-            ]}
-          />
-        </Card>
-      )}
-      {tab === 'coupons' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(coupons.data ?? []).map((c, i) => {
-            const pct = c.total ? Math.min(100, (c.used / c.total) * 100) : null;
-            return (
-              <div
-                key={c.id}
-                className={'v-card p-5 stg stg-' + (2 + i) + ' cursor-pointer hover:shadow-sm transition'}
-                onClick={() => coupons.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : setCf(c)}
+
+      {currentListCount > 0 && (
+        <div className="op-promos-toolbar stg stg-2">
+          <label className="op-promos-search">
+            <Icon name="search" size={15} className="tx3 shrink-0" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={tab === 'promos' ? 'ابحث باسم العرض...' : 'ابحث بكود الكوبون...'}
+              aria-label={tab === 'promos' ? 'ابحث باسم العرض' : 'ابحث بكود الكوبون'}
+            />
+            {query && (
+              <button
+                type="button"
+                className="icon-btn !w-7 !h-7 !min-w-7 !min-h-7"
+                onClick={() => setQuery('')}
+                aria-label="مسح البحث"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-display text-[22px] font-bold num tracking-[.06em] tx1 ltr">{c.code}</div>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <Badge dot={false} tone="orange">
-                        {COUPON_TYPES[c.type]}
+                <Icon name="x" size={12} />
+              </button>
+            )}
+          </label>
+          <div className="op-promos-status-pills" role="group" aria-label="تصفية حسب الحالة">
+            {(
+              [
+                { k: 'all', label: 'الكل' },
+                { k: 'active', label: 'مفعّل' },
+                { k: 'inactive', label: 'متوقف' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.k}
+                type="button"
+                onClick={() => setStatusFilter(opt.k)}
+                className={'pill-inp ' + (statusFilter === opt.k ? 'on' : '')}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'promos' && (
+        <>
+          <div className="hidden md:block">
+            <Card stg={3}>
+              <DataTable
+                rows={filteredPromos}
+                onRow={openPromoEdit}
+                cols={[
+                  { h: 'اسم العرض', r: (p: PromoRow) => <span className="font-semibold tx1">{p.name}</span> },
+                  {
+                    h: 'النوع',
+                    r: (p: PromoRow) => (
+                      <Badge dot={false} tone={promoTone(p.type)}>
+                        {PROMO_TYPES[p.type] || p.type}
                       </Badge>
-                      {c.value && (
-                        <span className="font-semibold text-[13px]">
-                          {c.type === 'percent' ? <Num>{c.value}%</Num> : fmtMoney(c.value, 0)}
+                    ),
+                  },
+                  { h: 'القيمة', r: promoVal },
+                  {
+                    h: 'الحد الأدنى',
+                    r: (p: PromoRow) =>
+                      p.min ? <span className="tx2 font-medium">{fmtMoney(p.min, 0)}</span> : <span className="tx3">—</span>,
+                  },
+                  {
+                    h: 'النطاق والمستهدفات',
+                    r: (p: PromoRow) => (
+                      <div className="leading-tight">
+                        <span className="text-[12px] font-medium">{SCOPES[p.scope]}</span>
+                        {p.targets?.length > 0 && (
+                          <div className="text-[11px] tx3 clamp1 mt-0.5">{p.targets.join('، ')}</div>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    h: 'السريان',
+                    r: (p: PromoRow) => (
+                      <span className="num text-[11.5px] tx2 ltr">
+                        {p.from} → {p.to || '∞'}
+                      </span>
+                    ),
+                  },
+                  { h: 'التفعيل', r: (p: PromoRow) => <ActiveDot on={p.active} /> },
+                  {
+                    h: '',
+                    r: (p: PromoRow) => (
+                      <RowActions>
+                        <button
+                          className="icon-btn !w-7 !h-7"
+                          aria-label={`تعديل ${p.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPromoEdit(p);
+                          }}
+                        >
+                          <Icon name="edit" size={13} />
+                        </button>
+                      </RowActions>
+                    ),
+                  },
+                ]}
+              />
+            </Card>
+          </div>
+
+          <div className="md:hidden">
+            {filteredPromos.length === 0 ? (
+              <Card stg={3} pad="p-4">
+                <Empty
+                  icon="ticket"
+                  title={hasFilters ? 'لا توجد عروض مطابقة' : 'لا توجد عروض ترويجية بعد'}
+                  text={
+                    hasFilters
+                      ? 'جرّب تغيير كلمة البحث أو حالة التفعيل.'
+                      : 'أنشئ أول عرض ترويجي لتطبيق خصومات على منتجات أو تصنيفات محددة.'
+                  }
+                  action={
+                    hasFilters ? (
+                      <button className="btn btn-soft" onClick={resetFilters}>
+                        إعادة ضبط الفلاتر
+                      </button>
+                    ) : (
+                      <button className="btn btn-dark" onClick={openCreate}>
+                        <Icon name="plus" size={14} />
+                        عرض ترويجي جديد
+                      </button>
+                    )
+                  }
+                />
+              </Card>
+            ) : (
+              <div className="op-promo-cards">
+                {filteredPromos.map((p, i) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={'op-promo-card stg stg-' + Math.min(6, 2 + i)}
+                    onClick={() => openPromoEdit(p)}
+                  >
+                    <div className="flex items-start justify-between gap-3 w-full">
+                      <div className="min-w-0 flex-1 text-start">
+                        <div className="font-semibold text-[15px] tx1 leading-snug break-words">{p.name}</div>
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                          <Badge dot={false} tone={promoTone(p.type)}>
+                            {PROMO_TYPES[p.type] || p.type}
+                          </Badge>
+                          {p.type !== 'free_ship' && p.type !== 'bxgy' && (
+                            <span className="text-[14px] font-bold tx1">{promoVal(p)}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Badge tone={p.active ? 'green' : 'gray'}>
+                        {p.active ? 'مفعّل' : 'متوقف'}
+                      </Badge>
+                    </div>
+
+                    <div className="op-promo-card-meta w-full">
+                      <div className="min-w-0">
+                        <div className="text-[10.5px] tx3">النطاق</div>
+                        <div className="text-[12px] font-semibold tx1 truncate">{SCOPES[p.scope] || p.scope}</div>
+                        {p.targets?.length > 0 && (
+                          <div className="text-[11px] tx3 truncate mt-0.5">{p.targets.join('، ')}</div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[10.5px] tx3">الحد الأدنى</div>
+                        <div className="text-[12px] font-semibold tx1">
+                          {p.min ? fmtMoney(p.min, 0) : <span className="tx2">بدون حد</span>}
+                        </div>
+                      </div>
+                      <div className="col-span-2 pt-1 v-bt flex items-center justify-between gap-2">
+                        <span className="text-[11px] tx3">فترة السريان</span>
+                        <span className="num text-[11.5px] font-medium tx2 ltr">
+                          {p.from || '—'} → {p.to || 'مستمر'}
                         </span>
-                      )}
-                      {c.maxDisc && (
-                        <span className="text-[11.5px] tx3">حد أقصى {fmtMoney(c.maxDisc, 0)}</span>
-                      )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between w-full text-[12px] tx2">
+                      <span>اضغط للتعديل</span>
+                      <Icon name="chevL" size={14} className="tx3" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === 'coupons' && (
+        <>
+          {filteredCoupons.length === 0 ? (
+            <Card stg={3} pad="p-4 sm:p-6">
+              <Empty
+                icon="tag"
+                title={hasFilters ? 'لا توجد كوبونات مطابقة' : 'لا توجد كوبونات خصم بعد'}
+                text={
+                  hasFilters
+                    ? 'جرّب تغيير كلمة البحث أو حالة التفعيل.'
+                    : 'أنشئ أول كوبون خصم ليتمكن العملاء من إدخال الكود عند إتمام الطلب.'
+                }
+                action={
+                  hasFilters ? (
+                    <button className="btn btn-soft" onClick={resetFilters}>
+                      إعادة ضبط الفلاتر
+                    </button>
+                  ) : (
+                    <button className="btn btn-dark" onClick={openCreate}>
+                      <Icon name="plus" size={14} />
+                      إنشاء كوبون جديد
+                    </button>
+                  )
+                }
+              />
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              {filteredCoupons.map((c, i) => {
+                const pct = c.total ? Math.min(100, (c.used / c.total) * 100) : null;
+                const isCopied = copiedId === c.id;
+                return (
+                  <div
+                    key={c.id}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openCouponEdit(c);
+                      }
+                    }}
+                    className={'v-card op-coupon-card p-4 sm:p-5 stg stg-' + Math.min(6, 2 + i) + ' cursor-pointer hover:shadow-sm'}
+                    onClick={() => openCouponEdit(c)}
+                  >
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="font-display text-[20px] sm:text-[22px] font-bold num tracking-[.06em] tx1 ltr break-all">
+                            {c.code}
+                          </div>
+                          <button
+                            type="button"
+                            className="icon-btn !w-9 !h-9 !min-w-9 !min-h-9 shrink-0 v-sub"
+                            aria-label={`نسخ الكود ${c.code}`}
+                            onClick={(e) => copyCouponCode(e, c)}
+                          >
+                            <Icon name={isCopied ? 'check' : 'copy'} size={14} className={isCopied ? 'c-green' : 'tx2'} />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                          <Badge dot={false} tone="orange">
+                            {COUPON_TYPES[c.type]}
+                          </Badge>
+                          {c.value != null && c.type !== 'free_ship' && (
+                            <span className="font-semibold text-[13px] tx1">
+                              {c.type === 'percent' ? <Num>{c.value}%</Num> : fmtMoney(c.value, 0)}
+                            </span>
+                          )}
+                          {c.maxDisc != null && c.maxDisc > 0 && (
+                            <span className="text-[11.5px] tx3">حد أقصى {fmtMoney(c.maxDisc, 0)}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Badge tone={c.active ? 'green' : 'gray'}>
+                        {c.active ? 'مفعّل' : 'متوقف'}
+                      </Badge>
+                    </div>
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-[12px] mb-1.5">
+                        <span>
+                          <b className="num tx1">{fmtInt(c.used)}</b> <span className="tx3">مرة استخدام</span>
+                        </span>
+                        <span className="tx2">{c.total ? <>من <Num>{fmtInt(c.total)}</Num></> : 'غير محدود'}</span>
+                      </div>
+                      {pct != null ? <HatchBar pct={pct} h={12} /> : <div className="h-3 rounded-full hatch-track"></div>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mt-4">
+                      <div className="v-sub px-2.5 py-2 sm:px-3 min-w-0">
+                        <div className="text-[10.5px] tx3 truncate">الحد الأدنى</div>
+                        <div className="text-[12px] font-semibold truncate">{fmtMoney(c.min, 0)}</div>
+                      </div>
+                      <div className="v-sub px-2.5 py-2 sm:px-3 min-w-0">
+                        <div className="text-[10.5px] tx3 truncate">لكل عميل</div>
+                        <div className="text-[12px] font-semibold truncate">{c.perCust ? <Num>{c.perCust}</Num> : '∞'}</div>
+                      </div>
+                      <div className="v-sub px-2.5 py-2 sm:px-3 min-w-0">
+                        <div className="text-[10.5px] tx3 truncate">السريان</div>
+                        <div className="text-[11px] font-semibold num ltr truncate">{c.to ? c.to.slice(5) : '∞'}</div>
+                      </div>
                     </div>
                   </div>
-                  <ActiveDot on={c.active} />
-                </div>
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-[12px] mb-1.5">
-                    <span>
-                      <b className="num tx1">{fmtInt(c.used)}</b> <span className="tx3">مرة استخدام</span>
-                    </span>
-                    <span className="tx2">{c.total ? <>من <Num>{fmtInt(c.total)}</Num></> : 'غير محدود'}</span>
-                  </div>
-                  {pct != null ? <HatchBar pct={pct} h={12} /> : <div className="h-3 rounded-full hatch-track"></div>}
-                </div>
-                <div className="grid grid-cols-3 gap-2 mt-4">
-                  <div className="v-sub px-3 py-2">
-                    <div className="text-[10.5px] tx3">الحد الأدنى</div>
-                    <div className="text-[12px] font-semibold">{fmtMoney(c.min, 0)}</div>
-                  </div>
-                  <div className="v-sub px-3 py-2">
-                    <div className="text-[10.5px] tx3">لكل عميل</div>
-                    <div className="text-[12px] font-semibold">{c.perCust ? <Num>{c.perCust}</Num> : '∞'}</div>
-                  </div>
-                  <div className="v-sub px-3 py-2">
-                    <div className="text-[10.5px] tx3">السريان</div>
-                    <div className="text-[11px] font-semibold num ltr">{c.to ? c.to.slice(5) : '∞'}</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
       {(pf || newPromo) && <PromoForm row={pf} onClose={() => { setPf(null); setNewPromo(false); }} onSaved={() => promos.reload()} />}
       {(cf || newCoupon) && <CouponForm row={cf} onClose={() => { setCf(null); setNewCoupon(false); }} onSaved={() => coupons.reload()} />}
@@ -1449,19 +2426,23 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
       icon="ticket"
       width={640}
       footer={
-        <>
-          {row && <button className="btn btn-danger" disabled={busy} onClick={() => setDeleting(true)}>حذف</button>}
-          <button className="btn btn-soft" onClick={onClose}>
+        <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+          {row && (
+            <button className="btn btn-danger me-auto" disabled={busy} onClick={() => setDeleting(true)}>
+              حذف
+            </button>
+          )}
+          <button className="btn btn-soft flex-1 sm:flex-initial" onClick={onClose}>
             إلغاء
           </button>
           <button
-            className="btn btn-dark"
+            className="btn btn-dark flex-1 sm:flex-initial"
             disabled={busy}
             onClick={save}
           >
             حفظ
           </button>
-        </>
+        </div>
       }
     >
       <div className="space-y-4">
@@ -1621,19 +2602,23 @@ export function CouponForm({ row, onClose, onSaved }: { row: CouponRow | null; o
       icon="ticket"
       width={600}
       footer={
-        <>
-          {row && <button className="btn btn-danger" disabled={busy} onClick={() => setDeleting(true)}>حذف</button>}
-          <button className="btn btn-soft" onClick={onClose}>
+        <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+          {row && (
+            <button className="btn btn-danger me-auto" disabled={busy} onClick={() => setDeleting(true)}>
+              حذف
+            </button>
+          )}
+          <button className="btn btn-soft flex-1 sm:flex-initial" onClick={onClose}>
             إلغاء
           </button>
           <button
-            className="btn btn-dark"
+            className="btn btn-dark flex-1 sm:flex-initial"
             disabled={!code || busy}
             onClick={save}
           >
             حفظ
           </button>
-        </>
+        </div>
       }
     >
       <div className="space-y-4">

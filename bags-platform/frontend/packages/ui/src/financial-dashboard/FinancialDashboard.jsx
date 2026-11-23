@@ -49,7 +49,7 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
   const viewportRef = useRef(null);
   const underlayRef = useRef(null);
   const navTrackRef = useRef(null);
-  const timers = useRef({ toast: null, copied: null, wipe: null });
+  const timers = useRef({ toast: null, copied: null, wipe: null, viewTransition: null });
   const [shadowRoot, setShadowRoot] = useState(null);
   const [navScrollState, setNavScrollState] = useState({ overflow: false, canScrollLeft: false, canScrollRight: false });
   const [navIndicator, setNavIndicator] = useState({ x: 0, width: 0, visible: false });
@@ -88,24 +88,39 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
       document.head.appendChild(fonts);
     }
     const scrollbars = document.createElement('style');
-    scrollbars.textContent = 'html.vortix-active::-webkit-scrollbar{width:5px;height:5px}html.vortix-active::-webkit-scrollbar-track{background:transparent}html.vortix-active::-webkit-scrollbar-thumb{background:rgba(150,145,160,.25);border-radius:999px}';
+    scrollbars.textContent = [
+      'html.vortix-active::-webkit-scrollbar{width:5px;height:5px}',
+      'html.vortix-active::-webkit-scrollbar-track{background:transparent}',
+      'html.vortix-active::-webkit-scrollbar-thumb{background:rgba(150,145,160,.25);border-radius:999px}',
+      '::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal;height:100%}',
+      '::view-transition-old(root){z-index:1}',
+      '::view-transition-new(root){z-index:9999}',
+      'html.vortix-theme-switching,html.vortix-theme-switching *,html.vortix-theme-switching *::before,html.vortix-theme-switching *::after{transition:none!important}',
+    ].join('');
     document.head.appendChild(scrollbars);
     document.documentElement.classList.add('vortix-active');
     return () => {
       document.documentElement.lang = previousLanguage;
-      document.documentElement.classList.remove('vortix-active');
+      document.documentElement.classList.remove('vortix-active', 'vortix-theme-switching');
+      document.documentElement.style.colorScheme = '';
+      document.documentElement.style.backgroundColor = '';
       scrollbars.remove();
       clearTimeout(timers.current.toast);
       clearTimeout(timers.current.copied);
       cancelAnimationFrame(timers.current.wipe);
+      try { timers.current.viewTransition?.skipTransition?.(); } catch {}
+      timers.current.viewTransition = null;
     };
   }, []);
 
   useEffect(() => {
-    hostRef.current?.setAttribute('data-theme', state.darkMode ? 'dark' : 'light');
-    document.documentElement.setAttribute('data-theme', state.darkMode ? 'dark' : 'light');
+    const themeName = state.darkMode ? 'dark' : 'light';
+    hostRef.current?.setAttribute('data-theme', themeName);
+    document.documentElement.setAttribute('data-theme', themeName);
+    document.documentElement.style.colorScheme = themeName;
+    document.documentElement.style.backgroundColor = state.darkMode ? '#100d13' : '#f2eff3';
     try {
-      localStorage.setItem('vortix_theme', state.darkMode ? 'dark' : 'light');
+      localStorage.setItem('vortix_theme', themeName);
     } catch {}
   }, [state.darkMode]);
 
@@ -307,70 +322,114 @@ export function FinancialDashboard({ onLogout, storefrontUrl, categoriesPage, ca
     showToast('Session locked · Code XR Studio');
   }
 
+  function setThemeSwitching(active) {
+    document.documentElement.classList.toggle('vortix-theme-switching', active);
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.classList.toggle('no-theme-transitions', active);
+    viewport
+      .querySelectorAll('[data-catalog-mock], [data-categories-mock], [data-inventory-mock], [data-admin-mock], [data-operations-mock]')
+      .forEach(hostEl => {
+        const sr = hostEl.shadowRoot;
+        if (!sr) return;
+        const existing = sr.querySelector('style[data-vortix-theme-freeze]');
+        if (active && !existing) {
+          const freezeStyle = document.createElement('style');
+          freezeStyle.setAttribute('data-vortix-theme-freeze', '');
+          freezeStyle.textContent = '*, *::before, *::after { transition: none !important; }';
+          sr.appendChild(freezeStyle);
+        } else if (!active && existing) {
+          existing.remove();
+        }
+      });
+  }
+
+  function applyThemeNow(isDark) {
+    const themeName = isDark ? 'dark' : 'light';
+    try {
+      localStorage.setItem('vortix_theme', themeName);
+    } catch {}
+    document.documentElement.setAttribute('data-theme', themeName);
+    document.documentElement.style.colorScheme = themeName;
+    document.documentElement.style.backgroundColor = isDark ? '#100d13' : '#f2eff3';
+    hostRef.current?.setAttribute('data-theme', themeName);
+    window.dispatchEvent(new CustomEvent('vortix:theme-change', { detail: { darkMode: isDark } }));
+    flushSync(() => update(next => { next.darkMode = isDark; }));
+  }
+
   function changeTheme(targetDark, origin) {
     const isDark = resolveDarkMode(targetDark);
+    if (isDark === state.darkMode) return;
+
     cancelAnimationFrame(timers.current.wipe);
+    if (timers.current.viewTransition) {
+      try { timers.current.viewTransition.skipTransition(); } catch {}
+      timers.current.viewTransition = null;
+    }
+
     const viewport = viewportRef.current;
     const underlay = underlayRef.current;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      viewport.style.clipPath = 'none';
-      viewport.classList.remove('no-theme-transitions');
+    if (viewport) viewport.style.clipPath = '';
+    if (underlay) {
       underlay.classList.add('hidden');
       underlay.replaceChildren();
-      window.dispatchEvent(new CustomEvent('vortix:theme-change', { detail: { darkMode: isDark } }));
-      update(next => { next.darkMode = isDark; });
+    }
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const supportsViewTransition = typeof document.startViewTransition === 'function';
+
+    if (prefersReducedMotion || !supportsViewTransition) {
+      setThemeSwitching(true);
+      applyThemeNow(isDark);
+      void viewport?.offsetHeight;
+      timers.current.wipe = requestAnimationFrame(() => {
+        setThemeSwitching(false);
+      });
       return;
     }
-    const rect = origin.getBoundingClientRect();
-    const cx = Math.round(rect.left + rect.width / 2);
-    const cy = Math.round(rect.top + rect.height / 2);
-    const scrollY = window.scrollY || 0;
-    const maxRadius = Math.ceil(Math.hypot(Math.max(cx, window.innerWidth - cx), Math.max(cy, window.innerHeight - cy))) + 30;
-    const snapshot = viewport.cloneNode(true);
-    const liveInputs = viewport.querySelectorAll('input');
-    snapshot.querySelectorAll('input').forEach((input, index) => {
-      input.value = liveInputs[index].value;
-      input.checked = liveInputs[index].checked;
+
+    const rect = origin?.getBoundingClientRect?.();
+    const cx = rect ? Math.round(rect.left + rect.width / 2) : Math.round(window.innerWidth / 2);
+    const cy = rect ? Math.round(rect.top + rect.height / 2) : Math.round(window.innerHeight / 2);
+    const maxRadius = Math.ceil(
+      Math.hypot(Math.max(cx, window.innerWidth - cx), Math.max(cy, window.innerHeight - cy))
+    ) + 16;
+
+    setThemeSwitching(true);
+    const transition = document.startViewTransition(async () => {
+      applyThemeNow(isDark);
+      await Promise.resolve();
     });
-    const liveHosts = viewport.querySelectorAll('[data-catalog-mock], [data-categories-mock], [data-inventory-mock], [data-admin-mock]');
-    snapshot.querySelectorAll('[data-catalog-mock], [data-categories-mock], [data-inventory-mock], [data-admin-mock]').forEach((hostClone, index) => {
-      const liveHost = liveHosts[index];
-      if (liveHost?.shadowRoot) {
-        const cloneRoot = hostClone.attachShadow({ mode: 'open' });
-        cloneRoot.innerHTML = liveHost.shadowRoot.innerHTML;
-      }
-    });
-    snapshot.removeAttribute('id');
-    snapshot.style.clipPath = 'none';
-    snapshot.style.width = viewport.offsetWidth + 'px';
-    snapshot.style.transform = `translateY(-${scrollY}px)`;
-    snapshot.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
-    underlay.replaceChildren(snapshot);
-    underlay.classList.remove('hidden');
-    try {
-      localStorage.setItem('vortix_theme', isDark ? 'dark' : 'light');
-    } catch {}
-    window.dispatchEvent(new CustomEvent('vortix:theme-change', { detail: { darkMode: isDark } }));
-    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    flushSync(() => update(next => { next.darkMode = isDark; }));
-    hostRef.current.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    viewport.classList.add('no-theme-transitions');
-    const clipY = cy + scrollY;
-    viewport.style.clipPath = `circle(0px at ${cx}px ${clipY}px)`;
-    const started = performance.now();
-    function step(now) {
-      const progress = Math.min((now - started) / 660, 1);
-      const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-      viewport.style.clipPath = `circle(${(eased * maxRadius).toFixed(1)}px at ${cx}px ${clipY}px)`;
-      if (progress < 1) timers.current.wipe = requestAnimationFrame(step);
-      else {
-        viewport.style.clipPath = 'none';
-        viewport.classList.remove('no-theme-transitions');
-        underlay.classList.add('hidden');
-        underlay.replaceChildren();
-      }
-    }
-    timers.current.wipe = requestAnimationFrame(step);
+    timers.current.viewTransition = transition;
+
+    transition.ready
+      .then(() => {
+        document.documentElement.animate(
+          {
+            clipPath: [
+              `circle(0px at ${cx}px ${cy}px)`,
+              `circle(${maxRadius}px at ${cx}px ${cy}px)`,
+            ],
+          },
+          {
+            duration: 660,
+            easing: 'cubic-bezier(0.65, 0, 0.35, 1)',
+            fill: 'both',
+            pseudoElement: '::view-transition-new(root)',
+          }
+        );
+      })
+      .catch(() => {});
+
+    transition.finished
+      .catch(() => {})
+      .finally(() => {
+        if (timers.current.viewTransition !== transition) return;
+        timers.current.viewTransition = null;
+        timers.current.wipe = requestAnimationFrame(() => {
+          setThemeSwitching(false);
+        });
+      });
   }
 
   const modalTitle = { transfer: 'Transfer Funds', request: 'Request Payment', navigation: 'المزيد' }[modal] ?? 'Quick Transfer';

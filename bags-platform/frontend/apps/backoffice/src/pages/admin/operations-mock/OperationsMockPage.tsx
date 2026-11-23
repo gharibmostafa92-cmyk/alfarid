@@ -249,75 +249,64 @@ export default function OperationsMockPage({
             <ToastHost portalHost={root}>
               <div className={`operations-mock-container ${isDark ? 'theme-dark dark' : 'theme-light'} max-w-[1400px] mx-auto px-4 sm:px-7 pt-4 pb-12`} dir="rtl" lang="ar">
                 {/* Operations Top Sub-Header & Navigation Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-[var(--border-subtle)]">
-                  {/* Secondary Navigation Pills */}
-                  <div className="flex min-w-0 items-center gap-2 flex-wrap">
-                    <div className="v-pill p-1 flex items-center gap-1 overflow-x-auto max-w-full" style={{ scrollbarWidth: 'none' }}>
-                      {navGroups.map((g) => (
-                        <button
-                          key={g.key}
-                          onClick={() => go({ m: g.items[0].m })}
-                          className="min-h-[44px] px-3 py-1.5 rounded-full text-[12.5px] font-medium whitespace-nowrap shrink-0 transition"
-                          style={
-                            curGroup === g.key
-                              ? {
-                                  background: 'var(--pill-active-bg)',
-                                  color: 'var(--pill-active-text)',
-                                  fontWeight: 600,
-                                }
-                              : { color: 'var(--text-secondary)' }
-                          }
-                        >
-                          {g.label}
-                        </button>
-                      ))}
+                <header className="op-header">
+                  <div className="op-header-top">
+                    <div className="op-dock" role="navigation" aria-label="أقسام العمليات">
+                      {navGroups.map((g) => {
+                        const active = curGroup === g.key;
+                        const groupIcon = g.key === 'sales' ? 'orders' : g.key === 'catalog' ? 'tag' : 'vault';
+                        return (
+                          <button
+                            key={g.key}
+                            type="button"
+                            onClick={() => go({ m: g.items[0].m })}
+                            aria-current={active ? 'true' : undefined}
+                            className={`op-group-btn ${active ? 'is-active' : ''}`}
+                          >
+                            <Icon name={groupIcon} size={14} />
+                            <span>{g.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    {/* Sub-items in current group */}
-                    {activeGroupObj && activeGroupObj.items.length > 1 && (
-                      <nav aria-label={activeGroupObj.label} className="flex flex-wrap min-w-0 items-center gap-1.5 v-sub p-1 rounded-xl text-[12px]">
-                        {activeGroupObj.items.map((it) => {
-                          const active = route.m === it.m;
-                          return (
-                            <button
-                              key={it.m}
-                              onClick={() => go({ m: it.m })}
-                              aria-current={active ? 'page' : undefined}
-                              className={`min-h-[44px] px-2.5 py-1 rounded-full transition flex items-center gap-1.5 ${
-                                active
-                                  ? 'bg-[var(--accent)] text-white font-semibold shadow-xs'
-                                  : 'tx2 hover:tx1'
-                              }`}
-                            >
-                              <Icon name={it.icon} size={12} />
-                              <span>{it.label}</span>
-                            </button>
-                          );
-                        })}
-                      </nav>
-                    )}
-                  </div>
-
-                  {/* Notifications & Quick Controls */}
-                  <div className="flex items-center gap-3">
                     <button
-                      className="v-pill px-3 py-1.5 flex items-center gap-2 tx2 hover:tx1 text-[12.5px] font-medium relative"
+                      type="button"
+                      className="op-notif-btn"
                       title="الإشعارات"
                       onClick={() => setDrawer(true)}
                     >
                       <Icon name="bell" size={15} />
                       <span>الإشعارات</span>
                       {unread > 0 && (
-                        <span
-                          className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center num"
-                          style={{ background: 'var(--accent)' }}
-                        >
-                          {unread}
-                        </span>
+                        <span className="op-notif-badge num">{unread}</span>
                       )}
                     </button>
                   </div>
-                </div>
+
+                  {/* Sub-items in current group */}
+                  {activeGroupObj && activeGroupObj.items.length > 1 && (
+                    <div className="op-subnav-wrap">
+                      <nav aria-label={activeGroupObj.label} className="op-subnav">
+                        {activeGroupObj.items.map((it) => {
+                          const active = route.m === it.m;
+                          return (
+                            <button
+                              key={it.m}
+                              type="button"
+                              onClick={() => go({ m: it.m })}
+                              aria-current={active ? 'page' : undefined}
+                              className={`op-sub-btn ${active ? 'is-active' : ''}`}
+                            >
+                              <Icon name={it.icon} size={13} />
+                              <span>{it.label}</span>
+                            </button>
+                          );
+                        })}
+                      </nav>
+                    </div>
+                  )}
+                </header>
 
                 {/* Main Active Page Content */}
                 <main>{USE_MOCK && <Note tone="orange">وضع البيانات التجريبية مفعّل — لا يتم حفظ أي تغيير.</Note>}{notif.error && <Note tone="red">{notif.error}{notif.usingMock && '؛ الإشعارات المعروضة تجريبية.'}<button className="btn btn-ghost btn-xs" onClick={notif.reload}>إعادة المحاولة</button></Note>}{pageContent}</main>

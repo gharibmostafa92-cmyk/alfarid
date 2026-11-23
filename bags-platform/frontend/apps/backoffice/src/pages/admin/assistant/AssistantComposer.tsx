@@ -318,37 +318,40 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
           aria-autocomplete="list"
           aria-controls={popOpen ? listId : undefined}
           aria-expanded={popOpen}
+          enterKeyHint="send"
           value={text}
           maxLength={MAX}
           disabled={busy}
           rows={1}
           onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart); if (dismissed && !e.target.value) setDismissed(''); }}
           onSelect={e => setCaret(e.currentTarget.selectionStart)}
-          placeholder={busy ? 'المساعد بيجهّز الرد…' : `اكتب طلبك… استخدم @ للموظفين، # للفروع، ! للأدوار،${canDollar ? ' $ للمنتجات والعملاء،' : ''}${enableCatalog ? ' & للأقسام،' : ''} / للأوامر`}
+          placeholder={busy ? 'المساعد بيجهّز الرد…' : 'اسأل المساعد عن أي حاجة…'}
           onKeyDown={onKeyDown}
         />
         <div className="as-composer-foot">
-          <button type="button" className="as-trigger as-trigger--main" disabled={busy} onClick={() => insertMarker('@')} title="منشن موظف" aria-label="منشن موظف">@</button>
-          <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('#')} title="منشن فرع" aria-label="منشن فرع">#</button>
-          <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('!')} title="منشن دور" aria-label="منشن دور">!</button>
-          {canDollar && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن منتج أو عميل" aria-label="منشن منتج أو عميل">$</button>}
-          {enableCatalog && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('&')} title="منشن قسم" aria-label="منشن قسم">&amp;</button>}
-          {canAttach && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={`image/jpeg,image/png,image/webp${enablePricing ? ',.csv,.txt' : ''}`}
-                multiple
-                 hidden
-                onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }}
-              />
-              <button type="button" className="as-trigger" disabled={busy || files.length >= 4} onClick={() => fileInputRef.current?.click()} title="إرفاق ملفات (حتى 4)" aria-label="إرفاق ملفات">
-                <Icon name="paperclip" size={14} />
-              </button>
-            </>
-          )}
-          {quickCommands.length > 0 && <button type="button" className="as-trigger" disabled={busy} onClick={() => { setDismissed(''); setText('/'); input.current?.focus(); }} title="الأوامر السريعة" aria-label="الأوامر السريعة">/</button>}
+          <div className="as-composer-triggers">
+            <button type="button" className="as-trigger as-trigger--main" disabled={busy} onClick={() => insertMarker('@')} title="منشن موظف" aria-label="منشن موظف">@</button>
+            <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('#')} title="منشن فرع" aria-label="منشن فرع">#</button>
+            <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('!')} title="منشن دور" aria-label="منشن دور">!</button>
+            {canDollar && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن منتج أو عميل" aria-label="منشن منتج أو عميل">$</button>}
+            {enableCatalog && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('&')} title="منشن قسم" aria-label="منشن قسم">&amp;</button>}
+            {canAttach && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={`image/jpeg,image/png,image/webp${enablePricing ? ',.csv,.txt' : ''}`}
+                  multiple
+                  hidden
+                  onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }}
+                />
+                <button type="button" className="as-trigger" disabled={busy || files.length >= 4} onClick={() => fileInputRef.current?.click()} title="إرفاق ملفات (حتى 4)" aria-label="إرفاق ملفات">
+                  <Icon name="paperclip" size={14} />
+                </button>
+              </>
+            )}
+            {quickCommands.length > 0 && <button type="button" className="as-trigger" disabled={busy} onClick={() => { setDismissed(''); setText('/'); input.current?.focus(); }} title="الأوامر السريعة" aria-label="الأوامر السريعة">/</button>}
+          </div>
           <span className="as-counter as-num" data-near={near}>{text.length > 0 ? `${text.length.toLocaleString('ar-EG')} / ${MAX.toLocaleString('ar-EG')}` : ''}</span>
           <button className="as-send" type="submit" disabled={busy || (!text.trim() && files.length === 0)} data-busy={busy} aria-label={busy ? 'جارٍ الإرسال' : 'إرسال'}>
             {busy ? <span className="as-spin" /> : <Icon name="send" size={18} />}

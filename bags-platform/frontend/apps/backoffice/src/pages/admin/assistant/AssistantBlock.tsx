@@ -199,6 +199,105 @@ function normalizeDeepLink(raw: unknown): string | undefined {
   return undefined;
 }
 
+type DocumentRow = Partial<Record<'source_text' | 'name' | 'color' | 'size' | 'sku' | 'barcode' | 'match_status' | 'matched_sku' | 'quantity' | 'manufacturing_unit_cost', string>>;
+
+type DocumentEdits = Record<number, DocumentRow & { excluded?: boolean }>;
+
+function ItemDocumentReview({ rows, draftId, canRememberSupplier, busy, onPrompt }: { rows: DocumentRow[]; draftId?: string; canRememberSupplier?: boolean; busy?: boolean; onPrompt?: Props['onPrompt'] }) {
+  const [edits, setEdits] = useState<DocumentEdits>({});
+  const [version, setVersion] = useState(draftId ? null : 0);
+  const [saving, setSaving] = useState(false);
+  const [rememberSupplier, setRememberSupplier] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [reload, setReload] = useState(0);
+  const [receiptId, setReceiptId] = useState<number | null>(null);
+  const draftUrl = draftId ? `/api/v1/admin/ai/item-document-drafts/${encodeURIComponent(draftId)}` : null;
+  useEffect(() => {
+    if (!draftUrl) return;
+    const controller = new AbortController();
+    defaultApiClient.get<{ version: number; edits: DocumentEdits; receipt_id: number | null }>(draftUrl, { signal: controller.signal })
+      .then(({ data }) => {
+        setVersion(data.version);
+        setEdits(data.edits);
+        setReceiptId(data.receipt_id);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFeedback('تعذّر تحميل التعديلات المحفوظة.');
+      });
+    return () => controller.abort();
+  }, [draftUrl, reload]);
+
+  async function save() {
+    if (!draftUrl) return true;
+    if (version === null || saving || receiptId !== null) return false;
+    setSaving(true);
+    setFeedback('');
+    try {
+      const { data } = await defaultApiClient.patch<{ version: number }>(draftUrl, { version, edits, remember_supplier: rememberSupplier });
+      setVersion(data.version);
+      setFeedback('تم حفظ التعديلات.');
+      return true;
+    } catch {
+      setFeedback('تعذّر حفظ التعديلات. لو بتراجع الكشف في نافذة تانية، افتح المحادثة من جديد.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+  const fields = [
+    ['matched_sku', 'كود الصنف'],
+    ['quantity', 'الكمية'],
+    ['manufacturing_unit_cost', 'تكلفة تصنيع الوحدة'],
+  ] as const;
+  const selected = rows.flatMap((row, index) => {
+    const { excluded, ...changes } = edits[index] ?? {};
+    return excluded ? [] : [{ ...row, ...changes, document_line: index + 1 }];
+  });
+
+  return (
+    <section className="as-table-wrap" aria-label="مراجعة بنود المستند">
+      <table className="as-table">
+        <thead><tr><th>البند المقروء</th>{fields.map(([key, label]) => <th key={key}>{label}</th>)}<th>استبعاد</th></tr></thead>
+        <tbody>{rows.map((row, index) => (
+          <tr key={index}>
+            <td>{row.source_text || row.name} <small>{row.match_status}</small></td>
+            {fields.map(([key, label]) => <td key={key}>
+              <input disabled={saving || version === null || receiptId !== null} aria-label={`${label} للبند ${index + 1}`} value={edits[index]?.[key] ?? row[key] ?? ''} onChange={event => {
+                const value = event.currentTarget.value;
+                setEdits(previous => ({ ...previous, [index]: { ...previous[index], [key]: value } }));
+              }} />
+            </td>)}
+            <td><input type="checkbox" disabled={saving || version === null || receiptId !== null} aria-label={`استبعاد البند ${index + 1}`} checked={edits[index]?.excluded ?? false} onChange={event => {
+              const excluded = event.currentTarget.checked;
+              setEdits(previous => ({ ...previous, [index]: { ...previous[index], excluded } }));
+            }} /></td>
+          </tr>
+        ))}</tbody>
+      </table>
+      <footer className="as-block-foot">
+        {canRememberSupplier && <label><input type="checkbox" checked={rememberSupplier} disabled={saving} onChange={event => setRememberSupplier(event.currentTarget.checked)} /> افتكر الأكواد اللي ربطتها للمورد ده</label>}
+        {draftUrl && receiptId === null && <button type="button" className="as-btn" disabled={saving || version === null} onClick={() => void save()}>احفظ التعديلات</button>}
+        {receiptId !== null && <a href={`#/production?receipt_id=${receiptId}`}>افتح إيصال الاستلام</a>}
+        {onPrompt && receiptId === null && <button type="button" className="as-btn" disabled={busy || saving || version === null || selected.length === 0} onClick={async () => {
+          if (!await save()) return;
+          const items = selected.map(({ document_line, name, color, size, sku, barcode, matched_sku, quantity, manufacturing_unit_cost }) => ({
+            document_line, name, color, size, source_sku: sku, barcode, matched_sku, quantity, manufacturing_unit_cost,
+          }));
+          const reference = draftId ? ` رقم مسودة المستند document_draft_id=${draftId}.` : '';
+          const details = JSON.stringify(items);
+          onPrompt(`راجعت البنود المختارة. أكمل الطلب السابق واسأل عن أي بيانات لازمة ناقصة.${reference} ${details.length <= 7000 ? details : 'البنود محفوظة في مسودة المستند.'}`);
+        }}>استخدم البنود المختارة ({selected.length})</button>}
+        {draftUrl && <button type="button" className="as-btn" disabled={saving} onClick={() => {
+          setVersion(null);
+          setFeedback('');
+          setReload(value => value + 1);
+        }}>تحميل آخر مراجعة محفوظة</button>}
+        {feedback && <span role="status">{feedback}</span>}
+      </footer>
+    </section>
+  );
+}
+
 export default function AssistantBlock({ block, busy, status, execute, confirmationBlocked, onPick, onAction, onPrompt }: Props) {
   const quickActions = (block.quick_actions ?? []) as { label: string; prompt: string; submit?: boolean }[];
   const [dlError, setDlError] = useState('');
@@ -1401,6 +1500,11 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   }
 
   /* ---------------- Table ---------------- */
+  if (block.type === 'item_document_review') {
+    const draftId = typeof block.draft_id === 'string' ? block.draft_id : undefined;
+    return <ItemDocumentReview key={draftId} draftId={draftId} canRememberSupplier={block.can_remember_supplier === true} rows={(block.rows ?? []) as DocumentRow[]} busy={busy} onPrompt={onPrompt} />;
+  }
+
   if (block.type === 'table' || block.type === 'tier_ladder') {
     const columns = (block.columns ?? []) as string[];
     const rows = (block.rows ?? []) as (string | number | null)[][];

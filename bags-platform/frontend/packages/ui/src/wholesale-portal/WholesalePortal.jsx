@@ -55,7 +55,6 @@ const NAV_GROUPS = [
     items: [
       { id: 'catalog', label: 'الكتالوج', icon: 'fa-table-cells-large' },
       { id: 'quick', label: 'طلب سريع', icon: 'fa-bolt' },
-      { id: 'cart', label: 'سلة المشتريات', icon: 'fa-bag-shopping', badge: 'cart' },
       { id: 'orders', label: 'الطلبات', icon: 'fa-box' },
       { id: 'quotes', label: 'عروض الأسعار', icon: 'fa-file-signature' },
       { id: 'returns', label: 'المرتجعات', icon: 'fa-rotate-left' },
@@ -74,8 +73,6 @@ const NAV_GROUPS = [
     title: 'الإعدادات',
     items: [
       { id: 'account', label: 'بيانات الحساب', icon: 'fa-building' },
-      { id: 'notifications', label: 'الإشعارات', icon: 'fa-bell', badge: 'notifs' },
-      { id: 'status', label: 'حالة الحساب', icon: 'fa-shield-halved' },
     ],
   },
 ];
@@ -137,6 +134,7 @@ export function WholesalePortal({
   const isAuthScreen = ['status', 'forgot', 'reset'].includes(route.screen);
   const [lastOrder, setLastOrder] = useState(null);
   const [unread, setUnread] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
   const toastTimers = useRef(new Set());
 
@@ -250,6 +248,7 @@ export function WholesalePortal({
   }, [isAuthScreen]);
 
   const go = useCallback((screen, id = null) => {
+    setMobileMenuOpen(false);
     const p = new URLSearchParams();
     p.set('screen', screen);
     if (id != null) p.set('id', id);
@@ -259,6 +258,13 @@ export function WholesalePortal({
     }
     setRoute({ screen, id });
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setMobileMenuOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     const onPop = () => setRoute(readRoute(initialScreen));
@@ -297,6 +303,7 @@ export function WholesalePortal({
     refreshAccount,
     toast,
     logout,
+    productImageUrl,
   };
 
   // Screen router
@@ -310,12 +317,12 @@ export function WholesalePortal({
       case 'quick':
         return <QuickOrder />;
       case 'cart':
-        return <Cart />;
+        return <Cart productImageUrl={productImageUrl} />;
       case 'checkout':
-        return <Checkout terms={checkoutTerms} />;
+        return <Checkout terms={checkoutTerms} productImageUrl={productImageUrl} />;
       case 'success':
       case 'orderSuccess':
-        return <OrderSuccess />;
+        return <OrderSuccess productImageUrl={productImageUrl} />;
       case 'orders':
         return <Orders />;
       case 'order':
@@ -381,6 +388,10 @@ export function WholesalePortal({
     );
   }
 
+  const creditPct = account?.credit_limit ? ((account.used_credit ?? 0) / account.credit_limit) * 100 : 0;
+  const creditDotClass = creditPct >= 95 ? 'is-low' : creditPct >= 75 ? 'is-warn' : '';
+  const initials = String(account?.name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—';
+
   return (
     <AppCtx.Provider value={contextValue}>
       <div className="wholesale-portal-app" dir="rtl">
@@ -394,8 +405,9 @@ export function WholesalePortal({
           </div>
 
           <div className="wp-head-right">
-            <a href="/security/password">تغيير كلمة المرور</a>
+            <a href="/security/password" className="wp-pass-link">تغيير كلمة المرور</a>
             <div className="wp-credit-chip" title="الحد الائتماني والمتاح">
+              <span className={`wp-credit-dot ${creditDotClass}`} aria-hidden="true" />
               <span>الرصيد المتاح:</span>
               <strong className="num">{fmt(account.available_credit ?? 0, 0)} EGP</strong>
             </div>
@@ -404,8 +416,9 @@ export function WholesalePortal({
               className="wp-icon-btn"
               onClick={() => go('notifications')}
               title="الإشعارات"
+              aria-label="الإشعارات"
             >
-              <i className="fa-regular fa-bell" />
+              <i className="fa-regular fa-bell" aria-hidden="true" />
               {unread > 0 && <span className="wp-count">{unread}</span>}
             </button>
 
@@ -413,8 +426,9 @@ export function WholesalePortal({
               className="wp-icon-btn"
               onClick={() => go('cart')}
               title="سلة المشتريات"
+              aria-label="سلة المشتريات"
             >
-              <i className="fa-solid fa-bag-shopping" />
+              <i className="fa-solid fa-bag-shopping" aria-hidden="true" />
               {cartTotalQty > 0 && <span className="wp-count">{cartTotalQty}</span>}
             </button>
 
@@ -422,8 +436,9 @@ export function WholesalePortal({
               className="wp-avatar"
               onClick={() => go('account')}
               title="الملف التجاري"
+              aria-label="الملف التجاري"
             >
-              {String(account?.name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—'}
+              {initials}
             </button>
           </div>
         </header>
@@ -431,8 +446,14 @@ export function WholesalePortal({
         {/* Standard portal layout */}
           <div className="wp-layout">
             {/* Sidebar */}
-            <aside className="wp-side">
-              <div className="wp-side-tag">B2B PORTAL</div>
+            <aside className="wp-side" aria-label="قائمة بوابة الجملة">
+              <div className="wp-side-merchant">
+                <div className="wp-side-merchant-av" aria-hidden="true">{initials}</div>
+                <div className="wp-side-merchant-info">
+                  <div className="wp-side-merchant-name">{account.company || account.name}</div>
+                  <div className="wp-side-merchant-tag">B2B PORTAL</div>
+                </div>
+              </div>
 
               {NAV_GROUPS.map((group) => (
                 <div key={group.title} className="wp-side-group">
@@ -456,6 +477,7 @@ export function WholesalePortal({
                         key={item.id}
                         className={`wp-side-link ${isActive ? 'is-active' : ''}`}
                         onClick={() => go(item.id)}
+                        aria-current={isActive ? 'page' : undefined}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <span className="wp-side-dot" />
@@ -500,6 +522,114 @@ export function WholesalePortal({
               </div>
             </main>
           </div>
+
+        {/* Mobile Bottom Tab Bar */}
+        <nav className="wp-mobile-nav" aria-label="التنقل السريع على الموبايل">
+          {[
+            { id: 'dashboard', label: 'الرئيسية', icon: 'fa-gauge-high' },
+            { id: 'catalog', label: 'الكتالوج', icon: 'fa-table-cells-large' },
+            { id: 'orders', label: 'الطلبات', icon: 'fa-box', match: ['order'] },
+            { id: 'cart', label: 'السلة', icon: 'fa-bag-shopping', badge: cartTotalQty },
+          ].map((tab) => {
+            const active = !mobileMenuOpen && (route.screen === tab.id || tab.match?.includes(route.screen));
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className={`wp-mobile-tab${active ? ' is-active' : ''}`}
+                onClick={() => go(tab.id)}
+                aria-current={active ? 'page' : undefined}
+              >
+                <span className="wp-mobile-tab-ic">
+                  <i className={`fa-solid ${tab.icon}`} />
+                  {tab.badge > 0 && <span className="wp-mobile-badge num">{tab.badge}</span>}
+                </span>
+                <span className="wp-mobile-tab-lbl">{tab.label}</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className={`wp-mobile-tab${mobileMenuOpen ? ' is-active' : ''}`}
+            onClick={() => setMobileMenuOpen((v) => !v)}
+            aria-expanded={mobileMenuOpen}
+          >
+            <span className="wp-mobile-tab-ic">
+              <i className={`fa-solid ${mobileMenuOpen ? 'fa-xmark' : 'fa-bars'}`} />
+              {unread > 0 && <span className="wp-mobile-dot" />}
+            </span>
+            <span className="wp-mobile-tab-lbl">القائمة</span>
+          </button>
+        </nav>
+
+        {/* Mobile Navigation Sheet */}
+        {mobileMenuOpen && (
+          <div className="wp-mobile-sheet-bg" onMouseDown={(e) => e.target === e.currentTarget && setMobileMenuOpen(false)}>
+            <div className="wp-mobile-sheet" role="dialog" aria-modal="true" aria-label="قائمة بوابة الجملة">
+              <div className="wp-mobile-sheet-handle" aria-hidden="true" />
+              <div className="wp-mobile-sheet-head">
+                <div>
+                  <div className="wp-mobile-company">{account.company || account.name}</div>
+                  <div className="wp-mobile-credit">
+                    <span>الرصيد المتاح:</span>
+                    <strong className="num">{fmt(account.available_credit ?? 0, 0)} EGP</strong>
+                  </div>
+                </div>
+                <button type="button" className="modal-x" onClick={() => setMobileMenuOpen(false)} aria-label="إغلاق">
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              </div>
+
+              <div className="wp-mobile-sheet-body">
+                {NAV_GROUPS.map((group) => (
+                  <div key={group.title} className="wp-mobile-group">
+                    <div className="wp-mobile-group-title">{group.title}</div>
+                    <div className="wp-mobile-grid">
+                      {group.items.map((item) => {
+                        const isActive =
+                          route.screen === item.id ||
+                          (item.id === 'orders' && route.screen === 'order') ||
+                          (item.id === 'quotes' && ['quote', 'quoteNew', 'quoteEdit'].includes(route.screen)) ||
+                          (item.id === 'returns' && ['return', 'returnNew'].includes(route.screen)) ||
+                          (item.id === 'notices' && ['notice', 'noticeNew'].includes(route.screen));
+                        const badgeVal =
+                          item.badge === 'cart' && cartTotalQty > 0
+                            ? cartTotalQty
+                            : item.badge === 'notifs' && unread > 0
+                            ? unread
+                            : null;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`wp-mobile-item${isActive ? ' is-active' : ''}`}
+                            onClick={() => go(item.id)}
+                          >
+                            <i className={`fa-solid ${item.icon}`} />
+                            <span>{item.label}</span>
+                            {badgeVal && <span className="wp-side-badge num">{badgeVal}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                <div className="wp-mobile-sheet-foot">
+                  <a href="/security/password" className="btn-pill" onClick={() => setMobileMenuOpen(false)}>
+                    <i className="fa-solid fa-key" />
+                    <span>تغيير كلمة المرور</span>
+                  </a>
+                  <button type="button" className="btn-pill is-danger" onClick={() => { setMobileMenuOpen(false); logout(); }}>
+                    <i className="fa-solid fa-arrow-right-from-bracket" />
+                    <span>تسجيل الخروج</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Floating Toasts */}
         {toasts.length > 0 && (
           <div

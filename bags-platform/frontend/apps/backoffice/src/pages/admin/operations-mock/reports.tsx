@@ -58,22 +58,44 @@ export function BarsChart({
   labelB?: string;
   fmt?: (v: any) => any;
 }) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const max = Math.max(0, ...data.map((d) => (d[keyA] || 0) + (keyB ? d[keyB] || 0 : 0))) * 1.1 || 1;
   const ticks = [1, 0.8, 0.6, 0.4, 0.2, 0].map((t) => max * t);
+  const activeItem = activeIdx !== null ? data[activeIdx] : null;
+  const dense = data.length > 7;
 
   return (
     <div>
-      {labelA && (
-        <div className="flex items-center gap-4 text-[11px] mb-3 justify-end">
-          <span className="flex items-center gap-1.5 tx2 font-medium">
-            <span className="w-2.5 h-2.5 rounded-sm hatch-orange inline-block"></span>
-            {labelA}
-          </span>
-          {labelB && (
-            <span className="flex items-center gap-1.5 tx2 font-medium">
-              <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'var(--bar-loss)' }}></span>
-              {labelB}
-            </span>
+      {(labelA || activeItem) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] mb-3">
+          {activeItem ? (
+            <div className="v-sub px-2.5 py-1 rounded-full flex flex-wrap items-center gap-2 text-[11px] font-medium tx1">
+              <span className="font-semibold num">{activeItem.l}</span>
+              <span className="tx3">·</span>
+              <span className="num font-semibold">{fmt(activeItem[keyA])}</span>
+              {keyB && (
+                <>
+                  <span className="tx3">/</span>
+                  <span className="num c-red font-semibold">{fmt(activeItem[keyB])}</span>
+                </>
+              )}
+            </div>
+          ) : (
+            <span className="text-[11px] tx3 sm:hidden">اضغط على أي عمود لعرض التفاصيل</span>
+          )}
+          {labelA && (
+            <div className="flex items-center gap-4 ms-auto">
+              <span className="flex items-center gap-1.5 tx2 font-medium">
+                <span className="w-2.5 h-2.5 rounded-sm hatch-orange inline-block"></span>
+                {labelA}
+              </span>
+              {labelB && (
+                <span className="flex items-center gap-1.5 tx2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'var(--bar-loss)' }}></span>
+                  {labelB}
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -83,7 +105,7 @@ export function BarsChart({
             <span key={i}>{t >= 1000 ? (t / 1000).toFixed(0) + 'k' : t.toFixed(0)}</span>
           ))}
         </div>
-        <div className="relative flex-1 pb-5">
+        <div className="relative flex-1 min-w-0 pb-5">
           <div className="absolute inset-x-0 top-0 bottom-5 flex flex-col justify-between pointer-events-none">
             {ticks.map((_, i) => (
               <div
@@ -93,36 +115,64 @@ export function BarsChart({
               ></div>
             ))}
           </div>
-          <div className="relative z-10 h-full flex items-end justify-between gap-1.5 px-1" dir="ltr">
-            {data.map((d, i) => (
-              <div key={i} className="group relative flex-1 h-full flex flex-col items-center justify-end">
-                <div
-                  className="opacity-0 group-hover:opacity-100 pointer-events-none transition absolute -top-2 -translate-y-full z-20 px-2 py-1 rounded-md text-[10px] font-semibold whitespace-nowrap shadow-md num"
-                  style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}
-                >
-                  {fmt(d[keyA])}
-                  {keyB && ' · ' + fmt(d[keyB])}
-                </div>
-                <div className="w-full max-w-[28px] flex flex-col justify-end gap-[3px]" style={{ height: 'calc(100% - 0px)' }}>
-                  <div
-                    className="w-full rounded-[6px] hatch-orange transition-all duration-500"
-                    style={{ height: (d[keyA] / max) * 100 + '%' }}
-                  ></div>
-                  {keyB && (
+          <div className="op-chart-scroll relative z-10 h-full">
+            <div
+              className={
+                'h-full flex items-end justify-between gap-1.5 px-1 ' +
+                (dense ? 'min-w-max' : 'w-full')
+              }
+              dir="ltr"
+            >
+              {data.map((d, i) => {
+                const isSelected = activeIdx === i;
+                const isDimmed = activeIdx !== null && !isSelected;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`${d.l}: ${d[keyA]}`}
+                    onClick={() => setActiveIdx(isSelected ? null : i)}
+                    className={
+                      'op-chart-bar-btn group relative h-full flex flex-col items-center justify-end ' +
+                      (dense ? 'w-[44px] sm:w-[38px] shrink-0' : 'flex-1 min-w-0')
+                    }
+                    style={{ opacity: isDimmed ? 0.42 : 1 }}
+                  >
                     <div
-                      className="w-full rounded-[6px] transition-all duration-500"
-                      style={{ height: (d[keyB] / max) * 100 + '%', background: 'var(--bar-loss)' }}
-                    ></div>
-                  )}
-                </div>
-                <span
-                  className="absolute -bottom-0 text-[10px] tx3 font-medium num translate-y-0"
-                  style={{ bottom: -2 }}
-                >
-                  {d.l}
-                </span>
-              </div>
-            ))}
+                      className={
+                        'hidden sm:block pointer-events-none transition absolute -top-2 -translate-y-full z-20 px-2 py-1 rounded-md text-[10px] font-semibold whitespace-nowrap shadow-md num ' +
+                        (isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')
+                      }
+                      style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}
+                    >
+                      {fmt(d[keyA])}
+                      {keyB && ' · ' + fmt(d[keyB])}
+                    </div>
+                    <div className="w-full max-w-[28px] flex flex-col justify-end gap-[3px]" style={{ height: 'calc(100% - 0px)' }}>
+                      <div
+                        className="w-full rounded-[6px] hatch-orange transition-all duration-500"
+                        style={{ height: (d[keyA] / max) * 100 + '%' }}
+                      ></div>
+                      {keyB && (
+                        <div
+                          className="w-full rounded-[6px] transition-all duration-500"
+                          style={{ height: (d[keyB] / max) * 100 + '%', background: 'var(--bar-loss)' }}
+                        ></div>
+                      )}
+                    </div>
+                    <span
+                      className={
+                        'absolute -bottom-5 inset-x-0 text-[10px] font-medium num truncate text-center px-0.5 ' +
+                        (isSelected ? 'tx1 font-semibold' : 'tx3')
+                      }
+                    >
+                      {d.l}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -139,7 +189,7 @@ export function ReportsPage() {
   const [tab, setTab] = useState<'sales' | 'inv' | 'profit' | 'sup' | 'shifts'>('sales');
 
   return (
-    <div className="space-y-5">
+    <div className="op-reports-page space-y-4 sm:space-y-5">
       <PageHead title="التقارير" sub="أقصى فترة لأي تقرير 366 يومًا." />
       <TabsBar
         value={tab}
@@ -178,10 +228,12 @@ export function DateRange({
       <FDate label="من" value={from} onChange={setFrom} />
       <FDate label="إلى" value={to} onChange={setTo} />
       {periodError && (
-        <span className="badge t-red">
-          <Icon name="alert" size={11} />
-          {periodError}
-        </span>
+        <div className="op-reports-filter-full">
+          <span className="badge t-red">
+            <Icon name="alert" size={11} />
+            {periodError}
+          </span>
+        </div>
       )}
     </>
   );
@@ -198,29 +250,33 @@ export function SalesReport({ from, to, setFrom, setTo }: PeriodProps) {
   return (
     <>
       <RemoteFeedback state={live} />
-      <Card stg={3} pad="p-4">
-        <div className="flex flex-wrap items-center gap-2">
+      <Card stg={3} pad="p-3.5 sm:p-4">
+        <div className="op-reports-filters">
           <DateRange {...{ from, to, setFrom, setTo }} />
-          <Seg
-            value={grp}
-            onChange={(v: any) => setGrp(v)}
-            options={[
-              { value: 'day', label: 'يومي' },
-              { value: 'month', label: 'شهري' },
-            ]}
-          />
-          <FSelect
-            value={by}
-            onChange={setBy}
-            placeholder="بدون تقسيم"
-            options={[
-              { value: 'branch', label: 'حسب الفرع' },
-              { value: 'channel', label: 'حسب القناة' },
-            ]}
-          />
+          <div className="op-reports-filter-full sm:w-auto">
+            <Seg
+              value={grp}
+              onChange={(v: any) => setGrp(v)}
+              options={[
+                { value: 'day', label: 'يومي' },
+                { value: 'month', label: 'شهري' },
+              ]}
+            />
+          </div>
+          <div className="op-reports-filter-full sm:w-auto">
+            <FSelect
+              value={by}
+              onChange={setBy}
+              placeholder="بدون تقسيم"
+              options={[
+                { value: 'branch', label: 'حسب الفرع' },
+                { value: 'channel', label: 'حسب القناة' },
+              ]}
+            />
+          </div>
         </div>
       </Card>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stg stg-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stg stg-3">
         <KPI
           hero
           label="إجمالي المبيعات"
@@ -242,7 +298,7 @@ export function SalesReport({ from, to, setFrom, setTo }: PeriodProps) {
           foot="EGP"
         />
       </div>
-      <Card stg={4}>
+      <Card stg={4} pad="p-4 sm:p-5">
         <CardHead title="حركة المبيعات" sub="مقارنة إجمالي المبيعات بالصافي بعد الخصومات" />
         <BarsChart
           data={data}
@@ -253,22 +309,66 @@ export function SalesReport({ from, to, setFrom, setTo }: PeriodProps) {
           fmt={(v) => fmtMoney(v, 0)}
         />
       </Card>
-      <Card stg={4}>
-        <DataTable
-          rows={data}
-          cols={[
-            { h: 'الفترة', r: (d) => <b className="num tx1">{d.l}</b> },
-            { h: 'الطلبات', align: 'center', r: (d) => <Num>{fmtInt(d.orders)}</Num> },
-            { h: 'إجمالي المبيعات', r: (d) => fmtMoney(d.gross, 0) },
-            {
-              h: 'الخصومات',
-              r: (d) => <span className="c-red">−{fmtMoney(d.disc, 0)}</span>,
-            },
-            { h: 'الضرائب', r: (d) => fmtMoney(d.tax, 0) },
-            { h: 'الشحن', r: (d) => fmtMoney(d.ship, 0) },
-            { h: 'صافي المبيعات', r: (d) => <b>{fmtMoney(d.net, 0)}</b> },
-          ]}
-        />
+      <Card stg={4} pad="p-4 sm:p-5">
+        <div className="hidden md:block">
+          <DataTable
+            rows={data}
+            cols={[
+              { h: 'الفترة', r: (d) => <b className="num tx1">{d.l}</b> },
+              { h: 'الطلبات', align: 'center', r: (d) => <Num>{fmtInt(d.orders)}</Num> },
+              { h: 'إجمالي المبيعات', r: (d) => fmtMoney(d.gross, 0) },
+              {
+                h: 'الخصومات',
+                r: (d) => <span className="c-red">−{fmtMoney(d.disc, 0)}</span>,
+              },
+              { h: 'الضرائب', r: (d) => fmtMoney(d.tax, 0) },
+              { h: 'الشحن', r: (d) => fmtMoney(d.ship, 0) },
+              { h: 'صافي المبيعات', r: (d) => <b>{fmtMoney(d.net, 0)}</b> },
+            ]}
+          />
+        </div>
+        <div className="md:hidden">
+          {data.length === 0 ? (
+            <Empty title="لا توجد بيانات مطابقة" />
+          ) : (
+            <div className="op-report-cards">
+              {data.map((d, idx) => (
+                <div key={d.l || idx} className="op-report-card">
+                  <div className="op-report-card-head">
+                    <b className="num tx1 text-[13.5px] leading-snug">{d.l}</b>
+                    <span className="badge t-gray">
+                      <Num>{fmtInt(d.orders)}</Num> طلب
+                    </span>
+                  </div>
+                  <div className="op-report-card-primary">
+                    <div>
+                      <div className="text-[10.5px] tx3">صافي المبيعات</div>
+                      <div className="font-display font-bold text-[14px] tx1 mt-0.5">{fmtMoney(d.net, 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10.5px] tx3">إجمالي المبيعات</div>
+                      <div className="font-semibold text-[13px] tx2 mt-0.5">{fmtMoney(d.gross, 0)}</div>
+                    </div>
+                  </div>
+                  <div className="op-report-card-meta">
+                    <div>
+                      <div className="text-[10px] tx3">الخصومات</div>
+                      <div className="text-[12px] font-medium c-red mt-0.5">−{fmtMoney(d.disc, 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] tx3">الضرائب</div>
+                      <div className="text-[12px] font-medium tx1 mt-0.5">{fmtMoney(d.tax, 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] tx3">الشحن</div>
+                      <div className="text-[12px] font-medium tx1 mt-0.5">{fmtMoney(d.ship, 0)}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Card>
     </>
   );
@@ -280,32 +380,40 @@ export function InventoryReport() {
   const live = useRemote(signal => reportsApi.inventory({ dead_days: days }, signal), [days], { enabled: validDays, mock: mockInventory });
   const br = (live.data?.valuation ?? []).map(r => ({ b: r.branch_name, variants: r.variants_count, qty: num(r.total_qty), value: num(r.total_value) }));
   const totV = br.reduce((a, x) => a + x.value, 0);
+  const deadRows = (live.data?.dead_stock ?? []).map((r: any) => {
+    const rawTs = r.last_movement_at ? String(r.last_movement_at) : '';
+    const parsed = rawTs ? Date.parse(rawTs.includes('T') ? rawTs : rawTs.replace(' ', 'T')) : NaN;
+    const last = Number.isFinite(parsed) ? Math.max(0, Math.floor((Date.now() - parsed) / 864e5)) : '—';
+    return { v: { name: r.product_name, sku: r.sku }, qty: num(r.on_hand), br: r.branch_name ?? '—', last };
+  });
 
   return (
     <>
       <RemoteFeedback state={live} />
       {!validDays && <Note tone="red">عدد الأيام يجب أن يكون من 1 إلى 3650.</Note>}
-      <Card stg={3} pad="p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[12px] tx2">اعتبار الصنف راكدًا بعد</span>
+      <Card stg={3} pad="p-3.5 sm:p-4">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <span className="text-[12.5px] sm:text-[12px] tx2">اعتبار الصنف راكدًا بعد</span>
           <div className="flex items-center gap-2">
             <input
               type="number"
+              inputMode="numeric"
               min="1"
-              className="pill-inp w-20 num text-center"
+              aria-label="عدد أيام الركود"
+              className="pill-inp w-20 min-h-[44px] sm:min-h-0 text-[16px] sm:text-[13px] num text-center"
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
             />
-            <span className="text-[12px] tx2">يومًا بدون حركة</span>
+            <span className="text-[12.5px] sm:text-[12px] tx2">يومًا بدون حركة</span>
           </div>
           {days !== 90 && (
-            <button className="btn btn-ghost btn-xs" onClick={() => setDays(90)}>
+            <button className="btn btn-ghost btn-xs min-h-[44px] sm:min-h-[34px] ms-auto sm:ms-0" onClick={() => setDays(90)}>
               الافتراضي 90
             </button>
           )}
         </div>
       </Card>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stg stg-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stg stg-3">
         <KPI
           hero
           label="القيمة الإجمالية"
@@ -325,15 +433,15 @@ export function InventoryReport() {
           }
         />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <Card stg={4} className="lg:col-span-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+        <Card stg={4} pad="p-4 sm:p-5" className="lg:col-span-6">
           <CardHead title="قيمة المخزون حسب الفرع" />
           <div className="space-y-3.5">
             {br.map((x) => (
               <div key={x.b}>
-                <div className="flex items-center justify-between text-[12px] mb-1.5">
-                  <span className="font-medium tx1">{x.b}</span>
-                  <span>{fmtMoney(x.value, 0)}</span>
+                <div className="flex items-center justify-between gap-2 text-[12px] mb-1.5">
+                  <span className="font-medium tx1 truncate">{x.b}</span>
+                  <span className="shrink-0">{fmtMoney(x.value, 0)}</span>
                 </div>
                 <HatchBar pct={(totV ? x.value / totV : 0) * 100} h={12} />
                 <div className="flex gap-4 text-[11px] tx3 mt-1">
@@ -350,6 +458,7 @@ export function InventoryReport() {
         </Card>
         <Card
           stg={4}
+          pad="p-4 sm:p-5"
           className="lg:col-span-6"
         >
           <CardHead
@@ -360,39 +469,67 @@ export function InventoryReport() {
               </>
             }
           />
-          <DataTable
-            compact
-            rows={(live.data?.dead_stock ?? []).map((r: any) => {
-              const rawTs = r.last_movement_at ? String(r.last_movement_at) : '';
-              const parsed = rawTs ? Date.parse(rawTs.includes('T') ? rawTs : rawTs.replace(' ', 'T')) : NaN;
-              const last = Number.isFinite(parsed) ? Math.max(0, Math.floor((Date.now() - parsed) / 864e5)) : '—';
-              return { v: { name: r.product_name, sku: r.sku }, qty: num(r.on_hand), br: r.branch_name ?? '—', last };
-            })}
-            cols={[
-              {
-                h: 'الصنف',
-                r: (r: any) => (
-                  <div className="leading-tight">
-                    <div className="font-medium tx1">{r.v.name}</div>
-                    <div className="text-[11px] tx3 num">{r.v.sku}</div>
+          <div className="hidden md:block">
+            <DataTable
+              compact
+              rows={deadRows}
+              cols={[
+                {
+                  h: 'الصنف',
+                  r: (r: any) => (
+                    <div className="leading-tight">
+                      <div className="font-medium tx1">{r.v.name}</div>
+                      <div className="text-[11px] tx3 num">{r.v.sku}</div>
+                    </div>
+                  ),
+                },
+                {
+                  h: 'الفرع',
+                  r: (r: any) => <span className="text-[11.5px] tx2">{r.br}</span>,
+                },
+                { h: 'الكمية', r: (r: any) => <Num>{r.qty}</Num> },
+                {
+                  h: 'آخر حركة',
+                  r: (r: any) => (
+                    <span className="c-amber font-semibold">
+                      <Num>{r.last}</Num> يوم
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </div>
+          <div className="md:hidden">
+            {deadRows.length === 0 ? (
+              <Empty title="لا توجد أصناف راكدة" />
+            ) : (
+              <div className="op-report-cards">
+                {deadRows.map((r: any, idx: number) => (
+                  <div key={`${r.v.sku}-${idx}`} className="op-report-card">
+                    <div className="op-report-card-head">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-[13px] tx1 leading-snug break-words">{r.v.name}</div>
+                        <div className="text-[11px] tx3 num mt-0.5">{r.v.sku}</div>
+                      </div>
+                      <span className="badge t-amber">
+                        <Num>{r.last}</Num> يوم
+                      </span>
+                    </div>
+                    <div className="op-report-card-meta-2">
+                      <div className="min-w-0">
+                        <div className="text-[10px] tx3">الفرع</div>
+                        <div className="text-[12px] font-medium tx1 truncate mt-0.5">{r.br}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] tx3">الكمية المتوفرة</div>
+                        <div className="text-[12.5px] font-semibold tx1 mt-0.5"><Num>{fmtInt(r.qty)}</Num></div>
+                      </div>
+                    </div>
                   </div>
-                ),
-              },
-              {
-                h: 'الفرع',
-                r: (r: any) => <span className="text-[11.5px] tx2">{r.br}</span>,
-              },
-              { h: 'الكمية', r: (r: any) => <Num>{r.qty}</Num> },
-              {
-                h: 'آخر حركة',
-                r: (r: any) => (
-                  <span className="c-amber font-semibold">
-                    <Num>{r.last}</Num> يوم
-                  </span>
-                ),
-              },
-            ]}
-          />
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
       </div>
     </>
@@ -414,23 +551,27 @@ export function ProfitReport({ from, to, setFrom, setTo }: PeriodProps) {
   return (
     <>
       <RemoteFeedback state={live} />
-      {!!live.data?.missing_cost_movements && <p role="alert" className="c-amber">حساب الربح غير مكتمل: توجد {live.data.missing_cost_movements} حركة بدون تكلفة تاريخية مسجلة. راجع تكاليف الحركات قبل الاعتماد على الربح المعروض.</p>}
-      <Card stg={3} pad="p-4">
-        <div className="flex flex-wrap items-center gap-2">
+      {!!live.data?.missing_cost_movements && (
+        <Note tone="amber" icon="alert" className="stg stg-3">
+          حساب الربح غير مكتمل: توجد <Num>{live.data.missing_cost_movements}</Num> حركة بدون تكلفة تاريخية مسجلة. راجع تكاليف الحركات قبل الاعتماد على الربح المعروض.
+        </Note>
+      )}
+      <Card stg={3} pad="p-3.5 sm:p-4">
+        <div className="op-reports-filters">
           <DateRange {...{ from, to, setFrom, setTo }} />
         </div>
       </Card>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <Card stg={4} className="lg:col-span-7">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+        <Card stg={4} pad="p-4 sm:p-5" className="lg:col-span-7">
           <CardHead title="من الإيراد إلى صافي الربح" />
           <div className="space-y-3">
             {steps.map(([l, v, k]) => (
-              <div key={l} className={'rounded-[16px] p-4 ' + (k === 'hero' ? 'v-orange' : 'v-sub')}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className={'text-[13px] font-medium ' + (k === 'hero' ? 'text-white' : 'tx1')}>{l}</span>
+              <div key={l} className={'rounded-[16px] p-3.5 sm:p-4 ' + (k === 'hero' ? 'v-orange' : 'v-sub')}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className={'text-[12.5px] sm:text-[13px] font-medium ' + (k === 'hero' ? 'text-white' : 'tx1')}>{l}</span>
                   <span
                     className={
-                      'font-display font-bold text-[16px] num ltr ' +
+                      'font-display font-bold text-[15px] sm:text-[16px] num ltr shrink-0 ' +
                       (k === 'hero' ? 'text-white' : v < 0 ? 'c-red' : 'tx1')
                     }
                   >
@@ -453,7 +594,7 @@ export function ProfitReport({ from, to, setFrom, setTo }: PeriodProps) {
             ))}
           </div>
         </Card>
-        <Card stg={4} className="lg:col-span-5">
+        <Card stg={4} pad="p-4 sm:p-5" className="lg:col-span-5">
           <CardHead title="الهوامش" />
           <div className="grid grid-cols-2 gap-3">
             <KPI hero label="هامش مجمل الربح" value={<Num>{(rev ? (gross / rev) * 100 : 0).toFixed(1)}%</Num>} />
@@ -481,11 +622,11 @@ export function SupplierReport() {
       <Note icon="lock" className="stg stg-3">
         يعرض البيانات الحالية بدون فلتر فترة، ويتطلب صلاحية وصول مركزي.
       </Note>
-      <Card stg={3}>
+      <Card stg={3} pad="p-4 sm:p-5">
         <CardHead
           title="أعمار مديونية الموردين"
           sub="إجمالي المستحق موزّعًا على فترات التأخير"
-          right={<span className="font-display font-bold text-[18px]">{fmtMoney(tot, 0)}</span>}
+          right={<span className="font-display font-bold text-[16px] sm:text-[18px]">{fmtMoney(tot, 0)}</span>}
         />
         <div className="flex h-10 rounded-full overflow-hidden gap-1 p-1 v-sub">
           {aging.map(([l, v], i) => (
@@ -502,9 +643,9 @@ export function SupplierReport() {
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-5 gap-2 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">
           {aging.map(([l, v], i) => (
-            <div key={l} className="v-sub p-3">
+            <div key={l} className={'v-sub p-3 ' + (i === 0 ? 'col-span-2 sm:col-span-1' : '')}>
               <div className="text-[11px] tx2">
                 {i === 0 ? (
                   l
@@ -519,38 +660,88 @@ export function SupplierReport() {
           ))}
         </div>
       </Card>
-      <Card stg={4}>
-        <DataTable
-          rows={rows}
-          cols={[
-            {
-              h: 'المورد',
-              r: (s) => (
-                <div className="flex items-center gap-2">
-                  <Avatar name={s.supplier_name} tone={s.supplier_id} size={26} />
-                  <span className="font-medium tx1">{s.supplier_name}</span>
+      <Card stg={4} pad="p-4 sm:p-5">
+        <div className="hidden md:block">
+          <DataTable
+            rows={rows}
+            cols={[
+              {
+                h: 'المورد',
+                r: (s) => (
+                  <div className="flex items-center gap-2">
+                    <Avatar name={s.supplier_name} tone={s.supplier_id} size={26} />
+                    <span className="font-medium tx1">{s.supplier_name}</span>
+                  </div>
+                ),
+              },
+              {
+                h: 'الرصيد',
+                r: (s) => <b className={num(s.current_balance) < 0 ? 'c-green' : ''}>{fmtMoney(num(s.current_balance), 0)}</b>,
+              },
+              { h: 'إجمالي المشتريات', r: (s) => fmtMoney(num(s.total_purchases), 0) },
+              { h: 'غير مستحق', r: (s) => fmtMoney(num(s.aging.not_due), 0) },
+              { h: '1–30', r: (s) => fmtMoney(num(s.aging.overdue_1_30), 0) },
+              { h: '31–60', r: (s) => fmtMoney(num(s.aging.overdue_31_60), 0) },
+              { h: '61–90', r: (s) => fmtMoney(num(s.aging.overdue_61_90), 0) },
+              {
+                h: '+90',
+                r: (s) => (
+                  <span className={num(s.aging.overdue_90_plus) > 1000 ? 'c-red font-semibold' : ''}>
+                    {fmtMoney(num(s.aging.overdue_90_plus), 0)}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </div>
+        <div className="md:hidden">
+          {rows.length === 0 ? (
+            <Empty title="لا توجد بيانات موردين" />
+          ) : (
+            <div className="op-report-cards">
+              {rows.map((s) => (
+                <div key={s.supplier_id} className="op-report-card">
+                  <div className="op-report-card-head items-center">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar name={s.supplier_name} tone={s.supplier_id} size={28} />
+                      <span className="font-semibold text-[13.5px] tx1 truncate">{s.supplier_name}</span>
+                    </div>
+                  </div>
+                  <div className="op-report-card-primary">
+                    <div>
+                      <div className="text-[10.5px] tx3">الرصيد الحالي</div>
+                      <div className={'font-display font-bold text-[13.5px] mt-0.5 ' + (num(s.current_balance) < 0 ? 'c-green' : 'tx1')}>
+                        {fmtMoney(num(s.current_balance), 0)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10.5px] tx3">إجمالي المشتريات</div>
+                      <div className="font-semibold text-[13px] tx2 mt-0.5">{fmtMoney(num(s.total_purchases), 0)}</div>
+                    </div>
+                  </div>
+                  <div className="op-report-card-meta">
+                    <div>
+                      <div className="text-[10px] tx3">غير مستحق</div>
+                      <div className="text-[11.5px] font-medium tx1 mt-0.5">{fmtMoney(num(s.aging.not_due), 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] tx3">1–60 يوم</div>
+                      <div className="text-[11.5px] font-medium tx1 mt-0.5">
+                        {fmtMoney(num(s.aging.overdue_1_30) + num(s.aging.overdue_31_60), 0)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] tx3">+61 يوم</div>
+                      <div className={'text-[11.5px] font-medium mt-0.5 ' + (num(s.aging.overdue_90_plus) > 1000 ? 'c-red font-semibold' : 'tx1')}>
+                        {fmtMoney(num(s.aging.overdue_61_90) + num(s.aging.overdue_90_plus), 0)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ),
-            },
-            {
-              h: 'الرصيد',
-              r: (s) => <b className={num(s.current_balance) < 0 ? 'c-green' : ''}>{fmtMoney(num(s.current_balance), 0)}</b>,
-            },
-            { h: 'إجمالي المشتريات', r: (s) => fmtMoney(num(s.total_purchases), 0) },
-            { h: 'غير مستحق', r: (s) => fmtMoney(num(s.aging.not_due), 0) },
-            { h: '1–30', r: (s) => fmtMoney(num(s.aging.overdue_1_30), 0) },
-            { h: '31–60', r: (s) => fmtMoney(num(s.aging.overdue_31_60), 0) },
-            { h: '61–90', r: (s) => fmtMoney(num(s.aging.overdue_61_90), 0) },
-            {
-              h: '+90',
-              r: (s) => (
-                <span className={num(s.aging.overdue_90_plus) > 1000 ? 'c-red font-semibold' : ''}>
-                  {fmtMoney(num(s.aging.overdue_90_plus), 0)}
-                </span>
-              ),
-            },
-          ]}
-        />
+              ))}
+            </div>
+          )}
+        </div>
       </Card>
     </>
   );
@@ -566,34 +757,96 @@ export function ShiftReport({ from, to, setFrom, setTo }: PeriodProps) {
   return (
     <>
       <RemoteFeedback state={live} />
-      <Card stg={3} pad="p-4">
-        <div className="flex flex-wrap items-center gap-2">
+      <Card stg={3} pad="p-3.5 sm:p-4">
+        <div className="op-reports-filters">
           <DateRange {...{ from, to, setFrom, setTo }} />
-          <FChip on={diffOnly} onClick={() => setDiffOnly(!diffOnly)} icon="alert">
-            الورديات ذات الفروق فقط
-          </FChip>
+          <div className="op-reports-filter-full sm:w-auto">
+            <FChip on={diffOnly} onClick={() => setDiffOnly(!diffOnly)} icon="alert">
+              الورديات ذات الفروق فقط
+            </FChip>
+          </div>
         </div>
       </Card>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stg stg-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 stg stg-3">
         <KPI hero label="المبيعات النقدية" value={<span className="ltr">{fmtNum(num(live.data?.totals.cash_sales))}</span>} foot="EGP" />
         <KPI label="مبيعات البطاقات" value={<span className="ltr">{fmtNum(num(live.data?.totals.card_sales))}</span>} foot="EGP" />
         <KPI label="المرتجعات والمصروفات" value={<span className="ltr">{fmtNum(returnsExpenses)}</span>} foot="للورديات المعروضة" />
         <KPI label="صافي الفروق" value={<span className="ltr c-red">{fmtNum(difference)}</span>} foot="صافي فرق الورديات المعروضة" />
       </div>
-      <Card stg={4}>
-        <DataTable
-          rows={rows}
-          cols={[
-            { h: 'الوردية', r: (s) => <Num className="font-semibold">{s.no}</Num> },
-            { h: 'الكاشير', r: (s) => s.cashier },
-            { h: 'نقدي', r: (s) => fmtMoney(num(s.cash_sales_total), 0) },
-            { h: 'بطاقات', r: (s) => fmtMoney(num(s.card_sales_total), 0) },
-            { h: 'مرتجعات ومصروفات', r: (s) => fmtMoney(num(s.cash_returns_total) + num(s.cash_expenses_total), 0) },
-            { h: 'المتوقعة', r: (s) => (s.exp != null ? fmtMoney(s.exp) : '—') },
-            { h: 'الفعلية', r: (s) => (s.act != null ? fmtMoney(s.act) : '—') },
-            { h: 'الفرق', r: (s) => <DiffCellR s={s} /> },
-          ]}
-        />
+      <Card stg={4} pad="p-4 sm:p-5">
+        <div className="hidden md:block">
+          <DataTable
+            rows={rows}
+            cols={[
+              { h: 'الوردية', r: (s) => <Num className="font-semibold">{s.no}</Num> },
+              { h: 'الكاشير', r: (s) => s.cashier },
+              { h: 'نقدي', r: (s) => fmtMoney(num(s.cash_sales_total), 0) },
+              { h: 'بطاقات', r: (s) => fmtMoney(num(s.card_sales_total), 0) },
+              { h: 'مرتجعات ومصروفات', r: (s) => fmtMoney(num(s.cash_returns_total) + num(s.cash_expenses_total), 0) },
+              { h: 'المتوقعة', r: (s) => (s.exp != null ? fmtMoney(s.exp) : '—') },
+              { h: 'الفعلية', r: (s) => (s.act != null ? fmtMoney(s.act) : '—') },
+              { h: 'الفرق', r: (s) => <DiffCellR s={s} /> },
+            ]}
+          />
+        </div>
+        <div className="md:hidden">
+          {rows.length === 0 ? (
+            <Empty title="لا توجد ورديات مطابقة" />
+          ) : (
+            <div className="op-report-cards">
+              {rows.map((s, idx) => (
+                <div key={s.shift_id ?? s.no ?? idx} className="op-report-card">
+                  <div className="op-report-card-head items-center">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] tx3">وردية</span>
+                        <Num className="font-bold text-[13.5px] tx1">#{s.no}</Num>
+                      </div>
+                      <div className="text-[12px] tx2 truncate mt-0.5">{s.cashier}</div>
+                    </div>
+                    <div className="shrink-0 text-[12px]">
+                      <DiffCellR s={s} />
+                    </div>
+                  </div>
+                  <div className="op-report-card-primary">
+                    <div>
+                      <div className="text-[10.5px] tx3">نقدي</div>
+                      <div className="font-display font-bold text-[13.5px] tx1 mt-0.5">
+                        {fmtMoney(num(s.cash_sales_total), 0)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10.5px] tx3">بطاقات</div>
+                      <div className="font-semibold text-[13px] tx1 mt-0.5">
+                        {fmtMoney(num(s.card_sales_total), 0)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="op-report-card-meta">
+                    <div>
+                      <div className="text-[10px] tx3">مرتجع ومصروف</div>
+                      <div className="text-[11.5px] font-medium tx1 mt-0.5">
+                        {fmtMoney(num(s.cash_returns_total) + num(s.cash_expenses_total), 0)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] tx3">المتوقعة</div>
+                      <div className="text-[11.5px] font-medium tx1 mt-0.5">
+                        {s.exp != null ? fmtMoney(s.exp, 0) : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] tx3">الفعلية</div>
+                      <div className="text-[11.5px] font-medium tx1 mt-0.5">
+                        {s.act != null ? fmtMoney(s.act, 0) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Card>
     </>
   );

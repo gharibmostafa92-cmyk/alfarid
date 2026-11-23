@@ -81,6 +81,17 @@ const relTime = (iso: string | null) => {
 
 export default function AssistantPage({ can, theme, initialConversationId, initialPrompt, initialSelection }: { can: (permission: string) => boolean; theme?: 'light' | 'dark'; initialConversationId?: number; initialPrompt?: { text: string; mentions?: Mention[] }; initialSelection?: { entity: string; id: number } }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const composerWrapRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
+  const drawerDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    committed: boolean;
+    samples: { x: number; t: number }[];
+  } | null>(null);
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -94,9 +105,11 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     fitViewport();
     window.addEventListener('resize', fitViewport);
     window.visualViewport?.addEventListener('resize', fitViewport);
+    window.visualViewport?.addEventListener('scroll', fitViewport);
     return () => {
       window.removeEventListener('resize', fitViewport);
       window.visualViewport?.removeEventListener('resize', fitViewport);
+      window.visualViewport?.removeEventListener('scroll', fitViewport);
     };
   }, []);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
@@ -148,6 +161,17 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const [tab, setTab] = useState<'chat' | 'admin'>('chat');
   const [showLogs, setShowLogs] = useState(false);
   const [drawer, setDrawer] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const wrap = composerWrapRef.current;
+    if (!container || !wrap || typeof ResizeObserver === 'undefined') return;
+    const update = () => container.style.setProperty('--as-composer-h', `${wrap.offsetHeight}px`);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [tab, showLogs]);
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [seed, setSeed] = useState<{ text: string; n: number; mentions?: Mention[] }>();
@@ -268,7 +292,9 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     const el = feedRef.current; if (!el) return;
     requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, []);
-  useEffect(() => { if (atBottom) scrollToBottom(); }, [messages, steps, pendingText, streaming, atBottom, scrollToBottom]);
+  useEffect(() => {
+    if (atBottom && (messages.length > 0 || pendingText || streaming)) scrollToBottom();
+  }, [messages, steps, pendingText, streaming, atBottom, scrollToBottom]);
 
   const openConversation = useCallback(async (id: number) => {
     abortRef.current?.abort();
@@ -516,9 +542,83 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
 
   const pendingCount = (c: Conv) => (c.pending_actions ?? []).filter(a => a.status === 'pending').length;
   const elapsed = streaming ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+
+  /* ---------------- Mobile drawer swipe-to-dismiss (1:1 + momentum projection) ---------------- */
+  const onSidebarPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    if (!drawer || e.pointerType === 'mouse') return;
+    const aside = sidebarRef.current;
+    if (!aside || getComputedStyle(aside).position !== 'absolute') return;
+    if ((e.target as HTMLElement).closest('input, textarea, button')) return;
+    drawerDragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      committed: false,
+      samples: [{ x: e.clientX, t: performance.now() }],
+    };
+  };
+
+  const onSidebarPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = drawerDragRef.current;
+    const aside = sidebarRef.current;
+    if (!drag || !aside || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.committed) {
+      if (Math.hypot(dx, dy) < 10) return;
+      if (Math.abs(dy) > Math.abs(dx)) { drawerDragRef.current = null; return; }
+      drag.committed = true;
+      aside.setPointerCapture(e.pointerId);
+      aside.dataset.dragging = 'true';
+    }
+    const width = aside.offsetWidth || 300;
+    // In RTL, drawer sits on the right edge; positive dx moves it toward closed, negative dx rubber-bands
+    const offset = dx >= 0 ? dx : -((Math.abs(dx) * width * 0.25) / (width + 0.25 * Math.abs(dx)));
+    aside.style.translate = `${offset}px 0`;
+    if (scrimRef.current) {
+      scrimRef.current.style.transition = 'none';
+      scrimRef.current.style.opacity = `${Math.max(0, Math.min(1, 1 - Math.max(0, offset) / width))}`;
+    }
+    const now = performance.now();
+    drag.samples.push({ x: e.clientX, t: now });
+    if (drag.samples.length > 5) drag.samples.shift();
+  };
+
+  const onSidebarPointerEnd = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = drawerDragRef.current;
+    const aside = sidebarRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    drawerDragRef.current = null;
+    if (!aside) return;
+    delete aside.dataset.dragging;
+    aside.style.translate = '';
+    if (scrimRef.current) {
+      scrimRef.current.style.transition = '';
+      scrimRef.current.style.opacity = '';
+    }
+    if (!drag.committed) return;
+    const dx = e.clientX - drag.startX;
+    const first = drag.samples[0];
+    const last = drag.samples[drag.samples.length - 1];
+    const dt = Math.max(16, last.t - first.t);
+    const velocity = ((last.x - first.x) / dt) * 1000; // px/s
+    const decelerationRate = 0.998;
+    const projected = dx + ((velocity / 1000) * decelerationRate) / (1 - decelerationRate);
+    const width = aside.offsetWidth || 300;
+    if (projected > width * 0.38 || dx > width * 0.5) setDrawer(false);
+  };
+
   /* ---------------- Sidebar ---------------- */
   const sidebar = (
-    <aside className="as-sidebar" aria-label="المحادثات">
+    <aside
+      ref={sidebarRef}
+      className="as-sidebar"
+      aria-label="المحادثات"
+      onPointerDown={onSidebarPointerDown}
+      onPointerMove={onSidebarPointerMove}
+      onPointerUp={onSidebarPointerEnd}
+      onPointerCancel={onSidebarPointerEnd}
+    >
       <div className="as-brand">
         <span className="as-mark"><Icon name="spark" size={18} /></span>
         <div>
@@ -764,7 +864,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       )}
       {error && <div className="as-error-dock">{errorAlert}</div>}
       <span className="as-sr" role="status">{status}</span>
-      {showLogs ? <div className="as-alert as-alert--info" role="note">سجل الموظفين للقراءة فقط؛ التأكيد والإلغاء والتراجع متاحين لصاحب المحادثة.</div> : <div className="as-composer-wrap">
+      {showLogs ? <div className="as-alert as-alert--info" role="note">سجل الموظفين للقراءة فقط؛ التأكيد والإلغاء والتراجع متاحين لصاحب المحادثة.</div> : <div ref={composerWrapRef} className="as-composer-wrap">
         <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} enableCatalog={canCatalog} enableInventory={can('inventory.view') || can('stocktakes.update')} enablePricing={can('price_lists.update') && can('ai_agent.execute')} />
       </div>}
     </>
@@ -775,7 +875,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       <style>{assistantStyles}</style>
       <div className="as-shell" data-collapsed={collapsed} data-drawer={drawer}>
         {sidebar}
-        <div className="as-drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />
+        <div ref={scrimRef} className="as-drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />
         <main className="as-main" aria-label="المحادثة الحالية">
           <header className="as-topbar">
             <button type="button" className="as-iconbtn as-only-mobile" onClick={() => setDrawer(true)} aria-label="فتح قائمة المحادثات"><Icon name="menu" /></button>
@@ -786,8 +886,8 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
             </div>
             {tab === 'chat' && <span className="as-status-chip" data-busy={busy} role="status"><span className="as-status-txt">{busy ? (streaming ? 'بيفكر…' : 'جارٍ التحميل…') : 'جاهز'}</span></span>}
             <div className="as-tabs" role="tablist" aria-label="أقسام المساعد">
-              <button type="button" role="tab" className="as-tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}><Icon name="chat" size={15} /><span className="as-tab-txt">المحادثة</span></button>
-              <button type="button" role="tab" className="as-tab" aria-selected={tab === 'admin'} onClick={openAdministration}><Icon name="chart" size={15} /><span className="as-tab-txt">الإدارة</span></button>
+              <button type="button" role="tab" className="as-tab" aria-label="المحادثة" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}><Icon name="chat" size={15} /><span className="as-tab-txt">المحادثة</span></button>
+              <button type="button" role="tab" className="as-tab" aria-label="الإدارة" aria-selected={tab === 'admin'} onClick={openAdministration}><Icon name="chart" size={15} /><span className="as-tab-txt">الإدارة</span></button>
             </div>
             {tab === 'chat' && <button type="button" className="as-iconbtn as-only-mobile" onClick={() => void createConversation()} disabled={busy} aria-label="محادثة جديدة"><Icon name="plus" /></button>}
           </header>

@@ -465,7 +465,6 @@ video {
       background-color: var(--bg-canvas);
       color: var(--text-primary);
       min-height: 100dvh;
-      will-change: clip-path;
     }
 
     #theme-wipe-overlay {
@@ -483,7 +482,9 @@ video {
     }
 
     .no-theme-transitions,
-    .no-theme-transitions * {
+    .no-theme-transitions *,
+    .no-theme-transitions *::before,
+    .no-theme-transitions *::after {
       transition: none !important;
     }
 

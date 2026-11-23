@@ -143,16 +143,24 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
   };
 
   const cols: ColumnDef<OrderRow>[] = [
-    { h: 'رقم الطلب', r: (o) => <span className="num font-semibold tx2">{o.no}</span> },
+    {
+      h: 'الطلب',
+      r: (o) => (
+        <div className="leading-tight">
+          <div className="num font-semibold tx1 text-[13px]">{o.no}</div>
+          <div className="text-[11px] tx3 mt-1 whitespace-nowrap">{o.channel}</div>
+        </div>
+      ),
+    },
     {
       h: 'العميل',
       r: (o) => (
-        <div className="flex items-center gap-2.5 min-w-0 max-w-[260px]">
-          <Avatar name={o.customer} tone={o.id} size={28} />
+        <div className="flex items-center gap-2.5 min-w-0 max-w-[240px]">
+          <Avatar name={o.customer} tone={o.id} size={32} />
           <div className="leading-tight min-w-0 flex-1">
-            <div className="font-semibold tx1 flex items-center gap-1.5">
-              {o.customer}
-              {o.guest && <span className="badge t-gray !py-0 !px-1.5 !text-[10px]">زائر</span>}
+            <div className="font-semibold tx1 flex items-center gap-1.5 truncate">
+              <span className="truncate">{o.customer}</span>
+              {o.guest && <span className="badge t-gray !py-0 !px-1.5 !text-[10px] shrink-0">زائر</span>}
             </div>
             <div className="text-[11px] tx3 num ltr mt-0.5">{o.phone}</div>
           </div>
@@ -160,122 +168,285 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
       ),
     },
     {
-      h: 'القناة',
+      h: 'الحالة',
       r: (o) => (
-        <span className="v-sub px-2.5 py-1 rounded-full text-[11px] tx2 whitespace-nowrap">
-          {o.channel}
-        </span>
+        <div className="flex flex-col items-start gap-1.5">
+          <StatusBadge map={ORDER_STATUS} value={o.status} />
+          {(o.followUp || o.needRefund) && <OrderFlags o={o} />}
+        </div>
       ),
     },
-    { h: 'الحالة', r: (o) => <StatusBadge map={ORDER_STATUS} value={o.status} /> },
     { h: 'الدفع', r: (o) => <PayCell o={o} /> },
     {
-      h: 'الفرع المخصص',
+      h: 'الفرع',
       r: (o) =>
         o.branch ? (
-          <span className="tx2 whitespace-nowrap">{o.branch}</span>
+          <span className="tx2 whitespace-nowrap text-[12.5px]">{o.branch}</span>
         ) : (
           <span className="tx3 text-[11.5px]">غير مخصص</span>
         ),
     },
     {
       h: 'الإجمالي',
-      r: (o) => <span className="font-semibold tx1 whitespace-nowrap">{fmtMoney(o.total)}</span>,
+      r: (o) => <span className="font-semibold tx1 whitespace-nowrap num text-[13px]">{fmtMoney(o.total)}</span>,
     },
     {
-      h: 'تاريخ الإنشاء',
+      h: 'التاريخ',
       r: (o) => (
-        <div className="leading-tight tx2">
+        <div className="leading-tight tx2 whitespace-nowrap">
           <Num>{o.date}</Num>
-          <div className="text-[11px] tx3 num">{o.time}</div>
+          <div className="text-[11px] tx3 num mt-0.5">{o.time}</div>
         </div>
       ),
     },
-    { h: 'تنبيهات', r: (o) => <OrderFlags o={o} /> },
     {
       h: '',
+      align: 'left',
       r: (o) => (
         <RowActions>
-          <button className="btn btn-soft btn-xs" onClick={() => go({ m: 'orders', id: o.id })}>
-            عرض التفاصيل
+          <button
+            type="button"
+            className="btn btn-soft btn-xs inline-flex items-center gap-1"
+            onClick={() => go({ m: 'orders', id: o.id })}
+          >
+            <span>التفاصيل</span>
+            <Icon name="chevL" size={12} />
           </button>
         </RowActions>
       ),
     },
   ];
 
+  const totalCount = data?.meta.total ?? rows.length;
+
   return (
     <div className="space-y-5">
       <RemoteFeedback state={{ loading: false, error: null, usingMock, reload }} />
-      <PageHead title="الطلبات" sub="متابعة طلبات كل القنوات، وتحديث حالتها ودفعها وتخصيص مخزونها." />
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stg stg-2">
-        <KPI
-          hero
-          label="طلبات قيد المراجعة"
-          icon="clock"
-          value={kpi.data?.pending ?? '—'}
-          foot="تحتاج تأكيدًا أو إلغاء"
-        />
-        <KPI
-          label="يحتاج متابعة"
-          icon="flag"
-          value={kpi.data?.follow ?? '—'}
-          foot="معلَّمة للمتابعة"
-        />
-        <KPI
-          label="يتطلب استرداد مبلغ"
-          icon="returns"
-          value={kpi.data?.refund ?? '—'}
-          foot="ملغاة أو مرتجعة ومدفوعة"
-        />
-        <KPI
-          label="قيد التجهيز"
-          icon="store"
-          value={kpi.data?.processing ?? '—'}
-          foot="بانتظار تخصيص المخزون"
-        />
+      <PageHead
+        title="الطلبات"
+        sub="متابعة طلبات كل القنوات، وتحديث حالتها ودفعها وتخصيص مخزونها."
+        actions={
+          <span className="v-pill px-3.5 py-1.5 text-[12px] font-medium tx2 inline-flex items-center gap-2">
+            <span>إجمالي النتائج</span>
+            <strong className="tx1 num font-bold">{fmtNum(totalCount)}</strong>
+          </span>
+        }
+      />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 stg stg-2">
+        <button
+          type="button"
+          onClick={() => setFilter(setSt)(st === 'pending' ? '' : 'pending')}
+          className={`op-kpi-btn is-hero ${st === 'pending' ? 'is-active' : ''}`}
+          aria-pressed={st === 'pending'}
+        >
+          <KPI
+            hero
+            label="طلبات قيد المراجعة"
+            icon="clock"
+            value={kpi.data?.pending ?? '—'}
+            foot="تحتاج تأكيدًا أو إلغاء"
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter(setFu)(!fu)}
+          className={`op-kpi-btn ${fu ? 'is-active' : ''}`}
+          aria-pressed={fu}
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[118px] min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[12.5px] font-medium tx2 truncate">يحتاج متابعة</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                <Icon name="flag" size={14} />
+              </span>
+            </div>
+            <div className="font-display font-bold tracking-tight my-2.5 tx1 num tabular-nums truncate text-[24px] sm:text-[28px]">
+              {kpi.data?.follow ?? '—'}
+            </div>
+            <div className="text-[11px] tx3 truncate">معلَّمة للمتابعة</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter(setRf)(!rf)}
+          className={`op-kpi-btn ${rf ? 'is-active' : ''}`}
+          aria-pressed={rf}
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[118px] min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[12.5px] font-medium tx2 truncate">يتطلب استرداد مبلغ</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                <Icon name="returns" size={14} />
+              </span>
+            </div>
+            <div className="font-display font-bold tracking-tight my-2.5 tx1 num tabular-nums truncate text-[24px] sm:text-[28px]">
+              {kpi.data?.refund ?? '—'}
+            </div>
+            <div className="text-[11px] tx3 truncate">ملغاة أو مرتجعة ومدفوعة</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter(setSt)(st === 'processing' ? '' : 'processing')}
+          className={`op-kpi-btn ${st === 'processing' ? 'is-active' : ''}`}
+          aria-pressed={st === 'processing'}
+        >
+          <div className="rounded-[18px] p-4 flex flex-col justify-between min-h-[118px] min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[12.5px] font-medium tx2 truncate">قيد التجهيز</span>
+              <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+                <Icon name="store" size={14} />
+              </span>
+            </div>
+            <div className="font-display font-bold tracking-tight my-2.5 tx1 num tabular-nums truncate text-[24px] sm:text-[28px]">
+              {kpi.data?.processing ?? '—'}
+            </div>
+            <div className="text-[11px] tx3 truncate">بانتظار تخصيص المخزون</div>
+          </div>
+        </button>
       </div>
       <Card stg={3}>
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <SearchPill value={q} onChange={setFilter(setQ)} placeholder="رقم الطلب، العميل، الهاتف" w="w-48" />
-          <FSelect
-            value={st}
-            onChange={setFilter(setSt)}
-            placeholder="كل الحالات"
-            options={Object.entries(ORDER_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
+        <div className="op-filter-shell">
+          <div className="op-filter-primary">
+            <div className="op-search-box">
+              <Icon name="search" size={15} className="tx3 shrink-0" />
+              <input
+                type="search"
+                value={q}
+                onChange={(e) => setFilter(setQ)(e.target.value)}
+                placeholder="ابحث برقم الطلب، اسم العميل، أو الهاتف..."
+                className="op-search-input"
+                aria-label="بحث في الطلبات"
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => setFilter(setQ)('')}
+                  className="op-search-clear"
+                  aria-label="مسح البحث"
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
+            </div>
+            <div className="op-filter-chips">
+              <FChip on={fu} onClick={() => setFilter(setFu)(!fu)} icon="flag">
+                يحتاج متابعة
+              </FChip>
+              <FChip on={rf} onClick={() => setFilter(setRf)(!rf)} icon="returns">
+                يتطلب استرداد
+              </FChip>
+              {anyFilter && (
+                <button type="button" className="btn btn-ghost btn-xs col-span-2 sm:col-span-1 justify-center" onClick={reset}>
+                  <Icon name="x" size={12} />
+                  مسح الفلاتر
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="op-filter-secondary">
+            <FSelect
+              value={st}
+              onChange={setFilter(setSt)}
+              placeholder="كل الحالات"
+              options={Object.entries(ORDER_STATUS).map(([v, s]) => ({ value: v, label: s.label }))}
+            />
+            <FSelect value={br} onChange={setFilter(setBr)} placeholder="كل الفروع" options={branchOpts.length ? branchOpts : []} />
+            <FSelect
+              value={pm}
+              onChange={setFilter(setPm)}
+              placeholder="طريقة الدفع"
+              options={Object.entries(PAY_METHODS).map(([v, l]) => ({ value: v, label: l }))}
+            />
+            <FDate label="من" value={from} onChange={setFilter(setFrom)} />
+            <FDate label="إلى" value={to} onChange={setFilter(setTo)} />
+          </div>
+        </div>
+        <div className="hidden md:block op-orders-table-wrap">
+          <DataTable
+            rows={loading ? [] : rows}
+            empty={loading ? <AdminLoading compact /> : error && !usingMock
+              ? <Empty icon="alert" title="تعذّر تحميل الطلبات" text={error.message}
+                  action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
+              : undefined}
+            onRow={(o: OrderRow) => go({ m: 'orders', id: o.id })}
+            cols={cols}
           />
-          <FSelect value={br} onChange={setFilter(setBr)} placeholder="كل الفروع" options={branchOpts.length ? branchOpts : []} />
-          <FSelect
-            value={pm}
-            onChange={setFilter(setPm)}
-            placeholder="طريقة الدفع"
-            options={Object.entries(PAY_METHODS).map(([v, l]) => ({ value: v, label: l }))}
-          />
-          <FDate label="من" value={from} onChange={setFilter(setFrom)} />
-          <FDate label="إلى" value={to} onChange={setFilter(setTo)} />
-          <FChip on={fu} onClick={() => setFilter(setFu)(!fu)} icon="flag">
-            يحتاج متابعة
-          </FChip>
-          <FChip on={rf} onClick={() => setFilter(setRf)(!rf)} icon="returns">
-            يتطلب استرداد
-          </FChip>
-          {anyFilter && (
-            <button className="btn btn-ghost btn-xs" onClick={reset}>
-              <Icon name="x" size={12} />
-              مسح الفلاتر
-            </button>
+        </div>
+        <div className="md:hidden">
+          {loading ? (
+            <div className="py-8 flex justify-center"><AdminLoading compact /></div>
+          ) : error && !usingMock ? (
+            <div className="py-6">
+              <Empty
+                icon="alert"
+                title="تعذّر تحميل الطلبات"
+                text={error.message}
+                action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>}
+              />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center tx3 text-[13px]">لا توجد بيانات مطابقة</div>
+          ) : (
+            <div className="op-order-cards">
+              {rows.map((o: OrderRow) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => go({ m: 'orders', id: o.id })}
+                  className="op-order-card"
+                >
+                  <div className="op-order-card-head">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="num font-bold tx1 text-[13.5px]">{o.no}</span>
+                      <span className="v-card px-2 py-0.5 rounded-full text-[10.5px] tx2 truncate">{o.channel}</span>
+                    </div>
+                    <StatusBadge map={ORDER_STATUS} value={o.status} />
+                  </div>
+
+                  <div className="op-order-card-customer">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Avatar name={o.customer} tone={o.id} size={34} />
+                      <div className="min-w-0 flex-1 leading-tight">
+                        <div className="font-semibold tx1 text-[13.5px] flex items-center gap-1.5">
+                          <span className="truncate">{o.customer}</span>
+                          {o.guest && <span className="badge t-gray !py-0 !px-1.5 !text-[10px] shrink-0">زائر</span>}
+                        </div>
+                        <div className="text-[11.5px] tx3 num ltr mt-0.5 text-right">{o.phone || '—'}</div>
+                      </div>
+                    </div>
+                    <div className="text-end shrink-0">
+                      <div className="font-display font-bold tx1 text-[15px] num whitespace-nowrap">{fmtMoney(o.total)}</div>
+                    </div>
+                  </div>
+
+                  <div className="op-order-card-meta">
+                    <div className="min-w-0">
+                      <div className="text-[10.5px] tx3 mb-0.5">الدفع</div>
+                      <PayCell o={o} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10.5px] tx3 mb-0.5">الفرع والتاريخ</div>
+                      <div className="text-[12px] tx1 font-medium truncate">{o.branch || 'غير مخصص'}</div>
+                      <div className="text-[11px] tx3 num mt-0.5">{o.date} · {o.time}</div>
+                    </div>
+                  </div>
+
+                  <div className="op-order-card-foot">
+                    <div className="min-w-0">
+                      {(o.followUp || o.needRefund) && <OrderFlags o={o} />}
+                    </div>
+                    <span className="btn btn-soft btn-xs inline-flex items-center gap-1 shrink-0">
+                      <span>التفاصيل</span>
+                      <Icon name="chevL" size={12} />
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
         </div>
-        <DataTable
-          rows={loading ? [] : rows}
-          empty={loading ? <AdminLoading compact /> : error && !usingMock
-            ? <Empty icon="alert" title="تعذّر تحميل الطلبات" text={error.message}
-                action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
-            : undefined}
-          onRow={(o: OrderRow) => go({ m: 'orders', id: o.id })}
-          cols={cols}
-        />
-        <Pager total={data?.meta.total ?? rows.length} per={data?.meta.per_page ?? 20} page={page} onPage={setPage} />
+        <Pager total={totalCount} per={data?.meta.per_page ?? 20} page={page} onPage={setPage} />
       </Card>
     </div>
   );
@@ -891,6 +1062,8 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
     return { total: s.total, byStatus: s as unknown as Record<string, number> };
   }, []);
 
+  const totalCount = data?.meta.total ?? rows.length;
+
   return (
     <div className="space-y-5">
       <RemoteFeedback state={{ loading: false, error: null, usingMock, reload }} />
@@ -898,85 +1071,220 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
         title="المرتجعات"
         sub="الموافقة والاستلام ورد المبلغ تتم كخطوات منفصلة لكل مرتجع."
         actions={
-          <button className="btn btn-dark" disabled={!mayCreate || usingMock} onClick={() => setCreate(true)}>
+          <button type="button" className="btn btn-dark" disabled={!mayCreate || usingMock} onClick={() => setCreate(true)}>
             <Icon name="plus" size={14} />
             إنشاء مرتجع
           </button>
         }
       />
-      <Card stg={2} pad="p-4">
-        <div className="flex gap-2 overflow-x-auto">
+      <div className="op-kpi-strip stg stg-2">
+        <button
+          type="button"
+          onClick={() => { setSt(''); setPage(1); }}
+          aria-pressed={!st}
+          className={`op-kpi-btn p-3.5 sm:p-4 flex flex-col justify-between min-h-[82px] sm:min-h-[96px] ${!st ? 'is-active' : ''}`}
+        >
+          <div className="text-[12px] font-medium tx2">الكل</div>
+          <div className="font-display text-[21px] sm:text-[24px] font-bold num tabular-nums tx1 mt-1.5 sm:mt-2">
+            {counts.data?.total ?? '—'}
+          </div>
+        </button>
+        {Object.entries(RETURN_STATUS).map(([k, s]) => (
           <button
-            onClick={() => { setSt(''); setPage(1); }}
-            className={'v-sub px-4 py-3 rounded-[14px] text-start min-w-[120px] transition ' + (!st ? 'ring-2' : '')}
-            style={!st ? { '--tw-ring-color': 'var(--accent)' } as any : {}}
+            key={k}
+            type="button"
+            onClick={() => { setSt(st === k ? '' : k); setPage(1); }}
+            aria-pressed={st === k}
+            className={`op-kpi-btn p-3.5 sm:p-4 flex flex-col justify-between min-h-[82px] sm:min-h-[96px] ${st === k ? 'is-active' : ''}`}
           >
-            <div className="text-[11.5px] tx2">الكل</div>
-            <div className="font-display text-[22px] font-bold num tx1">{counts.data?.total ?? '—'}</div>
+            <div className={'text-[12px] font-semibold truncate c-' + s.tone}>{s.label}</div>
+            <div className="font-display text-[21px] sm:text-[24px] font-bold num tabular-nums tx1 mt-1.5 sm:mt-2">
+              {counts.data?.byStatus[k] ?? '—'}
+            </div>
           </button>
-          {Object.entries(RETURN_STATUS).map(([k, s]) => (
-            <button
-              key={k}
-              onClick={() => { setSt(k); setPage(1); }}
-              className={'v-sub px-4 py-3 rounded-[14px] text-start min-w-[120px] transition ' + (st === k ? 'ring-2' : '')}
-              style={st === k ? { '--tw-ring-color': 'var(--accent)' } as any : {}}
-            >
-              <div className={'text-[11.5px] font-medium c-' + s.tone}>{s.label}</div>
-              <div className="font-display text-[22px] font-bold num tx1">
-                {counts.data?.byStatus[k] ?? '—'}
-              </div>
-            </button>
-          ))}
-        </div>
-      </Card>
+        ))}
+      </div>
       <Card stg={3}>
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <SearchPill value={q} onChange={setQ} placeholder="رقم المرتجع أو الطلب" />
+        <div className="op-filter-shell">
+          <div className="op-filter-primary">
+            <div className="op-search-box">
+              <Icon name="search" size={15} className="tx3 shrink-0" />
+              <input
+                type="search"
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setPage(1); }}
+                placeholder="ابحث برقم المرتجع، رقم الطلب، أو اسم العميل..."
+                className="op-search-input"
+                aria-label="بحث في المرتجعات"
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => { setQ(''); setPage(1); }}
+                  className="op-search-clear"
+                  aria-label="مسح البحث"
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {(st || q) && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => { setSt(''); setQ(''); setPage(1); }}
+                >
+                  <Icon name="x" size={12} />
+                  مسح الفلاتر
+                </button>
+              )}
+              <span className="v-sub px-3.5 py-1.5 rounded-full text-[12px] font-medium tx2 inline-flex items-center gap-2">
+                <span>إجمالي النتائج</span>
+                <strong className="tx1 num font-bold">{fmtNum(totalCount)}</strong>
+              </span>
+            </div>
+          </div>
         </div>
-        <DataTable
-          onRow={(r: ReturnRow) => go({ m: 'returns', id: r.id })}
-          rows={loading ? [] : rows}
-          empty={loading ? <AdminLoading compact /> : error && !usingMock
-            ? <Empty icon="alert" title="تعذّر تحميل المرتجعات" text={error.message}
-                action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
-            : undefined}
-          cols={[
-            { h: 'رقم المرتجع', r: (r) => <span className="num font-semibold tx1">{r.no}</span> },
-            {
-              h: 'الطلب الأصلي',
-              r: (r) => (
-                <span className="num tx2 underline decoration-dotted underline-offset-4">{r.order}</span>
-              ),
-            },
-            {
-              h: 'العميل',
-              r: (r) => (
-                <div className="flex items-center gap-2">
-                  <Avatar name={r.customer} tone={r.id} size={26} />
-                  <span className="font-medium tx1">{r.customer}</span>
-                </div>
-              ),
-            },
-            {
-              h: 'الفرع',
-              r: (r) =>
-                r.branch ? <span className="tx2">{r.branch}</span> : <span className="tx3 text-[11.5px]">يحدد عند الموافقة</span>,
-            },
-            { h: 'الحالة', r: (r) => <StatusBadge map={RETURN_STATUS} value={r.status} /> },
-            {
-              h: 'طريقة الرد',
-              r: (r) =>
-                r.method ? (
-                  <span className="tx2">{REFUND_METHODS[r.method] || r.method}</span>
-                ) : (
-                  <span className="tx3">—</span>
+        <div className="hidden md:block op-orders-table-wrap">
+          <DataTable
+            onRow={(r: ReturnRow) => go({ m: 'returns', id: r.id })}
+            rows={loading ? [] : rows}
+            empty={loading ? <AdminLoading compact /> : error && !usingMock
+              ? <Empty icon="alert" title="تعذّر تحميل المرتجعات" text={error.message}
+                  action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
+              : undefined}
+            cols={[
+              { h: 'رقم المرتجع', r: (r) => <span className="num font-semibold tx1 text-[13px]">{r.no}</span> },
+              {
+                h: 'الطلب الأصلي',
+                r: (r) => (
+                  <span className="num tx2 underline decoration-dotted underline-offset-4">{r.order}</span>
                 ),
-            },
-            { h: 'إجمالي الاسترداد', r: (r) => <span className="font-semibold">{fmtMoney(r.total)}</span> },
-            { h: 'تاريخ الإنشاء', r: (r) => <Num className="tx2">{r.date}</Num> },
-          ]}
-        />
-        <Pager total={data?.meta.total ?? rows.length} per={data?.meta.per_page ?? 20} page={page} onPage={setPage} />
+              },
+              {
+                h: 'العميل',
+                r: (r) => (
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar name={r.customer} tone={r.id} size={32} />
+                    <span className="font-semibold tx1 truncate">{r.customer}</span>
+                  </div>
+                ),
+              },
+              {
+                h: 'الفرع',
+                r: (r) =>
+                  r.branch ? <span className="tx2 whitespace-nowrap">{r.branch}</span> : <span className="tx3 text-[11.5px]">يحدد عند الموافقة</span>,
+              },
+              { h: 'الحالة', r: (r) => <StatusBadge map={RETURN_STATUS} value={r.status} /> },
+              {
+                h: 'طريقة الرد',
+                r: (r) =>
+                  r.method ? (
+                    <span className="tx2 whitespace-nowrap">{REFUND_METHODS[r.method] || r.method}</span>
+                  ) : (
+                    <span className="tx3">—</span>
+                  ),
+              },
+              { h: 'إجمالي الاسترداد', r: (r) => <span className="font-semibold tx1 num whitespace-nowrap">{fmtMoney(r.total)}</span> },
+              { h: 'تاريخ الإنشاء', r: (r) => <Num className="tx2 whitespace-nowrap">{r.date}</Num> },
+              {
+                h: '',
+                align: 'left',
+                r: (r) => (
+                  <RowActions>
+                    <button
+                      type="button"
+                      className="btn btn-soft btn-xs inline-flex items-center gap-1"
+                      onClick={() => go({ m: 'returns', id: r.id })}
+                    >
+                      <span>التفاصيل</span>
+                      <Icon name="chevL" size={12} />
+                    </button>
+                  </RowActions>
+                ),
+              },
+            ]}
+          />
+        </div>
+        <div className="md:hidden">
+          {loading ? (
+            <div className="py-8 flex justify-center"><AdminLoading compact /></div>
+          ) : error && !usingMock ? (
+            <div className="py-6">
+              <Empty
+                icon="alert"
+                title="تعذّر تحميل المرتجعات"
+                text={error.message}
+                action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>}
+              />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center tx3 text-[13px]">لا توجد مرتجعات مطابقة</div>
+          ) : (
+            <div className="op-order-cards">
+              {rows.map((r: ReturnRow) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => go({ m: 'returns', id: r.id })}
+                  className="op-order-card"
+                >
+                  <div className="op-order-card-head">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="num font-bold tx1 text-[13.5px]">{r.no}</span>
+                      <span className="v-card px-2 py-0.5 rounded-full text-[10.5px] tx2 num truncate">
+                        طلب {r.order}
+                      </span>
+                    </div>
+                    <StatusBadge map={RETURN_STATUS} value={r.status} />
+                  </div>
+
+                  <div className="op-order-card-customer">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Avatar name={r.customer} tone={r.id} size={34} />
+                      <div className="min-w-0 flex-1 leading-tight">
+                        <div className="font-semibold tx1 text-[13.5px] truncate">{r.customer}</div>
+                        <div className="text-[11px] tx3 mt-0.5 truncate">
+                          الطلب الأصلي: <span className="num">{r.order}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-end shrink-0">
+                      <div className="font-display font-bold tx1 text-[15px] num whitespace-nowrap">
+                        {fmtMoney(r.total)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="op-order-card-meta">
+                    <div className="min-w-0">
+                      <div className="text-[10.5px] tx3 mb-0.5">الفرع</div>
+                      <div className="text-[12px] tx1 font-medium truncate">
+                        {r.branch || 'يحدد عند الموافقة'}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10.5px] tx3 mb-0.5">طريقة الرد</div>
+                      <div className="text-[12px] tx1 font-medium truncate">
+                        {r.method ? (REFUND_METHODS[r.method] || r.method) : '—'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="op-order-card-foot">
+                    <span className="text-[11.5px] tx3 num">{r.date}</span>
+                    <span className="btn btn-soft btn-xs inline-flex items-center gap-1 shrink-0">
+                      <span>التفاصيل</span>
+                      <Icon name="chevL" size={12} />
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <Pager total={totalCount} per={data?.meta.per_page ?? 20} page={page} onPage={setPage} />
       </Card>
       <CreateReturnModal open={create} onClose={() => setCreate(false)} onSaved={() => { reload(); counts.reload(); }} />
     </div>
@@ -1024,122 +1332,271 @@ export function CreateReturnModal({ open, onClose, onSaved }: { open: boolean; o
     if (r) { onSaved?.(); onClose(); toast(`تم إنشاء المرتجع ${(r as any).return_number ?? ''}`, 'green'); }
   };
 
+  const selectedOrderData = selectedOrder.data as any;
+  const selectedOrderCustomer =
+    selectedOrderData?.customer?.name ?? selectedOrderData?.guest_name ?? selectedOrderData?.customer_name ?? '';
+  const validItemsCount = lines.filter((l) => l.item && Number(l.qty) > 0).length;
+
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="إنشاء مرتجع"
       icon="returns"
-      width={680}
+      width={860}
       sub="يُنشأ بحالة «قيد المراجعة»؛ يُحسب مبلغ الاسترداد من النظام."
       footer={
-        <>
-          <button className="btn btn-soft" onClick={onClose}>
-            إلغاء
-          </button>
-          <button
-            className="btn btn-dark"
-            disabled={!orderId || busy}
-            onClick={submit}
-          >
-            إنشاء المرتجع
-          </button>
-        </>
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="hidden sm:flex items-center gap-2 text-[12px] tx2">
+            {orderId ? (
+              <>
+                <span className="v-sub px-2.5 py-1 rounded-full num font-semibold tx1">
+                  {selectedOrderData?.order_number ?? `#${orderId}`}
+                </span>
+                <span>·</span>
+                <span>
+                  بنود جاهزة: <strong className="tx1 num">{validItemsCount}</strong>
+                </span>
+              </>
+            ) : (
+              <span className="tx3">اختر الطلب الأصلي وأضف البنود المطلوب إرجاعها</span>
+            )}
+          </div>
+          <div className="flex w-full sm:w-auto items-center gap-2 ms-auto">
+            <button type="button" className="btn btn-soft flex-1 sm:flex-none min-h-[44px] sm:min-h-0 justify-center" onClick={onClose}>
+              إلغاء
+            </button>
+            <button
+              type="button"
+              className="btn btn-dark flex-1 sm:flex-none min-h-[44px] sm:min-h-0 justify-center"
+              disabled={!orderId || busy}
+              onClick={submit}
+            >
+              إنشاء المرتجع
+            </button>
+          </div>
+        </div>
       }
     >
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="الطلب الأصلي" req err={(f.errors as any).order_id}>
-            <input className="inp" value={orderQuery} onChange={(e) => setOrderQuery(e.target.value)} placeholder="ابحث برقم الطلب" />
-            <select className="inp mt-2" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-              <option value="">اختر من النتائج</option>
-              {(deliveredOrders.data ?? []).map((o: any) => (
-                <option key={o.id} value={String(o.id)}>
-                  {o.order_number ?? o.no} — {(o.customer as any)?.name ?? o.customer ?? ''}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="طريقة الاسترداد" hint="اختيارية — يمكن تحديدها عند رد المبلغ." err={(f.errors as any).refund_method}>
-            <select className="inp" value={f.v.refund_method} onChange={f.on('refund_method' as any)}>
-              <option value="">لم تُحدد</option>
-              {Object.entries(REFUND_METHODS).map(([k, l]) => (
-                <option key={k} value={k}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        <Field label="سبب الإرجاع" req err={(f.errors as any).reason}>
-          <TextArea label="" req max={2000} placeholder="اشرح سبب الإرجاع" value={f.v.reason} onChange={(v) => f.set('reason' as any, v)} />
-        </Field>
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="lbl">
-              البنود <span className="accent">*</span>
-            </span>
-            <span className="text-[11px] tx3">
-              من بند واحد حتى <Num>50</Num> بندًا · <Num>{lines.length}</Num>/50
-            </span>
-          </div>
-          <div className="v-sub p-2 space-y-2">
-            <div className="grid grid-cols-12 gap-2 px-2 pt-1 text-[11px] tx3">
-              <span className="col-span-5">بند الطلب</span>
-              <span className="col-span-2">الكمية</span>
-              <span className="col-span-4">سبب البند</span>
-            </div>
-            {lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 items-center">
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="lg:col-span-7 v-sub p-3 sm:p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
+            <Field label="الطلب الأصلي" req err={(f.errors as any).order_id}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="relative">
+                  <input
+                    className="inp pl-8 !bg-[var(--bg-card)] !border-[var(--border-field)]"
+                    value={orderQuery}
+                    onChange={(e) => setOrderQuery(e.target.value)}
+                    placeholder="ابحث برقم الطلب..."
+                  />
+                  {orderQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setOrderQuery('')}
+                      aria-label="مسح بحث الطلب"
+                      className="op-search-clear absolute left-2 top-1/2 -translate-y-1/2"
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  )}
+                </div>
                 <select
-                  className="inp inp-sm col-span-5 !bg-[var(--bg-card)]"
-                  disabled={!orderId}
-                  value={l.item}
-                  onChange={(e) => set(i, 'item', e.target.value)}
+                  className="inp !bg-[var(--bg-card)] !border-[var(--border-field)]"
+                  value={orderId}
+                  onChange={(e) => setOrderId(e.target.value)}
                 >
-                  <option value="">{orderId ? 'اختر بندًا' : 'اختر الطلب أولًا'}</option>
-                  {orderItems.map((it: any) => (
-                    <option key={String(it.id)} value={String(it.id)}>
-                      {it.product_name ?? it.name} · {it.sku}
+                  <option value="">
+                    {deliveredOrders.loading ? 'جارٍ البحث...' : `اختر من النتائج (${(deliveredOrders.data ?? []).length})`}
+                  </option>
+                  {(deliveredOrders.data ?? []).map((o: any) => (
+                    <option key={o.id} value={String(o.id)}>
+                      {o.order_number ?? o.no} — {(o.customer as any)?.name ?? o.customer ?? ''}
                     </option>
                   ))}
                 </select>
-                <input
-                  type="number"
-                  min="1"
-                  max={(() => {
-                    const matched = orderItems.find((it: any) => String(it.id) === String(l.item));
-                    return matched?.qty != null ? Number(matched.qty) : undefined;
-                  })()}
-                  className="inp inp-sm col-span-2 num !bg-[var(--bg-card)]"
-                  value={l.qty}
-                  onChange={(e) => set(i, 'qty', e.target.value)}
-                />
-                <input
-                  className="inp inp-sm col-span-4 !bg-[var(--bg-card)]"
-                  placeholder="اختياري"
-                  value={l.reason}
-                  onChange={(e) => set(i, 'reason', e.target.value)}
-                />
-                <button
-                  className="icon-btn !w-7 !h-7 col-span-1 justify-self-center"
-                  disabled={lines.length === 1}
-                  onClick={() => setLines(lines.filter((_, j) => j !== i))}
-                >
-                  <Icon name="trash" size={13} />
-                </button>
-                {(f.errors as any)[`items.${i}.requested_qty`] && (
-                  <span className="col-span-12 text-[11px] c-red">{(f.errors as any)[`items.${i}.requested_qty`]}</span>
-                )}
               </div>
-            ))}
+            </Field>
+            {orderId && selectedOrderData && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[12px]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="num font-semibold tx1">{selectedOrderData.order_number ?? `#${orderId}`}</span>
+                  {selectedOrderCustomer && (
+                    <>
+                      <span className="tx3">·</span>
+                      <span className="tx2 truncate">{selectedOrderCustomer}</span>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0 tx2">
+                  <span>
+                    البنود: <strong className="tx1 num">{orderItems.length}</strong>
+                  </span>
+                  {selectedOrderData.grand_total != null && (
+                    <span className="font-semibold tx1 num">{fmtMoney(Number(selectedOrderData.grand_total))}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-5 v-sub p-4 rounded-2xl border border-[var(--border-subtle)] flex flex-col justify-between">
+            <Field label="طريقة الاسترداد" hint="اختيارية — يمكن تحديدها لاحقاً عند رد المبلغ." err={(f.errors as any).refund_method}>
+              <select
+                className="inp !bg-[var(--bg-card)] !border-[var(--border-field)]"
+                value={f.v.refund_method}
+                onChange={f.on('refund_method' as any)}
+              >
+                <option value="">لم تُحدد</option>
+                {Object.entries(REFUND_METHODS).map(([k, l]) => (
+                  <option key={k} value={k}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </div>
+
+        <Field label="سبب الإرجاع" req err={(f.errors as any).reason}>
+          <TextArea
+            label=""
+            req
+            max={2000}
+            placeholder="اشرح سبب الإرجاع بوضوح..."
+            value={f.v.reason}
+            onChange={(v) => f.set('reason' as any, v)}
+          />
+        </Field>
+
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="lbl">
+              بنود المرتجع <span className="accent">*</span>
+            </span>
+            <span className="v-sub px-2.5 py-0.5 rounded-full text-[11px] tx2 num">
+              {lines.length} / 50 بند
+            </span>
+          </div>
+          <div className="v-sub p-2.5 sm:p-3 rounded-2xl border border-[var(--border-subtle)] space-y-2.5">
+            <div className="hidden sm:grid sm:grid-cols-12 gap-2.5 px-2 pt-0.5 text-[11.5px] font-medium tx3">
+              <span className="col-span-5">بند الطلب</span>
+              <span className="col-span-3 text-center">الكمية</span>
+              <span className="col-span-3">سبب البند</span>
+              <span className="col-span-1 text-center">حذف</span>
+            </div>
+            {lines.map((l, i) => {
+              const matched = orderItems.find((it: any) => String(it.id) === String(l.item));
+              const maxQty = matched?.qty != null ? Number(matched.qty) : undefined;
+              const currentQty = Math.max(1, Number(l.qty) || 1);
+              return (
+                <div
+                  key={i}
+                  className="grid grid-cols-12 gap-2.5 items-center p-3 sm:p-2 rounded-2xl sm:rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)]"
+                >
+                  <div className="col-span-12 sm:hidden flex items-center justify-between gap-2 pb-1.5 border-b border-[var(--border-subtle)]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[12px] font-semibold tx1">بند <Num>#{i + 1}</Num></span>
+                      {maxQty != null && (
+                        <span className="v-sub px-2 py-0.5 rounded-full text-[10.5px] tx2">
+                          الحد الأقصى: <Num className="font-semibold tx1">{maxQty}</Num>
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="حذف البند"
+                      className="icon-btn !w-9 !h-9"
+                      disabled={lines.length === 1}
+                      onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+
+                  <select
+                    className="inp sm:inp-sm col-span-12 sm:col-span-5 !bg-[var(--bg-subcard)]"
+                    disabled={!orderId}
+                    value={l.item}
+                    onChange={(e) => set(i, 'item', e.target.value)}
+                  >
+                    <option value="">{orderId ? 'اختر بندًا من الطلب' : 'اختر الطلب الأصلي أولًا'}</option>
+                    {orderItems.map((it: any) => (
+                      <option key={String(it.id)} value={String(it.id)}>
+                        {it.product_name ?? it.name} · {it.sku} (الكمية: {it.qty})
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="col-span-5 sm:col-span-3">
+                    <span className="sm:hidden block text-[11px] tx3 mb-1">الكمية</span>
+                    <div className="op-qty-stepper">
+                      <button
+                        type="button"
+                        aria-label="إنقاص الكمية"
+                        className="op-qty-stepper-btn"
+                        disabled={currentQty <= 1}
+                        onClick={() => set(i, 'qty', Math.max(1, currentQty - 1))}
+                      >
+                        <Icon name="minus" size={13} />
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        aria-label="الكمية"
+                        placeholder="1"
+                        max={maxQty}
+                        className="op-qty-stepper-input num"
+                        value={l.qty}
+                        onChange={(e) => set(i, 'qty', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        aria-label="زيادة الكمية"
+                        className="op-qty-stepper-btn"
+                        disabled={maxQty != null && currentQty >= maxQty}
+                        onClick={() => set(i, 'qty', maxQty != null ? Math.min(maxQty, currentQty + 1) : currentQty + 1)}
+                      >
+                        <Icon name="plus" size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="col-span-7 sm:col-span-3">
+                    <span className="sm:hidden block text-[11px] tx3 mb-1">سبب البند</span>
+                    <input
+                      aria-label="سبب البند"
+                      className="inp sm:inp-sm !bg-[var(--bg-subcard)]"
+                      placeholder="سبب خاص (اختياري)"
+                      value={l.reason}
+                      onChange={(e) => set(i, 'reason', e.target.value)}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    aria-label="حذف البند"
+                    className="hidden sm:inline-flex icon-btn !w-8 !h-8 sm:col-span-1 justify-self-center"
+                    disabled={lines.length === 1}
+                    onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+
+                  {(f.errors as any)[`items.${i}.requested_qty`] && (
+                    <span className="col-span-12 text-[11px] c-red">{(f.errors as any)[`items.${i}.requested_qty`]}</span>
+                  )}
+                </div>
+              );
+            })}
             <button
-              className="btn btn-ghost btn-sm w-full"
+              type="button"
+              className="btn btn-soft btn-sm w-full min-h-[42px] sm:min-h-0 border border-dashed border-[var(--border-strong)] !bg-transparent hover:!bg-[var(--bg-card)]"
               disabled={lines.length >= 50}
               onClick={() => setLines([...lines, { item: '', qty: 1, reason: '' }])}
             >
               <Icon name="plus" size={13} />
-              إضافة بند
+              إضافة بند آخر
             </button>
           </div>
         </div>
@@ -1271,7 +1728,7 @@ export function ReturnDetail({
       <PageHead
         back={{ label: 'كل المرتجعات', onClick: () => go({ m: 'returns' }) }}
         title={
-          <span className="flex items-center gap-3">
+          <span className="flex flex-wrap items-center gap-2 sm:gap-3">
             <span className="num">{r.no}</span>
             <StatusBadge map={RETURN_STATUS} value={r.status} />
           </span>
@@ -1328,7 +1785,7 @@ export function ReturnDetail({
             هذا المرتجع {RETURN_STATUS[r.status]?.label || r.status} — لا توجد خطوات إضافية.
           </Note>
         ) : (
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-2">
             {steps.map((s, i) => {
               const done = i <= idx,
                 cur = i === idx + 1;
@@ -1363,58 +1820,113 @@ export function ReturnDetail({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <Card stg={3} className="lg:col-span-8">
           <CardHead title="بنود المرتجع" />
-          <DataTable
-            compact
-            rows={displayLines}
-            cols={[
-              {
-                h: 'المنتج',
-                r: (l) => (
-                  <div className="leading-tight min-w-0 flex-1">
-                    <div className="font-semibold tx1">{l.v.name}</div>
-                    <div className="text-[11px] tx3 num ltr">{l.v.sku}</div>
+          <div className="hidden md:block">
+            <DataTable
+              compact
+              rows={displayLines}
+              cols={[
+                {
+                  h: 'المنتج',
+                  r: (l) => (
+                    <div className="leading-tight min-w-0 flex-1">
+                      <div className="font-semibold tx1">{l.v.name}</div>
+                      <div className="text-[11px] tx3 num ltr">{l.v.sku}</div>
+                    </div>
+                  ),
+                },
+                { h: 'مطلوب', align: 'center', r: (l) => <Num>{l.req}</Num> },
+                {
+                  h: 'موافق عليه',
+                  align: 'center',
+                  r: (l) => (l.appr == null ? <span className="tx3">—</span> : <Num className="font-semibold">{l.appr}</Num>),
+                },
+                {
+                  h: 'سليم',
+                  align: 'center',
+                  r: (l) => (l.good == null ? <span className="tx3">—</span> : <Num className="c-green font-semibold">{l.good}</Num>),
+                },
+                {
+                  h: 'تالف',
+                  align: 'center',
+                  r: (l) => (l.dmg == null ? <span className="tx3">—</span> : <Num className="c-red font-semibold">{l.dmg}</Num>),
+                },
+                { h: 'سعر الاسترداد', r: (l) => fmtMoney(l.price) },
+                {
+                  h: 'السبب والمرفقات',
+                  r: (l) => (
+                    <div className="leading-tight min-w-0 flex-1">
+                      <div className="text-[12px] tx1">{l.reason}</div>
+                      {l.files > 0 && (
+                        <div className="flex gap-1 mt-1.5">
+                          {Array.from({ length: l.files }).map((_, i) => (
+                            <span
+                              key={i}
+                              className="w-7 h-7 rounded-lg v-sub flex items-center justify-center tx3"
+                            >
+                              <Icon name="image" size={12} />
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </div>
+          <div className="md:hidden space-y-2.5">
+            {displayLines.map((l) => (
+              <div key={l.id} className="op-return-item-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 leading-tight">
+                    <div className="font-semibold tx1 text-[13.5px]">{l.v.name}</div>
+                    {l.v.sku && <div className="text-[11px] tx3 num ltr text-right mt-0.5">{l.v.sku}</div>}
                   </div>
-                ),
-              },
-              { h: 'مطلوب', align: 'center', r: (l) => <Num>{l.req}</Num> },
-              {
-                h: 'موافق عليه',
-                align: 'center',
-                r: (l) => (l.appr == null ? <span className="tx3">—</span> : <Num className="font-semibold">{l.appr}</Num>),
-              },
-              {
-                h: 'سليم',
-                align: 'center',
-                r: (l) => (l.good == null ? <span className="tx3">—</span> : <Num className="c-green font-semibold">{l.good}</Num>),
-              },
-              {
-                h: 'تالف',
-                align: 'center',
-                r: (l) => (l.dmg == null ? <span className="tx3">—</span> : <Num className="c-red font-semibold">{l.dmg}</Num>),
-              },
-              { h: 'سعر الاسترداد', r: (l) => fmtMoney(l.price) },
-              {
-                h: 'السبب والمرفقات',
-                r: (l) => (
-                  <div className="leading-tight min-w-0 flex-1">
-                    <div className="text-[12px] tx1">{l.reason}</div>
+                  <div className="font-display font-bold tx1 text-[13.5px] num whitespace-nowrap shrink-0">
+                    {fmtMoney(l.price)}
+                  </div>
+                </div>
+                <div className="op-return-item-stats">
+                  <div>
+                    <div className="text-[10.5px] tx3 mb-0.5">مطلوب</div>
+                    <div className="text-[13px] font-semibold tx1 num"><Num>{l.req}</Num></div>
+                  </div>
+                  <div>
+                    <div className="text-[10.5px] tx3 mb-0.5">معتمد</div>
+                    <div className="text-[13px] font-semibold tx1 num">
+                      {l.appr == null ? <span className="tx3">—</span> : <Num>{l.appr}</Num>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10.5px] tx3 mb-0.5">سليم</div>
+                    <div className="text-[13px] font-semibold num">
+                      {l.good == null ? <span className="tx3">—</span> : <Num className="c-green">{l.good}</Num>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10.5px] tx3 mb-0.5">تالف</div>
+                    <div className="text-[13px] font-semibold num">
+                      {l.dmg == null ? <span className="tx3">—</span> : <Num className="c-red">{l.dmg}</Num>}
+                    </div>
+                  </div>
+                </div>
+                {(l.reason || l.files > 0) && (
+                  <div className="text-[12px] tx2 leading-relaxed pt-0.5">
+                    {l.reason}
                     {l.files > 0 && (
-                      <div className="flex gap-1 mt-1.5">
+                      <div className="flex gap-1.5 mt-1.5">
                         {Array.from({ length: l.files }).map((_, i) => (
-                          <span
-                            key={i}
-                            className="w-7 h-7 rounded-lg v-sub flex items-center justify-center tx3"
-                          >
+                          <span key={i} className="w-7 h-7 rounded-lg v-card flex items-center justify-center tx3">
                             <Icon name="image" size={12} />
                           </span>
                         ))}
                       </div>
                     )}
                   </div>
-                ),
-              },
-            ]}
-          />
+                )}
+              </div>
+            ))}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
             <div className="v-sub p-4">
               <div className="lbl mb-1.5">سبب الإرجاع</div>
@@ -1588,31 +2100,47 @@ export function ReturnDetail({
           </>
         }
       >
-        <div className="v-sub p-2">
-          <div className="grid grid-cols-12 gap-2 px-2 py-1.5 text-[11px] tx3">
+        <div className="v-sub p-2.5 sm:p-2 space-y-2 sm:space-y-0">
+          <div className="hidden sm:grid sm:grid-cols-12 gap-2 px-2 py-1.5 text-[11px] tx3">
             <span className="col-span-6">البند</span>
             <span className="col-span-2 text-center">معتمد</span>
             <span className="col-span-2 text-center">سليم</span>
             <span className="col-span-2 text-center">تالف</span>
           </div>
           {displayLines.map((l, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 items-center px-2 py-1.5">
-              <span className="col-span-6 text-[12.5px] font-medium tx1 clamp1">{l.v.name}</span>
-              <Num className="col-span-2 text-center font-semibold">{l.appr ?? l.req}</Num>
-              <input
-                type="number"
-                min="0"
-                value={goodQtys[(l as any).id] ?? ''}
-                onChange={(e) => setGoodQtys({ ...goodQtys, [(l as any).id]: e.target.value === '' ? undefined : Number(e.target.value) })}
-                className="inp inp-sm col-span-2 num text-center !bg-[var(--bg-card)]"
-              />
-              <input
-                type="number"
-                min="0"
-                value={damagedQtys[(l as any).id] ?? ''}
-                onChange={(e) => setDamagedQtys({ ...damagedQtys, [(l as any).id]: e.target.value === '' ? undefined : Number(e.target.value) })}
-                className="inp inp-sm col-span-2 num text-center !bg-[var(--bg-card)]"
-              />
+            <div
+              key={i}
+              className="grid grid-cols-12 gap-2 items-center p-2.5 sm:px-2 sm:py-1.5 rounded-xl sm:rounded-none bg-[var(--bg-card)] sm:bg-transparent border sm:border-0 border-[var(--border-subtle)]"
+            >
+              <div className="col-span-12 sm:col-span-6 flex items-center justify-between gap-2 min-w-0">
+                <span className="text-[12.5px] font-medium tx1 clamp1">{l.v.name}</span>
+                <span className="sm:hidden text-[11px] tx3 shrink-0">
+                  معتمد: <Num className="font-semibold tx1">{l.appr ?? l.req}</Num>
+                </span>
+              </div>
+              <Num className="hidden sm:block sm:col-span-2 text-center font-semibold">{l.appr ?? l.req}</Num>
+              <div className="col-span-6 sm:col-span-2">
+                <span className="sm:hidden block text-[11px] tx3 mb-1">سليم</span>
+                <input
+                  type="number"
+                  min="0"
+                  aria-label={`الكمية السليمة - ${l.v.name}`}
+                  value={goodQtys[(l as any).id] ?? ''}
+                  onChange={(e) => setGoodQtys({ ...goodQtys, [(l as any).id]: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="inp inp-sm w-full num text-center !bg-[var(--bg-card)]"
+                />
+              </div>
+              <div className="col-span-6 sm:col-span-2">
+                <span className="sm:hidden block text-[11px] tx3 mb-1">تالف</span>
+                <input
+                  type="number"
+                  min="0"
+                  aria-label={`الكمية التالفة - ${l.v.name}`}
+                  value={damagedQtys[(l as any).id] ?? ''}
+                  onChange={(e) => setDamagedQtys({ ...damagedQtys, [(l as any).id]: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="inp inp-sm w-full num text-center !bg-[var(--bg-card)]"
+                />
+              </div>
             </div>
           ))}
         </div>

@@ -52,12 +52,17 @@ export const Invoices = ({ brandName }) => {
   return (
     <>
       <PageHead en="Invoices" ar="رقم الفاتورة هو نفس رقم الطلب" />
-      <section className="panel">
-        <div className="toolbar"><Seg value={f} onChange={(v) => { setF(v); setPage(1); }} options={[{ value: 'all', label: 'الكل' }, { value: 'unpaid', label: 'غير مدفوع' }, { value: 'paid', label: 'مدفوع' }]} />
-          <span className="soft small">غير مدفوع: <Money v={unpaidTotal} strong /></span></div>
+      <section className="panel ord-list-panel">
+        <div className="toolbar ord-toolbar inv-toolbar">
+          <Seg value={f} onChange={(v) => { setF(v); setPage(1); }} options={[{ value: 'all', label: 'الكل' }, { value: 'unpaid', label: 'غير مدفوع' }, { value: 'paid', label: 'مدفوع' }]} />
+          <div className="inv-outstanding">
+            <span className="soft small">إجمالي غير المدفوع</span>
+            <Money v={unpaidTotal} strong />
+          </div>
+        </div>
         <DataBoundary api={api}>
           <Async rows={5} cols={7} isEmpty={!list.length} empty={<Empty icon="fa-file-invoice" title="لا توجد فواتير" />}>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap ord-tbl-wrap"><table className="tbl">
               <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>حالة الطلب</th><th>الدفع</th><th>السداد</th><th>قبل الخصم</th><th>الخصم</th><th>الشحن</th><th>الضريبة</th><th className="t-end">الإجمالي</th><th></th></tr></thead>
               <tbody>{list.map((o) => (
                 <tr key={o.id} className="is-click" onClick={() => openInvoice(o)}>
@@ -67,6 +72,55 @@ export const Invoices = ({ brandName }) => {
                   <td onClick={(e) => e.stopPropagation()}><div className="row-actions"><button className="btn-pill sm" onClick={() => pdf(o)} disabled={dl === o.id}>{dl === o.id ? <span className="spin" /> : <i className="fa-regular fa-file-pdf" />} PDF</button></div></td>
                 </tr>))}</tbody>
             </table></div>
+            <div className="ord-mobile-list">
+              {list.map((o) => {
+                const statusLabel = ORDER_STATUS[o.status]?.[0] || o.status;
+                return (
+                  <article
+                    key={o.id}
+                    className="ord-m-card"
+                    onClick={() => openInvoice(o)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInvoice(o); } }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`عرض الفاتورة ${o.number}`}
+                  >
+                    <div className="ord-m-head">
+                      <div className="ord-m-id">
+                        <span className="ord-m-num num">{o.number}</span>
+                        <span className="ord-m-date num">
+                          {o.date}{statusLabel ? ` · ${statusLabel}` : ''}
+                        </span>
+                      </div>
+                      <div className="ord-m-head-end">
+                        <Badge map={PAY_STATUS} k={o.pay} />
+                        <i className="fa-solid fa-chevron-left ord-m-chev" aria-hidden="true" />
+                      </div>
+                    </div>
+                    <div className="ord-m-mid">
+                      <div className="ord-m-pay">
+                        <span className="ord-m-method">{PAY_METHOD[o.method] || o.method}</span>
+                        {o.discount > 0 && (
+                          <span className="badge success">خصم <span className="num">{fmt(o.discount)}</span></span>
+                        )}
+                      </div>
+                      <div className="ord-m-total">
+                        <span className="ord-m-total-lbl">الإجمالي</span>
+                        <strong className="num">{fmt(o.total)} <small>EGP</small></strong>
+                      </div>
+                    </div>
+                    <div className="ord-m-actions" onClick={(e) => e.stopPropagation()}>
+                      <button type="button" className="btn-pill is-dark ord-m-btn" onClick={() => openInvoice(o)}>
+                        <i className="fa-regular fa-file-lines" aria-hidden="true" /> عرض الفاتورة
+                      </button>
+                      <button type="button" className="btn-pill ord-m-btn ord-m-cancel" onClick={() => pdf(o)} disabled={dl === o.id}>
+                        {dl === o.id ? <span className="spin" /> : <><i className="fa-regular fa-file-pdf" aria-hidden="true" /> PDF</>}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
             <Pager page={meta.page} pages={meta.pages} total={meta.total} per={meta.per} onPage={setPage} />
           </Async>
         </DataBoundary>
@@ -79,10 +133,28 @@ export const Invoices = ({ brandName }) => {
             <dl className="kv" style={{ gridTemplateColumns: '90px auto' }}><dt>التاريخ</dt><dd className="num">{open.date}</dd><dt>العميل</dt><dd>{account?.company}</dd><dt>السداد</dt><dd><Badge map={PAY_STATUS} k={open.pay} /></dd></dl>
           </div>
           <DataBoundary api={detailApi}><Async rows={3} cols={4}>
-          <table className="tbl mt-16"><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th className="t-end">الإجمالي</th></tr></thead>
-            <tbody>{(openOrder?.items || []).map((it) => <tr key={it.id || it.sku}><td><div className="strong">{it.name}</div><div className="sku">{it.sku}</div></td><td className="num">{it.qty}</td><td className="num">{fmt(it.unit)}</td><td className="t-end num strong">{fmt(it.line_total)}</td></tr>)}</tbody></table>
+            <div className="tbl-wrap ord-tbl-wrap mt-16">
+              <table className="tbl"><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th className="t-end">الإجمالي</th></tr></thead>
+                <tbody>{(openOrder?.items || []).map((it) => <tr key={it.id || it.sku}><td><div className="strong">{it.name}</div><div className="sku">{it.sku}</div></td><td className="num">{it.qty}</td><td className="num">{fmt(it.unit)}</td><td className="t-end num strong">{fmt(it.line_total)}</td></tr>)}</tbody></table>
+            </div>
+            <div className="ord-items-mobile inv-modal-items">
+              {(openOrder?.items || []).map((it) => (
+                <div key={it.id || it.sku} className="ord-item-m">
+                  <div className="ord-item-m-top">
+                    <div className="ord-item-m-info">
+                      <div className="prod-name">{it.name}</div>
+                      <div className="sku">{it.sku}</div>
+                    </div>
+                  </div>
+                  <div className="ord-item-m-foot">
+                    <span>الكمية: <strong className="num">{it.qty}</strong> × <span className="num">{fmt(it.unit)}</span></span>
+                    <strong className="num">{fmt(it.line_total)} EGP</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
           </Async></DataBoundary>
-          <div style={{ maxWidth: 320, marginInlineStart: 'auto' }} className="mt-16">
+          <div className="inv-modal-totals mt-16">
             <div className="sum-row"><span>المنتجات قبل الخصم</span><strong className="num">{fmt(openOrder?.subtotal ?? open.subtotal)}</strong></div>
             <div className="sum-row is-neg"><span>الخصم</span><strong className="num">{(openOrder?.discount ?? open.discount) ? '− ' + fmt(openOrder?.discount ?? open.discount) : '—'}</strong></div>
             <div className="sum-row"><span>الشحن</span><strong className="num">{fmt(openOrder?.shipping ?? open.shipping)}</strong></div>
@@ -108,6 +180,8 @@ export const Statement = () => {
     : wholesaleEndpoints.statement({ from, to }, signal).then(mapStatement), [from, to, bad]);
 
   const entries = api.data?.entries || [];
+  const totalDebit = entries.reduce((a, r) => a + (r.debit || 0), 0);
+  const totalCredit = entries.reduce((a, r) => a + (r.credit || 0), 0);
 
   const outApi = useApi((signal) => wholesaleEndpoints
     .invoices({ payment_status: 'unpaid', page: 1, per_page: 100 }, signal)
@@ -128,41 +202,104 @@ export const Statement = () => {
       <PageHead en="Statement" ar="كشف الحساب والمديونية">
         <button className="btn-pill is-dark" onClick={() => go('noticeNew')}><i className="fa-solid fa-money-check-dollar" /> تسجيل إشعار سداد</button>
       </PageHead>
-      <div className="kpis">
+      <div className="kpis stmt-kpis">
         <div className="kpi is-ink"><span className="kpi-en">CURRENT DEBT</span><span className="kpi-label">المديونية الحالية</span><span className="kpi-value">{fmt(debt)}<small>EGP</small></span></div>
         <div className="kpi"><span className="kpi-en">CREDIT LIMIT</span><span className="kpi-label">حد الائتمان</span><span className="kpi-value">{fmt(account?.credit_limit ?? 0)}<small>EGP</small></span></div>
         <div className="kpi"><span className="kpi-en">OPENING</span><span className="kpi-label">رصيد أول المدة</span><span className="kpi-value">{fmt(api.data?.opening_balance)}<small>EGP</small></span></div>
         <div className="kpi"><span className="kpi-en">CLOSING</span><span className="kpi-label">رصيد آخر المدة</span><span className="kpi-value">{fmt(api.data?.closing_balance)}<small>EGP</small></span></div>
       </div>
-      <div className="grid-2 grid-summary">
-        <section className="panel">
-          <div className="toolbar">
-            <div className="row" style={{ gap: 20 }}>
+      <div className="grid-2 grid-summary stmt-grid">
+        <section className="panel stmt-panel">
+          <div className="toolbar stmt-toolbar">
+            <div className="row stmt-dates">
               <Field label="من تاريخ"><input type="date" className={`line-input ltr${bad ? ' is-invalid' : ''}`} value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
               <Field label="إلى تاريخ"><input type="date" className={`line-input ltr${bad ? ' is-invalid' : ''}`} value={to} onChange={(e) => setTo(e.target.value)} /></Field>
             </div>
-            <div className="chips">{['هذا الشهر', 'آخر 3 شهور', 'هذه السنة'].map((l, i) => <button key={l} className={`chip${chip === i ? ' is-on' : ''}`} onClick={() => setRange(i)}>{l}</button>)}</div>
+            <div className="chips stmt-chips">{['هذا الشهر', 'آخر 3 شهور', 'هذه السنة'].map((l, i) => <button key={l} type="button" className={`chip${chip === i ? ' is-on' : ''}`} onClick={() => setRange(i)}>{l}</button>)}</div>
           </div>
-          {bad ? <div style={{ padding: 24 }}><Banner kind="error">تاريخ البداية لازم يكون قبل تاريخ النهاية.</Banner></div> : (
+          {bad ? <div className="stmt-bad-banner"><Banner kind="error">تاريخ البداية لازم يكون قبل تاريخ النهاية.</Banner></div> : (
             <DataBoundary api={api}>
               <Async rows={8} cols={6} isEmpty={!entries.length} empty={<Empty icon="fa-receipt" title="لا توجد حركات في هذه الفترة" desc="جرب فترة زمنية أخرى." />}>
-                <div className="tbl-wrap"><table className="tbl">
+                <div className="tbl-wrap stmt-tbl-wrap"><table className="tbl">
                   <thead><tr><th>التاريخ</th><th>المرجع</th><th>البيان</th><th className="t-end">مدين</th><th className="t-end">دائن</th><th className="t-end">الرصيد</th></tr></thead>
                   <tbody>{entries.map((r, i) => (
                     <tr key={i}>
                       <td className="num">{r.date}</td><td className="sku">{r.ref}</td><td>{r.desc}</td>
                       <td className="t-end num">{r.debit ? fmt(r.debit) : ''}</td><td className="t-end num" style={{ color: 'var(--teal)' }}>{r.credit ? fmt(r.credit) : ''}</td>
                       <td className="t-end num strong">{fmt(r.bal)}</td></tr>))}</tbody>
-                  <tfoot><tr><td colSpan="3">رصيد آخر المدة</td><td className="t-end num">{fmt(entries.reduce((a, r) => a + (r.debit || 0), 0))}</td><td className="t-end num">{fmt(entries.reduce((a, r) => a + (r.credit || 0), 0))}</td><td className="t-end num">{fmt(api.data?.closing_balance)}</td></tr></tfoot>
+                  <tfoot><tr><td colSpan="3">رصيد آخر المدة</td><td className="t-end num">{fmt(totalDebit)}</td><td className="t-end num">{fmt(totalCredit)}</td><td className="t-end num">{fmt(api.data?.closing_balance)}</td></tr></tfoot>
                 </table></div>
+                <div className="stmt-mobile-list">
+                  {entries.map((r, i) => {
+                    const hasCredit = Boolean(r.credit);
+                    const hasDebit = Boolean(r.debit);
+                    return (
+                      <article key={`${r.date}-${r.ref}-${i}`} className="stmt-m-card">
+                        <div className="stmt-m-head">
+                          <div className="stmt-m-meta">
+                            <span className="stmt-m-ref sku">{r.ref || '—'}</span>
+                            <span className="stmt-m-date num">{r.date}</span>
+                          </div>
+                          <div className="stmt-m-amounts">
+                            {hasDebit && (
+                              <span className="stmt-m-amt is-debit num">
+                                <small>مدين</small> {fmt(r.debit)}
+                              </span>
+                            )}
+                            {hasCredit && (
+                              <span className="stmt-m-amt is-credit num">
+                                <small>دائن</small> {fmt(r.credit)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {r.desc && <p className="stmt-m-desc">{r.desc}</p>}
+                        <div className="stmt-m-foot">
+                          <span className="stmt-m-bal-lbl">الرصيد بعد الحركة</span>
+                          <strong className="stmt-m-bal num">{fmt(r.bal)} <small>EGP</small></strong>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  <div className="stmt-m-summary">
+                    <div className="stmt-m-sum-row">
+                      <span>إجمالي المدين</span>
+                      <strong className="num">{fmt(totalDebit)} <small>EGP</small></strong>
+                    </div>
+                    <div className="stmt-m-sum-row is-credit">
+                      <span>إجمالي الدائن</span>
+                      <strong className="num">{fmt(totalCredit)} <small>EGP</small></strong>
+                    </div>
+                    <div className="stmt-m-sum-total">
+                      <span>رصيد آخر المدة</span>
+                      <strong className="num">{fmt(api.data?.closing_balance)} <small>EGP</small></strong>
+                    </div>
+                  </div>
+                </div>
               </Async>
             </DataBoundary>
           )}
         </section>
-        <aside className="stack" style={{ position: 'sticky', top: 100 }}>
+        <aside className="stack stmt-aside">
           <Panel title="مستحقات مفتوحة" en="OUTSTANDING" body={false}>
             <DataBoundary api={outApi}><Async rows={3} cols={2} isEmpty={!out.length} empty={<Empty title="لا توجد مستحقات مفتوحة" />}>
-            {out.map((o) => <div key={o.id} className="out-row" onClick={() => go('order', o.id)}><div><b className="num">{o.number}</b><span className="num">{o.date}</span></div><span className="num strong">{fmt(o.total)}</span></div>)}
+            {out.map((o) => (
+              <div
+                key={o.id}
+                className="out-row"
+                onClick={() => go('order', o.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('order', o.id); } }}
+                role="button"
+                tabIndex={0}
+                aria-label={`عرض الطلب ${o.number}`}
+              >
+                <div><b className="num">{o.number}</b><span className="num">{o.date}</span></div>
+                <span className="out-row-end">
+                  <span className="num strong">{fmt(o.total)}</span>
+                  <i className="fa-solid fa-chevron-left out-row-chev" aria-hidden="true" />
+                </span>
+              </div>
+            ))}
             <div className="panel-body" style={{ paddingTop: 12 }}><div className="sum-total" style={{ paddingTop: 0 }}><span>الإجمالي</span><span className="num" style={{ fontSize: 18 }}>{fmt(debt)}</span></div></div>
             </Async></DataBoundary>
           </Panel>
@@ -212,7 +349,16 @@ export const NoticeForm = () => {
     else if (file.size > 10 * 1024 * 1024) e.file = 'حجم الملف أكبر من 10 ميجابايت.';
     else if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type)) e.file = 'النوع غير مدعوم (pdf/jpg/png/webp).';
     setErrs(e);
-    return !Object.keys(e).length;
+    if (Object.keys(e).length) {
+      if (typeof document !== 'undefined') {
+        requestAnimationFrame(() => {
+          const firstErr = document.querySelector('.nt-workspace .is-invalid, .nt-workspace .f-error');
+          firstErr?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      }
+      return false;
+    }
+    return true;
   };
 
   const send = async () => {
@@ -248,14 +394,14 @@ export const NoticeForm = () => {
       <p className="muted">تم إرسال إشعار السداد للمراجعة</p>
       <p className="success-num num">{done.notice_number}</p>
       <Banner kind="warn" icon="fa-hourglass-half">رفع الإيصال <b>لا يعني اعتماد السداد</b>. الإدارة هتراجع التحويل وتعتمده، وهيوصلك إشعار.</Banner>
-      <div className="row mt-24" style={{ justifyContent: 'center' }}><button className="btn-pill is-dark" onClick={() => go('notice', done.id)}>عرض الإشعار</button><button className="btn-pill" onClick={() => go('notices')}>كل الإشعارات</button></div>
+      <div className="row mt-24 nt-done-actions" style={{ justifyContent: 'center' }}><button className="btn-pill is-dark" onClick={() => go('notice', done.id)}>عرض الإشعار</button><button className="btn-pill" onClick={() => go('notices')}>كل الإشعارات</button></div>
     </div></div>
   );
 
   return (
     <>
       <PageHead en="Payment Notice" crumb={<Crumb items={[{ label: 'إشعارات السداد', go: () => go('notices') }, { label: 'إشعار جديد' }]} />} ar="سجّل تحويل أو شيك أو إيداع تم لحساب الشركة" />
-      <div className="grid-2 grid-summary">
+      <div className="grid-2 grid-summary qf-workspace nt-workspace has-float">
         <section className="panel"><div className="panel-body">
           <div className="fields">
             <Field label="طلب مرتبط" opt span error={errs.order}>
@@ -266,21 +412,28 @@ export const NoticeForm = () => {
             <Field label="المبلغ" req error={errs.amount}><div style={{ position: 'relative' }}><input className={`line-input ltr${errs.amount ? ' is-invalid' : ''}`} style={{ textAlign: 'right', paddingLeft: 40 }} inputMode="decimal" placeholder="0.00" value={f.amount} onChange={(e) => { const v = e.target.value; if (/^\d*(\.\d{0,2})?$/.test(v)) set('amount', v); }} /><span className="soft small" style={{ position: 'absolute', left: 0, top: 12 }}>EGP</span></div></Field>
             <Field label="تاريخ التحويل" req error={errs.date}><input type="date" max={today()} className={`line-input ltr${errs.date ? ' is-invalid' : ''}`} value={f.date} onChange={(e) => set('date', e.target.value)} /></Field>
             <Field label="طريقة السداد" req span error={errs.method}>
-              <div className="chips">{Object.entries(NOTICE_METHOD).map(([k, l]) => <button key={k} type="button" className={`chip${f.method === k ? ' is-on' : ''}`} onClick={() => set('method', k)}><i className={`fa-solid ${{ bank_transfer: 'fa-building-columns', check: 'fa-money-check', deposit: 'fa-piggy-bank' }[k]}`} />{l}</button>)}</div></Field>
+              <div className="chips nt-method-chips">{Object.entries(NOTICE_METHOD).map(([k, l]) => <button key={k} type="button" className={`chip${f.method === k ? ' is-on' : ''}`} onClick={() => set('method', k)}><i className={`fa-solid ${{ bank_transfer: 'fa-building-columns', check: 'fa-money-check', deposit: 'fa-piggy-bank' }[k]}`} />{l}</button>)}</div></Field>
             <Field label="اسم البنك" req error={errs.bank}><input className={`line-input${errs.bank ? ' is-invalid' : ''}`} placeholder="مثال: البنك الأهلي المصري" value={f.bank} onChange={(e) => set('bank', e.target.value)} /></Field>
             <Field label={f.method === 'check' ? 'رقم الشيك' : 'رقم المرجع'} req error={errs.ref}><input className={`line-input ltr${errs.ref ? ' is-invalid' : ''}`} style={{ textAlign: 'right' }} value={f.ref} onChange={(e) => set('ref', e.target.value)} /></Field>
             <Field label="الإيصال" req span error={errs.file}>
               <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" style={{ display: 'none' }} onChange={(e) => { setFile(e.target.files?.[0] || null); setErrs({ ...errs, file: null }); }} />
               {file ? (
-                <div className="file-row"><i className="fa-regular fa-file-pdf" /><div className="grow"><b className="num">{file.name}</b></div><button className="btn-link muted" onClick={() => setFile(null)}><i className="fa-solid fa-xmark" /></button></div>
+                <div className="file-row"><i className="fa-regular fa-file-pdf" aria-hidden="true" /><div className="grow"><b className="num">{file.name}</b></div><button type="button" className="qf-m-del" onClick={() => setFile(null)} aria-label="حذف الإيصال"><i className="fa-solid fa-xmark" aria-hidden="true" /></button></div>
               ) : (
-                <div className={`drop${errs.file ? ' is-invalid' : ''}`} style={{ minHeight: 120 }} onClick={() => inputRef.current?.click()}>
-                  <i className="fa-solid fa-receipt" /><b>ارفع صورة أو PDF للإيصال</b><small>PDF · JPG · JPEG · PNG · WebP — حتى <span className="num">10</span> ميجابايت</small></div>
+                <div
+                  className={`drop nt-drop${errs.file ? ' is-invalid' : ''}`}
+                  style={{ minHeight: 120 }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => inputRef.current?.click()}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
+                >
+                  <i className="fa-solid fa-receipt" aria-hidden="true" /><b>ارفع صورة أو PDF للإيصال</b><small>PDF · JPG · JPEG · PNG · WebP — حتى <span className="num">10</span> ميجابايت</small></div>
               )}
             </Field>
           </div>
         </div></section>
-        <aside className="stack" style={{ position: 'sticky', top: 100 }}>
+        <aside className="stack qf-aside">
           <Panel title="مراجعة">
             <div className="sum-row"><span>الطلب</span><strong className="num">{f.order ? orders.find((o) => String(o.id) === f.order)?.number : 'على الحساب'}</strong></div>
             <div className="sum-row"><span>الطريقة</span><strong>{NOTICE_METHOD[f.method]}</strong></div>
@@ -289,6 +442,17 @@ export const NoticeForm = () => {
           </Panel>
           <p className="note"><i className="fa-solid fa-circle-info" />السداد مش بيتعتمد تلقائيًا؛ الإدارة بتراجع الإيصال مع كشف البنك.</p>
         </aside>
+      </div>
+      <div className="qf-float-bar" role="region" aria-label="ملخص وإرسال إشعار السداد">
+        <div className="qf-float-info">
+          <strong className="num">{f.amount ? `${fmt(f.amount)} EGP` : 'إشعار سداد'}</strong>
+          <small>{NOTICE_METHOD[f.method]}</small>
+        </div>
+        <div className="qf-float-actions">
+          <button type="button" className="btn-pill is-dark" onClick={() => validate() && setStage('confirm')}>
+            <i className="fa-solid fa-paper-plane" aria-hidden="true" /> <span>إرسال للمراجعة</span>
+          </button>
+        </div>
       </div>
       {(stage === 'confirm' || stage === 'sending') && <Modal title="تأكيد إرسال إشعار السداد" onClose={() => setStage('form')} icon={<div className="modal-icon"><i className="fa-solid fa-money-check-dollar" /></div>}
         foot={<><button className="btn-pill" onClick={() => setStage('form')}>تعديل</button><button className="btn-pill is-dark" disabled={stage === 'sending'} onClick={send}>{stage === 'sending' ? <span className="spin" /> : null} تأكيد الإرسال</button></>}>
@@ -527,16 +691,16 @@ export const Account = () => {
         <button className="btn-pill" onClick={logout}><i className="fa-solid fa-arrow-right-from-bracket" /> تسجيل الخروج</button>
       </PageHead>
       <div className="acct-hero">
-        <div className="wp-avatar" style={{ width: 64, height: 64, fontSize: 20 }}>{String(account?.name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—'}</div>
-        <div style={{ flex: 1 }}><div className="acct-name">{account?.name}</div><div className="muted small">{account?.company}</div></div>
-        <div style={{ textAlign: 'left' }}><Badge map={{ approved: ['حساب معتمد', 'success'] }} k="approved" lg /><div className="soft small mt-8">منذ <span className="num">{account?.approved_at}</span></div></div>
+        <div className="wp-avatar acct-av">{String(account?.name || '').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).slice(0, 2).join('') || '—'}</div>
+        <div className="acct-hero-info"><div className="acct-name">{account?.name}</div><div className="muted small">{account?.company}</div></div>
+        <div className="acct-hero-status"><Badge map={{ approved: ['حساب معتمد', 'success'] }} k="approved" lg /><div className="soft small acct-since">منذ <span className="num">{account?.approved_at}</span></div></div>
       </div>
       <div className="grid-2e mt-24">
         <Panel title="بيانات التاجر" en="TRADER">
-          <dl className="kv"><dt>الاسم</dt><dd>{account?.name}</dd><dt>الموبايل</dt><dd className="num">{account?.phone}</dd><dt>البريد</dt><dd className="num">{account?.email}</dd></dl>
+          <dl className="kv acct-kv"><dt>الاسم</dt><dd>{account?.name}</dd><dt>الموبايل</dt><dd className="num">{account?.phone}</dd><dt>البريد</dt><dd className="num">{account?.email}</dd></dl>
         </Panel>
         <Panel title="البيانات التجارية" en="COMPANY">
-          <dl className="kv"><dt>الشركة</dt><dd>{account?.company}</dd><dt>الرقم الضريبي</dt><dd className="num">{account?.tax_number}</dd><dt>السجل التجاري</dt><dd>{account?.commercial_register}</dd><dt>حد الائتمان</dt><dd><Money v={account?.credit_limit} /></dd></dl>
+          <dl className="kv acct-kv"><dt>الشركة</dt><dd>{account?.company}</dd><dt>الرقم الضريبي</dt><dd className="num">{account?.tax_number}</dd><dt>السجل التجاري</dt><dd>{account?.commercial_register}</dd><dt>حد الائتمان</dt><dd><Money v={account?.credit_limit} /></dd></dl>
         </Panel>
       </div>
       <Panel title="العناوين المحفوظة" en="ADDRESSES" style={{ marginTop: 24 }}>

@@ -4,8 +4,77 @@
 .admin-overview ul { margin: 0; padding: 0; list-style: none; }
 .admin-overview bdi { font-variant-numeric: tabular-nums; }
 .admin-overview .v-card, .admin-overview .v-subcard { min-width: 0; }
-.admin-overview .wallet-card { border-radius: 13px; overflow-wrap: anywhere; }
+
+.admin-panel {
+  box-shadow: 0 1px 2px rgba(24, 21, 28, 0.04), 0 8px 24px -14px rgba(24, 21, 28, 0.08);
+  transition: box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1), border-color 220ms ease;
+  animation: admin-fade-up 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.theme-dark .admin-panel {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 28px -16px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes admin-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--badge-green-text);
+  box-shadow: 0 0 0 3px var(--badge-green-bg);
+}
+
+.admin-date-pill {
+  color: var(--text-secondary);
+}
+
+.admin-overview .wallet-card {
+  border-radius: 13px;
+  overflow-wrap: anywhere;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease;
+}
 .admin-overview .wallet-card svg { flex-shrink: 0; }
+
+.admin-channel-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--icon-well-bg);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.admin-channel-pct {
+  color: var(--text-muted);
+}
+
+.admin-channel-bar {
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--icon-well-bg);
+  overflow: hidden;
+}
+
+.admin-channel-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-orange);
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
 
 .admin-overview-header {
   display: flex;
@@ -15,20 +84,40 @@
   gap: 8px;
 }
 
-.admin-overview-button, .admin-overview-period button, .admin-ranking-search {
+.admin-overview-button, .admin-ranking-search {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   min-height: 44px;
-  padding-inline: 12px;
+  padding-inline: 14px;
   border-radius: 999px;
   color: var(--text-primary);
   font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
-  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+  transition: background-color 160ms ease, color 160ms ease, transform 100ms ease-out;
+}
+
+.admin-overview-period button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1), color 160ms ease, transform 100ms ease-out, box-shadow 180ms ease;
 }
 
 .admin-overview-button:active, .admin-overview-period button:active {
@@ -36,17 +125,25 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .admin-overview-button:hover, .admin-overview-period button:hover:not([aria-pressed='true']) {
-    opacity: 0.9;
+  .admin-overview-button:hover {
+    background-color: var(--bg-subcard-hover);
+  }
+  .admin-overview-period button:hover:not([aria-pressed='true']) {
+    color: var(--text-primary);
+  }
+  .admin-overview .wallet-card:hover {
+    border-color: var(--divider-color);
   }
 }
 
 .admin-overview-period button[aria-pressed='true'] {
   background: var(--pill-active-bg);
   color: var(--pill-active-text);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-.admin-overview :is(a, button, input):focus-visible {
+.admin-overview :is(a, button, input, [tabindex]):focus-visible {
   outline: 2px solid var(--accent-orange);
   outline-offset: 2px;
 }
@@ -58,12 +155,53 @@
 }
 .admin-vortix-metrics { grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .admin-vortix-metrics .v-orange-earnings { color: white; }
-.admin-vortix-metrics .v-orange-earnings .v-icon-well { background: rgb(255 255 255 / 18%); }
-.admin-metric-value {
-  font-size: clamp(20px, 4.5vw, 30px) !important;
-  line-height: 1.15;
+.admin-vortix-metrics .v-orange-earnings .v-icon-well { background: rgb(255 255 255 / 18%); color: #ffffff; }
+.admin-metric-card-interactive {
+  position: relative;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease;
 }
-.admin-metric-link { font-size: 11px; text-decoration: none; color: inherit; min-height: 28px; display: inline-flex; align-items: center; }
+.admin-metric-card-interactive:active {
+  transform: scale(0.98);
+}
+@media (hover: hover) and (pointer: fine) {
+  .admin-metric-card-interactive:hover {
+    transform: translateY(-2px);
+  }
+  .admin-metric-card-interactive:not(.v-orange-earnings):hover {
+    background-color: var(--bg-subcard-hover);
+  }
+}
+.admin-metric-value {
+  font-size: clamp(22px, 5.2vw, 30px) !important;
+  line-height: 1.12;
+}
+.admin-metric-link {
+  font-size: 11.5px;
+  font-weight: 500;
+  text-decoration: none;
+  color: inherit;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.admin-metric-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+}
+.admin-metric-link svg {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .admin-metric-card-interactive:hover .admin-metric-link svg,
+  .admin-metric-link:hover svg {
+    transform: translate(-2px, -2px);
+  }
+}
 .admin-metric-link:hover { text-decoration: underline; }
 
 .admin-comparison-legend {
@@ -79,6 +217,11 @@
 .admin-net-bar { background: var(--bar-loss); }
 .theme-dark .admin-net-bar { background: var(--text-secondary); }
 
+.admin-chart-readout {
+  min-height: 32px;
+  border-radius: 10px;
+}
+
 .admin-chart {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -92,6 +235,7 @@
   height: 156px;
   color: var(--text-muted);
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .admin-comparison-columns {
@@ -100,6 +244,22 @@
   text-align: center;
   font-size: 10px;
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-comparison-columns li {
+  border-radius: 10px;
+  padding-inline: 2px;
+  transition: background-color 160ms ease;
+}
+
+.admin-comparison-columns li.is-active {
+  background-color: var(--nav-hover-bg);
+}
+
+.admin-comparison-columns li.is-active > span {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .admin-comparison-bars {
@@ -111,17 +271,57 @@
   margin-block-end: 6px;
   border-block-end: 1px solid var(--divider-color);
   background: repeating-linear-gradient(to top, transparent 0 calc(20% - 1px), var(--divider-color) calc(20% - 1px) 20%);
+  cursor: pointer;
 }
 
-.admin-comparison-bars span { flex-shrink: 1; width: min(76%, 26px); border-radius: 6px; }
-.admin-sales-share { background: var(--accent-orange); }
+.admin-comparison-bars span {
+  flex-shrink: 1;
+  width: min(76%, 26px);
+  border-radius: 6px;
+  transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease;
+}
+
+.admin-share-track {
+  background: var(--bg-subcard);
+}
+
+.admin-sales-share {
+  background: var(--accent-orange);
+  transition: width 460ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.admin-share-badge {
+  background: var(--accent-orange-light);
+  color: var(--accent-orange);
+}
+
+.admin-ranking-search {
+  cursor: text;
+}
 
 .admin-ranking-search input {
-  width: clamp(60px, 12vw, 132px);
+  width: clamp(60px, 12vw, 150px);
   background: transparent;
   color: inherit;
   outline: none;
 }
+
+.admin-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.admin-search-clear:hover {
+  background-color: var(--nav-hover-bg);
+  color: var(--text-primary);
+}
+
 @media (pointer: coarse), (max-width: 639px) {
   .admin-ranking-search input {
     font-size: 16px !important;
@@ -135,11 +335,37 @@
   min-width: 480px;
 }
 .admin-ranking-table :is(th, td) { padding: 12px; text-align: start; }
-.admin-ranking-table thead th { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.admin-ranking-table thead th { font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--text-secondary); }
 .admin-ranking-table thead th:first-child { border-start-start-radius: 12px; border-end-start-radius: 12px; }
 .admin-ranking-table thead th:last-child { border-start-end-radius: 12px; border-end-end-radius: 12px; }
+.admin-ranking-table tbody tr {
+  transition: background-color 150ms ease;
+}
 .admin-ranking-table tbody tr + tr { border-top: 1px solid var(--divider-color); }
+@media (hover: hover) and (pointer: fine) {
+  .admin-ranking-table tbody tr:hover {
+    background-color: var(--nav-hover-bg);
+  }
+}
+.admin-ranking-sku {
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .admin-ranking-name { display: flex; align-items: center; gap: 8px; }
+.admin-ranking-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  border-radius: 6px;
+  background: var(--bg-subcard);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
 .admin-ranking-icon {
   display: grid;
   place-items: center;
@@ -152,17 +378,118 @@
 }
 
 @media (max-width: 639px) {
-  .admin-overview-header {
+  .admin-page-header,
+  .admin-ranking-toolbar {
     flex-direction: column;
     align-items: stretch !important;
   }
-  .admin-overview-header > * {
+  .admin-page-header > *,
+  .admin-ranking-toolbar > * {
     width: 100%;
   }
-  .admin-overview-header .admin-overview-button,
-  .admin-overview-header .admin-ranking-search {
+  .admin-refresh-btn,
+  .admin-ranking-toolbar .admin-overview-button,
+  .admin-ranking-toolbar .admin-ranking-search {
     flex: 1 1 auto;
     justify-content: center;
+  }
+  .admin-ranking-toolbar .admin-ranking-search {
+    justify-content: flex-start;
+  }
+  .admin-ranking-search input {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+  .admin-overview-period button,
+  .admin-metric-link {
+    min-height: 44px;
+  }
+  .admin-search-clear {
+    width: 32px;
+    height: 32px;
+  }
+  .admin-comparison-bars {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .admin-ranking-table {
+    display: block;
+    min-width: 0;
+    width: 100%;
+    font-size: 12.5px;
+  }
+  .admin-ranking-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .admin-ranking-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .admin-ranking-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'title rev'
+      'sku qty';
+    align-items: center;
+    gap: 6px 12px;
+    padding: 12px 13px;
+    border-radius: 14px;
+    background: var(--bg-subcard);
+    border-top: none !important;
+  }
+  .admin-ranking-table tbody tr :is(th, td) {
+    padding: 0;
+    display: block;
+    min-width: 0;
+  }
+  .admin-ranking-table tbody .admin-ranking-title-cell {
+    grid-area: title;
+  }
+  .admin-ranking-table tbody .admin-ranking-rev {
+    grid-area: rev;
+    text-align: end;
+    font-size: 13.5px;
+    white-space: nowrap;
+  }
+  .admin-ranking-table tbody .admin-ranking-sku {
+    grid-area: sku;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+  .admin-ranking-table tbody .admin-ranking-qty {
+    grid-area: qty;
+    text-align: end;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .admin-ranking-table tbody .admin-ranking-qty::before {
+    content: attr(data-label) ': ';
+    color: var(--text-muted);
+  }
+  .admin-ranking-label {
+    white-space: normal;
+    line-height: 1.35;
+  }
+  .admin-ranking-name {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 479px) {
+  .admin-ranking-rank {
+    display: none;
+  }
+  .admin-ranking-icon {
+    width: 24px;
+    height: 24px;
   }
 }
 
@@ -170,10 +497,38 @@
   .admin-chart-axis { font-size: 9px; }
   .admin-comparison-columns { font-size: 9px; }
   .admin-comparison-bars span { width: min(85%, 18px); }
-  .admin-ranking-table { min-width: 420px; }
   .admin-sales-total { font-size: 26px !important; }
 }
 
 @media (min-width: 1024px) {
-  .admin-vortix-grid { min-height: 406px; }
+  .admin-vortix-grid { min-height: 416px; }
+  .admin-panel:hover {
+    box-shadow: 0 12px 32px -18px rgba(0, 0, 0, 0.16);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-panel {
+    animation: none !important;
+  }
+  .admin-panel,
+  .admin-overview .wallet-card,
+  .admin-channel-bar span,
+  .admin-overview-button,
+  .admin-overview-period button,
+  .admin-metric-card-interactive,
+  .admin-metric-link svg,
+  .admin-comparison-columns li,
+  .admin-comparison-bars span,
+  .admin-sales-share,
+  .admin-search-clear,
+  .admin-ranking-table tbody tr {
+    transition: none !important;
+  }
+  .admin-overview-button:active,
+  .admin-overview-period button:active,
+  .admin-metric-card-interactive:active,
+  .admin-metric-card-interactive:hover {
+    transform: none !important;
+  }
 }
