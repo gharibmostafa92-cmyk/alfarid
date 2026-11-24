@@ -74,6 +74,7 @@ class UpdateSettingsRequest extends FormRequest
             // Return policy: 0 disables returns, -1 allows indefinite returns, positive values define days from delivery.
             'return_window_days' => ['sometimes', 'integer', 'min:-1', 'max:3650'],
             'allow_self_approve_purchases' => ['sometimes', 'boolean'],
+            'pos_shift_requires_approval' => ['sometimes', 'boolean'],
             'ai_enabled' => ['sometimes', 'boolean'],
             'ai_daily_token_budget_per_user' => ['sometimes', 'integer', 'min:0', 'max:10000000'],
             'ai_disabled_tools' => ['sometimes', 'array'],

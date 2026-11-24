@@ -201,10 +201,7 @@ class PosShiftController extends Controller
             $shift = $close();
         }
 
-        return response()->json([
-            'message' => 'تم إغلاق الوردية وهي بانتظار اعتماد المدير.',
-            'data'    => $this->formatShiftFor($user, $shift),
-        ]);
+        return $this->closeResponse($user, $shift);
     }
 
     /**
@@ -258,10 +255,7 @@ class PosShiftController extends Controller
             $legacyPayload = [...$payload, 'actual_closing_cash' => $data['actual_closing_cash']];
             if (hash_equals((string) $record->request_hash, IdempotencyFingerprint::hash($payload))
                 || hash_equals((string) $record->request_hash, IdempotencyFingerprint::hash($legacyPayload))) {
-                return response()->json([
-                    'message' => 'تم إغلاق الوردية وهي بانتظار اعتماد المدير.',
-                    'data'    => $this->formatShiftFor($user, $shift),
-                ]);
+                return $this->closeResponse($user, $shift);
             }
             throw new BusinessException('مفتاح عدم التكرار مستخدم مع بيانات مختلفة.', [], 409);
         }
@@ -283,6 +277,18 @@ class PosShiftController extends Controller
             'actual_closing_cash' => (float) $data['actual_closing_cash'],
             'notes' => $data['notes'] ?? null,
         ];
+    }
+
+    private function closeResponse(User $user, PosShift $shift): JsonResponse
+    {
+        return response()->json([
+            'message' => match ($shift->status) {
+                PosShiftStatus::Approved => 'تم إغلاق الوردية وتسوية رصيد الدرج.',
+                PosShiftStatus::ClosedPendingApproval => 'تم إغلاق الوردية وهي بانتظار اعتماد المدير.',
+                PosShiftStatus::Open => 'أُعيد فتح الوردية لإعادة الجرد.',
+            },
+            'data' => $this->formatShiftFor($user, $shift),
+        ]);
     }
 
     // ===================================================================

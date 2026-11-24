@@ -7,6 +7,8 @@ namespace App\Services\Ai\Wholesale\Tools;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
+use App\Models\Customer;
+use App\Models\Order;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\Contracts\LocksTargets;
@@ -109,7 +111,12 @@ final class ApprovePaymentNoticeTool implements LocksTargets, WriteTool
 
     public function lockTargets(AiPendingAction $action): void
     {
-        WholesalePaymentNotice::query()->lockForUpdate()->findOrFail((int) $action->args['notice_id']);
+        $notice = WholesalePaymentNotice::query()->findOrFail((int) $action->args['notice_id']);
+        Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+        if ($notice->order_id !== null) {
+            Order::query()->lockForUpdate()->findOrFail($notice->order_id);
+        }
+        WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome

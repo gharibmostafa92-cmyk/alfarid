@@ -128,6 +128,8 @@ export function Kbd({ children }: { children: ReactNode }) {
 }
 
 export function MoneyInput({
+  id,
+  name,
   value,
   onChange,
   autoFocus,
@@ -136,8 +138,11 @@ export function MoneyInput({
   onEnter,
   disabled,
   readOnly,
+  required,
   normalize = toAsciiNum,
 }: {
+  id?: string;
+  name?: string;
   value: string;
   onChange: (v: string) => void;
   autoFocus?: boolean;
@@ -146,6 +151,7 @@ export function MoneyInput({
   onEnter?: () => void;
   disabled?: boolean;
   readOnly?: boolean;
+  required?: boolean;
   normalize?: (value: string) => string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -161,11 +167,14 @@ export function MoneyInput({
       <span className="cur">ج.م</span>
       <input
         ref={ref}
+        id={id}
+        name={name}
         inputMode="decimal"
         value={value}
         placeholder={placeholder}
         disabled={disabled}
         readOnly={readOnly}
+        required={required}
         onChange={(e) => !disabled && !readOnly && onChange(normalize(e.target.value))}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && onEnter) onEnter();
@@ -624,6 +633,7 @@ export function Modal({
   children,
   footer,
   width,
+  className,
 }: {
   open: boolean;
   onClose: () => void;
@@ -631,6 +641,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   width?: number;
+  className?: string;
 }) {
   useEsc(onClose, open);
   if (!open) return null;
@@ -642,7 +653,7 @@ export function Modal({
     >
       <div className="pos-overlay" onClick={onClose} />
       <div
-        className="pos-modal"
+        className={cx('pos-modal', className)}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -682,6 +693,7 @@ export function Drawer({
   sub,
   children,
   footer,
+  className,
 }: {
   open: boolean;
   onClose: () => void;
@@ -689,9 +701,89 @@ export function Drawer({
   sub?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  className?: string;
 }) {
   useEsc(onClose, open);
+  const asideRef = useRef<HTMLElement>(null);
+  const dragRef = useRef<{
+    active: boolean;
+    startY: number;
+    lastY: number;
+    lastTime: number;
+    velocityY: number;
+    offsetY: number;
+  }>({ active: false, startY: 0, lastY: 0, lastTime: 0, velocityY: 0, offsetY: 0 });
+
+  useEffect(() => {
+    if (!open && asideRef.current) {
+      asideRef.current.style.transform = '';
+      asideRef.current.style.transition = '';
+    }
+  }, [open]);
+
   if (!open) return null;
+
+  const isMobileSheet = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
+
+  const onHeaderPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isMobileSheet()) return;
+    if ((e.target as HTMLElement).closest('button, a, input')) return;
+    const el = asideRef.current;
+    if (!el) return;
+    el.setPointerCapture?.(e.pointerId);
+    el.style.transition = 'none';
+    const now = performance.now();
+    dragRef.current = {
+      active: true,
+      startY: e.clientY,
+      lastY: e.clientY,
+      lastTime: now,
+      velocityY: 0,
+      offsetY: 0,
+    };
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    const d = dragRef.current;
+    if (!d.active || !asideRef.current) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - d.lastTime);
+    const dy = e.clientY - d.startY;
+    d.velocityY = (e.clientY - d.lastY) / dt;
+    d.lastY = e.clientY;
+    d.lastTime = now;
+    // Rubber-band upward drag; 1:1 downward drag
+    const offset = dy < 0 ? (dy * 120 * 0.35) / (120 + 0.35 * Math.abs(dy)) : dy;
+    d.offsetY = offset;
+    asideRef.current.style.transform = `translate3d(0, ${offset}px, 0)`;
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLElement>) => {
+    const d = dragRef.current;
+    if (!d.active || !asideRef.current) return;
+    d.active = false;
+    const el = asideRef.current;
+    try {
+      el.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // ignore if not captured
+    }
+    const shouldClose = d.offsetY > 90 || (d.velocityY > 0.45 && d.offsetY > 24);
+    el.style.transition = 'transform 260ms cubic-bezier(.2, 1, .3, 1)';
+    if (shouldClose) {
+      el.style.transform = 'translate3d(0, 100%, 0)';
+      window.setTimeout(onClose, 200);
+    } else {
+      el.style.transform = 'translate3d(0, 0, 0)';
+      window.setTimeout(() => {
+        if (asideRef.current) {
+          asideRef.current.style.transform = '';
+          asideRef.current.style.transition = '';
+        }
+      }, 260);
+    }
+  };
 
   return ReactDOM.createPortal(
     <div
@@ -699,15 +791,27 @@ export function Drawer({
       dir="rtl"
     >
       <div className="pos-overlay" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="drawer-head">
-          <div className="grow">
-            <h3 className="fs-16">{title}</h3>
-            {sub && <div className="fs-12 t-3">{sub}</div>}
+      <aside
+        ref={asideRef}
+        className={cx('drawer', className)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <div className="drawer-grab-area" onPointerDown={onHeaderPointerDown}>
+          <div className="drawer-grabber" aria-hidden="true" />
+          <div className="drawer-head">
+            <div className="grow" style={{ minWidth: 0 }}>
+              <h3 className="fs-16">{title}</h3>
+              {sub && <div className="fs-12 t-3">{sub}</div>}
+            </div>
+            <button className="icon-btn" onClick={onClose} aria-label="إغلاق">
+              <Icon n="x" s={18} />
+            </button>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="إغلاق">
-            <Icon n="x" s={18} />
-          </button>
         </div>
         <div className="drawer-body">{children}</div>
         {footer && <div className="drawer-foot">{footer}</div>}

@@ -7,6 +7,7 @@ namespace Tests\Feature\Pos;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Finance\TreasuryType;
 use App\Models\Order;
+use App\Models\Customer;
 use App\Models\PosShift;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
@@ -95,6 +96,29 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
         $this->assertSame('900.00', $this->safe->fresh()->current_balance);
         // Opening fixture entry plus the winner's transfer pair.
         $this->assertDatabaseCount('treasury_transactions', 3);
+    }
+
+    public function test_parallel_cashiers_cannot_spend_the_same_merchant_credit_twice(): void
+    {
+        $this->variant->update(['wholesale_price' => '100.00']);
+        $customer = Customer::factory()->create([
+            'type' => 'wholesale', 'status' => 'approved', 'credit_limit' => 100,
+        ]);
+        $secondCashier = $this->makeCashier('merchant-credit@example.test', $this->branch->id, ['pos.access', 'pos.sales.create']);
+        $drawer = $this->secondDrawer();
+        $secondToken = $this->openShift($secondCashier, $drawer, 0);
+        $payload = [...$this->salePayload(0, 0), 'customer_id' => $customer->id, 'payment_method' => 'credit'];
+
+        $results = $this->concurrentJobs([
+            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $payload, ['HTTP_IDEMPOTENCY_KEY' => 'merchant-credit-a']),
+            $this->httpJob($secondToken, 'POST', '/api/v1/pos/sales', $payload, ['HTTP_IDEMPOTENCY_KEY' => 'merchant-credit-b']),
+        ]);
+
+        $this->assertEqualsCanonicalizing([201, 422], array_column($results, 'status'));
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseHas('orders', ['customer_id' => $customer->id, 'payment_method' => 'credit', 'grand_total' => '100.00']);
+        $this->assertSame('0.00', $this->drawer->fresh()->current_balance);
+        $this->assertSame('0.00', $drawer->fresh()->current_balance);
     }
 
     public function test_parallel_resume_consumes_hold_once_and_parallel_sales_dedupe_by_idempotency_key(): void

@@ -63,13 +63,14 @@ export function toAdminSettings(g: ApiSettingsGrouped): AdminSettings {
     }])),
     orders: { return_window_days: Number(f.return_window_days ?? 14) },
     purchases: { allow_self_approve_purchases: asBool(f.allow_self_approve_purchases) },
+    pos: { pos_shift_requires_approval: asBool(f.pos_shift_requires_approval ?? true) },
   };
 }
 
 /** Returns a flat map of changed keys only for partial updates. */
 export function settingsPatch(current: AdminSettings, server: AdminSettings): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  (['company', 'tax', 'orders', 'purchases'] as const).forEach(g => {
+  (['company', 'tax', 'orders', 'purchases', 'pos'] as const).forEach(g => {
     Object.entries(current[g]).forEach(([k, v]) => {
       if (JSON.stringify(v) !== JSON.stringify((server[g] as any)[k])) {
         out[k] = typeof v === 'string' && v.trim() === '' && k !== 'company_name' ? null : v;
@@ -86,7 +87,7 @@ export function settingsPatch(current: AdminSettings, server: AdminSettings): Re
   return out;
 }
 export function settingsExpected(patch: Record<string, unknown>, server: AdminSettings): Record<string, unknown> {
- const flat: Record<string, unknown> = {...server.company, ...server.tax, ...server.orders, ...server.purchases};
+ const flat: Record<string, unknown> = {...server.company, ...server.tax, ...server.orders, ...server.purchases, ...server.pos};
  for (const key of DOC_KEYS) {
    const value = server.numbering[key];
    if (value) { flat[key+'_prefix'] = value.prefix; flat[key+'_padding'] = value.padding; flat[key+'_next_number'] = value.next_number; }

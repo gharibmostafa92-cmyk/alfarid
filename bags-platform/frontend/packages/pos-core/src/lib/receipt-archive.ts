@@ -3,7 +3,7 @@ import type { PosCartLine, Customer, Branch, CashierUser } from '../types/pos.ty
 export interface ArchivedReceipt {
   invoiceNumber: string;
   total: number;
-  method: 'cash' | 'card' | 'mixed';
+  method: 'cash' | 'card' | 'mixed' | 'credit';
   received: number;
   change: number;
   cashA: number;

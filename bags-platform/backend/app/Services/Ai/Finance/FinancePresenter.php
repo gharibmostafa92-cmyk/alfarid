@@ -19,7 +19,7 @@ final class FinancePresenter
         'balance', 'amount', 'total', 'previous_total', 'discount_total', 'grand_total',
         'debt', 'linked_open_notices', 'free_pool', 'allocated', 'allocated_open', 'floating_credit',
         '0_30', '31_60', '61_90', 'over_90',
-        'credit_limit', 'used_credit', 'available_credit', 'outstanding', 'aging',
+        'credit_limit', 'used_credit', 'available_credit', 'outstanding', 'credit_balance', 'aging',
         'expenses', 'daily_expense_avg', 'pending_in', 'pending_out', 'expected_in', 'expected_out',
         'paid_amount', 'amount_due', 'total_amount', 'order_total', 'subtotal', 'discount_amount',
         'tax_amount', 'unit_price', 'list_price', 'offered_unit_price', 'requested_target_price',

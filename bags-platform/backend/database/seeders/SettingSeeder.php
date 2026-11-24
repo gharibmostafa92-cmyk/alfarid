@@ -67,6 +67,7 @@ class SettingSeeder extends Seeder
         // Return request window in days from delivery. 0 = disabled, -1 = indefinite.
         ['group' => 'orders', 'key' => 'return_window_days', 'value' => '14', 'type' => 'integer'],
         ['group' => 'purchases', 'key' => 'allow_self_approve_purchases', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'pos', 'key' => 'pos_shift_requires_approval', 'value' => '1', 'type' => 'boolean'],
 
         ['group' => 'ai', 'key' => 'ai_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_daily_token_budget_per_user', 'value' => '1000000', 'type' => 'integer'],

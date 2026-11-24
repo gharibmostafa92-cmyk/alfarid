@@ -182,3 +182,32 @@ export interface ApiStocktake {
   status: 'draft' | 'in_progress' | string;
   items: { id: number; product_variant_id: number; sku: string; barcode: string | null; counted_qty: number | null; system_qty?: number }[];
 }
+
+export interface ApiPosExpense {
+  id: number;
+  shift_id: number;
+  category: string;
+  amount: string;
+  description: string | null;
+  created_at: string;
+  created_by: { id: number; name: string } | null;
+  status: 'posted' | 'voided';
+  voided_at: string | null;
+  void_reason: string | null;
+  can_edit: boolean;
+  can_void: boolean;
+}
+
+export interface ApiCompletedBranchOrder {
+  id: number;
+  order_number: string;
+  channel: 'store' | 'wholesale' | 'pos';
+  status: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  grand_total: string | number;
+  items_count: number;
+  returnable_qty: number;
+  created_at: string | null;
+  delivered_at: string | null;
+}

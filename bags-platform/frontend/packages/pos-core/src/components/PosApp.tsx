@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { hasPermission } from '@alfarid/utils';
 import { PosHeader } from './layout/PosHeader';
+import { IncomingOrders } from './orders/IncomingOrders';
 import { Catalog } from './terminal/Catalog';
 import { Cart } from './terminal/Cart';
 import { OpenShiftGate } from './shift/OpenShiftGate';
@@ -16,8 +17,8 @@ import { StockPage } from './inventory/StockPage';
 import { TransfersPage } from './inventory/TransfersPage';
 import { StocktakePage } from './inventory/StocktakePage';
 import { Icon } from './ui/Icons';
-import { egp, fmt, useToast } from './ui/SharedUI';
-import { pos } from '../services/pos-data-source';
+import { egp, fmt, Kbd, useToast } from './ui/SharedUI';
+import { isMockPos, pos } from '../services/pos-data-source';
 import { usePosCart, posCartStore, clearPosCartStorage } from '../stores/pos-cart.store';
 import { createScanDetector, isRapidScannerKey } from '../lib/barcode-scanner';
 import { beepError, beepSuccess } from '../lib/sound';
@@ -32,6 +33,7 @@ import type {
   Branch,
   CashierUser,
   PosProduct,
+  PosPrepSession,
   Customer,
   PosHeldSale,
 } from '../types/pos.types';
@@ -49,6 +51,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('terminal');
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [currentShift, setCurrentShift] = useState<PosShift | null>(null);
+  const [isIncomingOrderOpen, setIsIncomingOrderOpen] = useState(false);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [cashier, setCashier] = useState<CashierUser | null>(null);
   const [starting, setStarting] = useState(true);
@@ -78,6 +81,17 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
   const isQuoting = usePosCart((s) => s.isQuoting);
   const heldSaleIds = usePosCart((s) => s.heldSaleIds);
   const lastDeleted = usePosCart((s) => s.lastDeleted);
+  const prepSession = usePosCart((s) => s.prepSession);
+  const [cartMode, setCartMode] = useState<'cart' | 'prep'>('cart');
+  const cartModeRef = useRef<'cart' | 'prep'>('cart');
+  cartModeRef.current = cartMode;
+  const [isPrepSubmitting, setIsPrepSubmitting] = useState(false);
+  const [returnOrderNumber, setReturnOrderNumber] = useState<string | null>(null);
+  const isPrepActive = Boolean(prepSession && cartMode === 'prep');
+  const prepVariantIds = useMemo(
+    () => new Set(isPrepActive && prepSession ? prepSession.items.map((i) => i.productVariantId) : []),
+    [isPrepActive, prepSession],
+  );
   const [heldSales, setHeldSales] = useState<PosHeldSale[]>([]);
   const [lastAdded, setLastAdded] = useState<{ id: number; k: number } | null>(null);
   const [maxDiscountPercent, setMaxDiscountPercent] = useState<number>(100);
@@ -223,9 +237,33 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
     if (cashier) posCartStore.getState().bindContext(cashier.id, cartShiftId);
   }, [cashier?.id, cartShiftId]);
 
+  useEffect(() => {
+    if (!prepSession && cartMode === 'prep') setCartMode('cart');
+  }, [prepSession, cartMode]);
+
+  const handlePrepPick = useCallback(
+    (codeOrId: string | number): boolean => {
+      if (!posCartStore.getState().prepSession || cartModeRef.current !== 'prep') return false;
+      const outcome = posCartStore.getState().scanPrepItem(codeOrId);
+      if (outcome.status === 'picked') {
+        beepSuccess();
+        toast(`تم تجهيز: ${outcome.item?.name ?? ''} (${outcome.item?.pickedQty}/${outcome.item?.expectedQty})`);
+      } else if (outcome.status === 'already_full') {
+        beepError();
+        toast(`تم تجهيز كامل كمية ${outcome.item?.name ?? 'الصنف'}`, 'bad');
+      } else if (outcome.status === 'not_in_order') {
+        beepError();
+        toast('هذا الصنف غير مدرج في طلب التجهيز الحالي', 'bad');
+      }
+      return outcome.status !== 'no_session';
+    },
+    [toast],
+  );
+
   // Add a product (click, scan bar or HID scanner): beep tells the cashier the outcome.
   const handleAddToCart = useCallback(
     (p: PosProduct) => {
+      if (handlePrepPick(p.id)) return;
       const inCart = posCartStore.getState().cart.find((l) => l.id === p.id)?.qty ?? 0;
       if (p.stock <= 0 || inCart + 1 > p.stock) {
         beepError();
@@ -236,14 +274,27 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
       setLastAdded({ id: p.id, k: Date.now() });
       beepSuccess();
     },
-    [toast],
+    [handlePrepPick, toast],
   );
+
+  // Decrement a product directly from the catalog without switching to the cart tab.
+  const handleDecrementFromCatalog = useCallback((p: PosProduct) => {
+    const state = posCartStore.getState();
+    const existing = state.cart.find((l) => l.id === p.id);
+    if (!existing) return;
+    if (existing.qty <= 1) {
+      state.setCart((c) => c.filter((l) => l.id !== p.id));
+    } else {
+      state.setCart((c) => c.map((l) => (l.id === p.id ? { ...l, qty: l.qty - 1 } : l)));
+    }
+  }, []);
 
   // Hardware scanner: works even when the scan box is not focused.
   useEffect(() => {
-    if (!currentShift || currentScreen !== 'terminal' || isCheckoutOpen || isExpenseOpen || isReturnOpen || isHoldOpen || isHeldOpen || closingShift || hasTabConflict) return;
+    if (!currentShift || currentScreen !== 'terminal' || isIncomingOrderOpen || isCheckoutOpen || isExpenseOpen || isReturnOpen || isHoldOpen || isHeldOpen || closingShift || hasTabConflict) return;
     const detect = createScanDetector({
       onScan: async (code) => {
+        if (handlePrepPick(code)) return;
         try {
           const p = await pos.lookupByBarcode(code);
           if (p) handleAddToCart(p);
@@ -259,7 +310,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
     });
     window.addEventListener('keydown', detect, true);
     return () => window.removeEventListener('keydown', detect, true);
-  }, [currentShift?.id, currentScreen, isCheckoutOpen, isExpenseOpen, isReturnOpen, isHoldOpen, isHeldOpen, closingShift, hasTabConflict, handleAddToCart, toast]);
+  }, [currentShift?.id, currentScreen, isIncomingOrderOpen, isCheckoutOpen, isExpenseOpen, isReturnOpen, isHoldOpen, isHeldOpen, closingShift, hasTabConflict, handlePrepPick, handleAddToCart, toast]);
 
   // Pay waits for the current quote so the payment screen opens with a confirmed total.
   const handlePay = useCallback(async () => {
@@ -279,6 +330,27 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
     setIsCheckoutOpen(true);
   }, [isCheckoutOpen, toast, pendingOwner]);
 
+  const handleConfirmPrep = useCallback(async () => {
+    const s = posCartStore.getState().prepSession;
+    if (!s || isPrepSubmitting) return;
+    setIsPrepSubmitting(true);
+    try {
+      await pos.prepareIncomingOrder(
+        s.orderId,
+        s.expectedStatus,
+        s.items.map((i) => ({ product_variant_id: i.productVariantId, qty: i.expectedQty })),
+      );
+      posCartStore.getState().clearPrepSession();
+      setCartMode('cart');
+      beepSuccess();
+      toast(`تم تأكيد تجهيز الطلب #${s.orderNumber}`);
+    } catch (err) {
+      toast(normalizeError(err).message, 'bad');
+    } finally {
+      setIsPrepSubmitting(false);
+    }
+  }, [isPrepSubmitting, toast]);
+
   useEffect(() => {
     const clearPrint = () => setPrintReceipt(null);
     window.addEventListener('afterprint', clearPrint);
@@ -294,7 +366,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
       // F-12: rapid key runs are HID-scanner spew, not human typing.
       const rapidScannerKeys = isRapidScannerKey(Date.now(), lastKeyAt.current);
       lastKeyAt.current = Date.now();
-      if (!currentShift || isCheckoutOpen || isExpenseOpen || closingShift || hasTabConflict) return;
+      if (!currentShift || isIncomingOrderOpen || isCheckoutOpen || isExpenseOpen || closingShift || hasTabConflict) return;
       const activeTag = (e.target as HTMLElement)?.tagName;
       const isInput = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
 
@@ -311,7 +383,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
         e.preventDefault();
         setIsReturnOpen((o) => !o);
       }
-      if (e.key === ' ' && !isInput && cart.length > 0 && currentScreen === 'terminal') {
+      if (e.key === ' ' && !isInput && cart.length > 0 && currentScreen === 'terminal' && !isPrepActive) {
         e.preventDefault();
         void handlePay();
       }
@@ -370,7 +442,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart, currentShift, currentScreen, isCheckoutOpen, isExpenseOpen, closingShift, hasTabConflict, canRefund, handlePay, lastAdded, toast, cashier?.id]);
+  }, [cart, currentShift, currentScreen, isIncomingOrderOpen, isCheckoutOpen, isExpenseOpen, closingShift, hasTabConflict, canRefund, handlePay, lastAdded, toast, cashier?.id]);
 
   // Offer undo for 5s after a line is removed.
   const undoToastFor = useRef<number | null>(null);
@@ -723,6 +795,27 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
       ) : (
         <>
           <PosHeader
+            incomingOrders={!isMockPos && !hasTabConflict && hasPermission(cashier?.perms, 'orders.view') && (
+              <IncomingOrders
+                key={pendingOwner}
+                open={isIncomingOrderOpen}
+                onOpenChange={setIsIncomingOrderOpen}
+                cashier={cashier}
+                toast={toast}
+                onStartCartPrep={(session: PosPrepSession) => {
+                  posCartStore.getState().startPrepSession(session);
+                  setCartMode('prep');
+                  setIsIncomingOrderOpen(false);
+                  setCurrentScreen('terminal');
+                  setMobileTab('cart');
+                }}
+                onOpenPosReturn={(orderNumber: string) => {
+                  setIsIncomingOrderOpen(false);
+                  setReturnOrderNumber(orderNumber);
+                  setIsReturnOpen(true);
+                }}
+              />
+            )}
             currentScreen={currentScreen}
             onScreenChange={setCurrentScreen}
             branch={branch}
@@ -743,16 +836,6 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
             accountSettings={passwordSettings}
           />
 
-          {(canRecordExpense || canRefund) && (
-            <div className="pos-shift-actions" role="group" aria-label="إجراءات الوردية">
-              {canRecordExpense && <button className="btn btn-secondary btn-sm" onClick={() => setIsExpenseOpen(true)}>
-                <Icon n="cash" s={16} /> مصروف من الدرج
-              </button>}
-              {canRefund && <button className="btn btn-secondary btn-sm" onClick={() => setIsReturnOpen(true)}>
-                <Icon n="ret" s={16} /> مرتجع أو استبدال
-              </button>}
-            </div>
-          )}
           {canRecordExpense && isExpenseOpen && <ExpenseModal
             key={currentShift.id}
             onClose={() => setIsExpenseOpen(false)}
@@ -760,13 +843,39 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
               setIsExpenseOpen(false);
               toast('تم تسجيل المصروف من الدرج');
             }}
+            onMutated={(msg) => toast(msg)}
           />}
 
           {currentScreen === 'terminal' && (() => {
             const mobileCartCount = cart.reduce((sum, l) => sum + l.qty, 0);
             const mobileTotal = quote ? quote.grand_total : computeCartTotals(cart, discount, maxDiscountPercent).total;
+            const isCartEmpty = cart.length === 0;
+            const shiftActions = (canRecordExpense || canRefund || (isCartEmpty && heldCount > 0)) ? (
+              <div className="pos-shift-actions" role="group" aria-label="إجراءات الوردية">
+                {isCartEmpty && (
+                  <button className="btn btn-secondary hide-mobile" onClick={() => setIsHeldOpen(true)}>
+                    <Icon n="inbox" s={16} />
+                    <span>المعلقة</span>
+                    {heldCount > 0 && <span className="badge-count num">{fmt(heldCount)}</span>}
+                    <Kbd>F6</Kbd>
+                  </button>
+                )}
+                {canRecordExpense && (
+                  <button className="btn btn-secondary pos-shift-btn-expense" onClick={() => setIsExpenseOpen(true)}>
+                    <Icon n="cash" s={16} />
+                    <span>مصروف</span>
+                  </button>
+                )}
+                {canRefund && (
+                  <button className="btn btn-secondary" onClick={() => setIsReturnOpen(true)}>
+                    <Icon n="ret" s={16} />
+                    <span>مرتجع أو استبدال</span>
+                  </button>
+                )}
+              </div>
+            ) : null;
             return (
-              <div className="sale" data-mobile-tab={mobileTab}>
+              <div className={isCartEmpty && !prepSession ? 'sale cart-empty' : 'sale'} data-mobile-tab={mobileTab}>
                 <div className="pos-mobile-tabs" role="tablist" aria-label="أقسام شاشة البيع">
                   <button
                     type="button"
@@ -794,7 +903,11 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
                   cart={cart}
                   customer={customer}
                   onAdd={handleAddToCart}
+                  onDecrement={handleDecrementFromCatalog}
                   scanRef={scanInputRef}
+                  shiftActions={shiftActions}
+                  allowOutOfStockIds={prepVariantIds}
+                  onRawScan={isPrepActive ? handlePrepPick : undefined}
                 />
                 <Cart
                   cart={cart}
@@ -814,6 +927,17 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
                   quote={quote}
                   isQuoting={isQuoting}
                   maxDiscountPercent={maxDiscountPercent}
+                  prepSession={prepSession}
+                  cartMode={cartMode}
+                  onCartModeChange={setCartMode}
+                  onPrepQty={(variantId, qty) => posCartStore.getState().setPrepItemQty(variantId, qty)}
+                  onPrepMarkAll={() => posCartStore.getState().markAllPrepPicked()}
+                  onPrepConfirm={handleConfirmPrep}
+                  onPrepExit={() => {
+                    posCartStore.getState().clearPrepSession();
+                    setCartMode('cart');
+                  }}
+                  isPrepSubmitting={isPrepSubmitting}
                 />
                 {mobileTab === 'catalog' && (
                   <div className="pos-mobile-dock">
@@ -843,7 +967,14 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
                       </>
                     ) : (
                       <>
-                        <span className="fs-13 t-2 truncate">اضغط على أي صنف لإضافته للفاتورة</span>
+                        <button
+                          type="button"
+                          className="pos-mobile-dock-summary"
+                          onClick={() => setMobileTab('cart')}
+                        >
+                          <Icon n="pos" s={17} className="t-acc" />
+                          <span className="fs-13 fw-6 t-1 truncate">الفاتورة والعميل</span>
+                        </button>
                         <button
                           type="button"
                           className="btn btn-secondary pos-mobile-dock-held"
@@ -861,7 +992,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
             );
           })()}
 
-          {currentScreen === 'stock' && <StockPage branch={branch} />}
+          {currentScreen === 'stock' && <StockPage branch={branch} onScreenChange={setCurrentScreen} />}
 
           {currentScreen === 'transfers' && (
             <TransfersPage toast={toast} branch={branch} />
@@ -910,8 +1041,12 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
 
           <ReturnModal
             open={canRefund && isReturnOpen}
-            onClose={() => setIsReturnOpen(false)}
+            onClose={() => {
+              setIsReturnOpen(false);
+              setReturnOrderNumber(null);
+            }}
             toast={toast}
+            initialOrderNumber={returnOrderNumber}
           />
         </>
       )}
@@ -923,6 +1058,7 @@ export function PosApp({ onLogout, renderPasswordSettings }: PosAppProps = {}) {
           onClosed={() => setClosingShift(null)}
           onCommitted={(closed) => {
             posCartStore.getState().clearCart();
+            posCartStore.getState().clearPrepSession();
             setCurrentShift(null);
             toast(`تم إغلاق الوردية #${closed.shift_number} بنجاح`);
           }}

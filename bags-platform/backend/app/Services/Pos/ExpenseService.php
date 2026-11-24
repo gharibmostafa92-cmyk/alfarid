@@ -123,25 +123,99 @@ class ExpenseService
     }
 
     /**
-     * Updates non-financial attributes of an active expense.
+     * Updates an active expense. Non-financial attributes update in-place; amount changes
+     * atomically void the original voucher (posting ExpenseReversal) and create a replacement.
      *
-     * @param  array{category?: string, notes?: string|null}  $data  Validated update payload
-     * @return Expense Updated expense
+     * @param  array{category?: string, notes?: string|null, amount?: mixed}  $data  Validated update payload
+     * @return Expense Updated or replacement expense
      *
-     * @throws BusinessException If expense was already voided
+     * @throws BusinessException If expense was already voided, amount is invalid, or shift-tied amount change is attempted
      */
     public function update(Expense $expense, array $data, User $actor): Expense
     {
-        return DB::transaction(function () use ($expense, $data, $actor): Expense {
-            $locked = Expense::query()->lockForUpdate()->findOrFail($expense->id);
+        $relations = ['branch:id,name', 'treasury:id,name,code,branch_id,type', 'creator:id,name'];
+
+        return DB::transaction(function () use ($expense, $data, $actor, $relations): Expense {
+            $locked = Expense::query()->with('treasury')->lockForUpdate()->findOrFail($expense->id);
             $this->assertExpenseAccess($actor->id, $locked);
             if ($locked->voided_at !== null) {
                 throw new BusinessException('لا يمكن تعديل مصروف ملغى.');
             }
 
-            $locked->update(Arr::only($data, ['category', 'notes']));
+            if (! array_key_exists('amount', $data)) {
+                $locked->update(Arr::only($data, ['category', 'notes']));
 
-            return $locked;
+                return $locked->fresh($relations);
+            }
+
+            try {
+                $newAmount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
+            } catch (MathException) {
+                throw new BusinessException('مبلغ المصروف غير صالح.');
+            }
+            if (! $newAmount->isPositive()) {
+                throw new BusinessException('مبلغ المصروف يجب أن يكون أكبر من صفر.');
+            }
+
+            $oldAmount = BigDecimal::of((string) $locked->amount)->toScale(2, RoundingMode::HalfUp);
+            if ($newAmount->isEqualTo($oldAmount)) {
+                $locked->update(Arr::only($data, ['category', 'notes']));
+
+                return $locked->fresh($relations);
+            }
+
+            if ($locked->shift_id !== null) {
+                throw new BusinessException('لا يمكن تعديل مبلغ مصروف مرتبط بوردية من المسار الإداري.');
+            }
+
+            $lockedTreasury = $this->treasury->lockTreasuries([(int) $locked->treasury_id], $actor->id)->get((int) $locked->treasury_id);
+            if ($lockedTreasury === null || ! $lockedTreasury->is_active) {
+                throw new BusinessException('الخزينة غير مفعّلة أو غير موجودة.');
+            }
+
+            $newNumber = $this->settings->generateNextNumber('expense');
+            $category = (string) ($data['category'] ?? $locked->category);
+            $notes = array_key_exists('notes', $data) ? $data['notes'] : $locked->notes;
+
+            $this->treasury->record([
+                'treasury_id' => $locked->treasury_id,
+                'type' => TreasuryTransactionType::ExpenseReversal,
+                'amount' => (string) $oldAmount,
+                'reference_type' => Expense::class,
+                'reference_id' => $locked->id,
+                'created_by' => $actor->id,
+                'notes' => "تعديل مصروف #{$locked->expense_number} ← #{$newNumber}",
+            ]);
+
+            $locked->update([
+                'voided_at' => now(),
+                'voided_by' => $actor->id,
+                'void_reason' => mb_substr("تعديل المبلغ واستبداله بالمصروف #{$newNumber}", 0, 500),
+            ]);
+
+            $replacement = Expense::create([
+                'expense_number' => $newNumber,
+                'branch_id' => $locked->branch_id,
+                'treasury_id' => $locked->treasury_id,
+                'category' => $category,
+                'amount' => (string) $newAmount,
+                'expense_date' => $locked->expense_date,
+                'attachment_path' => $locked->attachment_path,
+                'notes' => $notes,
+                'created_by' => $actor->id,
+            ]);
+
+            $this->treasury->record([
+                'treasury_id' => $locked->treasury_id,
+                'type' => TreasuryTransactionType::Expense,
+                'amount' => (string) $newAmount->negated(),
+                'reference_type' => Expense::class,
+                'reference_id' => $replacement->id,
+                'created_by' => $actor->id,
+                'notes' => "مصروف إداري: {$category} #{$newNumber}",
+            ]);
+
+            return $replacement->load($relations);
         });
     }
 

@@ -27,6 +27,7 @@ export function HeldDrawer({
     <Drawer
       open={open}
       onClose={onClose}
+      className="held-drawer"
       title="الفواتير المعلقة"
       sub={
         <span className="row gap-2">
@@ -41,7 +42,7 @@ export function HeldDrawer({
           body="الفواتير التي تعلّقها من شاشة البيع ستظهر هنا لاستكمالها لاحقًا."
         />
       ) : (
-        <div className="col gap-3">
+        <div className="held-list">
           {cartBusy && (
             <div className="banner b-warn">
               <Icon n="alert" s={16} />
@@ -56,10 +57,26 @@ export function HeldDrawer({
               return s + (i.unit_price ?? p?.price ?? 0) * i.qty - (i.discount_amount ?? 0);
             }, 0);
             const pcs = h.items.reduce((s, i) => s + i.qty, 0);
+            const extraCount = h.items.length > 3 ? h.items.length - 3 : 0;
 
             return (
               <div key={h.ref} className="held-card" data-screen-label="06 Held Sale">
-                <div className="row gap-3">
+                <div className="held-card-head">
+                  <div className="held-card-id">
+                    <b className="mono held-card-ref">{h.ref}</b>
+                    {h.mins > 60 && (
+                      <span className="badge b-warn held-card-age">
+                        منذ أكثر من ساعة
+                      </span>
+                    )}
+                  </div>
+                  <span className="price held-card-price">
+                    {egp(total)}
+                    <small>ج.م</small>
+                  </span>
+                </div>
+
+                <div className="held-card-body">
                   <div className="stack-thumbs">
                     {h.items.slice(0, 3).map((i) => (
                       <PImg
@@ -68,53 +85,45 @@ export function HeldDrawer({
                         size="sm"
                       />
                     ))}
+                    {extraCount > 0 && (
+                      <span className="stack-thumbs-more num">+{fmt(extraCount)}</span>
+                    )}
                   </div>
-                  <div className="grow">
-                    <div className="row gap-2">
-                      <b className="mono" style={{ fontSize: 13 }}>
-                        {h.ref}
-                      </b>
-                      {h.mins > 60 && (
-                        <span className="badge b-warn" style={{ height: 20, fontSize: 11 }}>
-                          منذ أكثر من ساعة
-                        </span>
-                      )}
+                  <div className="held-card-meta">
+                    <div className="held-card-customer">
+                      <Icon n="user" s={13} />
+                      <span className="truncate">{h.customer || 'بدون عميل'}</span>
                     </div>
-                    <div className="fs-12 t-3 row gap-1">
-                      <Icon n="history" s={12} />
-                      {h.at}
+                    <div className="held-card-sub">
+                      <span className="row gap-1">
+                        <Icon n="history" s={12} />
+                        {h.at}
+                      </span>
                       <span className="dot-sep" />
-                      {fmt(pcs)} قطعة
-                      <span className="dot-sep" />
-                      {h.customer || 'بدون عميل'}
+                      <span>{fmt(pcs)} قطعة</span>
                     </div>
                   </div>
-                  <span className="price fs-20">
-                    {egp(total)}
-                    <small>ج</small>
-                  </span>
                 </div>
+
                 {h.note && (
-                  <div
-                    className="fs-13 t-2 row gap-2"
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 10,
-                      background: 'var(--bg-sunken)',
-                    }}
-                  >
+                  <div className="held-card-note">
                     <Icon n="edit" s={14} />
-                    {h.note}
+                    <span>{h.note}</span>
                   </div>
                 )}
-                <div className="row gap-2">
+
+                <div className="held-card-actions">
                   <button className="btn btn-primary grow" onClick={() => onResume(h)}>
                     <Icon n="arrowUpLeft" s={15} />
                     استرجاع الفاتورة
                   </button>
-                  <button className="btn btn-ghost" onClick={() => onDelete(h)}>
+                  <button
+                    className="btn btn-ghost held-card-del"
+                    onClick={() => onDelete(h)}
+                    aria-label={`حذف الفاتورة المعلقة ${h.ref}`}
+                  >
                     <Icon n="trash" s={15} />
-                    حذف
+                    <span>حذف</span>
                   </button>
                 </div>
               </div>

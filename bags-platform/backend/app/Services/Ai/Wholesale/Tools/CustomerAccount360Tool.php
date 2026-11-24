@@ -69,9 +69,8 @@ final class CustomerAccount360Tool implements AgentTool
             return ToolOutcome::denied('التاجر مش موجود.', auditable: false);
         }
 
-        $outstanding = (float) $this->notices->balanceBreakdown($customer)['outstanding'];
-        $used = max(0, $outstanding);
-        $limit = (float) $customer->credit_limit;
+        $credit = $this->notices->accountCredit($customer);
+        $limit = (float) $credit['credit_limit'];
         $today = now()->startOfDay();
         $aging = Order::query()
             ->where('customer_id', $customer->id)
@@ -141,10 +140,10 @@ final class CustomerAccount360Tool implements AgentTool
         $data = [
             'customer_id' => $customer->id,
             'name' => $customer->company_name ?: $customer->name,
-            'outstanding' => round($outstanding, 2),
+            'outstanding' => (float) $credit['outstanding'],
             'credit_limit' => $limit,
-            'used_credit' => round($used, 2),
-            'available_credit' => round($limit - $used, 2),
+            'used_credit' => (float) $credit['amount_due'],
+            'available_credit' => (float) $credit['available_credit'],
             'payment_terms_days' => $customer->payment_terms_days,
             'aging' => array_map(fn ($v) => round($v, 2), $buckets),
             'last_payments' => $payments,

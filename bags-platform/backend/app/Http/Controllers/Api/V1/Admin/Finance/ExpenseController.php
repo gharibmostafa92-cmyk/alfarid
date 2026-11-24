@@ -137,18 +137,19 @@ class ExpenseController extends Controller implements HasMiddleware
     }
 
     /**
-     * Updates non-financial attributes of an active expense.
+     * Updates an active expense. Category/notes update in-place; amount edits atomically
+     * void the original voucher (posting ExpenseReversal) and create a replacement voucher.
      *
      * @param Request $request Update payload
      * @param Expense $expense Expense to update
-     * @return JsonResponse Updated expense response
+     * @return JsonResponse Updated or replacement expense response
      */
     public function update(Request $request, Expense $expense): JsonResponse
     {
         $data = $request->validate([
             'category' => ['sometimes', 'string', 'max:191'],
             'notes' => ['nullable', 'string', 'max:500'],
-            'amount' => ['prohibited'],
+            'amount' => ['sometimes', 'numeric', 'min:0.01', 'max:999999999999.99', 'decimal:0,2'],
             'treasury_id' => ['prohibited'],
             'branch_id' => ['prohibited'],
             'expense_date' => ['prohibited'],

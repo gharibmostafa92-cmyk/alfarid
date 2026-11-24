@@ -65,6 +65,10 @@ class Task2ExecutionSlice1AuthAndPromptTest extends TestCase
         $branchA = Branch::factory()->create(['is_active' => true]);
         $branchB = Branch::factory()->create(['is_active' => true]);
 
+        $treasuryA = Treasury::create([
+            'name' => 'خزينة فرع أ', 'code' => 'TR-A', 'type' => TreasuryType::MainSafe,
+            'branch_id' => $branchA->id, 'current_balance' => '1000.00', 'is_active' => true,
+        ]);
         $treasuryB = Treasury::create([
             'name' => 'خزينة فرع ب',
             'code' => 'TR-B',
@@ -100,6 +104,7 @@ class Task2ExecutionSlice1AuthAndPromptTest extends TestCase
             'notice_number' => 'WPN-A-1',
             'customer_id' => $customer->id,
             'order_id' => $orderA->id,
+            'treasury_id' => $treasuryA->id,
             'reference_number' => 'REF-A-1',
             'amount' => '500.00',
             'status' => WholesalePaymentNoticeStatus::PendingReview,
@@ -109,6 +114,7 @@ class Task2ExecutionSlice1AuthAndPromptTest extends TestCase
             'notice_number' => 'WPN-B-1',
             'customer_id' => $customer->id,
             'order_id' => $orderB->id,
+            'treasury_id' => $treasuryB->id,
             'reference_number' => 'REF-B-1',
             'amount' => '700.00',
             'status' => WholesalePaymentNoticeStatus::PendingReview,
@@ -177,8 +183,7 @@ class Task2ExecutionSlice1AuthAndPromptTest extends TestCase
         // 6. BulkApproveMatchedNoticesTool must only include branch A notice
         $bulkNotices = $registry->dispatch($actor, $conv, ['name' => 'bulk_approve_matched_notices', 'args' => []]);
         $this->assertSame('proposal', $bulkNotices->type);
-        $this->assertArrayHasKey('n'.$noticeA->id, $bulkNotices->uiBlock['items'] ? array_column($bulkNotices->uiBlock['items'], null, 'key') : []);
-        $this->assertArrayNotHasKey('n'.$noticeB->id, array_column($bulkNotices->uiBlock['items'], null, 'key'));
+        $this->assertSame([$noticeA->notice_number], array_column($bulkNotices->uiBlock['items'], 'label'));
 
         // 7. WholesaleInboxTool must only show branch A notice and hide central quotations
         $inbox = $registry->dispatch($actor, $conv, ['name' => 'wholesale_inbox', 'args' => []]);

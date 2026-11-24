@@ -375,7 +375,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
             ->assertJsonPath('data.items.0.returnable_qty', 2)
             ->assertJsonPath('data.items.0.net_unit_price', '90.00');
 
-        // Unknown, return-order, and non-POS numbers are 404.
+        // Unknown, return-order, and foreign-branch store order numbers are 404.
         $this->withToken($token)->getJson('/api/v1/pos/sales/lookup?number=POS-999999')->assertStatus(404);
         $this->getJson('/api/v1/pos/sales/lookup?number='.urlencode('POS-%'))->assertNotFound();
         $ret = $this->withToken($token)->postJson("/api/v1/pos/sales/{$sale->json('data.id')}/return", [
@@ -383,7 +383,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
         ], $this->idemHeaders())->assertOk();
         $returnNumber = Order::findOrFail($ret->json('data.return_order_id'))->order_number;
         $this->withToken($token)->getJson('/api/v1/pos/sales/lookup?number='.urlencode($returnNumber))->assertStatus(404);
-        Order::query()->whereKey($sale->json('data.id'))->update(['channel' => 'store']);
+        Order::query()->whereKey($sale->json('data.id'))->update(['channel' => 'store', 'allocated_branch_id' => $this->branchB->id]);
         $this->withToken($token)->getJson('/api/v1/pos/sales/lookup?number='.urlencode($number))->assertStatus(404);
     }
 
@@ -429,14 +429,14 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
         $this->withToken($token)->getJson('/api/v1/pos/customers?q='.urlencode('%'))->assertOk()->assertJsonCount(0, 'data');
         $this->withToken($token)->getJson('/api/v1/pos/customers?q='.urlencode('_'))->assertOk()->assertJsonCount(0, 'data');
 
-        // Empty q returns latest 10 across ALL branches (documented decision).
+        // Staff can find an existing account by phone without browsing a directory of recent customers.
         $other = Customer::create([
             'name' => 'فرع آخر', 'phone' => '01077778888', 'password' => 'secret123',
             'type' => \App\Enums\CustomerType::Retail, 'status' => \App\Enums\CustomerStatus::Approved,
         ]);
-        $all = $this->withToken($token)->getJson('/api/v1/pos/customers')->assertOk()->json('data');
-        $this->assertLessThanOrEqual(10, count($all));
-        $this->assertContains($other->phone, array_column($all, 'phone'));
+        $this->withToken($token)->getJson('/api/v1/pos/customers')->assertOk()->assertJsonCount(0, 'data');
+        $this->withToken($token)->getJson('/api/v1/pos/customers?q=01077778888')->assertOk()
+            ->assertJsonPath('data.0.id', $other->id);
     }
 
     public function test_26_database_guards(): void

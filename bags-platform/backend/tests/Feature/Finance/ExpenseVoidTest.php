@@ -284,4 +284,47 @@ class ExpenseVoidTest extends TestCase
         $this->assertSame('900.00', $treasury->fresh()->current_balance);
         $this->assertDatabaseCount('treasury_transactions', 1);
     }
+
+    public function test_admin_update_edits_metadata_in_place_and_replaces_voucher_on_amount_change(): void
+    {
+        $treasury = $this->treasury();
+        $expense = $this->createExpense($treasury);
+
+        // Non-financial edit updates in-place with no extra ledger entries.
+        $this->withToken($this->token)->putJson("/api/v1/admin/expenses/{$expense->id}", [
+            'category' => 'نظافة',
+            'notes' => 'تعديل البيان فقط',
+        ])->assertOk()
+            ->assertJsonPath('data.id', $expense->id)
+            ->assertJsonPath('data.category', 'نظافة')
+            ->assertJsonPath('data.notes', 'تعديل البيان فقط');
+
+        $this->assertSame('900.00', number_format((float) $treasury->fresh()->current_balance, 2, '.', ''));
+        $this->assertSame(1, TreasuryTransaction::where('reference_type', Expense::class)->where('reference_id', $expense->id)->count());
+
+        // Amount change atomically reverses original (100 -> 1000) and records replacement (-40 -> 960).
+        $res = $this->withToken($this->token)->putJson("/api/v1/admin/expenses/{$expense->id}", [
+            'category' => 'نظافة',
+            'amount' => 40,
+            'notes' => 'تصحيح رقم زائد',
+        ])->assertOk();
+
+        $newId = (int) $res->json('data.id');
+        $this->assertNotSame($expense->id, $newId);
+        $this->assertSame('40.00', number_format((float) $res->json('data.amount'), 2, '.', ''));
+        $this->assertNotNull($expense->fresh()->voided_at);
+        $this->assertSame('960.00', number_format((float) $treasury->fresh()->current_balance, 2, '.', ''));
+        $this->assertDatabaseHas('treasury_transactions', [
+            'reference_type' => Expense::class,
+            'reference_id' => $expense->id,
+            'type' => 'expense_reversal',
+            'amount' => '100.00',
+        ]);
+        $this->assertDatabaseHas('treasury_transactions', [
+            'reference_type' => Expense::class,
+            'reference_id' => $newId,
+            'type' => 'expense',
+            'amount' => '-40.00',
+        ]);
+    }
 }

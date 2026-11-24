@@ -29,17 +29,17 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
 
   useEffect(() => {
     const term = toAsciiNum(q.trim());
+    setCustomers([]);
     if (term.length < 2) {
-      setCustomers([]);
       return;
     }
     const controller = new AbortController();
     const timer = setTimeout(() => {
       pos
         .getCustomers(term, controller.signal)
-        .then(setCustomers)
+        .then((results) => { if (!controller.signal.aborted) setCustomers(results); })
         .catch((err) => {
-          if (isCancel(err)) return;
+          if (controller.signal.aborted || isCancel(err)) return;
           toast(normalizeError(err).message, 'bad');
         });
     }, 250);

@@ -1,6 +1,8 @@
 import type {
+  CompletedBranchOrderSummary,
   Customer,
   PastSale,
+  PosExpense,
   PosHeldSale,
   PosProduct,
   PosShift,
@@ -81,32 +83,59 @@ export const mapCustomer = (c: any): Customer => ({
   status: c.status ?? null,
 });
 
-const METHOD_AR: Record<string, string> = { cash: 'نقدي', card: 'بطاقة', mixed: 'مختلط' };
+const METHOD_AR: Record<string, string> = {
+  cash: 'نقدي',
+  card: 'بطاقة',
+  mixed: 'مختلط',
+  credit: 'على حساب التاجر',
+  cod: 'الدفع عند الاستلام',
+  wallet: 'محفظة',
+  bank_transfer: 'تحويل بنكي',
+};
 
 /** Prices shown for returns are net_unit_price (after line discount), never list price. */
-export const mapPastSale = (s: any): PastSale => ({
-  id: Number(s.id),
-  number: s.order_number,
-  date:
-    new Date(s.created_at).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' }) +
-    ` — ${timeAr(s.created_at)}`,
-  cashier: s.cashier?.name ?? '',
-  customer: s.customer?.name ?? 'عميل نقدي',
-  customer_id: s.customer?.id == null ? null : Number(s.customer.id),
-  method: METHOD_AR[s.payment_method] ?? s.payment_method ?? '',
-  cash_amount: Number(s.cash_amount ?? 0),
-  card_amount: Number(s.card_amount ?? 0),
-  items: (s.items ?? []).map((i: any) => ({
-    id: Number(i.product_variant_id),
-    qty: Number(i.qty),
-    price: Number(i.net_unit_price ?? i.unit_price ?? 0),
-    net_unit_price: Number(i.net_unit_price ?? i.unit_price ?? 0),
-    returnable_qty: Number(i.returnable_qty ?? i.qty),
-    // F-07: full line value + refund history for server-compatible cent math.
-    line_total: Number(i.line_total ?? (Number(i.qty) || 0) * Number(i.unit_price ?? 0)),
-    previous_refunded_amount: Number(i.previous_refunded_amount ?? 0),
-  })),
-});
+export const mapPastSale = (s: any): PastSale => {
+  const mappedItems = (s.items ?? []).map((i: any) => {
+    const composedName = [i.product_name, i.variant_name].filter(Boolean).join(' - ');
+    return {
+      order_item_id: i.id == null ? undefined : Number(i.id),
+      id: Number(i.product_variant_id),
+      name: composedName || undefined,
+      sku: i.sku ?? undefined,
+      qty: Number(i.qty),
+      price: Number(i.net_unit_price ?? i.unit_price ?? 0),
+      net_unit_price: Number(i.net_unit_price ?? i.unit_price ?? 0),
+      returnable_qty: Number(i.returnable_qty ?? i.qty),
+      // F-07: full line value + refund history for server-compatible cent math.
+      line_total: Number(i.line_total ?? (Number(i.qty) || 0) * Number(i.unit_price ?? 0)),
+      previous_refunded_amount: Number(i.previous_refunded_amount ?? 0),
+    };
+  });
+
+  const channel = s.channel === 'wholesale' ? 'wholesale' : (s.channel === 'store' ? 'store' : (s.channel === 'pos' ? 'pos' : undefined));
+  const fallbackTotal = mappedItems.reduce((sum: number, i: any) => sum + (i.line_total ?? i.price * i.qty), 0);
+  const fallbackReturnable = mappedItems.reduce((sum: number, i: any) => sum + (i.returnable_qty ?? i.qty), 0);
+
+  return {
+    id: Number(s.id),
+    channel,
+    number: String(s.order_number ?? s.number ?? ''),
+    date:
+      new Date(s.created_at).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' }) +
+      ` — ${timeAr(s.created_at)}`,
+    cashier: s.cashier?.name ?? '',
+    customer: s.customer?.name ?? 'عميل نقدي',
+    customer_id: s.customer?.id == null ? null : Number(s.customer.id),
+    method: METHOD_AR[s.payment_method] ?? s.payment_method ?? '',
+    payment_method: s.payment_method,
+    cash_amount: Number(s.cash_amount ?? 0),
+    card_amount: Number(s.card_amount ?? 0),
+    grand_total: s.grand_total == null ? fallbackTotal : Number(s.grand_total),
+    items_count: s.items_count == null ? mappedItems.length : Number(s.items_count),
+    returnable_qty: s.returnable_qty == null ? fallbackReturnable : Number(s.returnable_qty),
+    items: mappedItems,
+  };
+};
 
 /** `id` is the variant id (what screens render by); `transferItemId` is what receive needs. */
 export const mapTransfer = (t: any): StockTransfer => ({
@@ -131,6 +160,7 @@ export const mapTransferSource = (s: any): TransferSource => ({
 });
 
 export const mapQuote = (q: any): QuoteResult => ({
+  available_credit: q.available_credit == null ? null : Number(q.available_credit),
   lines: (q.lines ?? []).map((l: any) => ({
     product_variant_id: Number(l.product_variant_id),
     qty: Number(l.qty),
@@ -143,4 +173,36 @@ export const mapQuote = (q: any): QuoteResult => ({
   subtotal: Number(q.subtotal),
   discount_total: Number(q.discount_total),
   grand_total: Number(q.grand_total),
+});
+
+export const mapExpense = (e: any): PosExpense => ({
+  id: Number(e.id),
+  shiftId: Number(e.shift_id ?? e.shiftId ?? 0),
+  category: String(e.category ?? ''),
+  amount: Number(e.amount ?? 0),
+  description: e.description ?? e.notes ?? null,
+  createdAt: String(e.created_at ?? e.createdAt ?? ''),
+  createdBy:
+    e.created_by && typeof e.created_by === 'object'
+      ? { id: Number(e.created_by.id), name: String(e.created_by.name ?? '') }
+      : (e.createdBy ?? null),
+  status: e.status === 'voided' || Boolean(e.voided_at ?? e.voidedAt) ? 'voided' : 'posted',
+  voidedAt: e.voided_at ?? e.voidedAt ?? null,
+  voidReason: e.void_reason ?? e.voidReason ?? null,
+  canEdit: Boolean(e.can_edit ?? e.canEdit),
+  canVoid: Boolean(e.can_void ?? e.canVoid),
+});
+
+export const mapCompletedBranchOrder = (o: any): CompletedBranchOrderSummary => ({
+  id: Number(o.id),
+  order_number: String(o.order_number ?? o.number ?? ''),
+  channel: o.channel === 'wholesale' ? 'wholesale' : (o.channel === 'pos' ? 'pos' : 'store'),
+  status: String(o.status ?? 'delivered'),
+  customer_name: o.customer_name ?? null,
+  customer_phone: o.customer_phone ?? null,
+  grand_total: Number(o.grand_total ?? 0),
+  items_count: Number(o.items_count ?? 0),
+  returnable_qty: Number(o.returnable_qty ?? 0),
+  created_at: o.created_at ?? null,
+  delivered_at: o.delivered_at ?? null,
 });

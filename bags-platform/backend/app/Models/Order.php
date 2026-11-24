@@ -42,6 +42,8 @@ class Order extends Model
         'exchange_order_id',
         'status',
         'returned_at',
+        'prepared_at',
+        'prepared_by',
         'payment_method',
         'payment_status',
         'due_at',
@@ -83,6 +85,7 @@ class Order extends Model
             'needs_attention' => 'boolean',
             'due_at' => 'datetime',
             'returned_at' => 'datetime',
+            'prepared_at' => 'datetime',
             'legal_accepted_at' => 'datetime',
         ];
     }
@@ -133,6 +136,12 @@ class Order extends Model
     public function allocatedBranch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'allocated_branch_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function preparedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'prepared_by');
     }
 
     public function scopeAllocatedToBranch(Builder $query, int $branchId): Builder

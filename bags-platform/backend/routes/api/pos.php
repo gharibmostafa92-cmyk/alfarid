@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Pos\PosAuthController;
 use App\Http\Controllers\Api\V1\Pos\PosBootstrapController;
 use App\Http\Controllers\Api\V1\Pos\PosCustomerController;
+use App\Http\Controllers\Api\V1\Pos\PosIncomingOrderController;
 use App\Http\Controllers\Api\V1\Pos\PosProductController;
 use App\Http\Controllers\Api\V1\Pos\PosSaleController;
 use App\Http\Controllers\Api\V1\Pos\PosShiftController;
@@ -61,9 +62,30 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
 
     // Protected endpoints requiring an active shift (pos.shift middleware injects current shift).
     Route::middleware('pos.shift')->group(function (): void {
+        Route::middleware('permission:orders.view')->group(function (): void {
+            Route::get('incoming-orders', [PosIncomingOrderController::class, 'index'])->name('incoming-orders.index');
+            Route::get('incoming-orders/events', [PosIncomingOrderController::class, 'events'])->name('incoming-orders.events');
+            Route::get('incoming-orders/completed', [PosIncomingOrderController::class, 'completed'])->name('incoming-orders.completed');
+            Route::get('shipping-companies', [PosIncomingOrderController::class, 'shippingCompanies'])->name('shipping-companies.index');
+            Route::get('incoming-orders/{id}', [PosIncomingOrderController::class, 'show'])
+                ->where('id', '[1-9][0-9]{0,17}')->name('incoming-orders.show');
+            Route::post('incoming-orders/{id}/status', [PosIncomingOrderController::class, 'update'])
+                ->where('id', '[1-9][0-9]{0,17}')->middleware('permission:orders.update')->name('incoming-orders.update');
+            Route::post('incoming-orders/{id}/prepare', [PosIncomingOrderController::class, 'prepare'])
+                ->where('id', '[1-9][0-9]{0,17}')->middleware('permission:orders.update')->name('incoming-orders.prepare');
+            Route::post('incoming-orders/{id}/shipments', [PosIncomingOrderController::class, 'createShipment'])
+                ->where('id', '[1-9][0-9]{0,17}')->middleware('permission:orders.update')->name('incoming-orders.shipments');
+            Route::post('incoming-orders/{id}/cancel', [PosIncomingOrderController::class, 'cancel'])
+                ->where('id', '[1-9][0-9]{0,17}')->middleware('permission:pos.orders.cancel')->name('incoming-orders.cancel');
+            Route::post('incoming-orders/{id}/returns', [PosIncomingOrderController::class, 'createReturn'])
+                ->where('id', '[1-9][0-9]{0,17}')->middleware(['permission:pos.sales.refund', 'throttle:pos-returns'])->name('incoming-orders.returns');
+        });
         Route::get('shifts/current/summary', [PosShiftController::class, 'summary'])->name('shifts.current.summary');
 
         // POS sales, held carts, refunds, and exchanges.
+        Route::get('sales/history', [PosSaleController::class, 'history'])
+            ->middleware('permission:pos.sales.view|pos.sales.refund|pos.sales.create')
+            ->name('sales.history');
         Route::post('sales', [PosSaleController::class, 'store'])
             ->middleware('permission:pos.sales.create')
             ->name('sales.store');
@@ -73,9 +95,20 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
         Route::post('sales/quote', [PosSaleController::class, 'quote'])
             ->middleware('permission:pos.sales.create')
             ->name('sales.quote');
+        Route::get('sales/expenses', [PosSaleController::class, 'listExpenses'])
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.expenses.index');
         Route::post('sales/expenses', [PosSaleController::class, 'recordExpense'])
             ->middleware('permission:pos.sales.create')
             ->name('sales.expenses');
+        Route::match(['patch', 'post'], 'sales/expenses/{expense}', [PosSaleController::class, 'updateExpense'])
+            ->where('expense', '[1-9][0-9]{0,17}')
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.expenses.update');
+        Route::post('sales/expenses/{expense}/void', [PosSaleController::class, 'voidExpense'])
+            ->where('expense', '[1-9][0-9]{0,17}')
+            ->middleware('permission:pos.sales.create')
+            ->name('sales.expenses.void');
         Route::get('sales/lookup', [PosSaleController::class, 'lookupForReturn'])
             ->middleware(['permission:pos.sales.refund', 'throttle:pos-lookup'])
             ->name('sales.lookup');
@@ -92,7 +125,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access', 'throt
 
         // Restrict customer lookup and creation to an active shift.
         Route::get('customers', [PosCustomerController::class, 'index'])
-            ->middleware('throttle:pos-customers')->name('customers.index');
+            ->middleware(['permission:pos.sales.create', 'throttle:pos-customers'])->name('customers.index');
         Route::post('customers', [PosCustomerController::class, 'store'])
             ->middleware(['permission:pos.sales.create', 'throttle:pos-customers'])->name('customers.store');
 

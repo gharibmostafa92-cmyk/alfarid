@@ -10,6 +10,7 @@ export const posCartStore = createPosCartStore({
 
 export function clearPosCartStorage(): void {
   const cart = posCartStore.getState();
+  cart.clearPrepSession();
   cart.bindContext(0, null);
   clearPersistedCarts();
 }

@@ -17,6 +17,20 @@ use App\Models\User;
  */
 final class LoginDestinationResolver
 {
+    // Shared permissions shown in the POS group of the backoffice role editor.
+    private const POS_SHARED_PERMISSIONS = [
+        'inventory.view',
+        'orders.view',
+        'orders.update',
+        'stocktakes.view',
+        'stocktakes.update',
+        'stocktakes.approve',
+        'transfers.view',
+        'transfers.create',
+        'transfers.receive',
+        'transfers.approve_shortage',
+    ];
+
     /**
      * Resolves target application and path based on actor role and account status.
      *
@@ -39,10 +53,10 @@ final class LoginDestinationResolver
             $isCashierName = $firstRole === mb_strtolower(StaffRole::Cashier->value)
                 || $firstRole === 'cashier'
                 || $firstRole === 'كاشير';
-            // A single role with only POS permissions can start in POS.
-            // POS also uses stocktakes.update to record counts.
             $onlyPosPermissions = $actor->getAllPermissions()
-                ->every(fn ($permission) => str_starts_with($permission->name, 'pos.') || $permission->name === 'stocktakes.update');
+                ->every(fn ($permission) => str_starts_with($permission->name, 'pos.')
+                    || str_starts_with($permission->name, 'pos_shifts.')
+                    || in_array($permission->name, self::POS_SHARED_PERMISSIONS, true));
             // A cashier role carrying admin permissions still starts in the backoffice.
             $isPosRole = $roles->count() === 1 && $onlyPosPermissions
                 && ($isCashierName || $actor->can('pos.access'));

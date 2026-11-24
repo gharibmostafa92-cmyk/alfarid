@@ -28,6 +28,7 @@ class WholesalePaymentNotice extends Model
         'reference_number',
         'transfer_date',
         'receipt_file_path',
+        'staff_recorded',
         'status',
         'reviewed_by',
         'approved_at',
@@ -45,6 +46,7 @@ class WholesalePaymentNotice extends Model
     {
         return [
             'amount' => 'decimal:2',
+            'staff_recorded' => 'boolean',
             'payment_method' => WholesalePaymentMethod::class,
             'transfer_date' => 'date',
             'approved_at' => 'datetime',

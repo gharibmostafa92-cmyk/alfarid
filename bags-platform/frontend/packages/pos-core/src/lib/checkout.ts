@@ -37,7 +37,7 @@ export function buildCheckoutPayload(quote: QuoteResult, payment: CheckoutPaymen
     customer_id: payment.customerId,
     payment_method: payment.method,
     cash_amount: fromCents(cashCents),
-    card_amount: fromCents(totalCents - cashCents),
+    card_amount: payment.method === 'credit' ? 0 : fromCents(totalCents - cashCents),
     ...(payment.overridePrice ? { override_price: true } : {}),
     ...(payment.overridePrice && reason ? { override_reason: reason } : {}),
     ...(payment.heldSaleId != null ? { held_sale_id: payment.heldSaleId } : {}),

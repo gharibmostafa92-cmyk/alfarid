@@ -46,6 +46,23 @@ function tone(freq: number, seconds: number, type: OscillatorType, delay = 0): v
 
 export const beepSuccess = (): void => tone(1200, 0.07, 'sine');
 
+export async function enableOrderSound(): Promise<boolean> {
+  try {
+    const context = audio();
+    if (!context) return false;
+    if (context.state !== 'running') await context.resume();
+    return context.state === 'running';
+  } catch {
+    return false;
+  }
+}
+
+export function beepIncomingOrder(): void {
+  if (ctx?.state !== 'running') return;
+  tone(660, 0.16, 'sine');
+  tone(880, 0.24, 'sine', 0.19);
+}
+
 export const beepError = (): void => {
   tone(300, 0.12, 'square');
   tone(220, 0.18, 'square', 0.14);

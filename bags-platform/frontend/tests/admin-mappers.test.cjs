@@ -18,6 +18,11 @@ const settings = toAdminSettings(fixture.data);
 assert.equal(Object.keys(settings.numbering).length, 17);
 assert.equal(typeof settings.tax.default_tax_rate, 'number');
 assert.deepEqual(settingsPatch(settings, structuredClone(settings)), {});
+assert.equal(settings.pos.pos_shift_requires_approval, true);
+const automaticPosClose = toAdminSettings({ ...fixture.data, pos: { pos_shift_requires_approval: false } });
+const posPatch = settingsPatch(automaticPosClose, settings);
+assert.deepEqual(posPatch, { pos_shift_requires_approval: false });
+assert.deepEqual(settingsExpected(posPatch, settings), { pos_shift_requires_approval: true });
 const changed = structuredClone(settings);
 changed.numbering.invoice.padding = 8;
 assert.deepEqual(settingsPatch(changed, settings), { invoice_padding: 8 });
@@ -32,6 +37,22 @@ assert.equal(toAdminSettings({tax:{tax_enabled:'0', prices_include_tax:0}}).tax.
 const groups = buildPermissionGroups({users:[{name:'users.view'},{name:'users.view'}], unknown:[{name:'mystery.execute'}]});
 assert.equal(groups.flatMap(g => g.perms).filter(p => p[0] === 'users.view').length, 1);
 assert.equal(groups.find(g => g.module === 'other').label, 'صلاحيات أخرى');
+const posGroups = buildPermissionGroups({
+  pos: [{name:'pos.access'}],
+  pos_shifts: [{name:'pos_shifts.view_expected'}],
+  inventory: [{name:'inventory.view'}, {name:'inventory.adjust'}],
+  transfers: [{name:'transfers.view'}, {name:'transfers.create'}, {name:'transfers.receive'}, {name:'transfers.approve_shortage'}, {name:'transfers.ship'}],
+  stocktakes: [{name:'stocktakes.view'}, {name:'stocktakes.update'}, {name:'stocktakes.approve'}, {name:'stocktakes.create'}],
+  orders: [{name:'orders.view'}, {name:'orders.update'}, {name:'orders.delete'}],
+});
+const permissionKeys = (module) => posGroups.find(g => g.module === module).perms.map(p => p[0]);
+assert.deepEqual(permissionKeys('pos'), [
+  'inventory.view', 'orders.update', 'orders.view', 'pos.access', 'pos_shifts.view_expected',
+  'stocktakes.approve', 'stocktakes.update', 'stocktakes.view',
+  'transfers.approve_shortage', 'transfers.create', 'transfers.receive', 'transfers.view',
+]);
+assert.deepEqual(permissionKeys('inventory'), ['inventory.adjust', 'stocktakes.create', 'transfers.ship']);
+assert.deepEqual(permissionKeys('orders'), ['orders.delete']);
 const user = require(path.join(base,'__fixtures__/users.json')).data[0];
 assert.deepEqual(toAdminUser(user, user.id).roles, user.roles.map(r => r.id));
 assert.equal(toAdminUser(user, user.id).me, true);

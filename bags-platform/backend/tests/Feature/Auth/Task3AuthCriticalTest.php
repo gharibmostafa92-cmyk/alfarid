@@ -44,7 +44,7 @@ class Task3AuthCriticalTest extends TestCase
         $role = Role::firstOrCreate(['name' => 'branch-manager', 'guard_name' => 'staff']);
         $role->givePermissionTo([
             Permission::findOrCreate('pos.access', 'staff'),
-            Permission::findOrCreate('orders.view', 'staff'),
+            Permission::findOrCreate('users.view', 'staff'),
         ]);
         $manager->assignRole($role);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
@@ -66,6 +66,27 @@ class Task3AuthCriticalTest extends TestCase
         $result = app(LoginDestinationResolver::class)->resolve($cashier);
 
         $this->assertSame('pos', $result['destination']);
+    }
+
+    public function test_single_pos_role_with_shared_permissions_is_routed_to_pos(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $cashier = User::factory()->create(['is_active' => true, 'branch_id' => $branch->id]);
+        $role = Role::findOrCreate('branch-pos', 'staff');
+        foreach ([
+            'pos.access', 'pos.sales.create', 'pos_shifts.view', 'pos_shifts.approve',
+            'pos_shifts.view_expected', 'pos_shifts.force_close',
+            'inventory.view', 'orders.view', 'orders.update',
+            'stocktakes.view', 'stocktakes.update', 'stocktakes.approve',
+            'transfers.view', 'transfers.create', 'transfers.receive', 'transfers.approve_shortage',
+        ] as $name) {
+            $role->givePermissionTo(Permission::findOrCreate($name, 'staff'));
+        }
+        $cashier->assignRole($role);
+
+        $result = app(LoginDestinationResolver::class)->resolve($cashier);
+        $this->assertSame('pos', $result['destination']);
+        $this->assertSame('/pos', $result['path']);
     }
 
     public function test_pos_token_can_rotate_temporary_password(): void

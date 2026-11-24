@@ -128,6 +128,8 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
     : (document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : '');
 
   if (closedResult) {
+    const doneDiff = closedResult.cash_difference ?? 0;
+    const doneDiffState: 'ok' | 'over' | 'short' = Math.abs(doneDiff) < 0.01 ? 'ok' : doneDiff > 0 ? 'over' : 'short';
     return ReactDOM.createPortal(
       <div
         dir="rtl"
@@ -135,104 +137,119 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
       >
         <div className="pos-overlay" onClick={() => onClosed(closedResult)} />
         <div
-          className="pos-modal"
-          style={{ width: 'min(520px, calc(100vw - 32px))' }}
+          className="pos-modal pos-sheet-mobile close-shift-done-modal"
           data-screen-label="02 Close Shift Done"
           role="dialog"
           aria-modal="true"
           aria-label="ملخص إغلاق الوردية"
         >
-          <div className="pop col gap-4" style={{ padding: 24, textAlign: 'center', alignItems: 'center' }}>
-            <span
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 18,
-                background: 'var(--ok-bg)',
-                color: 'var(--ok)',
-                display: 'grid',
-                placeItems: 'center',
-              }}
-            >
-              <Icon n="check" s={28} w={2.4} />
-            </span>
-            <div>
-              <h3 className="fs-18">تم إغلاق الوردية بنجاح</h3>
-              <p className="t-2" style={{ marginTop: 4 }}>
-                الوردية بانتظار اعتماد المدير
-              </p>
+          <div className="pop pos-close-done-body pos-close-done-grid">
+            <div className="pos-close-done-summary">
+              <div className="pos-sheet-handle" aria-hidden="true" />
+              <span className="pos-close-done-icon" aria-hidden="true">
+                <Icon n="check" s={28} w={2.4} />
+              </span>
+              <div>
+                <h3 className="fs-20">تم إغلاق الوردية بنجاح</h3>
+                <p className="t-2 fs-13" style={{ marginTop: 4 }}>
+                  {closedResult.status === 'closed' ? 'تمت تسوية النقدية وأصبح الدرج متاحًا.' : 'الوردية بانتظار اعتماد المدير'}
+                </p>
+              </div>
+
+              <div className="pos-close-done-kpis">
+                <div>
+                  <span className="fs-12 t-2">النقد الفعلي</span>
+                  <b className="num fs-16">{egp(Number(actual))} ج</b>
+                </div>
+                {closedResult.expected_closing_cash !== undefined && (
+                  <div>
+                    <span className="fs-12 t-2">النقد المتوقع</span>
+                    <b className="num fs-16">{egp(closedResult.expected_closing_cash)} ج</b>
+                  </div>
+                )}
+                {closedResult.cash_difference != null && (
+                  <div className={cx('is-diff', doneDiffState)}>
+                    <span className="fs-12">الفرق</span>
+                    <b className="num fs-16">
+                      {doneDiff > 0 ? `+${egp(doneDiff)}` : doneDiff < 0 ? `−${egp(Math.abs(doneDiff))}` : '٠'} ج
+                    </b>
+                  </div>
+                )}
+              </div>
+
+              <div className="pos-dialog-actions" style={{ width: '100%' }}>
+                <button className="btn btn-secondary btn-lg" type="button" onClick={() => printReceipt(receiptPreview.current)}>
+                  <Icon n="printer" s={16} aria-hidden="true" />
+                  طباعة الملخص
+                </button>
+                <button className="btn btn-primary btn-lg" type="button" autoFocus onClick={() => onClosed(closedResult)}>
+                  تم
+                </button>
+              </div>
             </div>
 
-            <div ref={receiptPreview} className="receipt" style={{ width: '100%', maxWidth: 300, textAlign: 'right' }}>
-              <div style={{ textAlign: 'center' }}>
-                <b className="fs-14 display">ملخص إغلاق الوردية</b>
-                <div className="num" style={{ color: '#6f6a76' }}>
-                  {closedResult.shift_number} · {shift.treasury.name}
+            <div className="pos-close-done-receipt">
+              <div ref={receiptPreview} className="receipt" style={{ width: '100%', maxWidth: 300, textAlign: 'right' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <b className="fs-14 display">ملخص إغلاق الوردية</b>
+                  <div className="num" style={{ color: '#6f6a76' }}>
+                    {closedResult.shift_number} · {shift.treasury.name}
+                  </div>
                 </div>
+                <div className="dash" />
+                <div className="rr">
+                  <span>العهدة الافتتاحية:</span>
+                  <span className="num">{egp(shift.opening_cash)} ج</span>
+                </div>
+                {closedResult.cash_sales_total !== undefined && (
+                  <div className="rr">
+                    <span>مبيعات نقدية:</span>
+                    <span className="num">{egp(closedResult.cash_sales_total)} ج</span>
+                  </div>
+                )}
+                {closedResult.card_sales_total !== undefined && (
+                  <div className="rr">
+                    <span>مبيعات بطاقة:</span>
+                    <span className="num">{egp(closedResult.card_sales_total)} ج</span>
+                  </div>
+                )}
+                {closedResult.cash_returns_total !== undefined && (
+                  <div className="rr">
+                    <span>مرتجعات نقدية:</span>
+                    <span className="num">{egp(closedResult.cash_returns_total)} ج</span>
+                  </div>
+                )}
+                {closedResult.cash_expenses_total !== undefined && (
+                  <div className="rr">
+                    <span>مصروفات:</span>
+                    <span className="num">{egp(closedResult.cash_expenses_total)} ج</span>
+                  </div>
+                )}
+                <div className="dash" />
+                {closedResult.expected_closing_cash !== undefined && (
+                  <div className="rr">
+                    <span>النقد المتوقع:</span>
+                    <span className="num">{egp(closedResult.expected_closing_cash)} ج</span>
+                  </div>
+                )}
+                <div className="rr" style={{ fontWeight: 700 }}>
+                  <span>النقد الفعلي:</span>
+                  <span className="num">{egp(Number(actual))} ج</span>
+                </div>
+                {closedResult.cash_difference != null && (
+                  <div className="rr">
+                    <span>الفرق:</span>
+                    <span className="num">
+                      {doneDiff > 0 ? `+${egp(doneDiff)}` : doneDiff < 0 ? `−${egp(Math.abs(doneDiff))}` : '٠'} ج
+                    </span>
+                  </div>
+                )}
+                {notes && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#6f6a76' }}>
+                    ملاحظات: {notes}
+                  </div>
+                )}
               </div>
-              <div className="dash" />
-              <div className="rr">
-                <span>العهدة الافتتاحية:</span>
-                <span className="num">{egp(shift.opening_cash)} ج</span>
-              </div>
-              {closedResult.cash_sales_total !== undefined && (
-                <div className="rr">
-                  <span>مبيعات نقدية:</span>
-                  <span className="num">{egp(closedResult.cash_sales_total)} ج</span>
-                </div>
-              )}
-              {closedResult.card_sales_total !== undefined && (
-                <div className="rr">
-                  <span>مبيعات بطاقة:</span>
-                  <span className="num">{egp(closedResult.card_sales_total)} ج</span>
-                </div>
-              )}
-              {closedResult.cash_returns_total !== undefined && (
-                <div className="rr">
-                  <span>مرتجعات نقدية:</span>
-                  <span className="num">{egp(closedResult.cash_returns_total)} ج</span>
-                </div>
-              )}
-              {closedResult.cash_expenses_total !== undefined && (
-                <div className="rr">
-                  <span>مصروفات:</span>
-                  <span className="num">{egp(closedResult.cash_expenses_total)} ج</span>
-                </div>
-              )}
-              <div className="dash" />
-              {closedResult.expected_closing_cash !== undefined && (
-                <div className="rr">
-                  <span>النقد المتوقع:</span>
-                  <span className="num">{egp(closedResult.expected_closing_cash)} ج</span>
-                </div>
-              )}
-              <div className="rr" style={{ fontWeight: 700 }}>
-                <span>النقد الفعلي:</span>
-                <span className="num">{egp(Number(actual))} ج</span>
-              </div>
-              {closedResult.cash_difference != null && (
-                <div className="rr">
-                  <span>الفرق:</span>
-                  <span className="num">
-                    {diff > 0 ? `+${egp(diff)}` : diff < 0 ? `−${egp(Math.abs(diff))}` : '٠'} ج
-                  </span>
-                </div>
-              )}
-              {notes && (
-                <div style={{ marginTop: 8, fontSize: 11, color: '#6f6a76' }}>
-                  ملاحظات: {notes}
-                </div>
-              )}
-            </div>
-
-            <div className="pos-dialog-actions" style={{ width: '100%' }}>
-              <button className="btn btn-secondary btn-lg" onClick={() => printReceipt(receiptPreview.current)}>
-                <Icon n="printer" s={16} />
-                طباعة الملخص
-              </button>
-              <button className="btn btn-primary btn-lg" autoFocus onClick={() => onClosed(closedResult)}>
-                تم
-              </button>
             </div>
           </div>
         </div>
@@ -244,54 +261,136 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
   return ReactDOM.createPortal(
     <div dir="rtl" className={darkClass}>
       <div className="pos-overlay" onClick={dismiss} />
-      <section className="pos-modal close-shift-modal" data-screen-label="02 Close Shift"
+      <section className="pos-modal pos-sheet-mobile close-shift-modal" data-screen-label="02 Close Shift"
         role="dialog" aria-modal="true" aria-label="إغلاق الوردية وجرد النقدية">
         <header className="pos-close-header">
-          <div>
-            <h3>إغلاق الوردية وجرد النقدية</h3>
-            <p className="t-2 fs-13">وردية <bdi>{shift.shift_number}</bdi> · {shift.treasury.name}</p>
+          <div className="pos-sheet-handle" aria-hidden="true" />
+          <div className="pos-close-header-row">
+            <div>
+              <h3>إغلاق الوردية وجرد النقدية</h3>
+              <p className="t-2 fs-13">وردية <bdi className="num">{shift.shift_number}</bdi> · {shift.treasury.name}</p>
+            </div>
+            <button className="icon-btn" type="button" disabled={busy} onClick={dismiss} aria-label="إغلاق"><Icon n="x" s={18} /></button>
           </div>
-          <button className="icon-btn" disabled={busy} onClick={dismiss} aria-label="إغلاق"><Icon n="x" s={18} /></button>
         </header>
-        <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
+        <form className="pos-close-form" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
           <div className={cx('pos-close-content', canViewExpected && 'has-ledger')}>
             <div className="pos-close-count">
-              <h4>النقد الفعلي في الدرج</h4>
-              <p className="fs-13 t-2">عدّ النقد الموجود في الدرج وأدخل المبلغ بالجنيه.</p>
-              <div role="group" aria-label="النقد الفعلي في الدرج">
-                <MoneyInput value={actual} onChange={setActual} autoFocus placeholder="0.00" disabled={busy} />
+              <div className="pos-close-count-head">
+                <div>
+                  <h4>النقد الفعلي في الدرج</h4>
+                  <p className="fs-13 t-2">عدّ النقد الموجود في الدرج وأدخل المبلغ بالجنيه.</p>
+                </div>
+                {canViewExpected && (
+                  <button
+                    type="button"
+                    className="pos-close-match-btn"
+                    disabled={busy}
+                    onClick={() => setActual(String(expected))}
+                  >
+                    مطابقة المتوقع
+                  </button>
+                )}
               </div>
-              {canViewExpected && has && (
+              <div role="group" aria-label="النقد الفعلي في الدرج">
+                <MoneyInput
+                  value={actual}
+                  onChange={setActual}
+                  autoFocus
+                  placeholder="0.00"
+                  disabled={busy}
+                  onEnter={() => { if (canSubmit) void handleSubmit(); }}
+                />
+              </div>
+              {canViewExpected && (
                 <div className={cx('diff', state)} role="status">
-                  <Icon n={diffIcon} s={18} />
-                  <b className="fs-13">{diffLabel}</b>
-                  <bdi className="v">{egp(Math.abs(diff))} ج</bdi>
+                  <span className="diff-ic" aria-hidden="true"><Icon n={diffIcon} s={18} /></span>
+                  <div className="col" style={{ gap: 2 }}>
+                    <b className="fs-13">{diffLabel}</b>
+                    {state !== 'idle' && (
+                      <span className="fs-12" style={{ opacity: 0.85 }}>
+                        {state === 'ok' ? 'الرصيد مطابق تمامًا للمتوقع' : state === 'over' ? 'فوق النقد المتوقع' : 'أقل من النقد المتوقع'}
+                      </span>
+                    )}
+                  </div>
+                  <bdi className="v">{has ? `${egp(Math.abs(diff))} ج` : '—'}</bdi>
                 </div>
               )}
-              <label htmlFor={notesId} className="fs-13 fw-6">
-                {needNote ? 'سبب الفرق (مطلوب)' : 'ملاحظات (اختياري)'}
-              </label>
-              <textarea id={notesId} className="input" rows={2} maxLength={500}
-                disabled={busy} required={needNote} value={notes} onChange={(event) => setNotes(event.target.value)} />
+              <div className="pos-close-notes-wrap">
+                <div className="row between gap-2">
+                  <label htmlFor={notesId} className="fs-13 fw-6">
+                    {needNote ? 'سبب الفرق (مطلوب)' : 'ملاحظات (اختياري)'}
+                  </label>
+                  <span className="fs-12 t-3 num">{notes.length}/500</span>
+                </div>
+                <textarea
+                  id={notesId}
+                  className="input"
+                  rows={2}
+                  maxLength={500}
+                  placeholder={needNote ? 'اكتب سبب الزيادة أو العجز…' : 'أضف أي ملاحظات للوردية…'}
+                  disabled={busy}
+                  required={needNote}
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canSubmit) {
+                      event.preventDefault();
+                      void handleSubmit();
+                    }
+                  }}
+                />
+              </div>
               {error && <p className="pos-inline-error" role="alert">{error}</p>}
               {!statsReady && !error && <p className="fs-13 t-2" role="status">جارٍ تحميل ملخص الوردية…</p>}
             </div>
             {canViewExpected && (
               <aside className="pos-close-ledger" aria-label="ملخص حركة النقدية">
-                <h4>حركة النقدية</h4>
-                <dl>
-                  <div><dt>العهدة الافتتاحية</dt><dd>{egp(shift.opening_cash)}</dd></div>
-                  <div><dt>المبيعات النقدية</dt><dd>+{egp(stats.cashSales)}</dd></div>
-                  <div><dt>المرتجعات النقدية</dt><dd>−{egp(stats.returns)}</dd></div>
-                  <div><dt>مصروفات الدرج</dt><dd>−{egp(stats.expenses)}</dd></div>
-                  <div className="pos-close-total"><dt>النقد المتوقع</dt><dd>{egp(expected)} ج</dd></div>
-                </dl>
-                <p className="fs-12 t-2">{fmt(stats.invoices)} فاتورة · مبيعات البطاقة {egp(stats.cardSales)} ج</p>
+                <div className="row between gap-2">
+                  <h4>حركة النقدية</h4>
+                  <span className="fs-12 t-2">الوردية الحالية</span>
+                </div>
+                <div className="pos-close-kpis">
+                  <div className="pos-close-kpi">
+                    <span className="fs-12 t-2"><Icon n="orders" s={13} /> الفواتير</span>
+                    <b className="num fs-14">{fmt(stats.invoices)}</b>
+                  </div>
+                  <div className="pos-close-kpi">
+                    <span className="fs-12 t-2"><Icon n="card" s={13} /> مبيعات البطاقة</span>
+                    <b className="num fs-14">{egp(stats.cardSales)} ج</b>
+                  </div>
+                </div>
+                <div className="ledger">
+                  <div className="lr">
+                    <span className="op base">=</span>
+                    <span>العهدة الافتتاحية</span>
+                    <span className="amt">{egp(shift.opening_cash)} ج</span>
+                  </div>
+                  <div className="lr">
+                    <span className="op plus">+</span>
+                    <span>المبيعات النقدية</span>
+                    <span className="amt t-ok">+{egp(stats.cashSales)} ج</span>
+                  </div>
+                  <div className="lr">
+                    <span className="op minus">−</span>
+                    <span>المرتجعات النقدية</span>
+                    <span className="amt">−{egp(stats.returns)} ج</span>
+                  </div>
+                  <div className="lr">
+                    <span className="op minus">−</span>
+                    <span>مصروفات الدرج</span>
+                    <span className="amt">−{egp(stats.expenses)} ج</span>
+                  </div>
+                  <div className="lr pos-close-total">
+                    <span className="op eq">=</span>
+                    <span>النقد المتوقع</span>
+                    <span className="amt fs-16">{egp(expected)} ج</span>
+                  </div>
+                </div>
               </aside>
             )}
           </div>
           <footer className="pos-close-footer">
-            <p className="fs-13 t-2">تُرسل الوردية للمدير للاعتماد بعد إغلاقها.</p>
             <div className="pos-dialog-actions">
               <button className="btn btn-primary" disabled={!canSubmit}>{busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية'}</button>
               <button className="btn btn-secondary" type="button" disabled={busy} onClick={dismiss}>رجوع للبيع</button>

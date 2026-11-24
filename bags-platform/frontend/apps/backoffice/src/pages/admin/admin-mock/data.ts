@@ -77,6 +77,9 @@ export interface AdminSettings {
   purchases: {
     allow_self_approve_purchases: boolean;
   };
+  pos: {
+    pos_shift_requires_approval: boolean;
+  };
 }
 
 export const DOC_TYPES: DocType[] = [

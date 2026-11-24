@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Pos;
 use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
@@ -16,11 +17,13 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\PosHeldSale;
 use App\Models\PosShift;
+use App\Models\ReturnRequestItem;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\OperationIdempotencyService;
 use Illuminate\Auth\Access\AuthorizationException;
 use App\Services\Pos\PosService;
+use App\Services\Shared\SearchTerm;
 use App\Services\Shared\SettingService;
 use App\Support\ArabicDigits;
 use Illuminate\Http\JsonResponse;
@@ -50,7 +53,7 @@ class PosSaleController extends Controller
             'customer_id' => ['nullable', 'integer', 'min:1', Rule::exists('customers', 'id')
                 ->whereNull('deleted_at')
                 ->whereNotIn('status', [CustomerStatus::Suspended->value, CustomerStatus::Rejected->value])],
-            'payment_method' => ['nullable', 'string', 'in:cash,card,mixed'],
+            'payment_method' => ['nullable', 'string', 'in:cash,card,mixed,credit'],
             'cash_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
             'card_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999.99', 'decimal:0,2'],
             'override_price' => ['nullable', 'boolean'],
@@ -247,6 +250,174 @@ class PosSaleController extends Controller
     }
 
     /**
+     * List completed POS sales and delivered branch orders (store/wholesale) for return lookup.
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:64'],
+            'channel' => ['nullable', Rule::in(['all', 'pos', 'store', 'wholesale'])],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            'only_returnable' => ['nullable', 'boolean'],
+            'cursor' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
+        $branchId = (int) $shift->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        $channel = $filters['channel'] ?? 'all';
+        $perPage = (int) ($filters['per_page'] ?? 20);
+        $rawQuery = trim((string) ($filters['q'] ?? ''));
+        $normalizedQuery = ArabicDigits::normalize($rawQuery);
+        $tz = (string) config('app.business_timezone', 'Africa/Cairo');
+
+        $query = Order::query()
+            ->where('status', OrderStatus::Delivered)
+            ->whereNull('return_of_order_id')
+            ->where(function ($scope) use ($branchId, $channel): void {
+                $applyPosScope = fn ($pos) => $pos
+                    ->where('channel', 'pos')
+                    ->where(fn ($q) => $q->where('allocated_branch_id', $branchId)
+                        ->orWhereHas('posShift', fn ($s) => $s->where('branch_id', $branchId)));
+
+                $applyRemoteScope = fn ($remote) => $remote
+                    ->whereIn('channel', $channel === 'all' ? ['store', 'wholesale'] : [$channel])
+                    ->where(fn ($b) => $b->whereNull('allocated_branch_id')->orWhere('allocated_branch_id', $branchId))
+                    ->whereHas('items', fn ($items) => $items->where('allocated_branch_id', $branchId))
+                    ->whereDoesntHave('items', fn ($items) => $items
+                        ->whereNull('allocated_branch_id')
+                        ->orWhere('allocated_branch_id', '!=', $branchId));
+
+                if ($channel === 'pos') {
+                    $applyPosScope($scope);
+                } elseif (in_array($channel, ['store', 'wholesale'], true)) {
+                    $applyRemoteScope($scope);
+                } else {
+                    $scope->where($applyPosScope)->orWhere($applyRemoteScope);
+                }
+            })
+            ->with(['customer:id,name,phone', 'posShift.cashier:id,name'])
+            ->when($filters['date_from'] ?? null, fn ($q, $d) => $q->where('created_at', '>=', \Illuminate\Support\Carbon::parse((string) $d, $tz)->startOfDay()->utc()))
+            ->when($filters['date_to'] ?? null, fn ($q, $d) => $q->where('created_at', '<', \Illuminate\Support\Carbon::parse((string) $d, $tz)->addDay()->startOfDay()->utc()))
+            ->when($filters['only_returnable'] ?? false, fn ($q) => $q->whereExists(fn ($sub) => $sub
+                ->selectRaw('1')
+                ->from('order_items')
+                ->whereColumn('order_items.order_id', 'orders.id')
+                ->whereRaw('order_items.qty > order_items.returned_qty')))
+            ->when($normalizedQuery !== '', function ($q) use ($normalizedQuery): void {
+                $pattern = SearchTerm::pattern($normalizedQuery);
+                $prefix = SearchTerm::prefix($normalizedQuery);
+                $upperPrefix = SearchTerm::prefix(strtoupper($normalizedQuery));
+                $phoneNormalized = Customer::normalizePhone($normalizedQuery);
+                $phonePrefix = SearchTerm::prefix($phoneNormalized);
+
+                $q->where(function ($inner) use ($normalizedQuery, $pattern, $prefix, $upperPrefix, $phoneNormalized, $phonePrefix): void {
+                    $inner->whereLike('order_number', $prefix, caseSensitive: false)
+                        ->orWhereLike('order_number', $upperPrefix, caseSensitive: false)
+                        ->orWhereLike('order_number', $pattern, caseSensitive: false)
+                        ->orWhereLike('guest_name', $pattern, caseSensitive: false)
+                        ->orWhere('guest_phone', 'like', $prefix)
+                        ->orWhere('guest_phone_normalized', 'like', $prefix)
+                        ->orWhereHas('customer', function ($cq) use ($pattern, $prefix, $phoneNormalized, $phonePrefix): void {
+                            $cq->whereLike('name', $pattern, caseSensitive: false)
+                                ->orWhere('phone', 'like', $prefix);
+                            if ($phoneNormalized !== '' && $phonePrefix !== $prefix) {
+                                $cq->orWhere('phone', 'like', $phonePrefix);
+                            }
+                        })
+                        ->orWhereExists(function ($sub) use ($pattern, $prefix): void {
+                            $sub->selectRaw('1')
+                                ->from('order_items')
+                                ->whereColumn('order_items.order_id', 'orders.id')
+                                ->where(function ($itemsQ) use ($pattern, $prefix): void {
+                                    $itemsQ->whereLike('order_items.sku_snapshot', $prefix, caseSensitive: false)
+                                        ->orWhereLike('order_items.product_name_snapshot', $pattern, caseSensitive: false);
+                                });
+                        });
+                    if ($phoneNormalized !== '' && $phonePrefix !== $prefix) {
+                        $inner->orWhere('guest_phone', 'like', $phonePrefix)
+                            ->orWhere('guest_phone_normalized', 'like', $phonePrefix);
+                    }
+                    if (ctype_digit($normalizedQuery)) {
+                        $inner->orWhere('order_number', 'like', '%-'.str_pad((string) ((int) $normalizedQuery), 6, '0', STR_PAD_LEFT));
+                    }
+                });
+            })
+            ->when(isset($filters['cursor']), fn ($q) => $q->where('id', '<', (int) $filters['cursor']))
+            ->orderByDesc('id')
+            ->limit($perPage + 1);
+
+        $rows = $query->get();
+        $hasMore = $rows->count() > $perPage;
+        $page = $rows->take($perPage);
+
+        $itemStats = $page->isEmpty()
+            ? collect()
+            : DB::table('order_items')
+                ->whereIn('order_id', $page->pluck('id')->all())
+                ->groupBy('order_id')
+                ->selectRaw('order_id, COUNT(*) AS items_count, COALESCE(SUM(qty), 0) AS total_qty, COALESCE(SUM(GREATEST(qty - returned_qty, 0)), 0) AS returnable_qty')
+                ->get()
+                ->keyBy('order_id');
+
+        $reservedByOrder = $page->isEmpty()
+            ? collect()
+            : ReturnRequestItem::query()
+                ->join('return_requests', 'return_requests.id', '=', 'return_request_items.return_request_id')
+                ->whereIn('return_requests.order_id', $page->pluck('id')->all())
+                ->whereNotIn('return_requests.status', [ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value, ReturnStatus::Received->value, ReturnStatus::Refunded->value])
+                ->selectRaw("return_requests.order_id, COALESCE(SUM(CASE WHEN return_requests.status = 'approved' THEN approved_qty ELSE requested_qty END), 0) AS total")
+                ->groupBy('return_requests.order_id')
+                ->pluck('total', 'order_id');
+
+        $returnWindowDays = (int) (app(SettingService::class)->get('pos.return_window_days')
+            ?? config('inventory.pos_return_window_days', 30));
+
+        $data = $page->map(function (Order $order) use ($itemStats, $reservedByOrder, $returnWindowDays): array {
+            $stats = $itemStats->get($order->id);
+            $totalQty = (float) ($stats->total_qty ?? 0);
+            $baseReturnable = (float) ($stats->returnable_qty ?? 0);
+            $pendingReserved = $order->channel !== 'pos' ? (float) ($reservedByOrder[$order->id] ?? 0) : 0.0;
+            $returnableQty = max(0.0, $baseReturnable - $pendingReserved);
+            $withinWindow = $returnWindowDays <= 0
+                || ($order->created_at !== null && $order->created_at->gte(now()->subDays($returnWindowDays)));
+
+            $customerData = $order->customer !== null
+                ? ['id' => $order->customer->id, 'name' => $order->customer->name, 'phone' => $order->customer->phone]
+                : ($order->guest_name !== null ? ['id' => null, 'name' => $order->guest_name, 'phone' => $order->guest_phone] : null);
+
+            return [
+                'id' => $order->id,
+                'channel' => $order->channel,
+                'order_number' => $order->order_number,
+                'created_at' => $order->created_at,
+                'payment_method' => $order->payment_method,
+                'grand_total' => number_format((float) $order->grand_total, 2, '.', ''),
+                'customer' => $customerData,
+                'cashier' => $order->posShift?->cashier !== null ? [
+                    'id' => $order->posShift->cashier->id,
+                    'name' => $order->posShift->cashier->name,
+                ] : null,
+                'items_count' => (int) ($stats->items_count ?? 0),
+                'total_qty' => floor($totalQty) === $totalQty ? (int) $totalQty : $totalQty,
+                'returnable_qty' => floor($returnableQty) === $returnableQty ? (int) $returnableQty : $returnableQty,
+                'is_within_return_window' => $withinWindow,
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'data' => $data,
+            'next_cursor' => $hasMore ? $page->last()?->id : null,
+        ]);
+    }
+
+    /**
      * Look up a delivered POS sale order by number for return or exchange processing.
      */
     public function lookupForReturn(Request $request): JsonResponse
@@ -319,7 +490,7 @@ class PosSaleController extends Controller
         // The LIKE '%-...' fallback below runs only on a miss, so the common
         // case never forces a sequential scan over the orders table.
         $baseQuery = fn () => Order::query()
-            ->where('channel', 'pos')
+            ->whereIn('channel', ['pos', 'store', 'wholesale'])
             ->where('status', OrderStatus::Delivered)
             ->whereNull('return_of_order_id')
             ->with(['items.variant.product', 'customer', 'posShift.cashier']);
@@ -382,11 +553,25 @@ class PosSaleController extends Controller
             }
         }
 
-        $branchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
-        // F-08: fail closed with 404 when the invoice is detached from every
-        // branch instead of leaking a misleading 403 from assertBranch(id, 0).
-        if ($branchId <= 0) {
-            abort(404, 'الفاتورة غير موجودة.');
+        $activeBranchId = (int) ($request->attributes->get('pos_shift')?->branch_id ?? 0);
+        if (in_array($order->channel, ['store', 'wholesale'], true)) {
+            $ownsBranchOrder = $activeBranchId > 0
+                && ($order->allocated_branch_id === null || (int) $order->allocated_branch_id === $activeBranchId)
+                && $order->items()->where('allocated_branch_id', $activeBranchId)->exists()
+                && ! $order->items()->where(fn ($items) => $items
+                    ->whereNull('allocated_branch_id')
+                    ->orWhere('allocated_branch_id', '!=', $activeBranchId))->exists();
+            if (! $ownsBranchOrder) {
+                abort(404, 'الفاتورة غير موجودة.');
+            }
+            $branchId = $activeBranchId;
+        } else {
+            $branchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
+            // F-08: fail closed with 404 when the invoice is detached from every
+            // branch instead of leaking a misleading 403 from assertBranch(id, 0).
+            if ($branchId <= 0) {
+                abort(404, 'الفاتورة غير موجودة.');
+            }
         }
         app(BranchAccess::class)->assertBranch($user->id, $branchId);
 
@@ -400,28 +585,42 @@ class PosSaleController extends Controller
             ->selectRaw('ri.product_variant_id, SUM(ri.qty) AS qty, SUM(ri.line_total) AS amount')
             ->groupBy('ri.product_variant_id')->get()->keyBy('product_variant_id');
 
+        $reservedReturnByItem = $order->channel !== 'pos' && $order->items->isNotEmpty()
+            ? ReturnRequestItem::query()
+                ->whereIn('order_item_id', $order->items->pluck('id')->all())
+                ->join('return_requests', 'return_requests.id', '=', 'return_request_items.return_request_id')
+                ->whereNotIn('return_requests.status', [ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value])
+                ->selectRaw("order_item_id, COALESCE(SUM(CASE WHEN return_requests.status IN ('received', 'refunded') THEN received_good_qty + received_damaged_qty WHEN return_requests.status = 'approved' THEN approved_qty ELSE requested_qty END), 0) AS total")
+                ->groupBy('order_item_id')
+                ->pluck('total', 'order_item_id')
+            : collect();
+
+        $customerPayload = $order->customer !== null
+            ? ['id' => $order->customer->id, 'name' => $order->customer->name, 'phone' => $order->customer->phone]
+            : ($order->guest_name !== null ? ['id' => null, 'name' => $order->guest_name, 'phone' => $order->guest_phone] : null);
+
         return response()->json([
             'data' => [
                 'id' => $order->id,
+                'channel' => $order->channel,
                 'order_number' => $order->order_number,
                 'created_at' => $order->created_at,
                 'payment_method' => $order->payment_method,
                 'cash_amount' => number_format((float) $order->cash_amount, 2, '.', ''),
                 'card_amount' => number_format((float) $order->card_amount, 2, '.', ''),
                 'grand_total' => number_format((float) $order->grand_total, 2, '.', ''),
-                'customer' => $order->customer !== null ? [
-                    'id' => $order->customer->id,
-                    'name' => $order->customer->name,
-                    'phone' => $order->customer->phone,
-                ] : null,
+                'customer' => $customerPayload,
                 'cashier' => $order->posShift?->cashier !== null ? [
                     'id' => $order->posShift->cashier->id,
                     'name' => $order->posShift->cashier->name,
                 ] : null,
-                'items' => $order->items->map(function (OrderItem $item) use ($refundedByVariant): array {
+                'items' => $order->items->map(function (OrderItem $item) use ($order, $refundedByVariant, $reservedReturnByItem): array {
                     $qty = (float) $item->qty;
                     $returnedQty = (float) ($item->returned_qty ?? 0);
-                    $returnableQty = max(0.0, $qty - $returnedQty);
+                    $effectiveReturned = $order->channel === 'pos'
+                        ? $returnedQty
+                        : max($returnedQty, (float) ($reservedReturnByItem[$item->id] ?? 0));
+                    $returnableQty = max(0.0, round($qty - $effectiveReturned, 4));
                     $unitPrice = (float) $item->unit_price;
                     $discountAmount = (float) $item->discount_amount;
                     $netUnitPrice = $qty > 0 ? ($qty * $unitPrice - $discountAmount) / $qty : 0.0;
@@ -615,6 +814,7 @@ class PosSaleController extends Controller
                 'refund_amount' => (float) $returnOrder->grand_total,
                 'cash_refund_amount' => (float) $returnOrder->cash_amount,
                 'card_refund_amount' => (float) $returnOrder->card_amount,
+                'account_credit_amount' => $returnOrder->payment_method === 'credit' ? (float) $returnOrder->grand_total : 0.0,
                 'exchange_credit' => (float) $returnOrder->exchange_credit,
             ],
         ]);
@@ -686,12 +886,27 @@ class PosSaleController extends Controller
     }
 
     /**
+     * List cash expenses recorded within the active POS shift.
+     */
+    public function listExpenses(Request $request): JsonResponse
+    {
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        return response()->json([
+            'data' => $this->pos->listShiftExpenses($shift, $user),
+        ]);
+    }
+
+    /**
      * Record an operating cash expense directly from the active POS drawer.
      */
     public function recordExpense(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999.99'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999.99', 'decimal:0,2'],
             'category' => ['required', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
@@ -711,15 +926,97 @@ class PosSaleController extends Controller
 
         return response()->json([
             'message' => 'تم تسجيل المصروف بنجاح.',
-            'data' => [
-                'id' => $expense->id,
-                'expense_number' => $expense->expense_number,
-                'amount' => (float) $expense->amount,
-                'category' => $expense->category,
-                'notes' => $expense->notes,
-                'created_at' => $expense->created_at,
-            ],
+            'data' => $this->formatExpense($expense),
         ], 201);
+    }
+
+    /**
+     * Update an expense recorded in the active POS shift (amount changes atomically void and replace).
+     */
+    public function updateExpense(Request $request, int $expense): JsonResponse
+    {
+        $data = $request->validate([
+            'amount' => ['sometimes', 'numeric', 'min:0.01', 'max:999999.99', 'decimal:0,2'],
+            'category' => ['sometimes', 'required', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+        if ($data === []) {
+            throw new BusinessException('حدد حقلًا واحدًا على الأقل لتعديل المصروف.');
+        }
+
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        $updated = app(OperationIdempotencyService::class)->run(
+            'pos_expense_update',
+            $user,
+            $this->requiredIdempotencyKey($request),
+            ['shift_id' => $shift->id, 'expense_id' => $expense, ...$data],
+            fn (): Expense => $this->pos->updateShiftExpense($shift, $expense, $data, $user),
+        );
+
+        return response()->json([
+            'message' => 'تم تحديث المصروف بنجاح.',
+            'data' => $this->formatExpense($updated),
+        ]);
+    }
+
+    /**
+     * Void an expense recorded in the active POS shift and reverse its drawer debit.
+     */
+    public function voidExpense(Request $request, int $expense): JsonResponse
+    {
+        $data = $request->validate([
+            'void_reason' => ['required', 'string', 'min:2', 'max:500'],
+        ]);
+
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
+        $reason = trim($data['void_reason']);
+
+        $voided = app(OperationIdempotencyService::class)->run(
+            'pos_expense_void',
+            $user,
+            $this->requiredIdempotencyKey($request),
+            ['shift_id' => $shift->id, 'expense_id' => $expense, 'void_reason' => $reason],
+            fn (): Expense => $this->pos->voidShiftExpense($shift, $expense, $reason, $user),
+        );
+
+        return response()->json([
+            'message' => 'تم إلغاء المصروف وإعادة المبلغ إلى الدرج.',
+            'data' => $this->formatExpense($voided),
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatExpense(Expense $expense): array
+    {
+        $expense->loadMissing('creator:id,name');
+        $isActive = $expense->voided_at === null;
+
+        return [
+            'id' => $expense->id,
+            'shift_id' => $expense->shift_id,
+            'expense_number' => $expense->expense_number,
+            'amount' => (float) $expense->amount,
+            'category' => $expense->category,
+            'notes' => $expense->notes,
+            'status' => $isActive ? 'posted' : 'voided',
+            'voided_at' => $expense->voided_at,
+            'void_reason' => $expense->void_reason,
+            'can_edit' => $isActive,
+            'can_void' => $isActive,
+            'created_by' => $expense->creator
+                ? ['id' => $expense->creator->id, 'name' => $expense->creator->name]
+                : null,
+            'created_at' => $expense->created_at,
+        ];
     }
 
     // ===================================================================
@@ -739,6 +1036,8 @@ class PosSaleController extends Controller
             'order_number' => $order->order_number,
             'channel' => $order->channel,
             'status' => $order->status->value,
+            'payment_method' => $order->payment_method,
+            'payment_status' => $order->payment_status,
             'grand_total' => $order->grand_total,
             'cash_amount' => $order->cash_amount,
             'card_amount' => $order->card_amount,

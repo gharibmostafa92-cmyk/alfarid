@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Wholesale;
 
 use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Customer\CustomerType;
 use App\Enums\Finance\TreasuryType;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\RefundMethod;
@@ -114,23 +115,7 @@ class WholesalePaymentNoticeService
      */
     public function balanceBreakdown(Customer $customer): array
     {
-        $totalCreditOrders = $this->toMoney(
-            $this->customerCreditOrdersQuery($customer->id)->sum('grand_total')
-        );
-
-        $totalApprovedNotices = $this->toMoney(
-            $this->customerApprovedNoticesQuery($customer->id)->sum('amount')
-        );
-
-        $totalCreditNotes = $this->toMoney(
-            $this->customerCreditNotesQuery($customer->id)->sum('total_refund_amount')
-        );
-
-        // Immutable ledger invariant matching statement() exactly: Total Orders - Total Notices - Total Credit Notes
-        $outstanding = $totalCreditOrders
-            ->minus($totalApprovedNotices)
-            ->minus($totalCreditNotes)
-            ->toScale(2, RoundingMode::HalfUp);
+        $outstanding = $this->outstandingBalanceDecimal($customer);
 
         $openOrders = $this->toMoney(
             $this->customerCreditOrdersQuery($customer->id)
@@ -174,7 +159,73 @@ class WholesalePaymentNoticeService
 
     public function outstandingBalanceDecimal(Customer $customer): BigDecimal
     {
-        return BigDecimal::of($this->balanceBreakdown($customer)['outstanding']);
+        $totals = DB::query()
+            ->selectSub($this->customerCreditOrdersQuery($customer->id)->selectRaw('SUM(grand_total)'), 'orders')
+            ->selectSub($this->customerApprovedNoticesQuery($customer->id)->selectRaw('SUM(amount)'), 'payments')
+            ->selectSub($this->customerCreditNotesQuery($customer->id)->selectRaw('SUM(total_refund_amount)'), 'credits')
+            ->first();
+
+        return $this->toMoney($totals->orders ?? '0')
+            ->minus($this->toMoney($totals->payments ?? '0'))
+            ->minus($this->toMoney($totals->credits ?? '0'));
+    }
+
+    public function accountCredit(Customer $customer): array
+    {
+        return $this->creditFromOutstanding($customer, (string) $this->outstandingBalanceDecimal($customer));
+    }
+
+    public function creditFromOutstanding(Customer $customer, string $balance): array
+    {
+        $outstanding = $this->toMoney($balance);
+        $debt = BigDecimal::max('0.00', $outstanding);
+        $limit = $this->toMoney($customer->credit_limit ?? '0');
+
+        return [
+            'outstanding' => (string) $outstanding,
+            'amount_due' => (string) $debt,
+            'credit_balance' => (string) BigDecimal::max('0.00', $outstanding->negated()),
+            'credit_limit' => (string) $limit,
+            'available_credit' => (string) BigDecimal::max('0.00', $limit->minus($debt)),
+        ];
+    }
+
+    public function availableCredit(Customer $customer): BigDecimal
+    {
+        return BigDecimal::of($this->accountCredit($customer)['available_credit']);
+    }
+
+    public function recordStaffPayment(Customer $customer, User $actor, array $data, array $expected): WholesalePaymentNotice
+    {
+        return DB::transaction(function () use ($customer, $actor, $data, $expected): WholesalePaymentNotice {
+            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            abort_unless($actor->can('payment_notices.approve'), 403);
+            app(BranchAccess::class)->assertCentralAccess($actor);
+            abort_unless(in_array($customer->type?->value, CustomerType::commercialValues(), true), 404);
+            $treasury = $this->resolveTreasury($data['treasury_id']);
+            app(BranchAccess::class)->assertTreasury($actor->id, $treasury);
+            $amount = $this->toMoney($data['amount']);
+            $this->assertUniqueSubmission($customer->id, $data['reference_number'], $amount, $data['transfer_date'], null);
+            $current = $this->accountCredit($customer);
+            if ($current != $expected) {
+                throw new BusinessException('حساب التاجر اتغير. اعرض معاينة جديدة قبل تسجيل السداد.', [], 409);
+            }
+            if (! $amount->isPositive() || $amount->isGreaterThan($current['amount_due'])) {
+                throw new BusinessException('المبلغ لازم يكون أكبر من صفر وفي حدود المديونية.');
+            }
+            $notice = $this->persistPendingNotice(
+                $customer, null, $data, $data['reference_number'], $amount, $data['transfer_date'], null, null,
+            );
+
+            return $this->approve($notice, $actor->id, $treasury->id);
+        });
+    }
+
+    public function findActivePaymentReference(Customer $customer, string $reference): ?WholesalePaymentNotice
+    {
+        return WholesalePaymentNotice::query()->where('customer_id', $customer->id)
+            ->whereNotIn('status', self::EXCLUDED_NOTICE_STATUSES)
+            ->whereReferenceNumber($reference)->first();
     }
 
     /**
@@ -495,6 +546,7 @@ class WholesalePaymentNoticeService
         return Order::query()
             ->where('customer_id', $customerId)
             ->where('payment_method', 'credit')
+            ->whereNull('return_of_order_id')
             ->where('status', '!=', OrderStatus::Cancelled->value);
     }
 
@@ -526,7 +578,7 @@ class WholesalePaymentNoticeService
         return hash_file('sha256', $realPath);
     }
 
-    private function assertUniqueSubmission(int $customerId, string $reference, BigDecimal $amount, string $transferDate, string $hash): void
+    private function assertUniqueSubmission(int $customerId, string $reference, BigDecimal $amount, string $transferDate, ?string $hash): void
     {
         if (WholesalePaymentNotice::query()->where('customer_id', $customerId)
             ->whereNotIn('status', self::EXCLUDED_NOTICE_STATUSES)
@@ -545,6 +597,9 @@ class WholesalePaymentNoticeService
             throw new BusinessException("نفس المرجع والمبلغ والتاريخ مسجّلين لإشعار {$crossCustomer->notice_number} من حساب تاجر آخر.", [], 409);
         }
 
+        if ($hash === null) {
+            return;
+        }
         $sameReceipt = WholesalePaymentNotice::query()
             ->where('receipt_sha256', $hash)
             ->whereNotIn('status', self::EXCLUDED_NOTICE_STATUSES)
@@ -561,8 +616,8 @@ class WholesalePaymentNoticeService
         string $reference,
         BigDecimal $amount,
         string $transferDate,
-        string $path,
-        string $hash,
+        ?string $path,
+        ?string $hash,
     ): WholesalePaymentNotice {
         try {
             return WholesalePaymentNotice::create([
@@ -575,6 +630,7 @@ class WholesalePaymentNoticeService
                 'reference_number' => $reference,
                 'transfer_date' => $transferDate,
                 'receipt_file_path' => $path,
+                'staff_recorded' => $path === null,
                 'receipt_sha256' => $hash,
                 'status' => WholesalePaymentNoticeStatus::PendingReview,
             ]);

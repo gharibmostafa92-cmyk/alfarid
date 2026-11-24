@@ -442,8 +442,8 @@ class QuotationService
         if ($customer !== null) {
             $address = $this->defaultShippingAddress($customer);
             $shipping = $address === null ? BigDecimal::zero() : $this->shippingCost($quotation, $address);
-            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalanceDecimal($customer);
-            $over = BigDecimal::of($quotation->grand_total)->plus($shipping)->plus($outstanding)->minus($customer->credit_limit);
+            $available = app(WholesalePaymentNoticeService::class)->availableCredit($customer);
+            $over = BigDecimal::of($quotation->grand_total)->plus($shipping)->minus($available);
             if ($over->isPositive()) {
                 $warnings[] = 'العرض ده لو اتقبل هيعدّي حد الائتمان بـ '.number_format((float) (string) $over, 2, '.', ',').'. التاجر هيشوف خطأ وقت القبول.';
             }
@@ -606,8 +606,8 @@ class QuotationService
 
     private function assertCreditLimitWithinExposure(Customer $customer, BigDecimal $orderTotal): void
     {
-        $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalanceDecimal($customer);
-        if ($outstanding->plus($orderTotal)->compareTo((string) $customer->credit_limit) > 0) {
+        $available = app(WholesalePaymentNoticeService::class)->availableCredit($customer);
+        if ($available->isLessThan($orderTotal)) {
             throw new BusinessException(
                 'إجمالي الطلب يتجاوز حد الائتمان المتاح.',
                 [],

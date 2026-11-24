@@ -63,6 +63,7 @@ export interface ExpensePayload {
 export interface ExpenseUpdatePayload {
   category?: string;
   notes?: string | null;
+  amount?: string;
 }
 const { remove: _omitExpenseRemove, update: _omitExpenseUpdate, ...expenseCrud } = crud<
   Expense,

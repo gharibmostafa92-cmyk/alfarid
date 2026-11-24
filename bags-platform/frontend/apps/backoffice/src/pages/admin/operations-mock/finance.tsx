@@ -173,6 +173,81 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
   );
 }
 
+export function ExpenseEditModal({ row, onClose, onSaved }: { row: ExpenseRow; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const { busy, run } = useAction();
+  const f = useFormState({
+    category: row.cat,
+    amount: String(row.amount),
+    notes: row.notes ?? '',
+  });
+  const baseCategories = ['نظافة', 'صيانة', 'نقل وتحميل', 'إيجار', 'ضيافة', 'أدوات مكتبية', 'أخرى'];
+  const categories = baseCategories.includes(row.cat) ? baseCategories : [row.cat, ...baseCategories];
+  const isShiftExpense = Boolean(row.shift);
+  const save = async () => {
+    const trimmedCategory = f.v.category.trim();
+    if (!trimmedCategory) return toast('اختر تصنيف المصروف', 'red');
+    const numericAmount = Number(f.v.amount);
+    if (!isShiftExpense && (!Number.isFinite(numericAmount) || numericAmount <= 0)) {
+      return toast('أدخل مبلغًا صحيحًا أكبر من صفر', 'red');
+    }
+    const payload: { category: string; notes: string | null; amount?: string } = {
+      category: trimmedCategory,
+      notes: f.v.notes.trim() || null,
+    };
+    if (!isShiftExpense && Math.abs(numericAmount - row.amount) > 0.001) {
+      payload.amount = numericAmount.toFixed(2);
+    }
+    const r = await run(() => expensesApi.update(row.id, payload), {
+      toast,
+      success: 'تم تحديث المصروف بنجاح',
+      onFieldErrors: (e) => f.setErrors(e as any),
+    });
+    if (r) { onSaved(); onClose(); }
+  };
+  return (
+    <Modal open onClose={() => { if (!busy) onClose(); }} title={`تعديل المصروف ${row.no}`} icon="edit" width={520}
+      footer={
+        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+          <button type="button" className="btn btn-soft flex-1 sm:flex-initial" disabled={busy} onClick={onClose}>إلغاء</button>
+          <button type="button" className="btn btn-dark flex-1 sm:flex-initial" disabled={busy} onClick={save}>
+            {busy ? 'جارٍ الحفظ…' : 'حفظ التعديل'}
+          </button>
+        </div>
+      }>
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="التصنيف" req err={f.errors.category}>
+            <select className="inp" value={f.v.category} onChange={f.on('category' as any)}>
+              {categories.map((c) => (<option key={c} value={c}>{c}</option>))}
+            </select>
+          </Field>
+          <Field
+            label="المبلغ (EGP)"
+            req={!isShiftExpense}
+            err={f.errors.amount}
+            hint={isShiftExpense ? 'تعديل مبلغ مصروف الوردية يتم من نقطة البيع أثناء فتح الوردية' : undefined}
+          >
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              className="inp num"
+              disabled={isShiftExpense}
+              value={f.v.amount}
+              onChange={f.on('amount' as any)}
+            />
+          </Field>
+        </div>
+        <TextArea label="البيان / الملاحظات" value={f.v.notes} onChange={(v) => f.set('notes', v)} />
+        {!isShiftExpense && (
+          <Note>عند تغيير المبلغ يتم عكس القيد القديم تلقائيًا وإصدار سند مصروف بديل بالمبلغ الصحيح دون تعديل سجل التدقيق يدويًا.</Note>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 const treasuryToUI = (t: string): TreasuryRow['type'] => t === 'main_safe' ? 'main' : t === 'pos_drawer' ? 'drawer' : t === 'bank_account' ? 'bank' : 'main';
 const treasuryToBackend = (t: string): TreasuryType => (t === 'main' ? 'main_safe' : t === 'drawer' ? 'pos_drawer' : t === 'bank' ? 'bank_account' : t) as TreasuryType;
 
@@ -575,6 +650,7 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
   const [showFilters, setShowFilters] = useState(false);
   const [form, setForm] = useState(false);
   const [viewing, setViewing] = useState<ExpenseRow | null>(null);
+  const [editing, setEditing] = useState<ExpenseRow | null>(null);
   const [voiding, setVoiding] = useState<ExpenseRow | null>(null);
   const [voidReason, setVoidReason] = useState('');
 
@@ -706,14 +782,30 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
               },
               {
                 h: '',
-                r: (e: ExpenseRow) => !e.voidedAt && !e.shift && can('expenses.delete') ? (
-                  <button
-                    type="button"
-                    className="btn btn-soft btn-sm"
-                    onClick={(ev) => { ev.stopPropagation(); setVoiding(e); setVoidReason(''); }}
-                  >
-                    إلغاء المصروف
-                  </button>
+                r: (e: ExpenseRow) => !e.voidedAt && (can('expenses.update') || (!e.shift && can('expenses.delete'))) ? (
+                  <RowActions>
+                    {can('expenses.update') && (
+                      <button
+                        type="button"
+                        className="icon-btn !w-7 !h-7"
+                        disabled={list.usingMock}
+                        aria-label={`تعديل ${e.no}`}
+                        onClick={(ev) => { ev.stopPropagation(); setEditing(e); }}
+                      >
+                        <Icon name="edit" size={13} />
+                      </button>
+                    )}
+                    {!e.shift && can('expenses.delete') && (
+                      <button
+                        type="button"
+                        className="btn btn-soft btn-sm"
+                        disabled={list.usingMock}
+                        onClick={(ev) => { ev.stopPropagation(); setVoiding(e); setVoidReason(''); }}
+                      >
+                        إلغاء المصروف
+                      </button>
+                    )}
+                  </RowActions>
                 ) : null,
               },
             ]}
@@ -735,6 +827,7 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
             <div className="op-expense-cards">
               {(rows as ExpenseRow[]).map((e) => {
                 const noteText = e.voidReason || e.notes;
+                const canEdit = !e.voidedAt && can('expenses.update');
                 const canVoid = !e.voidedAt && !e.shift && can('expenses.delete');
                 return (
                   <div
@@ -791,9 +884,9 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
                       </div>
                     )}
 
-                    {(e.hasAttachment || canVoid) && (
+                    {(e.hasAttachment || canEdit || canVoid) && (
                       <div className="op-order-card-foot" onClick={(ev) => ev.stopPropagation()}>
-                        {e.hasAttachment ? (
+                        {e.hasAttachment && (
                           <button
                             type="button"
                             className="btn btn-soft btn-sm flex-1 justify-center gap-1.5"
@@ -802,11 +895,23 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
                             <Icon name="file" size={14} />
                             عرض الإيصال
                           </button>
-                        ) : <span />}
+                        )}
+                        {canEdit && (
+                          <button
+                            type="button"
+                            className="btn btn-soft btn-sm flex-1 justify-center gap-1.5"
+                            disabled={list.usingMock}
+                            onClick={() => setEditing(e)}
+                          >
+                            <Icon name="edit" size={14} />
+                            تعديل
+                          </button>
+                        )}
                         {canVoid && (
                           <button
                             type="button"
                             className="btn btn-danger btn-sm flex-1 justify-center gap-1.5"
+                            disabled={list.usingMock}
                             onClick={() => { setVoiding(e); setVoidReason(''); }}
                           >
                             <Icon name="ban" size={14} />
@@ -826,6 +931,9 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
       {form && (
         <ExpenseForm onClose={() => setForm(false)} onSaved={() => { list.reload(); treasures.reload(); }} />
       )}
+      {editing && (
+        <ExpenseEditModal row={editing} onClose={() => setEditing(null)} onSaved={() => { list.reload(); treasures.reload(); }} />
+      )}
       {viewing && (
         <Modal
           open
@@ -840,6 +948,17 @@ export function ExpensesTab({ recordId, can = () => false }: { recordId?: number
                 <button type="button" className="btn btn-soft flex-1 sm:flex-initial" onClick={() => openReceipt(viewing.id)}>
                   <Icon name="file" size={14} />
                   الإيصال
+                </button>
+              )}
+              {!viewing.voidedAt && can('expenses.update') && (
+                <button
+                  type="button"
+                  className="btn btn-soft flex-1 sm:flex-initial"
+                  disabled={list.usingMock}
+                  onClick={() => { const target = viewing; setViewing(null); setEditing(target); }}
+                >
+                  <Icon name="edit" size={14} />
+                  تعديل
                 </button>
               )}
               {!viewing.voidedAt && !viewing.shift && can('expenses.delete') && (
@@ -1385,9 +1504,9 @@ export function ShiftsPage({ can = () => false }: { can?: (permission: string) =
   const hasAnyFilter = Boolean(st || activeFilterCount > 0);
   const clearFilters = () => { setBr(''); setCa(''); setSt(''); setFrom(''); setTo(''); setPage(1); };
 
-  const approveShift = async (id: number) => {
+  const approveShift = async (id: number, notes: string) => {
     if (list.usingMock) return toast('البيانات المعروضة تجريبية — لم يتم الحفظ', 'red');
-    const r = await run(() => shiftsApi.approve(id), { toast, success: 'تم اعتماد الوردية' });
+    const r = await run(() => shiftsApi.approve(id, { notes: notes || null }), { toast, success: 'تم اعتماد الوردية' });
     if (r) { setView(null); list.reload(); }
   };
 
@@ -1619,18 +1738,20 @@ export function ShiftsPage({ can = () => false }: { can?: (permission: string) =
       </Card>
       {view && (
         <ShiftModal
+          key={view.id}
           s={view}
           busy={busy}
           canApprove={can('pos_shifts.approve')}
           onClose={() => setView(null)}
-          onApprove={() => approveShift(view.id)}
+          onApprove={(notes) => approveShift(view.id, notes)}
         />
       )}
     </div>
   );
 }
 
-export function ShiftModal({ s: initial, busy = false, canApprove = false, onClose, onApprove }: { s: ShiftRow; busy?: boolean; canApprove?: boolean; onClose: () => void; onApprove: () => void }) {
+export function ShiftModal({ s: initial, busy = false, canApprove = false, onClose, onApprove }: { s: ShiftRow; busy?: boolean; canApprove?: boolean; onClose: () => void; onApprove: (notes: string) => void }) {
+  const [approvalNotes, setApprovalNotes] = useState('');
   const detail = useRemote((signal) => shiftsApi.show(initial.id, signal), [initial.id]);
   const s = detail.data ? mapShift(detail.data) : initial;
   const opening = num(detail.data?.opening_cash);
@@ -1640,6 +1761,10 @@ export function ShiftModal({ s: initial, busy = false, canApprove = false, onClo
   const cashExp = num(detail.data?.cash_expenses_total);
   const exp = s.exp ?? (detail.data ? opening + cashSales - cashRet - cashExp : null);
   const d = s.act != null && exp != null ? Math.round((s.act - exp) * 100) / 100 : null;
+  const shiftNotes = detail.data?.notes?.trim();
+  const awaitingApproval = detail.data?.status === 'closed_pending_approval' && canApprove;
+  const hasVariance = d !== null && d !== 0;
+  const needsApprovalNote = hasVariance && !shiftNotes;
   const shiftExpenses = (detail.data?.expenses ?? []).map(mapExpense);
 
   return (
@@ -1660,12 +1785,12 @@ export function ShiftModal({ s: initial, busy = false, canApprove = false, onClo
         </>
       }
       footer={
-        detail.data?.status === 'closed_pending_approval' && canApprove ? (
+        awaitingApproval ? (
           <div className="flex w-full sm:w-auto items-center justify-end gap-2">
             <button type="button" className="btn btn-soft flex-1 sm:flex-initial justify-center" disabled={busy} onClick={onClose}>
               إغلاق
             </button>
-            <button type="button" className="btn btn-dark flex-1 sm:flex-initial justify-center" disabled={busy} onClick={onApprove}>
+            <button type="button" className="btn btn-dark flex-1 sm:flex-initial justify-center" disabled={busy || (needsApprovalNote && !approvalNotes.trim())} onClick={() => onApprove(approvalNotes.trim())}>
               <Icon name="check" size={14} />
               اعتماد الوردية
             </button>
@@ -1730,6 +1855,22 @@ export function ShiftModal({ s: initial, busy = false, canApprove = false, onClo
             </div>
           </div>
         </div>
+        {shiftNotes && (
+          <div className="v-sub p-4">
+            <div className="lbl mb-2">ملاحظات الوردية</div>
+            <p className="whitespace-pre-wrap break-words text-[12.5px] tx2">{shiftNotes}</p>
+          </div>
+        )}
+        {awaitingApproval && hasVariance && (
+          <TextArea
+            label={needsApprovalNote ? 'ملاحظة تسوية فرق النقدية (مطلوبة)' : 'ملاحظة تسوية فرق النقدية (اختيارية)'}
+            req={needsApprovalNote}
+            max={500}
+            value={approvalNotes}
+            onChange={setApprovalNotes}
+            placeholder="اكتب نتيجة مراجعة فرق النقدية قبل الاعتماد"
+          />
+        )}
         <div>
           <div className="lbl mb-2">مصروفات الوردية</div>
           <div className="hidden sm:block">

@@ -28,6 +28,7 @@ export const SETTINGS_TABS = [
   { key: 'numbering', label: 'ترقيم المستندات', icon: 'hash', desc: `${DOC_TYPES.length} نوعاً من الوثائق` },
   { key: 'orders', label: 'سياسة الإرجاع', icon: 'undo', desc: 'مهلة إرجاع المنتجات' },
   { key: 'purchases', label: 'دورة المشتريات', icon: 'truck', desc: 'الاعتماد والرقابة الثنائية' },
+  { key: 'pos', label: 'نقطة البيع', icon: 'pos', desc: 'اعتماد إغلاق الورديات' },
   { key: 'store', label: 'إدارة المتجر', icon: 'storefront', desc: 'السلايدر، البانرات والنوافذ المنبثقة' },
 ];
 
@@ -213,8 +214,23 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
               {tab === 'tax' && <TaxTab errors={fieldErrors} v={s.tax} set={(k, val) => set('tax', k, val)} />}
               {tab === 'numbering' && <NumberingTab errors={fieldErrors} v={s.numbering} server={server.numbering} setNum={setNum} />}
               {tab === 'orders' && <ReturnsTab v={s.orders} set={(k, val) => set('orders', k, val)} />}
-              {Object.entries(fieldErrors).filter(([key]) => !['company','tax','numbering'].includes(tab) && key in s[tab as 'orders' | 'purchases']).map(([key,messages]) => <div role="alert" key={key}>{messages.join('، ')}</div>)}
+              {Object.entries(fieldErrors).filter(([key]) => !['company','tax','numbering'].includes(tab) && key in s[tab as 'orders' | 'purchases' | 'pos']).map(([key,messages]) => <div role="alert" key={key}>{messages.join('، ')}</div>)}
               {tab === 'purchases' && <PurchasesTab v={s.purchases} set={(k, val) => set('purchases', k, val)} />}
+              {tab === 'pos' && (
+                <SectionCard title="إغلاق ورديات نقطة البيع">
+                  <label className="v-subcard p-5 flex items-start justify-between gap-5">
+                    <span>
+                      <span className="block text-sm font-semibold">اشتراط اعتماد المدير بعد إغلاق الوردية</span>
+                      <span className="block text-xs mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                        {s.pos.pos_shift_requires_approval
+                          ? 'يظل الدرج محجوزًا إلى أن يعتمد موظف مخوّل الوردية.'
+                          : 'تُسوّى النقدية مع خزنة الفرع الرئيسية عند الإغلاق ويصبح الدرج متاحًا.'}
+                      </span>
+                    </span>
+                    <Toggle on={s.pos.pos_shift_requires_approval} onChange={value => set('pos', 'pos_shift_requires_approval', value)} />
+                  </label>
+                </SectionCard>
+              )}
             </fieldset>
           )}
         </div>

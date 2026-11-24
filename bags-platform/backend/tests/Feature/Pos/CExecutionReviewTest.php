@@ -9,6 +9,7 @@ use App\Enums\Inventory\StockMovementType;
 use App\Enums\Orders\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
+use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Order;
 use App\Models\PosShift;
@@ -27,6 +28,8 @@ use App\Services\Pos\PosService;
 use App\Services\Pos\TreasuryService;
 use App\Services\Procurement\ProcurementService;
 use App\Services\Shared\CostAccess;
+use App\Services\Shared\SettingService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Carbon\CarbonImmutable;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -119,6 +122,8 @@ class CExecutionReviewTest extends TestCase
         $this->assertSame('800.00', $this->safe->fresh()->current_balance);
         $this->assertSame('200.00', $this->drawer->fresh()->current_balance);
         $closed = app(PosService::class)->closeShift($this->shift, 180, 'shortage');
+        $this->assertSame('closed_pending_approval', $closed->status->value);
+        $this->assertTrue(app(PosService::class)->getAvailableDrawers($this->branch->id, $this->cashier)[0]['busy']);
         app(PosService::class)->approveShift($closed, $this->supervisor);
         $this->assertSame('980.00', $this->safe->fresh()->current_balance);
         $this->assertSame('0.00', $this->drawer->fresh()->current_balance);
@@ -129,6 +134,46 @@ class CExecutionReviewTest extends TestCase
         } catch (BusinessException) {
             $this->assertSame('980.00', $this->safe->fresh()->current_balance);
         }
+    }
+
+    public function test_optional_approval_settles_the_drawer_once_and_makes_it_available(): void
+    {
+        app(SettingService::class)->updateBatch(['pos_shift_requires_approval' => false]);
+        $api = $this->posApi();
+        $headers = $this->idemHeaders();
+        $payload = ['actual_closing_cash' => 180, 'notes' => 'shortage'];
+
+        $api->postJson('/api/v1/pos/shifts/close', $payload, $headers)->assertOk()
+            ->assertJsonPath('data.status', 'approved');
+        $api->postJson('/api/v1/pos/shifts/close', $payload, $headers)->assertOk()
+            ->assertJsonPath('data.status', 'approved');
+
+        $closed = $this->shift->fresh();
+        $this->assertNotNull($closed->settled_at);
+        $this->assertNull($closed->approved_by);
+        $this->assertSame('980.00', $this->safe->fresh()->current_balance);
+        $this->assertSame('0.00', $this->drawer->fresh()->current_balance);
+        $this->assertDatabaseHas('treasury_transactions', [
+            'shift_id' => $closed->id, 'type' => 'cash_shortage', 'amount' => '-20.00',
+        ]);
+        $api->getJson('/api/v1/pos/treasuries/available')->assertOk()->assertJsonPath('data.0.busy', false);
+    }
+
+    public function test_failed_automatic_settlement_leaves_the_shift_open(): void
+    {
+        app(SettingService::class)->updateBatch(['pos_shift_requires_approval' => false]);
+        $this->safe->update(['is_active' => false]);
+
+        try {
+            app(PosService::class)->closeShift($this->shift, 200, null);
+            $this->fail('Settlement requires an active main safe.');
+        } catch (BusinessException $exception) {
+            $this->assertStringContainsString('خزنة رئيسية نشطة', $exception->getMessage());
+        }
+
+        $this->assertSame('open', $this->shift->fresh()->status->value);
+        $this->assertSame('200.00', $this->drawer->fresh()->current_balance);
+        $this->assertSame('800.00', $this->safe->fresh()->current_balance);
     }
 
     public function test_overage_is_recorded_and_stale_open_shift_cannot_sell(): void
@@ -203,6 +248,62 @@ class CExecutionReviewTest extends TestCase
         $this->posApi()->postJson('/api/v1/pos/sales', $this->payload())->assertUnprocessable();
         $this->expectException(AuthorizationException::class);
         app(PosService::class)->createSale($this->shift, $this->payload(1, ['discount_amount' => 1]));
+    }
+
+    public function test_merchant_credit_sale_consumes_exact_limit_once_and_return_releases_it(): void
+    {
+        $this->stock();
+        $this->variant->update(['wholesale_price' => 10]);
+        $customer = Customer::factory()->create([
+            'type' => 'wholesale', 'status' => 'approved', 'credit_limit' => '19.99',
+        ]);
+        Order::factory()->for($customer)->create([
+            'channel' => 'wholesale', 'payment_method' => 'credit',
+            'payment_status' => 'unpaid', 'grand_total' => '10.00',
+        ]);
+        $api = $this->posApi();
+        $this->permit('pos.sales.refund');
+        $payload = [...$this->payload(), 'customer_id' => $customer->id, 'payment_method' => 'credit'];
+        $api->postJson('/api/v1/pos/sales', $payload, $this->idemHeaders())->assertUnprocessable();
+        $customer->update(['credit_limit' => '20.00']);
+        $key = $this->idemHeaders();
+
+        $sale = $api->postJson('/api/v1/pos/sales', $payload, $key)->assertCreated();
+        $id = $sale->json('data.id');
+        $api->postJson('/api/v1/pos/sales', $payload, $key)->assertCreated()->assertJsonPath('data.id', $id);
+        $this->assertDatabaseHas('orders', [
+            'id' => $id, 'customer_id' => $customer->id, 'payment_method' => 'credit',
+            'payment_status' => 'unpaid', 'cash_amount' => null, 'card_amount' => null,
+        ]);
+        $payments = app(WholesalePaymentNoticeService::class);
+        $this->assertSame('0.00', (string) $payments->availableCredit($customer));
+        $this->assertSame('200.00', $this->drawer->fresh()->current_balance);
+        $api->postJson('/api/v1/pos/sales', $payload, $this->idemHeaders())->assertUnprocessable();
+        $api->postJson('/api/v1/pos/sales', [...$payload, 'payment_method' => 'cash'], $this->idemHeaders())->assertCreated();
+
+        $returnPayload = ['items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]]];
+        $returnKey = $this->idemHeaders();
+        $api->postJson("/api/v1/pos/sales/{$id}/return", $returnPayload, $returnKey)
+            ->assertOk()->assertJsonPath('data.account_credit_amount', 10);
+        $api->postJson("/api/v1/pos/sales/{$id}/return", $returnPayload, $returnKey)->assertOk();
+        $this->assertDatabaseCount('return_requests', 1);
+        $this->assertSame('10.00', (string) $payments->availableCredit($customer));
+        $this->assertSame('210.00', $this->drawer->fresh()->current_balance);
+
+        $creditSale = $api->postJson('/api/v1/pos/sales', $payload, $this->idemHeaders())->assertCreated();
+        $admin = User::factory()->create(['branch_id' => null, 'is_active' => true]);
+        $admin->assignRole(\Spatie\Permission\Models\Role::findOrCreate('Super Admin', 'staff'));
+        $payments->recordStaffPayment($customer, $admin, [
+            'treasury_id' => $this->safe->id,
+            'amount' => '20.00',
+            'payment_method' => 'bank_transfer',
+            'bank_name' => 'Test Bank',
+            'reference_number' => 'POS-CREDIT-SETTLEMENT',
+            'transfer_date' => now()->toDateString(),
+        ], $payments->accountCredit($customer));
+        $this->assertSame('20.00', (string) $payments->availableCredit($customer));
+        $this->assertSame('paid', Order::findOrFail($creditSale->json('data.id'))->payment_status);
+        $this->assertSame('210.00', $this->drawer->fresh()->current_balance);
     }
 
     public function test_profit_cost_is_frozen_and_returns_reduce_both_sales_and_cost(): void

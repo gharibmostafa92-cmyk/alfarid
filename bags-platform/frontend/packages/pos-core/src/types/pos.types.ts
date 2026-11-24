@@ -121,7 +121,10 @@ export interface PosHeldSale {
 }
 
 export interface PastSaleItem {
+  order_item_id?: number;
   id: number;
+  name?: string;
+  sku?: string;
   qty: number;
   price: number;
   /** Remaining quantity that may still be returned (qty - returned_qty). */
@@ -134,6 +137,8 @@ export interface PastSaleItem {
 }
 
 export interface PastSale {
+  channel?: 'pos' | 'store' | 'wholesale';
+  payment_method?: string;
   id: number;
   number: string;
   date: string;
@@ -142,8 +147,17 @@ export interface PastSale {
   customer_id?: number | null;
   method: string;
   items: PastSaleItem[];
+  grand_total?: number;
+  items_count?: number;
+  returnable_qty?: number;
   cash_amount?: number;
   card_amount?: number;
+}
+
+export interface PosShippingCompany {
+  id: number;
+  name: string;
+  code: string;
 }
 
 export interface StockTransferItem {
@@ -216,7 +230,7 @@ export interface CreateSalePayload {
     override_reason?: string;
   }[];
   customer_id: number | null;
-  payment_method: 'cash' | 'card' | 'mixed';
+  payment_method: 'cash' | 'card' | 'mixed' | 'credit';
   cash_amount: number;
   card_amount: number;
   notes?: string;
@@ -240,6 +254,7 @@ export interface QuoteLineResult {
 }
 
 export interface QuoteResult {
+  available_credit?: number | null;
   lines: QuoteLineResult[];
   subtotal: number;
   discount_total: number;
@@ -253,10 +268,67 @@ export interface PosSettings {
 }
 
 export interface ProcessReturnResult {
+  account_credit_amount?: number;
   return_order_id: number;
   exchange_order_id: number | null;
   refund_amount: number;
   cash_refund_amount: number;
   card_refund_amount: number;
   exchange_credit: number;
+}
+
+export interface PosExpense {
+  id: number;
+  shiftId: number;
+  category: string;
+  amount: number;
+  description: string | null;
+  createdAt: string;
+  createdBy: { id: number; name: string } | null;
+  status: 'posted' | 'voided';
+  voidedAt: string | null;
+  voidReason: string | null;
+  canEdit: boolean;
+  canVoid: boolean;
+}
+
+export interface PosPrepItem {
+  orderItemId: number;
+  productVariantId: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  expectedQty: number;
+  pickedQty: number;
+}
+
+export interface PosPrepSession {
+  orderId: number;
+  orderNumber: string;
+  channel: 'store' | 'wholesale' | 'pos';
+  expectedStatus: 'pending' | 'confirmed' | 'processing';
+  customerName: string | null;
+  items: PosPrepItem[];
+  startedAt: string;
+}
+
+export interface CompletedBranchOrderSummary {
+  id: number;
+  order_number: string;
+  channel: 'store' | 'wholesale' | 'pos';
+  status: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  grand_total: number;
+  items_count: number;
+  returnable_qty: number;
+  created_at: string | null;
+  delivered_at: string | null;
+}
+
+export interface BranchOrderReturnResult {
+  return_id: number;
+  return_number: string;
+  status: string;
+  total_refund_amount: number;
 }

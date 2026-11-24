@@ -131,6 +131,18 @@ Schedule::command('carts:prune-guests')->dailyAt('04:15')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('pos:prune-held-sales --days=7')->dailyAt('04:20')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
+Schedule::call(function (): void {
+    $cutoff = now()->subDays(7);
+    for ($batch = 0; $batch < 100; $batch++) {
+        $expired = DB::table('pos_order_events')->where('created_at', '<', $cutoff)
+            ->orderBy('created_at')->limit(500)->select('id');
+        $deleted = DB::table('pos_order_events')
+            ->whereIn('id', $expired)->delete();
+        if ($deleted === 0) {
+            break;
+        }
+    }
+})->daily()->name('pos-prune-order-events')->withoutOverlapping()->onOneServer();
 Schedule::command('inventory:prune-idempotency-keys')->dailyAt('03:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled inventory idempotency cleanup failed.'));

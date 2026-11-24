@@ -14,6 +14,7 @@ use App\Models\OrderItem;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Services\Inventory\InventoryService;
+use App\Services\Pos\IncomingOrderEvents;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -66,15 +67,16 @@ class OrderAllocationService
             }
 
             if ($forcedBranchId !== null) {
-                return $this->allocateToForcedBranch($order, $forcedBranchId, $performedBy);
+                $allocated = $this->allocateToForcedBranch($order, $forcedBranchId, $performedBy);
+            } else {
+                $coverage = $this->branchAvailabilityMap($order);
+                $allocated = $this->trySingleBranchAllocation($order, $coverage, $performedBy)
+                    ?? $this->allocateAcrossBranches($order, $performedBy);
             }
 
-            $coverage = $this->branchAvailabilityMap($order);
-            if ($allocated = $this->trySingleBranchAllocation($order, $coverage, $performedBy)) {
-                return $allocated;
-            }
+            app(IncomingOrderEvents::class)->publish($allocated, 'arrival');
 
-            return $this->allocateAcrossBranches($order, $performedBy);
+            return $allocated;
         });
     }
 
@@ -232,6 +234,7 @@ class OrderAllocationService
                 ], $levels->get($this->inventoryService->levelKey($row)));
             }
 
+            app(IncomingOrderEvents::class)->publish($order, 'removed');
             $order->items()->update(['allocated_branch_id' => null]);
             $order->update(['allocated_branch_id' => null]);
 

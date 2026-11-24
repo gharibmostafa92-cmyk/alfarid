@@ -29,6 +29,7 @@ class WholesalePaymentNoticeResource extends JsonResource
             'reference_number' => $this->reference_number,
             'transfer_date' => $this->transfer_date?->toDateString(),
             'has_receipt' => $this->receipt_file_path !== null,
+            'staff_recorded' => (bool) $this->staff_recorded,
             'status' => $this->status->value,
             'reviewed_by' => $this->reviewed_by,
             'admin_notes' => $this->admin_notes,

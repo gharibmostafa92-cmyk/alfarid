@@ -9,7 +9,7 @@ import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos
 export interface ThermalReceiptProps {
   invoiceNumber: string;
   total: number;
-  method: 'cash' | 'card' | 'mixed';
+  method: 'cash' | 'card' | 'mixed' | 'credit';
   received: number;
   change: number;
   cashA: number;
@@ -100,6 +100,7 @@ export function ThermalReceipt({
           <span className="num">{egp(total)}</span>
         </div>
       )}
+      {method === 'credit' && <div className="rr"><span>على حساب التاجر</span><span className="num">{egp(total)} ج</span></div>}
       {method === 'mixed' && (
         <>
           <div className="rr">
@@ -153,7 +154,7 @@ export function ReceiptDone({
 }: ReceiptDoneProps) {
   const receiptPreview = useRef<HTMLDivElement>(null);
 
-  const payment = { cash: 'نقدي', card: 'بطاقة', mixed: 'نقدي وبطاقة' }[method];
+  const payment = { cash: 'نقدي', card: 'بطاقة', mixed: 'نقدي وبطاقة', credit: 'على حساب التاجر' }[method];
 
   return (
     <div className="pos-sale-done">

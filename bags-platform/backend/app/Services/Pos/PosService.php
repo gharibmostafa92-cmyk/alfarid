@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Services\Pos;
 
 use App\Enums\Catalog\PriceListType;
+use App\Enums\Customer\CustomerType;
 use App\Enums\Finance\PosShiftStatus;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryType;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\RefundMethod;
+use App\Enums\Orders\ReturnStatus;
 use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;
 use App\Models\Branch;
@@ -26,6 +29,7 @@ use App\Models\PosShift;
 use App\Models\PriceListItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReturnRequest;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Treasury;
@@ -36,6 +40,7 @@ use App\Services\Pricing\PricingService;
 use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\SearchTerm;
 use App\Services\Shared\SettingService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use App\Support\ArabicDigits;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
@@ -551,11 +556,12 @@ class PosService
             $expectedClosing = BigDecimal::of((string) $totals['expected_closing_cash'])->toScale(2, RoundingMode::HalfUp);
             $actualClosing = BigDecimal::of((string) $actualCash)->toScale(2, RoundingMode::HalfUp);
             $cashDifference = $actualClosing->minus($expectedClosing)->toScale(2, RoundingMode::HalfUp);
+            $cashier = $shift->cashier()->firstOrFail();
 
             // Blind close: notes stay optional for blind cashiers so 422 cannot be
             // used as a binary-search oracle for expected drawer cash. Cashiers who
             // already hold pos_shifts.view_expected still explain non-zero variances.
-            if (! $cashDifference->isZero() && trim((string) $notes) === '' && ($shift->cashier?->can('pos_shifts.view_expected') ?? false)) {
+            if (! $cashDifference->isZero() && trim((string) $notes) === '' && $cashier->can('pos_shifts.view_expected')) {
                 throw new BusinessException('ملاحظات الإغلاق مطلوبة عند وجود فرق في النقدية.');
             }
             $shift->update([
@@ -571,8 +577,14 @@ class PosService
                 'notes' => $notes,
             ]);
 
-            // F-02: closures join the staff audit trail like reopen/force-close.
-            $this->auditShift($shift, User::query()->findOrFail($shift->user_id), 'pos_shift.close', ['cash_difference' => (string) $cashDifference]);
+            $this->auditShift($shift, $cashier, 'pos_shift.close', ['cash_difference' => (string) $cashDifference]);
+
+            if (! $this->settings->getBool('pos_shift_requires_approval', true)) {
+                $this->treasury->settleShiftToMainSafe($shift, $cashier->id);
+                // Approved is the terminal status; no human approver is recorded for automatic settlement.
+                $shift->update(['status' => PosShiftStatus::Approved]);
+                $this->auditShift($shift, $cashier, 'pos_shift.auto_settle', ['cash_difference' => (string) $cashDifference]);
+            }
 
             return $shift->fresh();
         });
@@ -846,20 +858,36 @@ class PosService
         }
 
         return DB::transaction(function () use ($shift, $payload): Order {
+            $onAccount = ($payload['payment_method'] ?? null) === 'credit';
+            $customer = $onAccount
+                ? Customer::query()->whereKey($payload['customer_id'] ?? null)->lockForUpdate()->first()
+                : null;
+            if ($onAccount && ! $this->canBuyOnAccount($customer)) {
+                throw new BusinessException('البيع الآجل متاح لحساب تاجر معتمد فقط.', [], 422, 'credit_customer_ineligible');
+            }
             $shift = $this->lockOpenShift($shift);
-            $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
+            if (! $onAccount) {
+                $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
+            }
             $actor = User::findOrFail($shift->user_id);
 
             $this->consumeHeldSalesForSale($actor, (int) $shift->branch_id, $payload);
             $this->assertSaleAuthorizations($actor, $payload);
 
             $levels = $this->lockSaleStockLevels((int) $shift->branch_id, $payload['items']);
-            $customer = $this->resolveSaleCustomer($payload['customer_id'] ?? null);
+            $customer ??= $this->resolveSaleCustomer($payload['customer_id'] ?? null);
 
             $overridePrice = (bool) ($payload['override_price'] ?? false);
             $items = $this->prepareSaleItems((int) $shift->branch_id, $payload, $customer, $overridePrice, $actor);
             $totals = $this->computeCartTotals($items);
+            if ($this->minor($totals['subtotal']) > 999_999_999_999) {
+                throw new BusinessException('قيمة الفاتورة تتجاوز الحد المسموح.');
+            }
             $tenders = $this->reconcileSaleTenders($totals['grand_total'], $payload);
+            if ($onAccount && app(WholesalePaymentNoticeService::class)->availableCredit($customer)
+                ->isLessThan(BigDecimal::of($this->minor($totals['grand_total']))->withPointMovedLeft(2))) {
+                throw new BusinessException('إجمالي الفاتورة يتجاوز حد الائتمان المتاح. اختر الدفع الفوري.', [], 422, 'credit_limit_exceeded');
+            }
 
             $orderNumber = $this->settings->generateNextNumber('pos_invoice');
             $order = $this->createSaleOrderRecord($shift, $orderNumber, $customer, $totals, $tenders, $payload, $overridePrice);
@@ -867,7 +895,9 @@ class PosService
             $this->persistSaleOrderItems($order, (int) $shift->branch_id, $items);
             $this->deductSaleStockLevels($order, (int) $shift->branch_id, (int) $shift->user_id, $orderNumber, $items, $levels);
             $this->recordSaleStatusHistory($order, (int) $shift->user_id);
-            $this->recordSaleTreasuryCash($shift, $order, $orderNumber, $tenders['cash_amount']);
+            if (! $onAccount) {
+                $this->recordSaleTreasuryCash($shift, $order, $orderNumber, $tenders['cash_amount']);
+            }
 
             self::invalidateCatalogVersionCache((int) $shift->branch_id);
 
@@ -963,6 +993,12 @@ class PosService
         return $customer;
     }
 
+    private function canBuyOnAccount(?Customer $customer): bool
+    {
+        return $customer !== null && $customer->canShop()
+            && in_array($customer->type?->value, CustomerType::commercialValues(), true);
+    }
+
     private function prepareSaleItems(
         int $branchId,
         array $payload,
@@ -1000,6 +1036,15 @@ class PosService
         }
 
         $creditCents = $this->minor($payload['exchange_credit'] ?? 0);
+        if (($payload['payment_method'] ?? null) === 'credit') {
+            if ($creditCents !== 0 || $this->minor($payload['cash_amount'] ?? 0) !== 0
+                || $this->minor($payload['card_amount'] ?? 0) !== 0) {
+                throw new BusinessException('الفاتورة الآجلة لا تقبل مبالغ نقدية أو بطاقة أو رصيد استبدال.');
+            }
+
+            // The existing tender constraint represents sales without a cash/card tender with nulls.
+            return ['cash_amount' => null, 'card_amount' => null, 'credit_cents' => 0, 'payment_method' => 'credit'];
+        }
         if ($creditCents < 0 || $creditCents > $grandCents) {
             throw new BusinessException('رصيد الاستبدال غير صالح.');
         }
@@ -1047,7 +1092,10 @@ class PosService
             'pos_shift_id' => $shift->id,
             'status' => OrderStatus::Delivered,
             'payment_method' => $tenders['payment_method'],
-            'payment_status' => 'paid',
+            'payment_status' => $tenders['payment_method'] === 'credit' ? 'unpaid' : 'paid',
+            'due_at' => $tenders['payment_method'] === 'credit'
+                ? now()->addDays(max(0, (int) ($customer->payment_terms_days ?? $this->settings->get('wholesale_default_payment_terms_days', 30))))
+                : null,
             'notes' => $payload['notes'] ?? null,
             'override_reason' => $overridePrice ? ($payload['override_reason'] ?? null) : null,
             'subtotal' => $totals['subtotal'],
@@ -1174,6 +1222,9 @@ class PosService
         }
 
         return DB::transaction(function () use ($shift, $originalOrder, $returnedItems, $exchangeItems, $exchangeCredit): array {
+            if ($originalOrder->payment_method === 'credit') {
+                Customer::withTrashed()->whereKey($originalOrder->customer_id)->lockForUpdate()->firstOrFail();
+            }
             $shift = $this->lockOpenShift($shift);
             $this->lockRefundChain($originalOrder);
             $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
@@ -1206,7 +1257,13 @@ class PosService
             $lines = $parsedReturn['lines'];
             $returnValue = $parsedReturn['return_value'];
 
-            $tenders = $this->reconcileReturnTenders($originalOrder, $returnValue, $exchangeCredit);
+            $onAccount = $originalOrder->payment_method === 'credit';
+            if ($onAccount && $this->minor($exchangeCredit) !== 0) {
+                throw new BusinessException('مرتجع الفاتورة الآجلة يُسوّى على حساب التاجر.');
+            }
+            $tenders = $onAccount
+                ? ['cash_refund' => 0.0, 'card_refund' => 0.0, 'credit' => 0.0]
+                : $this->reconcileReturnTenders($originalOrder, $returnValue, $exchangeCredit);
 
             $this->restockReturnedVariants($originalOrder, $shift, $lines);
 
@@ -1223,6 +1280,26 @@ class PosService
             $this->updateOriginalOrderReturnedQuantities($originalOrder, $grouped, $previousQuantities);
             $this->recordReturnStatusHistory($returnOrder, $originalOrder->order_number, (int) $shift->user_id);
             $this->recordReturnTreasuryRefund($shift, $returnOrder, $returnOrderNumber, $tenders['cash_refund']);
+            if ($onAccount && $returnValue > 0) {
+                $payments = app(WholesalePaymentNoticeService::class);
+                $amount = number_format($returnValue, 2, '.', '');
+                $payments->releaseExcessAllocationsForCreditNote($originalOrder, $amount, $shift->user_id);
+                $payments->assertCreditNoteCapacity($originalOrder, $amount);
+                $note = ReturnRequest::create([
+                    'return_number' => $this->settings->generateNextNumber('return'),
+                    'order_id' => $originalOrder->id,
+                    'customer_id' => $originalOrder->customer_id,
+                    'branch_id' => $shift->branch_id,
+                    'status' => ReturnStatus::Refunded,
+                    'refund_method' => RefundMethod::CreditNote,
+                    'total_refund_amount' => $amount,
+                    'reason' => "مرتجع نقطة البيع {$returnOrderNumber}",
+                    'refund_reference' => $returnOrderNumber,
+                    'refunded_at' => now(),
+                    'refunded_by' => $shift->user_id,
+                ]);
+                $payments->settleCreditNote($originalOrder, $shift->user_id, $note->return_number);
+            }
 
             self::invalidateCatalogVersionCache((int) $shift->branch_id);
 
@@ -1233,6 +1310,7 @@ class PosService
                 'cash_refund_amount' => $tenders['cash_refund'],
                 'card_refund_amount' => $tenders['card_refund'],
                 'exchange_credit' => $tenders['credit'],
+                'account_credit_amount' => $onAccount ? $returnValue : 0.0,
             ];
         });
     }
@@ -1517,8 +1595,8 @@ class PosService
             'shipping_cost' => 0,
             'tax_amount' => 0,
             'grand_total' => $returnValue,
-            'cash_amount' => $tenders['cash_refund'],
-            'card_amount' => $tenders['card_refund'],
+            'cash_amount' => $originalOrder->payment_method === 'credit' ? null : $tenders['cash_refund'],
+            'card_amount' => $originalOrder->payment_method === 'credit' ? null : $tenders['card_refund'],
             // Credit consumed against the replacement sale: the tender
             // invariant reads cash + card + credit == grand total.
             'exchange_credit' => number_format($tenders['credit'], 2, '.', ''),
@@ -1599,6 +1677,9 @@ class PosService
      */
     public function processExchange(PosShift $shift, Order $originalOrder, User $actor, array $data): Order
     {
+        if ($originalOrder->payment_method === 'credit') {
+            throw new BusinessException('سجّل مرتجع الفاتورة الآجلة على حساب التاجر ثم أنشئ فاتورة جديدة.');
+        }
         if ($shift->status !== PosShiftStatus::Open) {
             throw new BusinessException('الوردية غير مفتوحة — لا يمكن إجراء أي استبدال.');
         }
@@ -2158,6 +2239,9 @@ class PosService
             'subtotal' => number_format($totals['subtotal'], 2, '.', ''),
             'discount_total' => number_format($totals['discount_total'], 2, '.', ''),
             'grand_total' => number_format($totals['grand_total'], 2, '.', ''),
+            'available_credit' => $this->canBuyOnAccount($c)
+                ? (string) app(WholesalePaymentNoticeService::class)->availableCredit($c)
+                : null,
         ];
     }
 
@@ -2386,6 +2470,227 @@ class PosService
 
             return $expense;
         });
+    }
+
+    /**
+     * Lists petty cash expenses recorded against the active shift without leaking drawer balance.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listShiftExpenses(PosShift $shift, User $actor): array
+    {
+        app(BranchAccess::class)->assertBranch($actor->id, (int) $shift->branch_id);
+        $this->assertShiftExpenseActor($shift, $actor, 'لا تملك صلاحية عرض مصروفات هذه الوردية.');
+
+        $isOpen = $shift->status === PosShiftStatus::Open;
+
+        return Expense::query()
+            ->with('creator:id,name')
+            ->where('shift_id', $shift->id)
+            ->where('branch_id', $shift->branch_id)
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get([
+                'id',
+                'shift_id',
+                'expense_number',
+                'category',
+                'amount',
+                'notes',
+                'voided_at',
+                'void_reason',
+                'created_by',
+                'created_at',
+            ])
+            ->map(function (Expense $expense) use ($isOpen): array {
+                $isActive = $expense->voided_at === null;
+
+                return [
+                    'id' => $expense->id,
+                    'shift_id' => $expense->shift_id,
+                    'expense_number' => $expense->expense_number,
+                    'amount' => (float) $expense->amount,
+                    'category' => $expense->category,
+                    'notes' => $expense->notes,
+                    'status' => $isActive ? 'posted' : 'voided',
+                    'voided_at' => $expense->voided_at,
+                    'void_reason' => $expense->void_reason,
+                    'can_edit' => $isOpen && $isActive,
+                    'can_void' => $isOpen && $isActive,
+                    'created_by' => $expense->creator
+                        ? ['id' => $expense->creator->id, 'name' => $expense->creator->name]
+                        : null,
+                    'created_at' => $expense->created_at,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Updates an active shift expense. Non-financial fields update in-place; amount edits atomically
+     * void the original voucher (posting ExpenseReversal) and create a replacement voucher.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function updateShiftExpense(PosShift $shift, int $expenseId, array $data, User $actor): Expense
+    {
+        if ($shift->status !== PosShiftStatus::Open) {
+            throw new BusinessException('الوردية غير مفتوحة — لا يمكن تعديل المصروفات.');
+        }
+
+        return DB::transaction(function () use ($shift, $expenseId, $data, $actor): Expense {
+            $shift = $this->lockOpenShift($shift);
+            app(BranchAccess::class)->assertBranch($actor->id, (int) $shift->branch_id);
+            $this->assertShiftExpenseActor($shift, $actor, 'لا تملك صلاحية تعديل مصروفات هذه الوردية.');
+            $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
+
+            $locked = Expense::query()->whereKey($expenseId)->lockForUpdate()->first();
+            if ($locked === null || (int) $locked->shift_id !== (int) $shift->id || (int) $locked->branch_id !== (int) $shift->branch_id) {
+                abort(404, 'المصروف غير موجود في الوردية الحالية.');
+            }
+            if ($locked->voided_at !== null) {
+                throw new BusinessException('لا يمكن تعديل مصروف ملغى.');
+            }
+
+            $merged = [
+                'category' => array_key_exists('category', $data) ? $data['category'] : $locked->category,
+                'amount' => array_key_exists('amount', $data) ? $data['amount'] : (string) $locked->amount,
+                'notes' => array_key_exists('notes', $data) ? $data['notes'] : $locked->notes,
+                'attachment_path' => $locked->attachment_path,
+            ];
+            $validated = $this->validateExpensePayload($merged);
+            $oldAmount = BigDecimal::of((string) $locked->amount)->toScale(2, RoundingMode::HalfUp);
+            $newAmount = $validated['amount'];
+
+            if ($newAmount->isEqualTo($oldAmount)) {
+                $locked->update([
+                    'category' => $validated['category'],
+                    'notes' => $validated['notes'],
+                ]);
+                $this->auditShift($shift, $actor, 'pos_expense.update', [
+                    'expense_id' => $locked->id,
+                    'expense_number' => $locked->expense_number,
+                ]);
+
+                return $locked->fresh();
+            }
+
+            $newNumber = $this->settings->generateNextNumber('expense');
+
+            $this->treasury->record([
+                'treasury_id' => $shift->treasury_id,
+                'shift_id' => $shift->id,
+                'type' => TreasuryTransactionType::ExpenseReversal,
+                'amount' => (string) $oldAmount,
+                'reference_type' => Expense::class,
+                'reference_id' => $locked->id,
+                'created_by' => $actor->id,
+                'notes' => "تعديل مصروف وردية #{$locked->expense_number} ← #{$newNumber}",
+            ]);
+
+            $locked->update([
+                'voided_at' => now(),
+                'voided_by' => $actor->id,
+                'void_reason' => mb_substr("تعديل المبلغ واستبداله بالمصروف #{$newNumber}", 0, 500),
+            ]);
+
+            $replacement = Expense::create([
+                'expense_number' => $newNumber,
+                'branch_id' => $shift->branch_id,
+                'treasury_id' => $shift->treasury_id,
+                'shift_id' => $shift->id,
+                'category' => $validated['category'],
+                'amount' => (string) $newAmount,
+                'expense_date' => $locked->expense_date ?? today(config('app.business_timezone', 'UTC')),
+                'attachment_path' => $validated['attachment_path'],
+                'notes' => $validated['notes'],
+                'created_by' => $actor->id,
+            ]);
+
+            $this->treasury->record([
+                'treasury_id' => $shift->treasury_id,
+                'shift_id' => $shift->id,
+                'type' => TreasuryTransactionType::Expense,
+                'amount' => (string) $newAmount->negated(),
+                'reference_type' => Expense::class,
+                'reference_id' => $replacement->id,
+                'created_by' => $actor->id,
+                'notes' => "مصروف: {$validated['category']} #{$newNumber}",
+            ]);
+
+            $this->auditShift($shift, $actor, 'pos_expense.replace', [
+                'old_expense_id' => $locked->id,
+                'new_expense_id' => $replacement->id,
+                'old_amount' => (string) $oldAmount,
+                'new_amount' => (string) $newAmount,
+            ]);
+
+            return $replacement;
+        });
+    }
+
+    /**
+     * Voids an active shift expense and posts an atomic ExpenseReversal back to the shift drawer.
+     */
+    public function voidShiftExpense(PosShift $shift, int $expenseId, string $reason, User $actor): Expense
+    {
+        if ($shift->status !== PosShiftStatus::Open) {
+            throw new BusinessException('الوردية غير مفتوحة — لا يمكن إلغاء المصروفات.');
+        }
+
+        $trimmedReason = mb_substr(trim($reason), 0, 500);
+        if ($trimmedReason === '') {
+            throw new BusinessException('سبب إلغاء المصروف مطلوب.');
+        }
+
+        return DB::transaction(function () use ($shift, $expenseId, $trimmedReason, $actor): Expense {
+            $shift = $this->lockOpenShift($shift);
+            app(BranchAccess::class)->assertBranch($actor->id, (int) $shift->branch_id);
+            $this->assertShiftExpenseActor($shift, $actor, 'لا تملك صلاحية إلغاء مصروفات هذه الوردية.');
+            $this->treasury->lockTreasuries([(int) $shift->treasury_id]);
+
+            $locked = Expense::query()->whereKey($expenseId)->lockForUpdate()->first();
+            if ($locked === null || (int) $locked->shift_id !== (int) $shift->id || (int) $locked->branch_id !== (int) $shift->branch_id) {
+                abort(404, 'المصروف غير موجود في الوردية الحالية.');
+            }
+            if ($locked->voided_at !== null) {
+                throw new BusinessException('هذا المصروف ملغى سابقًا.');
+            }
+
+            $amount = BigDecimal::of((string) $locked->amount)->toScale(2, RoundingMode::HalfUp);
+            $this->treasury->record([
+                'treasury_id' => $shift->treasury_id,
+                'shift_id' => $shift->id,
+                'type' => TreasuryTransactionType::ExpenseReversal,
+                'amount' => (string) $amount,
+                'reference_type' => Expense::class,
+                'reference_id' => $locked->id,
+                'created_by' => $actor->id,
+                'notes' => "إلغاء مصروف وردية #{$locked->expense_number}",
+            ]);
+
+            $locked->update([
+                'voided_at' => now(),
+                'voided_by' => $actor->id,
+                'void_reason' => $trimmedReason,
+            ]);
+
+            $this->auditShift($shift, $actor, 'pos_expense.void', [
+                'expense_id' => $locked->id,
+                'expense_number' => $locked->expense_number,
+                'amount' => (string) $amount,
+            ]);
+
+            return $locked->fresh();
+        });
+    }
+
+    private function assertShiftExpenseActor(PosShift $shift, User $actor, string $message): void
+    {
+        if ((int) $actor->id !== (int) $shift->user_id && ! $actor->can('pos_shifts.approve')) {
+            throw new AuthorizationException($message);
+        }
     }
 
     /**

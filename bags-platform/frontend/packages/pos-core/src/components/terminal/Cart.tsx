@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { CustomerBar } from './CustomerBar';
 import { CartLine } from './CartLine';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, Kbd, toAsciiNum } from '../ui/SharedUI';
-import type { PosCartLine, Customer, CashierUser, QuoteResult } from '../../types/pos.types';
+import { cx, egp, fmt, Kbd, toAsciiNum } from '../ui/SharedUI';
+import type { PosCartLine, Customer, CashierUser, QuoteResult, PosPrepSession } from '../../types/pos.types';
 import { computeCartTotals, parseNonNegativeAmount } from '../../lib/money';
 
 interface CartProps {
@@ -25,6 +25,14 @@ interface CartProps {
   quote?: QuoteResult | null;
   isQuoting?: boolean;
   maxDiscountPercent?: number;
+  prepSession?: PosPrepSession | null;
+  cartMode?: 'cart' | 'prep';
+  onCartModeChange?: (mode: 'cart' | 'prep') => void;
+  onPrepQty?: (productVariantId: number, qty: number) => void;
+  onPrepMarkAll?: () => void;
+  onPrepConfirm?: () => Promise<void>;
+  onPrepExit?: () => void;
+  isPrepSubmitting?: boolean;
 }
 
 export function Cart({
@@ -45,6 +53,14 @@ export function Cart({
   quote,
   isQuoting,
   maxDiscountPercent = 100,
+  prepSession,
+  cartMode = 'cart',
+  onCartModeChange,
+  onPrepQty,
+  onPrepMarkAll,
+  onPrepConfirm,
+  onPrepExit,
+  isPrepSubmitting = false,
 }: CartProps) {
   const canOverride = cashier?.perms?.includes('pos.override_price') ?? false;
   const canDiscount = cashier?.perms?.includes('pos.discount') ?? false;
@@ -74,8 +90,149 @@ export function Cart({
     setDiscOpen(false);
   };
 
+  const showPrep = Boolean(prepSession && cartMode === 'prep');
+  const pickedTotal = prepSession ? prepSession.items.reduce((sum, i) => sum + i.pickedQty, 0) : 0;
+  const expectedTotal = prepSession ? prepSession.items.reduce((sum, i) => sum + i.expectedQty, 0) : 0;
+  const allPrepPicked = Boolean(prepSession && prepSession.items.length > 0 && prepSession.items.every((i) => i.pickedQty === i.expectedQty));
+  const prepPct = expectedTotal > 0 ? Math.min(100, Math.round((pickedTotal / expectedTotal) * 100)) : 0;
+
   return (
-    <aside className="cart">
+    <aside className="cart" aria-hidden={cart.length === 0 && !prepSession ? true : undefined}>
+      {prepSession && (
+        <div className="pos-prep-switcher" role="tablist" aria-label="وضع السلة">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={cartMode === 'prep'}
+            className="pos-prep-tab"
+            onClick={() => onCartModeChange?.('prep')}
+          >
+            <Icon n="box" s={14} />
+            <span>تجهيز #{prepSession.orderNumber}</span>
+            <span className="badge-count num">{fmt(pickedTotal)}/{fmt(expectedTotal)}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={cartMode === 'cart'}
+            className="pos-prep-tab"
+            onClick={() => onCartModeChange?.('cart')}
+          >
+            <Icon n="pos" s={14} />
+            <span>الفاتورة</span>
+            {items > 0 && <span className="badge-count num">{fmt(items)}</span>}
+          </button>
+        </div>
+      )}
+
+      {showPrep && prepSession ? (
+        <div className="pos-prep-panel">
+          <div className="pos-prep-head">
+            <div className="col" style={{ gap: 2 }}>
+              <div className="row gap-2">
+                <h3 className="fs-15 fw-7">تجهيز طلب الفرع</h3>
+                <bdi className="ltr mono badge b-acc">{prepSession.orderNumber}</bdi>
+              </div>
+              {prepSession.customerName && (
+                <span className="fs-12 t-2">{prepSession.customerName}</span>
+              )}
+            </div>
+            <span className={cx('badge', allPrepPicked ? 'b-ok' : 'b-info', 'num')}>
+              {fmt(pickedTotal)} / {fmt(expectedTotal)} قطعة
+            </span>
+          </div>
+
+          <div className="pos-prep-progress" aria-hidden="true">
+            <div className={cx('pos-prep-progress-bar', allPrepPicked && 'is-complete')} style={{ width: `${prepPct}%` }} />
+          </div>
+
+          <p className="fs-12 t-3 pos-prep-hint">
+            امسح باركود الصنف أو اضغط ✓ لتأكيد الكمية المطلوبة من المخزون المحجوز.
+          </p>
+
+          <div className="cart-list pos-prep-list">
+            {prepSession.items.map((item) => {
+              const done = item.pickedQty === item.expectedQty;
+              return (
+                <div key={item.productVariantId} className={cx('pos-prep-row', done && 'is-picked')}>
+                  <div className="grow col" style={{ gap: 2, minWidth: 0 }}>
+                    <div className="fs-13 fw-6 truncate">{item.name}</div>
+                    <div className="fs-11 t-3 ltr" style={{ textAlign: 'right' }}>
+                      <span className="mono">{item.sku}</span>
+                      {item.barcode ? <> · <span className="mono">{item.barcode}</span></> : null}
+                    </div>
+                  </div>
+                  <div className="pos-prep-controls">
+                    <button
+                      type="button"
+                      className="icon-btn sm"
+                      disabled={item.pickedQty <= 0 || isPrepSubmitting}
+                      onClick={() => onPrepQty?.(item.productVariantId, item.pickedQty - 1)}
+                      aria-label={`إنقاص ${item.name}`}
+                    >
+                      <Icon n="minus" s={13} />
+                    </button>
+                    <span className={cx('pos-prep-qty num', done && 't-ok')}>
+                      {fmt(item.pickedQty)} / {fmt(item.expectedQty)}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-btn sm"
+                      disabled={item.pickedQty >= item.expectedQty || isPrepSubmitting}
+                      onClick={() => onPrepQty?.(item.productVariantId, item.pickedQty + 1)}
+                      aria-label={`زيادة ${item.name}`}
+                    >
+                      <Icon n="plus" s={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className={cx('btn btn-sm', done ? 'btn-primary' : 'btn-secondary')}
+                      disabled={isPrepSubmitting}
+                      onClick={() => onPrepQty?.(item.productVariantId, done ? 0 : item.expectedQty)}
+                      title={done ? 'تصفير البند' : 'تجهيز كامل الكمية'}
+                      aria-label={`تأكيد ${item.name}`}
+                    >
+                      <Icon n="check" s={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pos-prep-foot">
+            {!allPrepPicked && onPrepMarkAll && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={isPrepSubmitting}
+                onClick={onPrepMarkAll}
+              >
+                <Icon n="check" s={14} />
+                تحديد الكل كمجهز
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-accent pay-btn"
+              disabled={!allPrepPicked || isPrepSubmitting}
+              onClick={() => void onPrepConfirm?.()}
+            >
+              <span>{isPrepSubmitting ? 'جارٍ تأكيد التجهيز…' : 'إنهاء وتأكيد التجهيز'}</span>
+              <Icon n="check" s={17} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={isPrepSubmitting}
+              onClick={onPrepExit}
+            >
+              إغلاق وضع التجهيز
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
       <CustomerBar customer={customer} setCustomer={setCustomer} toast={toast} />
       <div className="cart-head">
         <div className="row gap-2">
@@ -215,6 +372,8 @@ export function Cart({
         </span>
         <span className="amt num">{egp(total)} ج</span>
       </button>
+        </>
+      )}
     </aside>
   );
 }

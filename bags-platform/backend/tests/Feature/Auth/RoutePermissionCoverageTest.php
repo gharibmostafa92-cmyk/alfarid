@@ -58,6 +58,12 @@ class RoutePermissionCoverageTest extends TestCase
         'admin.suppliers.users.store' => 'permission:suppliers.update',
         'admin.suppliers.users.update' => 'permission:suppliers.update',
         'admin.suppliers.users.destroy' => 'permission:suppliers.update',
+        'pos.sales.expenses.update' => 'permission:pos.sales.create',
+        'pos.sales.expenses.void' => 'permission:pos.sales.create',
+        'pos.incoming-orders.cancel' => 'permission:pos.orders.cancel',
+        'pos.incoming-orders.prepare' => 'permission:orders.update',
+        'pos.incoming-orders.shipments' => 'permission:orders.update',
+        'pos.incoming-orders.returns' => 'permission:pos.sales.refund',
     ];
 
     public function test_financial_routes_carry_route_level_permission(): void

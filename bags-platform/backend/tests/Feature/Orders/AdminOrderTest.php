@@ -18,6 +18,7 @@ use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Inventory\InventoryService;
 use App\Services\Orders\OrderService;
+use App\Support\StorefrontLegalPolicyVersion;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -65,6 +66,9 @@ class AdminOrderTest extends TestCase
         $this->giveStock($variant, 10);
         $order = $this->orderFromCart($variant, 3);
         $product = $variant->product;
+        $this->assertDatabaseHas('pos_order_events', [
+            'order_id' => $order->id, 'branch_id' => $this->branch->id, 'kind' => 'arrival',
+        ]);
 
         // pending → delivered مباشرة مرفوض من آلة الحالات
         $this->api('PATCH', "/api/v1/admin/orders/{$order->id}/status", ['status' => 'delivered'])
@@ -88,6 +92,9 @@ class AdminOrderTest extends TestCase
 
         $this->api('PATCH', "/api/v1/admin/orders/{$order->id}/status", ['status' => 'delivered'])
             ->assertOk();
+        $this->assertDatabaseHas('pos_order_events', [
+            'order_id' => $order->id, 'branch_id' => $this->branch->id, 'kind' => 'removed',
+        ]);
 
         // لا إلغاء بعد التسليم
         $this->api('PATCH', "/api/v1/admin/orders/{$order->id}/status", ['status' => 'cancelled'])
@@ -268,6 +275,7 @@ class AdminOrderTest extends TestCase
         return app(OrderService::class)->createFromCart($cart, [
             'recipient_name' => 'عميل', 'recipient_phone' => '01012345678',
             'payment_method' => 'cod',
+            'legal_policy_version' => StorefrontLegalPolicyVersion::CURRENT,
         ]);
     }
 

@@ -12,9 +12,11 @@ interface ScanBarProps {
   customer: Customer | null;
   onAdd: (p: PosProduct) => void;
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  allowOutOfStockIds?: Set<number>;
+  onRawScan?: (code: string) => boolean;
 }
 
-export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
+export function ScanBar({ products, customer, onAdd, inputRef, allowOutOfStockIds, onRawScan }: ScanBarProps) {
   const [q, setQ] = useState('');
   const [hl, setHl] = useState(0);
   const [open, setOpen] = useState(false);
@@ -30,8 +32,17 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
 
   useEffect(() => setHl(0), [q]);
 
+  const clearSearch = () => {
+    setUnknownBarcode(null);
+    setQ('');
+    setOpen(false);
+    inputRef?.current?.focus();
+  };
+
+  const canPick = (p: PosProduct) => p.stock > 0 || Boolean(allowOutOfStockIds?.has(p.id));
+
   const pick = (p: PosProduct) => {
-    if (p.stock <= 0) {
+    if (!canPick(p)) {
       beepError();
       return;
     }
@@ -55,6 +66,9 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       // scan landing within ~100ms cannot glue onto this barcode.
       setQ('');
       setOpen(false);
+      if (code && onRawScan?.(code)) {
+        return;
+      }
       const isBarcode = /^\d{8,}$/.test(code);
       const exact = products.find((p) => normAr(p.barcode) === code || normAr(p.sku) === code);
       if (exact) {
@@ -123,55 +137,86 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       {open && q && (
         <div className="scan-results">
           {results.length === 0 ? (
-            <div className="empty" style={{ padding: 24 }}>
-              <h4 className="fs-14">لا يوجد صنف مطابق</h4>
-              <p>جرّب الباركود الكامل أو جزء من الاسم</p>
+            <div className="empty scan-empty" role="status" aria-live="polite">
+              <div className="empty-ic" aria-hidden="true">
+                <Icon n="search" s={20} w={1.75} />
+              </div>
+              <h4>
+                لا يوجد صنف مطابق لـ{' '}
+                <span className="scan-empty-q" dir="auto">
+                  {q.trim() || q}
+                </span>
+              </h4>
+              <p>جرّب الباركود الكامل، رمز SKU، أو جزءًا من اسم الصنف</p>
+              <div className="scan-empty-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm scan-empty-clear"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    clearSearch();
+                  }}
+                  onClick={clearSearch}
+                >
+                  <Icon n="x" s={13} w={2} />
+                  <span>مسح البحث</span>
+                  <Kbd>Esc</Kbd>
+                </button>
+              </div>
             </div>
           ) : (
-            results.map((p, i) => (
-              <button
-                key={p.id}
-                className={cx('scan-row', i === hl && 'hl', p.stock === 0 && 'out')}
-                disabled={p.stock === 0}
-                onMouseDown={() => p.stock > 0 && pick(p)}
-                onMouseEnter={() => setHl(i)}
+            <>
+              {results.map((p, i) => {
+                const eligible = canPick(p);
+                const reservedForPrep = p.stock === 0 && Boolean(allowOutOfStockIds?.has(p.id));
+                return (
+                  <button
+                    key={p.id}
+                    className={cx('scan-row', i === hl && 'hl', !eligible && 'out')}
+                    disabled={!eligible}
+                    onMouseDown={() => eligible && pick(p)}
+                    onMouseEnter={() => setHl(i)}
+                  >
+                    <PImg p={p} size="xs" />
+                    <div className="grow">
+                      <div className="fs-13 fw-5 truncate">{p.name}</div>
+                      <div className="fs-12 t-3 ltr" style={{ textAlign: 'right' }}>
+                        <span className="mono">{p.sku}</span> · <span className="mono">{p.barcode}</span>
+                      </div>
+                    </div>
+                    <span
+                      className={cx(
+                        'badge',
+                        reservedForPrep ? 'b-acc' : p.stock === 0 ? 'b-bad' : p.stock <= p.reorder ? 'b-warn' : 'b-neutral'
+                      )}
+                    >
+                      {reservedForPrep ? (
+                        'في الطلب'
+                      ) : p.stock === 0 ? (
+                        'نفد'
+                      ) : (
+                        <>
+                          رصيد <b className="num">{fmt(p.stock)}</b>
+                        </>
+                      )}
+                    </span>
+                    <span className="price fs-14">
+                      {egp(isWholesaleEligible(customer) ? p.wholesale : p.price)}
+                    </span>
+                  </button>
+                );
+              })}
+              <div
+                className="row between fs-12 t-3"
+                style={{ padding: '8px 10px 4px', borderTop: '1px solid var(--line)', marginTop: 4 }}
               >
-                <PImg p={p} size="xs" />
-                <div className="grow">
-                  <div className="fs-13 fw-5 truncate">{p.name}</div>
-                  <div className="fs-12 t-3 ltr" style={{ textAlign: 'right' }}>
-                    <span className="mono">{p.sku}</span> · <span className="mono">{p.barcode}</span>
-                  </div>
-                </div>
-                <span
-                  className={cx(
-                    'badge',
-                    p.stock === 0 ? 'b-bad' : p.stock <= p.reorder ? 'b-warn' : 'b-neutral'
-                  )}
-                >
-                  {p.stock === 0 ? (
-                    'نفد'
-                  ) : (
-                    <>
-                      رصيد <b className="num">{fmt(p.stock)}</b>
-                    </>
-                  )}
+                <span className="row gap-1">
+                  <Kbd>↑</Kbd>
+                  <Kbd>↓</Kbd> تنقّل <Kbd>Enter</Kbd> إضافة
                 </span>
-                <span className="price fs-14">
-                  {egp(isWholesaleEligible(customer) ? p.wholesale : p.price)}
-                </span>
-              </button>
-            ))
+              </div>
+            </>
           )}
-          <div
-            className="row between fs-12 t-3"
-            style={{ padding: '8px 10px 4px', borderTop: '1px solid var(--line)', marginTop: 4 }}
-          >
-            <span className="row gap-1">
-              <Kbd>↑</Kbd>
-              <Kbd>↓</Kbd> تنقّل <Kbd>Enter</Kbd> إضافة
-            </span>
-          </div>
         </div>
       )}
     </div>

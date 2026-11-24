@@ -37,7 +37,7 @@ class RolePermissionSeeder extends Seeder
         'pricing' => ['view', 'create', 'update', 'delete', 'manage'],
         'settings' => ['view', 'update', 'manage'],
         'store' => ['manage'],
-        'pos' => ['access', 'sales.view', 'sales.create', 'sales.refund', 'held.view_all', 'held.delete_any'],
+        'pos' => ['access', 'sales.view', 'sales.create', 'sales.refund', 'orders.cancel', 'held.view_all', 'held.delete_any'],
         'pos_shifts' => ['view', 'approve', 'view_expected', 'force_close'],
     ];
 

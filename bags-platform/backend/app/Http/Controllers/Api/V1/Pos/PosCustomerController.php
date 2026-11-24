@@ -32,34 +32,33 @@ class PosCustomerController extends Controller
 
         $rawQuery = trim((string) ($data['q'] ?? ''));
 
-        if ($request->has('q') && ($rawQuery === '' || mb_strlen($rawQuery) < 2)) {
+        if (mb_strlen($rawQuery) < 2) {
             return response()->json(['data' => []]);
         }
 
         $query = Customer::query()
             ->whereIn('status', [CustomerStatus::Approved, CustomerStatus::Pending]);
 
-        if ($rawQuery !== '') {
-            $normalizedDigits = ArabicDigits::normalize($rawQuery);
-            $normalizedPhone = Customer::normalizePhone($rawQuery);
-            $phoneLike = SearchTerm::pattern($normalizedPhone !== '' ? $normalizedPhone : $normalizedDigits);
-            $nameLike = SearchTerm::pattern(mb_strtolower($normalizedDigits));
-
-            $query->where(function ($q) use ($phoneLike, $nameLike, $rawQuery): void {
-                $q->where('phone', 'LIKE', $phoneLike)
-                    ->orWhere('whatsapp_phone', 'LIKE', $phoneLike)
-                    ->orWhereRaw('LOWER(name) LIKE ?', [$nameLike]);
-
-                if ($rawQuery !== mb_strtolower($rawQuery)) {
-                    $q->orWhere('name', 'LIKE', SearchTerm::pattern($rawQuery));
-                }
-            });
+        $normalizedDigits = ArabicDigits::normalize($rawQuery);
+        $phone = preg_match('/\A\+?[0-9][0-9 ()-]*\z/', $normalizedDigits) === 1
+            ? Customer::normalizePhone($normalizedDigits) : '';
+        $nameLike = SearchTerm::pattern(mb_strtolower($normalizedDigits));
+        $query->where(function ($match) use ($phone, $nameLike): void {
+            $match->whereRaw('LOWER(name) LIKE ?', [$nameLike])
+                ->orWhereRaw('LOWER(company_name) LIKE ?', [$nameLike]);
+            if ($phone !== '') {
+                $match->orWhere('phone', 'LIKE', SearchTerm::pattern($phone))
+                    ->orWhere('whatsapp_phone', 'LIKE', SearchTerm::pattern($phone));
+            }
+        });
+        if ($phone !== '') {
+            $query->orderByRaw('CASE WHEN phone = ? THEN 0 WHEN whatsapp_phone = ? THEN 1 ELSE 2 END', [$phone, $phone]);
         }
 
         $customers = $query
             ->orderByDesc('id')
             ->limit(10)
-            ->get()
+            ->get(['id', 'name', 'phone', 'type', 'status'])
             ->map(fn (Customer $c): array => $this->formatCustomer($c))
             ->values()
             ->all();

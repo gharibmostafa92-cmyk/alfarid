@@ -416,8 +416,7 @@ final class CustomerWholesaleAssistant
 
     private function balance(Customer $customer): string
     {
-        $debt = $this->notices->outstandingBalance($customer);
-        $available = max(0, round((float) $customer->credit_limit - $debt, 2));
+        $credit = $this->notices->accountCredit($customer);
         $due = Order::query()
             ->where('customer_id', $customer->id)
             ->where('payment_method', 'credit')
@@ -427,7 +426,8 @@ final class CustomerWholesaleAssistant
             ->orderBy('due_at')
             ->value('due_at');
 
-        return 'المديونية '.number_format($debt, 2, '.', '').' والمتاح من الحد '.number_format($available, 2, '.', '')
+        return 'المديونية '.$credit['amount_due'].' والمتاح من الحد '.$credit['available_credit']
+            .($credit['credit_balance'] !== '0.00' ? ' والرصيد الدائن '.$credit['credit_balance'] : '')
             .($due ? ' وأقرب استحقاق '.$due : '');
     }
 

@@ -5,7 +5,7 @@ export const UI_MODULES: UiModule[] = [
   { module: 'products', label: 'المنتجات والتصنيفات', icon: 'tag', prefixes: ['products','categories','brands'] },
   { module: 'orders', label: 'المبيعات والطلبات', icon: 'cart', prefixes: ['orders','sales','quotations'] },
   { module: 'customers', label: 'العملاء والتسعير', icon: 'users', prefixes: ['customers','customer_groups','price_lists','pricing'] },
-  { module: 'pos', label: 'نقطة البيع (POS)', icon: 'pos', prefixes: ['pos'] },
+  { module: 'pos', label: 'نقطة البيع (POS)', icon: 'pos', prefixes: ['pos', 'pos_shifts'] },
   { module: 'purchases', label: 'المشتريات والموردين', icon: 'truck', prefixes: ['purchases','purchase_requests','suppliers','supplier_invoices','supplier_payments'] },
   { module: 'returns', label: 'المرتجعات', icon: 'undo', prefixes: ['returns'] },
   { module: 'shipping', label: 'الشحن والعروض', icon: 'truck', prefixes: ['shipping','promotions','coupons'] },
@@ -16,6 +16,20 @@ export const UI_MODULES: UiModule[] = [
   { module: 'ai', label: 'المساعد الذكي', icon: 'sparkles', prefixes: ['ai_agent'] },
 ];
 export const OTHER_MODULE: UiModule = { module: 'other', label: 'صلاحيات أخرى', icon: 'shield', prefixes: [] };
+
+// These permissions are shared with the backoffice and also checked by the POS.
+const POS_SHARED_PERMISSIONS = new Set([
+  'inventory.view',
+  'orders.view',
+  'orders.update',
+  'stocktakes.view',
+  'stocktakes.update',
+  'stocktakes.approve',
+  'transfers.view',
+  'transfers.create',
+  'transfers.receive',
+  'transfers.approve_shortage',
+]);
 
 const ACTION: Record<string, string> = {
   view: 'عرض', create: 'إضافة', update: 'تعديل', delete: 'حذف', manage: 'إدارة كاملة',
@@ -49,11 +63,21 @@ const OVERRIDES: Record<string, string> = {
   'pos.sales.view': 'عرض مبيعات نقطة البيع',
   'pos.sales.create': 'البيع من نقطة البيع',
   'pos.sales.refund': 'استرجاع مبيعات نقطة البيع',
+  'pos.orders.cancel': 'إلغاء طلبات العملاء في نقطة البيع',
+  'pos.held.view_all': 'عرض الفواتير المعلقة لكل موظفي الفرع',
+  'pos.held.delete_any': 'حذف الفواتير المعلقة لموظفين آخرين في الفرع',
+  'pos.override_opening_float': 'تجاوز حد عهدة افتتاح الوردية',
+  'pos.override_price_below_cost': 'تعديل سعر البيع لأقل من التكلفة',
+  'pos_shifts.view': 'عرض ورديات نقطة البيع',
+  'pos_shifts.approve': 'مراجعة واعتماد ورديات نقطة البيع',
+  'pos_shifts.view_expected': 'عرض النقدية المتوقعة في الوردية',
+  'pos_shifts.force_close': 'إغلاق وردية نقطة البيع إجباريًا',
+  'transfers.approve_shortage': 'اعتماد العجز عند استلام تحويل مخزون',
   'customers.documents.view': 'عرض مستندات العملاء',
 };
 const SENSITIVE = new Set<string>([
   'products.view_cost','inventory.view_cost','inventory.adjust','inventory.all_branches',
-  'pos.discount','pos.override_price','pos.sales.refund','orders.payment',
+  'pos.discount','pos.override_price','pos.sales.refund','pos.orders.cancel','orders.payment',
   'purchases.approve','purchase_requests.approve','returns.approve','returns.refund',
   'supplier_invoices.post','supplier_invoices.cancel','supplier_payments.create',
   'ai_agent.execute','ai_agent.logs.view','ai_agent.settings',
@@ -76,10 +100,15 @@ export interface UiPermGroup { module: string; label: string; icon: string; keys
 /** Adapts GET /permissions response into the PermissionGroup structure required by UI roles editor. */
 export function buildPermissionGroups(api: Record<string, { name: string }[]>): UiPermGroup[] {
   const byModule = new Map<string, string[]>();
-  Object.entries(api).forEach(([prefix, list]) => {
-    const mod = UI_MODULES.find(m => m.prefixes.includes(prefix)) ?? OTHER_MODULE;
-    byModule.set(mod.module, [...(byModule.get(mod.module) ?? []), ...list.map(p => p.name)]);
-  });
+  for (const [prefix, permissions] of Object.entries(api)) {
+    const defaultModule = UI_MODULES.find(m => m.prefixes.includes(prefix)) ?? OTHER_MODULE;
+    for (const { name } of permissions) {
+      const module = POS_SHARED_PERMISSIONS.has(name) ? 'pos' : defaultModule.module;
+      const names = byModule.get(module) ?? [];
+      names.push(name);
+      byModule.set(module, names);
+    }
+  }
   const seen = new Set<string>();
   return [...UI_MODULES, OTHER_MODULE]
     .filter(m => byModule.has(m.module))

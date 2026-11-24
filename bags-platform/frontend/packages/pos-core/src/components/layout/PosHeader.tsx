@@ -14,6 +14,7 @@ interface PosHeaderProps {
   onToggleDark: () => void;
   onLogout?: () => void;
   accountSettings?: React.ReactNode;
+  incomingOrders?: React.ReactNode;
   /** F-15: driven by the app's online listener — never a hardcoded "online". */
   isOnline?: boolean;
 }
@@ -29,6 +30,7 @@ export function PosHeader({
   onToggleDark,
   onLogout,
   accountSettings,
+  incomingOrders,
   isOnline = true,
 }: PosHeaderProps) {
   return (
@@ -71,10 +73,17 @@ export function PosHeader({
           <span className="lbl">الجرد</span>
         </button>
       </nav>
+      {incomingOrders}
 
       <div className="ms-auto row gap-3">
         {/* F-15: live connection state. F-18: mock builds are badged so QA never mistakes them for production. */}
-        <span className="conn" title="حالة الاتصال بالسيرفر" role="status" aria-live="polite">
+        <span
+          className={isOnline ? 'conn' : 'conn off'}
+          title={isOnline ? 'متصل بالسيرفر' : 'غير متصل بالسيرفر'}
+          aria-label={isOnline ? 'متصل بالسيرفر' : 'غير متصل بالسيرفر'}
+          role="status"
+          aria-live="polite"
+        >
           <i
             style={{
               width: 7,
@@ -84,7 +93,7 @@ export function PosHeader({
               boxShadow: isOnline ? '0 0 0 2px var(--ok-bg)' : '0 0 0 2px var(--bad-bg)',
             }}
           />
-          {isOnline ? 'متصل' : 'غير متصل'}
+          <span className="hide-mobile">{isOnline ? 'متصل' : 'غير متصل'}</span>
         </span>
         {isMockPos && (
           <span className="badge b-warn" title="بيانات تجريبية — ليست بيئة الإنتاج">

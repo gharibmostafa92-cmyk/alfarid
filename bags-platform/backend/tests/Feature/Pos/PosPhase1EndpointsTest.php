@@ -989,8 +989,30 @@ class PosPhase1EndpointsTest extends TestCase
                 'status' => CustomerStatus::Approved,
             ]);
         }
-        $resMax10 = $this->withToken($this->token)->getJson('/api/v1/pos/customers');
+        $this->withToken($this->token)->getJson('/api/v1/pos/customers')->assertOk()->assertJsonCount(0, 'data');
+        $resMax10 = $this->withToken($this->token)->getJson('/api/v1/pos/customers?q='.urlencode('عميل تجريبي'));
         $resMax10->assertOk()->assertJsonCount(10, 'data');
+
+        $admin = User::factory()->create(['is_active' => true]);
+        $admin->givePermissionTo(
+            Permission::findOrCreate('customers.create', 'staff'),
+            Permission::findOrCreate('customers.approve', 'staff'),
+        );
+        $adminToken = $admin->createToken('backoffice')->plainTextToken;
+        Auth::forgetGuards();
+        $merchant = $this->withToken($adminToken)->postJson('/api/v1/admin/customers', [
+            'name' => 'صاحب المتجر', 'company_name' => 'متجر الرحلات', 'phone' => '01055556666', 'type' => 'wholesale',
+        ])->assertCreated()->json('data.id');
+        $retail = $this->withToken($adminToken)->postJson('/api/v1/admin/customers', [
+            'name' => 'عميل الفرع', 'phone' => '01155556666', 'type' => 'retail',
+        ])->assertCreated()->json('data.id');
+        $this->assertNull(Customer::findOrFail($merchant)->password);
+        $this->assertNull(Customer::findOrFail($retail)->password);
+        Auth::forgetGuards();
+        $this->withToken($this->token)->getJson('/api/v1/pos/customers?q='.urlencode('متجر الرحلات'))
+            ->assertOk()->assertJsonPath('data.0.id', $merchant);
+        $this->withToken($this->token)->getJson('/api/v1/pos/customers?q='.urlencode('+٢٠١١٥٥٥٥٦٦٦٦'))
+            ->assertOk()->assertJsonPath('data.0.id', $retail);
 
         // 4. Create retail customer (with Arabic digits in phone)
         $createRetail = $this->withToken($this->token)->postJson('/api/v1/pos/customers', [

@@ -28,6 +28,7 @@ use App\Models\WholesalePaymentNotice;
 use App\Services\CustomerEmail\CustomerEmailOutbox;
 use App\Services\Finance\WalletService;
 use App\Services\Inventory\InventoryService;
+use App\Services\Pos\IncomingOrderEvents;
 use App\Services\Pricing\CouponService;
 use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
@@ -266,7 +267,13 @@ class OrderService
             $this->recordStatusHistory($order, $from, $to, $actor, $notes, $extraNote);
             $this->ensureConfirmedOrderAllocated($order, $to, $actorId);
 
-            return $order->fresh(['items', 'statusHistories']);
+            $updated = $order->fresh(['items', 'statusHistories']);
+            app(IncomingOrderEvents::class)->publish(
+                $updated,
+                in_array($to->value, IncomingOrderEvents::OPEN_STATUSES, true) ? 'updated' : 'removed',
+            );
+
+            return $updated;
         });
     }
 
@@ -558,9 +565,9 @@ class OrderService
             return;
         }
 
-        Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
-        $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer->fresh());
-        if ($outstanding + $grandTotal > (float) $customer->credit_limit) {
+        $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+        $available = app(WholesalePaymentNoticeService::class)->availableCredit($customer);
+        if ($available->isLessThan(BigDecimal::of((string) $grandTotal)->toScale(2, RoundingMode::HalfUp))) {
             throw new BusinessException(
                 'إجمالي الطلب يتجاوز حد الائتمان المتاح.',
                 [],
@@ -896,6 +903,10 @@ class OrderService
         $updates = ['status' => $to];
         if ($to === OrderStatus::Returned) {
             $updates['returned_at'] = $order->returned_at ?? now();
+        }
+        if ($to === OrderStatus::Cancelled) {
+            $updates['prepared_at'] = null;
+            $updates['prepared_by'] = null;
         }
         if ($to === OrderStatus::Confirmed && $order->payment_method === 'credit' && $order->due_at === null && $order->customer_id !== null) {
             $updates['due_at'] = $this->resolveCreditDueDate($order);

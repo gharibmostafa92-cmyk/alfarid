@@ -7,7 +7,11 @@ namespace App\Services\Shared;
 use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;
 use App\Models\CustomerWalletTransaction;
+use App\Models\Expense;
+use App\Models\Order;
 use App\Models\ProductionReceipt;
+use App\Models\ReturnRequest;
+use App\Models\Shipment;
 use App\Models\SupplierDelivery;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierPayment;
@@ -33,6 +37,13 @@ class OperationIdempotencyService
         'supplier_invoice' => SupplierInvoice::class,
         'production_receipt' => ProductionReceipt::class,
         'customer_wallet_transaction' => CustomerWalletTransaction::class,
+        'pos_incoming_order' => Order::class,
+        'pos_incoming_order_shipment' => Shipment::class,
+        'pos_expense_update' => Expense::class,
+        'pos_expense_void' => Expense::class,
+        'pos_incoming_order_cancel' => Order::class,
+        'pos_incoming_order_prepare' => Order::class,
+        'pos_incoming_order_return' => ReturnRequest::class,
     ];
 
     /**

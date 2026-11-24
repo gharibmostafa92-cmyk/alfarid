@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { defaultApiClient as api } from '@alfarid/api-client';
-import { formatCurrency, formatDate, CustomerStatusLabelsAr as statuses, CustomerTypeLabelsAr as types } from '@alfarid/utils';
+import { formatCurrency, formatDate, CustomerStatusLabelsAr as statuses, CustomerTypeLabelsAr as types, OrderStatusLabelsAr } from '@alfarid/utils';
 import { useApi } from './useApi';
 import { normalizeError } from './errors';
 import { createClientRequestId } from '../../../lib/idempotency';
@@ -36,7 +36,7 @@ export function DealersPage() {
   const [q, setQ] = useQueryState({ search: '', type: '', status: '', page: 1, per_page: 15 });
   // Deep link from assistant (#/dealers?customer={id}) opens the drawer without appending to API filter parameters.
   const { customer: deepLinkId, tab: deepLinkTab, ...listQuery } = q;
-  const query = useApi(signal => canView ? get('/customers', { ...listQuery, business_only: 1 }, signal) : Promise.resolve({ data: [], meta: {} }), [canView, JSON.stringify(listQuery)]);
+  const query = useApi(signal => canView ? get('/customers', { ...listQuery, business_only: listQuery.type === 'retail' ? 0 : 1 }, signal) : Promise.resolve({ data: [], meta: {} }), [canView, JSON.stringify(listQuery)]);
   const [draft, setDraft] = useState(null);
   const [tab, setTab] = useState('details');
   const [busy, setBusy] = useState(false);
@@ -60,8 +60,9 @@ export function DealersPage() {
     get('/customers/' + id, {}, controller.signal).then(res => { if (live && res?.data) { setError(null); setTab(deepLinkTab === 'wallet' ? 'wallet' : 'details'); setDraft({ ...res.data, password: '' }); } }).catch(() => { if (live && !controller.signal.aborted) vtoast('تعذّر فتح حساب التاجر'); }).finally(() => { if (live) setQ({ customer: '', tab: '' }); });
     return () => { live = false; controller.abort(); };
   }, [canView, deepLinkId, deepLinkTab]);
-  const open = row => { setError(null); setTab('details'); setDraft(row ? { ...row, password: '' } : { name: '', phone: '', email: '', password: '', type: 'wholesale', company_name: '', tax_number: '', commercial_register: '', credit_limit: '0' }); };
+  const open = (row, type = 'wholesale') => { setError(null); setTab('details'); setDraft(row ? { ...row, password: '' } : { name: '', phone: '', email: '', password: '', type, company_name: '', tax_number: '', commercial_register: '', credit_limit: '0' }); };
   const canUseWallet = canView && draft?.id && (can('customers.wallet.view') || can('customers.wallet.adjust'));
+  const canSeeOrders = !!draft?.id && can('orders.view');
   const walletOpen = canUseWallet && tab === 'wallet';
   const save = async () => {
     if (busy) return;
@@ -72,20 +73,24 @@ export function DealersPage() {
         for (const key of ['phone', 'company_name', 'tax_number', 'commercial_register']) payload[key] = draft[key];
         payload.email = draft.email || null;
         if (draft.password) payload.password = draft.password;
-        if (can('customers.approve')) {
+        if (can('customers.approve') && draft.type !== 'retail') {
           payload.credit_limit = draft.credit_limit;
           if (draft.id) payload.expected_updated_at = draft.updated_at;
         }
       }
       if (draft.id) await api.put(base + '/customers/' + draft.id, payload);
-      else await api.post(base + '/customers', { ...payload, type: draft.type, status: 'pending' });
-      setDraft(null); query.reload(); vtoast('تم حفظ حساب التاجر');
+      else await api.post(base + '/customers', { ...payload, type: draft.type, status: draft.type === 'retail' ? 'approved' : 'pending' });
+      if (!draft.id && draft.type === 'retail') setQ({ type: 'retail', page: 1 });
+      setDraft(null); query.reload(); vtoast('تم حفظ حساب العميل');
     } catch (e) { setError(normalizeError(e)); } finally { setBusy(false); }
   };
   const field = (key, label, options = {}) => <Field key={key} label={label} error={error?.fields?.[key]?.[0]} required={options.required}><Input aria-label={label} value={draft[key] ?? ''} onChange={e => set(key, e.target.value)} {...options} /></Field>;
   if (!canView) return <div className="space-y-5"><PageHeader title="التجار والموزعون" subtitle="عملاء بيشتروا منتجات تصنيعنا بالجملة، مع متابعة بياناتهم واعتماد حساباتهم." /><Banner tone="amber">ليس لديك صلاحية عرض حسابات التجار.</Banner></div>;
   return <div className="space-y-5">
-    <PageHeader title="التجار والموزعون" subtitle="عملاء بيشتروا منتجات تصنيعنا بالجملة، مع متابعة بياناتهم واعتماد حساباتهم." crumbs={[{ label: 'المبيعات' }, { label: 'التجار والموزعون' }]} actions={can('customers.create') && <button className="btn btn-ink" onClick={() => open(null)}>إضافة تاجر</button>} />
+    <PageHeader title="التجار والموزعون" subtitle="تابع حسابات التجار والأفراد ومشترياتهم." crumbs={[{ label: 'المبيعات' }, { label: 'التجار والموزعون' }]} actions={can('customers.create') && <div className="flex gap-2">
+      {can('customers.approve') && <button className="btn btn-ink" onClick={() => open(null)}>إضافة تاجر</button>}
+      <button className="btn btn-soft" onClick={() => open(null, 'retail')}>إضافة عميل فرد</button>
+    </div>} />
     <DataTable rows={query.data?.data || []} meta={query.data?.meta} state={query.loading ? 'loading' : query.error ? 'error' : 'ready'} error={query.error} onRetry={query.reload} onPage={page => setQ({ page })} onPerPage={per_page => setQ({ per_page, page: 1 })}
       toolbar={<div className="flex flex-wrap gap-2"><SearchBox value={q.search} onChange={search => setQ({ search, page: 1 })} placeholder="اسم التاجر، الشركة أو التليفون…" /><FilterMenu label="نوع الحساب" value={q.type} onChange={type => setQ({ type, page: 1 })} options={Object.entries(types).map(([value, label]) => ({ value, label }))} /><FilterMenu label="الحالة" value={q.status} onChange={status => setQ({ status, page: 1 })} options={Object.entries(statuses).map(([value, label]) => ({ value, label }))} /></div>}
       empty={<EmptyState title="لا توجد حسابات مطابقة" body="أضف تجار الجملة والموزعين اللي بتبيعوا لهم منتجاتكم." />}
@@ -97,28 +102,30 @@ export function DealersPage() {
         { key: 'credit', label: 'حد البيع الآجل', render: r => formatCurrency(r.credit_limit) },
         { key: 'actions', label: '', render: r => <button className="btn btn-soft" onClick={() => open(r)}>فتح الحساب</button> },
       ]} />
-    <Drawer open={!!draft} onClose={() => { if (!busy) setDraft(null); }} title={draft?.id ? 'حساب التاجر' : 'إضافة تاجر'} width={620} footer={<><button className="btn btn-soft" disabled={busy} onClick={() => setDraft(null)}>إغلاق</button>{!walletOpen && (!draft?.id || can('customers.update')) && <button className="btn btn-ink" disabled={busy} onClick={save}>{busy ? 'جارٍ الحفظ…' : 'حفظ البيانات'}</button>}</>}>
-      {canUseWallet && <div className="flex gap-2 mb-4">
-        <button type="button" className="btn btn-soft" aria-pressed={!walletOpen} disabled={busy} onClick={() => setTab('details')}>بيانات الحساب</button>
-        <button type="button" className="btn btn-soft" aria-pressed={!!walletOpen} disabled={busy} onClick={() => setTab('wallet')}>المحفظة</button>
+    <Drawer open={!!draft} onClose={() => { if (!busy) setDraft(null); }} title={draft?.type === 'retail' ? (draft.id ? 'حساب العميل' : 'إضافة عميل فرد') : (draft?.id ? 'حساب التاجر' : 'إضافة تاجر')} width={620} footer={<><button className="btn btn-soft" disabled={busy} onClick={() => setDraft(null)}>إغلاق</button>{tab === 'details' && (!draft?.id || can('customers.update')) && <button className="btn btn-ink" disabled={busy} onClick={save}>{busy ? 'جارٍ الحفظ…' : 'حفظ البيانات'}</button>}</>}>
+      {(canUseWallet || canSeeOrders) && <div className="flex gap-2 mb-4">
+        <button type="button" className="btn btn-soft" aria-pressed={tab === 'details'} disabled={busy} onClick={() => setTab('details')}>بيانات الحساب</button>
+        {canUseWallet && <button type="button" className="btn btn-soft" aria-pressed={!!walletOpen} disabled={busy} onClick={() => setTab('wallet')}>المحفظة</button>}
+        {canSeeOrders && <button type="button" className="btn btn-soft" aria-pressed={tab === 'orders'} disabled={busy} onClick={() => setTab('orders')}>المشتريات</button>}
       </div>}
       {walletOpen && <DealerWallet key={draft.id} customerId={draft.id} canView={can('customers.wallet.view')} canAdjust={can('customers.wallet.adjust')} busy={busy} setBusy={setBusy} />}
-      {draft && !walletOpen && <div className="space-y-4">
+      {canSeeOrders && tab === 'orders' && <CustomerOrders key={draft.id} customerId={draft.id} />}
+      {draft && tab === 'details' && <div className="space-y-4">
         {error && <div role="alert"><Banner tone="red">{error.message}</Banner></div>}
         <fieldset disabled={busy || (!!draft.id && !can('customers.update'))} className="space-y-4">
-          {field('name', 'اسم التاجر', { required: true })}
-          {!draft.id && <Field label="نوع الحساب"><SearchSelect value={draft.type} onChange={value => set('type', value || 'wholesale')} options={Object.entries(types).filter(([type]) => type !== 'distributor' || can('customers.approve')).map(([value, label]) => ({ value, label }))} /></Field>}
+          {field('name', draft.type === 'retail' ? 'اسم العميل' : 'اسم التاجر', { required: true })}
+          {!draft.id && <Field label="نوع الحساب"><SearchSelect value={draft.type} onChange={value => set('type', value || 'retail')} options={Object.entries(types).filter(([type]) => type === 'retail' || can('customers.approve')).map(([value, label]) => ({ value, label }))} /></Field>}
           <fieldset disabled={!!draft.id && !can('customers.approve')} className="space-y-4">
             {field('phone', 'رقم التليفون', { required: true, ltr: true })}
             {field('email', 'البريد الإلكتروني', { type: 'email', ltr: true })}
-            {field('password', draft.id ? 'كلمة مرور جديدة (اختياري)' : 'كلمة المرور', { type: 'password', autoComplete: 'new-password', required: !draft.id })}
+            {field('password', 'كلمة مرور (اختياري)', { type: 'password', autoComplete: 'new-password' })}
             {field('company_name', 'اسم الشركة أو المحل')}
             {field('tax_number', 'الرقم الضريبي')}
             {field('commercial_register', 'السجل التجاري')}
-            {can('customers.approve') && field('credit_limit', 'حد البيع الآجل بالجنيه', { type: 'number', min: '0', step: '0.01' })}
+            {draft.type !== 'retail' && can('customers.approve') && field('credit_limit', 'حد البيع الآجل بالجنيه', { type: 'number', min: '0', step: '0.01' })}
           </fieldset>
         </fieldset>
-        {!draft.id && <Banner tone="amber">الحساب بيتسجل قيد المراجعة. الاعتماد بيتم بعد استكمال بيانات الشركة ومراجعة المستندات.</Banner>}
+        {!draft.id && draft.type !== 'retail' && <Banner tone="amber">الحساب بيتسجل قيد المراجعة. الاعتماد بيتم بعد استكمال بيانات الشركة ومراجعة المستندات.</Banner>}
         {draft.id && detail.loading && <Spinner />}
         {draft.id && detail.error && <ErrorState title={detail.error.message} onRetry={detail.reload} />}
         {draft.id && can('ai_agent.use') && <div><button type="button" className="btn btn-outline" onClick={() => { const name = draft.name || draft.company_name || ''; const params = new URLSearchParams({ seed: 'راجع طلب $' + name + ' وقولي جاهز للاعتماد ولا لأ', mention_entity: 'customer', mention_id: String(draft.id), mention_label: name }); window.location.hash = '/assistant?' + params.toString(); }}>اسأل المساعد</button></div>}
@@ -153,6 +160,25 @@ export function DealersPage() {
     </Drawer>
     <ConfirmDialog open={!!action} onClose={() => setAction(null)} title={action?.label || ''} message={action?.kind === 'approve' ? 'تأكد من حفظ بيانات الشركة وتوثيق المستندات قبل الاعتماد.' : <Field label="السبب" required><Input aria-label="سبب تغيير حالة الحساب" value={reason} onChange={e => setReason(e.target.value)} /></Field>} confirmLabel="تأكيد" onConfirm={async () => { if (action.kind !== 'approve' && !reason.trim()) throw new Error('اكتب السبب أولًا'); await api.post(base + `/customers/${draft.id}/${action.kind}`, action.kind === 'approve' ? {} : { reason }); setDraft(null); query.reload(); vtoast('تم تحديث حالة الحساب'); }} />
   </div>;
+}
+
+function CustomerOrders({ customerId }) {
+  const [page, setPage] = useState(1);
+  const orders = useApi(signal => get('/orders', { customer_id: customerId, page, per_page: 15 }, signal), [customerId, page]);
+  return <DataTable
+    rows={orders.data?.data ?? []}
+    meta={orders.data?.meta}
+    state={orders.loading ? 'loading' : orders.error ? 'error' : 'ready'}
+    error={orders.error}
+    onRetry={orders.reload}
+    onPage={setPage}
+    columns={[
+      { key: 'order_number', label: 'رقم الطلب' },
+      { key: 'channel', label: 'المصدر', render: row => ({ pos: 'نقطة البيع', store: 'المتجر', wholesale: 'الجملة' }[row.channel] ?? row.channel) },
+      { key: 'status', label: 'الحالة', render: row => OrderStatusLabelsAr[row.status] ?? row.status },
+      { key: 'grand_total', label: 'الإجمالي', render: row => formatCurrency(row.grand_total) },
+    ]}
+  />;
 }
 
 function DealerWallet({ customerId, canView, canAdjust, busy, setBusy }) {

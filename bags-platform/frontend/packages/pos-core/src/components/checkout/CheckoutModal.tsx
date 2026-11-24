@@ -45,7 +45,7 @@ export function CheckoutModal({
   cashier,
   isDark,
 }: CheckoutModalProps) {
-  const [method, setMethod] = useState<'cash' | 'card' | 'mixed'>('cash');
+  const [method, setMethod] = useState<'cash' | 'card' | 'mixed' | 'credit'>('cash');
   const [received, setReceived] = useState<string>('');
   const [cashPart, setCashPart] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
@@ -63,6 +63,8 @@ export function CheckoutModal({
   const discount = quote?.discount_total ?? 0;
   const totalCents = toCents(quote?.grand_total);
   const total = fromCents(totalCents);
+  const availableCredit = quote?.available_credit;
+  const canUseCredit = availableCredit != null && totalCents > 0 && toCents(availableCredit) >= totalCents;
 
   useEffect(() => {
     if (open) {
@@ -116,7 +118,7 @@ export function CheckoutModal({
     quote.lines.length > 0 &&
     !quote.lines.some((line) => line.error) &&
     (!hasOverride || overrideReason.trim().length > 0) &&
-    (method === 'card' ||
+    (method === 'card' || (method === 'credit' && canUseCredit) ||
       (method === 'cash' && receivedCents >= totalCents) ||
       (method === 'mixed' && cashCents > 0 && cashCents < totalCents));
 
@@ -181,10 +183,10 @@ export function CheckoutModal({
         invoiceNumber: res.invoiceNumber,
         total,
         method,
-        received: rec,
-        change,
-        cashA,
-        cardA,
+        received: method === 'credit' ? 0 : rec,
+        change: method === 'credit' ? 0 : change,
+        cashA: method === 'credit' ? 0 : cashA,
+        cardA: method === 'credit' ? 0 : cardA,
         cart,
         customer,
         discount,
@@ -279,7 +281,19 @@ export function CheckoutModal({
                       {l}
                     </button>
                   ))}
+                  {availableCredit != null && (
+                    <button type="button" className="method" aria-pressed={method === 'credit'}
+                      disabled={!canUseCredit || stage === 'sending'} onClick={() => setMethod('credit')}>
+                      على حساب التاجر
+                    </button>
+                  )}
                 </div>
+                {availableCredit != null && (
+                  <p className="fs-13">
+                    الائتمان المتاح {egp(availableCredit)} ج.م
+                    {!canUseCredit && ' · اختر الدفع الفوري لإتمام الفاتورة.'}
+                  </p>
+                )}
 
                 {method === 'cash' && (
                   <div className="co-cash">

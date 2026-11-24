@@ -1,14 +1,18 @@
 import { API_ENDPOINTS } from '@alfarid/api-client';
 import type {
   Branch,
+  BranchOrderReturnResult,
   CashierUser,
+  CompletedBranchOrderSummary,
   CreateSalePayload,
   Customer,
   PastSale,
   PosCartLine,
+  PosExpense,
   PosHeldSale,
   PosProduct,
   PosSettings,
+  PosShippingCompany,
   PosStockRow,
   ProcessReturnResult,
   PosShift,
@@ -30,7 +34,9 @@ import { runPosSaleWithTrace } from './pos-sale-tracing';
 export { configurePosSaleTracing } from './pos-sale-tracing';
 export type { PosSaleTrace } from './pos-sale-tracing';
 import {
+  mapCompletedBranchOrder,
   mapCustomer,
+  mapExpense,
   mapHeld,
   mapPastSale,
   mapProduct,
@@ -370,6 +376,42 @@ export class PosApiService {
     return r.data;
   }
 
+  public async getShiftExpenses(): Promise<PosExpense[]> {
+    const r = await this.call(() => this.http.get(EP.SALES_EXPENSES, this.withTimeout()));
+    return (r.data?.data ?? []).map(mapExpense);
+  }
+
+  public async updateExpense(
+    expenseId: number,
+    payload: { amount?: number; category?: string; notes?: string | null },
+    idempotencyKey?: string,
+  ): Promise<PosExpense> {
+    const body = {
+      ...(payload.amount !== undefined ? { amount: payload.amount } : {}),
+      ...(payload.category !== undefined ? { category: payload.category } : {}),
+      ...(payload.notes !== undefined ? { notes: payload.notes || null } : {}),
+    };
+    const r = await this.postIdempotent(
+      EP.SALE_EXPENSE_UPDATE(expenseId),
+      `expense-update:${expenseId}`,
+      body,
+      idempotencyKey || undefined,
+    );
+    await this.refreshShift();
+    return mapExpense(r.data.data);
+  }
+
+  public async voidExpense(expenseId: number, reason: string, idempotencyKey?: string): Promise<PosExpense> {
+    const r = await this.postIdempotent(
+      EP.SALE_EXPENSE_VOID(expenseId),
+      `expense-void:${expenseId}`,
+      { void_reason: reason.trim() },
+      idempotencyKey || undefined,
+    );
+    await this.refreshShift();
+    return mapExpense(r.data.data);
+  }
+
   public async getShiftStats(): Promise<ShiftStats> {
     const r = await this.call(() => this.http.get(EP.SHIFT_SUMMARY, this.withTimeout()));
     const s = r.data.data;
@@ -581,7 +623,8 @@ export class PosApiService {
       date: new Date().toLocaleString('ar-EG'),
       cashier: this.cashier?.name ?? '',
       customer: 'عميل نقدي',
-      method: payload.payment_method === 'cash' ? 'نقدي' : payload.payment_method === 'card' ? 'بطاقة' : 'مختلط',
+      method: { cash: 'نقدي', card: 'بطاقة', mixed: 'مختلط', credit: 'على حساب التاجر' }[payload.payment_method],
+      payment_method: payload.payment_method,
       items: payload.items.map((i) => ({
         id: i.product_variant_id,
         qty: i.qty,
@@ -675,6 +718,118 @@ export class PosApiService {
       if (e instanceof PosApiError && e.status === 404) return null;
       throw e;
     }
+  }
+
+  public async getSalesHistory(opts: { q?: string; cursor?: string | null; limit?: number } = {}): Promise<{ data: PastSale[]; nextCursor: string | null }> {
+    const params: Record<string, any> = {};
+    if (opts.q?.trim()) params.q = opts.q.trim();
+    if (opts.cursor) params.cursor = opts.cursor;
+    if (opts.limit) params.limit = opts.limit;
+    const r = await this.call(() => this.http.get(EP.SALES_HISTORY, this.withTimeout({ params })));
+    return {
+      data: (r.data?.data ?? []).map(mapPastSale),
+      nextCursor: r.data?.next_cursor ?? r.data?.meta?.next_cursor ?? null,
+    };
+  }
+
+  public async getCompletedBranchOrders(
+    opts: { q?: string; channel?: 'all' | 'pos' | 'store' | 'wholesale'; cursor?: string | null; limit?: number } = {},
+  ): Promise<{ data: CompletedBranchOrderSummary[]; nextCursor: string | null }> {
+    const params: Record<string, any> = {};
+    if (opts.q?.trim()) params.q = opts.q.trim();
+    if (opts.channel && opts.channel !== 'all') params.channel = opts.channel;
+    if (opts.cursor) params.cursor = opts.cursor;
+    if (opts.limit) params.limit = opts.limit;
+    const r = await this.call(() => this.http.get(EP.INCOMING_ORDERS_COMPLETED, this.withTimeout({ params })));
+    return {
+      data: (r.data?.data ?? []).map(mapCompletedBranchOrder),
+      nextCursor: r.data?.next_cursor ?? r.data?.meta?.next_cursor ?? null,
+    };
+  }
+
+  public async getShippingCompanies(): Promise<PosShippingCompany[]> {
+    const r = await this.call(() => this.http.get(EP.SHIPPING_COMPANIES, this.withTimeout()));
+    return (r.data?.data ?? []).map((c: any) => ({
+      id: Number(c.id),
+      name: String(c.name ?? ''),
+      code: String(c.code ?? ''),
+    }));
+  }
+
+  public async createIncomingOrderShipment(
+    orderId: number,
+    payload: { shipping_company_id: number; awb_number?: string | null },
+    idempotencyKey?: string,
+  ): Promise<any> {
+    const r = await this.postIdempotent(
+      EP.INCOMING_ORDER_SHIPMENTS(orderId),
+      `incoming-shipment:${orderId}`,
+      {
+        shipping_company_id: payload.shipping_company_id,
+        ...(payload.awb_number?.trim() ? { awb_number: payload.awb_number.trim() } : {}),
+      },
+      idempotencyKey || undefined,
+    );
+    void this.loadCatalog(true);
+    this.notify();
+    return r.data.data;
+  }
+
+  public async cancelIncomingOrder(
+    orderId: number,
+    expectedStatus: 'pending' | 'confirmed' | 'processing',
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<any> {
+    const r = await this.postIdempotent(
+      EP.INCOMING_ORDER_CANCEL(orderId),
+      `incoming-cancel:${orderId}`,
+      { expected_status: expectedStatus, reason: reason.trim() },
+      idempotencyKey || undefined,
+    );
+    void this.loadCatalog(true);
+    this.notify();
+    return r.data.data;
+  }
+
+  public async prepareIncomingOrder(
+    orderId: number,
+    expectedStatus: 'pending' | 'confirmed' | 'processing',
+    items: { product_variant_id: number; qty: number }[],
+    idempotencyKey?: string,
+  ): Promise<any> {
+    const r = await this.postIdempotent(
+      EP.INCOMING_ORDER_PREPARE(orderId),
+      `incoming-prepare:${orderId}`,
+      { expected_status: expectedStatus, items },
+      idempotencyKey || undefined,
+    );
+    this.notify();
+    return r.data.data;
+  }
+
+  public async receiveBranchOrderReturn(
+    orderId: number,
+    payload: {
+      reason?: string;
+      reason_type?: 'change_of_mind' | 'defect_or_mismatch';
+      items: { order_item_id: number; qty: number; return_to?: 'on_hand' | 'damaged' }[];
+    },
+    idempotencyKey?: string,
+  ): Promise<BranchOrderReturnResult> {
+    const r = await this.postIdempotent(
+      EP.INCOMING_ORDER_RETURN(orderId),
+      `incoming-return:${orderId}`,
+      {
+        reason: payload.reason?.trim() || undefined,
+        reason_type: payload.reason_type ?? 'change_of_mind',
+        items: payload.items,
+      },
+      idempotencyKey || undefined,
+    );
+    void this.loadCatalog(true);
+    this.notify();
+    return r.data.data;
   }
 
   private groupReturnLines(items: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[]) {

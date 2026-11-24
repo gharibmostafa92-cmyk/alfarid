@@ -78,6 +78,7 @@ class OrderController extends Controller implements HasMiddleware
         $filters = $request->validate([
             'status' => ['nullable', Rule::enum(OrderStatus::class)],
             'allocated_branch_id' => ['nullable', 'integer', 'min:1'],
+            'customer_id' => ['nullable', 'integer', 'min:1'],
             'payment_method' => ['nullable', Rule::in(['cod', 'card', 'wallet', 'bank_transfer', 'credit'])],
             'date_from' => ['nullable', 'date_format:Y-m-d'],
             'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
@@ -96,6 +97,7 @@ class OrderController extends Controller implements HasMiddleware
             ->when($branch ?? $filters['allocated_branch_id'] ?? null, fn ($q, $branchId) => $q->allocatedToBranch((int) $branchId))
             ->with(['customer', 'allocatedBranch'])
             ->withCount('items')
+            ->when($filters['customer_id'] ?? null, fn ($q, $customerId) => $q->where('customer_id', $customerId))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['payment_method'] ?? null, fn ($q, $method) => $q->where('payment_method', $method))
             ->when(array_key_exists('needs_attention', $filters) && $filters['needs_attention'] !== null,

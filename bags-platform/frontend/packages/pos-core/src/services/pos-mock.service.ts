@@ -1,11 +1,14 @@
 import type {
   Branch,
+  BranchOrderReturnResult,
   CashierUser,
+  CompletedBranchOrderSummary,
   Treasury,
   ProductCategory,
   PosProduct,
   Customer,
   PosCartLine,
+  PosExpense,
   ShiftStats,
   PosShift,
   PosHeldSale,
@@ -15,6 +18,7 @@ import type {
   StocktakeSession,
   CreateSalePayload,
   PosSettings,
+  PosShippingCompany,
   ProcessReturnResult,
   QuoteResult,
 } from '../types/pos.types';
@@ -169,6 +173,36 @@ export class PosMockService {
     ],
   };
 
+  private expenses: PosExpense[] = [
+    {
+      id: 501,
+      shiftId: 512,
+      category: 'نقل بضاعة',
+      amount: 120,
+      description: 'مواصلات استلام طرد',
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      createdBy: { id: INITIAL_CASHIER.id, name: INITIAL_CASHIER.name },
+      status: 'posted',
+      voidedAt: null,
+      voidReason: null,
+      canEdit: true,
+      canVoid: true,
+    },
+    {
+      id: 502,
+      shiftId: 512,
+      category: 'ضيافة',
+      amount: 60,
+      description: null,
+      createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      createdBy: { id: INITIAL_CASHIER.id, name: INITIAL_CASHIER.name },
+      status: 'posted',
+      voidedAt: null,
+      voidReason: null,
+      canEdit: true,
+      canVoid: true,
+    },
+  ];
   private listeners: Set<() => void> = new Set();
   /** F-18: idempotency replays + per-sale return accounting so QA sees API-like behavior. */
   private saleIdem = new Map<string, { order: PastSale; invoiceNumber: string }>();
@@ -322,12 +356,99 @@ export class PosMockService {
     };
   }
 
+  private syncMockExpenseTotals(): void {
+    if (!this.currentShift) return;
+    const total = this.expenses
+      .filter((e) => e.shiftId === this.currentShift!.id && e.status === 'posted')
+      .reduce((s, e) => s + e.amount, 0);
+    this.currentShift.cash_expenses_total = total;
+    this.currentShift.expected_closing_cash =
+      this.currentShift.opening_cash +
+      (this.currentShift.cash_sales_total ?? 0) -
+      (this.currentShift.cash_returns_total ?? 0) -
+      total;
+  }
+
   public async recordExpense(amount: number, category: string, notes?: string): Promise<any> {
     await delay(200);
     if (!this.currentShift) throw new Error('لا توجد وردية مفتوحة');
-    this.currentShift.cash_expenses_total = (this.currentShift.cash_expenses_total ?? 0) + amount;
+    const created: PosExpense = {
+      id: Date.now(),
+      shiftId: this.currentShift.id,
+      category,
+      amount,
+      description: notes?.trim() || null,
+      createdAt: new Date().toISOString(),
+      createdBy: { id: this.cashier.id, name: this.cashier.name },
+      status: 'posted',
+      voidedAt: null,
+      voidReason: null,
+      canEdit: true,
+      canVoid: true,
+    };
+    this.expenses.unshift(created);
+    this.syncMockExpenseTotals();
     this.notify();
-    return { id: Date.now(), amount, category, notes };
+    return created;
+  }
+
+  public async getShiftExpenses(): Promise<PosExpense[]> {
+    await delay(80);
+    if (!this.currentShift) return [];
+    return this.expenses
+      .filter((e) => e.shiftId === this.currentShift!.id)
+      .map((e) => ({ ...e }));
+  }
+
+  public async updateExpense(
+    expenseId: number,
+    payload: { amount?: number; category?: string; notes?: string | null },
+  ): Promise<PosExpense> {
+    await delay(150);
+    const ix = this.expenses.findIndex((e) => e.id === expenseId && e.status === 'posted');
+    if (ix < 0) throw new Error('المصروف غير موجود أو تم إلغاؤه');
+    const cur = this.expenses[ix];
+    if (payload.amount !== undefined && Math.abs(payload.amount - cur.amount) > 0.009) {
+      this.expenses[ix] = { ...cur, status: 'voided', voidedAt: new Date().toISOString(), voidReason: 'تم استبدال المصروف بتعديل المبلغ', canEdit: false, canVoid: false };
+      const replacement: PosExpense = {
+        ...cur,
+        id: Date.now(),
+        amount: payload.amount,
+        category: payload.category ?? cur.category,
+        description: payload.notes !== undefined ? (payload.notes?.trim() || null) : cur.description,
+        createdAt: new Date().toISOString(),
+      };
+      this.expenses.unshift(replacement);
+      this.syncMockExpenseTotals();
+      this.notify();
+      return { ...replacement };
+    }
+    const updated: PosExpense = {
+      ...cur,
+      category: payload.category ?? cur.category,
+      description: payload.notes !== undefined ? (payload.notes?.trim() || null) : cur.description,
+    };
+    this.expenses[ix] = updated;
+    this.notify();
+    return { ...updated };
+  }
+
+  public async voidExpense(expenseId: number, reason: string): Promise<PosExpense> {
+    await delay(150);
+    const ix = this.expenses.findIndex((e) => e.id === expenseId && e.status === 'posted');
+    if (ix < 0) throw new Error('المصروف غير موجود أو تم إلغاؤه مسبقًا');
+    const voided: PosExpense = {
+      ...this.expenses[ix],
+      status: 'voided',
+      voidedAt: new Date().toISOString(),
+      voidReason: reason.trim(),
+      canEdit: false,
+      canVoid: false,
+    };
+    this.expenses[ix] = voided;
+    this.syncMockExpenseTotals();
+    this.notify();
+    return { ...voided };
   }
 
   // Catalog & Products
@@ -488,6 +609,93 @@ export class PosMockService {
     await delay(150);
     const key = num.trim().toUpperCase();
     return this.pastSales[key] || this.pastSales[`POS-NSR-${key}`] || null;
+  }
+
+  public async getSalesHistory(opts: { q?: string; cursor?: string | null; limit?: number } = {}): Promise<{ data: PastSale[]; nextCursor: string | null }> {
+    await delay(80);
+    const q = (opts.q ?? '').trim().toLowerCase();
+    const list = Object.values(this.pastSales)
+      .filter((s) => !q || s.number.toLowerCase().includes(q) || s.customer.toLowerCase().includes(q))
+      .slice(0, opts.limit ?? 20);
+    return { data: list, nextCursor: null };
+  }
+
+  public async getCompletedBranchOrders(
+    opts: { q?: string; channel?: 'all' | 'pos' | 'store' | 'wholesale'; cursor?: string | null; limit?: number } = {},
+  ): Promise<{ data: CompletedBranchOrderSummary[]; nextCursor: string | null }> {
+    await delay(80);
+    const q = (opts.q ?? '').trim().toLowerCase();
+    const list: CompletedBranchOrderSummary[] = Object.values(this.pastSales)
+      .filter((s) => !opts.channel || opts.channel === 'all' || opts.channel === 'pos')
+      .filter((s) => !q || s.number.toLowerCase().includes(q) || s.customer.toLowerCase().includes(q))
+      .map((s) => ({
+        id: s.id,
+        order_number: s.number,
+        channel: 'pos' as const,
+        status: 'delivered',
+        customer_name: s.customer,
+        customer_phone: null,
+        grand_total: s.items.reduce((sum, i) => sum + i.price * i.qty, 0),
+        items_count: s.items.reduce((sum, i) => sum + i.qty, 0),
+        returnable_qty: s.items.reduce((sum, i) => sum + (i.returnable_qty ?? i.qty), 0),
+        created_at: new Date().toISOString(),
+        delivered_at: new Date().toISOString(),
+      }));
+    return { data: list.slice(0, opts.limit ?? 20), nextCursor: null };
+  }
+
+  public async cancelIncomingOrder(
+    orderId: number,
+    _expectedStatus: 'pending' | 'confirmed' | 'processing',
+    _reason: string,
+  ): Promise<any> {
+    await delay(150);
+    this.notify();
+    return { id: orderId, status: 'cancelled' };
+  }
+
+  public async prepareIncomingOrder(
+    orderId: number,
+    _expectedStatus: 'pending' | 'confirmed' | 'processing',
+    _items: { product_variant_id: number; qty: number }[],
+  ): Promise<any> {
+    await delay(150);
+    this.notify();
+    return { id: orderId, status: 'processing', prepared_at: new Date().toISOString() };
+  }
+
+  public async getShippingCompanies(): Promise<PosShippingCompany[]> {
+    await delay(60);
+    return [{ id: 1, name: 'شركة الشحن السريع', code: 'FAST' }];
+  }
+
+  public async createIncomingOrderShipment(
+    orderId: number,
+    payload: { shipping_company_id: number; awb_number?: string | null },
+  ): Promise<any> {
+    await delay(150);
+    this.notify();
+    return {
+      id: Date.now(),
+      order_id: orderId,
+      awb_number: payload.awb_number?.trim() || `MOCK-${orderId}`,
+      status: 'created',
+      company_name: 'شركة الشحن السريع',
+      tracking_url: null,
+    };
+  }
+
+  public async receiveBranchOrderReturn(
+    _orderId: number,
+    _payload: {
+      reason?: string;
+      reason_type?: 'change_of_mind' | 'defect_or_mismatch';
+      items: { order_item_id: number; qty: number; return_to?: 'on_hand' | 'damaged' }[];
+    },
+  ): Promise<BranchOrderReturnResult> {
+    await delay(150);
+    this.notify();
+    return { return_id: Date.now(), return_number: 'RET-MOCK-1', status: 'received', total_refund_amount: 0 };
   }
 
   public async processReturn(
