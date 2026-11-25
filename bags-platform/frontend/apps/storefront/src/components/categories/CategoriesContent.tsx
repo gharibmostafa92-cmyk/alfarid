@@ -8,7 +8,7 @@ import { AnimatedNumber } from '@alfarid/ui';
 import { useCatalogFilters, useSimilarProducts, useStoreCategories, useStoreProduct, useStoreProducts } from '@/hooks/use-store-catalog';
 import { buildSearch, parseFilters, toApiParams, toFacetParams, type CatalogFilterState } from '@/lib/catalog/catalog-query';
 import { DEFAULT_HERO, OCCASION_LABELS, SORT_OPTIONS } from '@/lib/catalog/catalog-labels';
-import { findCategory, pick, priceRangeLabel, toCardVM, type CatalogCardVM } from '@/lib/catalog/catalog-mappers';
+import { findCategory, pick, priceRangeLabel, toLocalizedCardVM, type CatalogCardVM } from '@/lib/catalog/catalog-mappers';
 import { rollupCategoryProductCount } from '@/lib/catalog/sophie-mappers';
 import { ProductExperience } from '@/components/products/ProductExperience';
 import { StoreImage } from '../StoreImage';
@@ -43,14 +43,33 @@ export function CategoriesContent() {
   const closeProduct = () => router.push(`${pathname}${buildSearch(filters)}`, { scroll: false });
 
   // UI state (kept local): collapse filter sidebar on mobile by default to keep products visible
+  const [isDesktop, setIsDesktop] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 993px)');
+    setIsDesktop(desktop.matches);
     setIsSidebarOpen(desktop.matches);
-    const onChange = (event: MediaQueryListEvent) => setIsSidebarOpen(event.matches);
+    const onChange = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches);
+      setIsSidebarOpen(event.matches);
+    };
     desktop.addEventListener('change', onChange);
     return () => desktop.removeEventListener('change', onChange);
   }, []);
+
+  useEffect(() => {
+    if (isDesktop || !isSidebarOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSidebarOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [isDesktop, isSidebarOpen]);
   const [toast, setToast] = useState<{ show: boolean; msg: string }>({ show: false, msg: '' });
   const [wishlist, setWishlist] = useState<Set<number>>(new Set());
   const wishlistRef = useRef(wishlist);
@@ -91,25 +110,28 @@ export function CategoriesContent() {
   const productQ = useStoreProduct(productSlug);
   const similarQ = useSimilarProducts(productSlug);
 
-  const cards = useMemo(() => (productsQ.data?.pages ?? []).flatMap((p) => p.data).map((product) => ({
-    ...toCardVM(product),
-    name: pick(product.name_en, product.name_ar, lang),
-    categoryLabel: pick(product.category?.name_en, product.category?.name_ar, lang),
-  })), [productsQ.data, lang]);
+  const cards = useMemo(() => (productsQ.data?.pages ?? []).flatMap((p) => p.data).map((product) => toLocalizedCardVM(product, lang)), [productsQ.data, lang]);
   const total = productsQ.data?.pages[0]?.meta.total ?? 0;
   const roots = categoriesQ.data ?? [];
   const allCount = roots.reduce((t, c) => t + rollupCategoryProductCount(c), 0);
   const activeCat = findCategory(roots, filters.category);
+  const activeFilterCount =
+    (filters.category ? 1 : 0) +
+    (filters.color ? 1 : 0) +
+    (filters.priceMin !== null || filters.priceMax !== null ? 1 : 0) +
+    filters.occasions.length +
+    (filters.inStock ? 1 : 0) +
+    (filters.onSale ? 1 : 0);
 
   const handleToggleWishlist = (productId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = new Set(wishlistRef.current);
     if (next.has(productId)) {
       next.delete(productId);
-      showToast('Removed from your wishlist.');
+      showToast(isAr ? 'تمت الإزالة من المفضلة.' : 'Removed from your wishlist.');
     } else {
       next.add(productId);
-      showToast('Saved to your wishlist!');
+      showToast(isAr ? 'تم الحفظ في المفضلة!' : 'Saved to your wishlist!');
     }
     wishlistRef.current = next;
     setWishlist(next);
@@ -165,13 +187,22 @@ export function CategoriesContent() {
   if (productSlug && productQ.data && !productQ.isError) {
     return <>
       <ProductExperience key={productQ.data.slug + ':' + (filters.color ?? '') + ':' + (sp.get('size') ?? '')} product={productQ.data} onBack={closeProduct} initialColor={filters.color} initialSize={sp.get('size')} />
-      {(similarQ.data ?? []).length > 0 && <section className="categories-container related-section"><h2 className="related-title">YOU MAY ALSO ADORE</h2><div className="product-grid">{(similarQ.data ?? []).slice(0, 4).map(toCardVM).map(renderCard)}</div></section>}
+      {(similarQ.data ?? []).length > 0 && <section className="categories-container related-section"><h2 className="related-title">{isAr ? 'منتجات قد تعجبك' : 'YOU MAY ALSO ADORE'}</h2><div className="product-grid">{(similarQ.data ?? []).slice(0, 4).map((p) => toLocalizedCardVM(p, lang)).map(renderCard)}</div></section>}
     </>;
   }
 
-  const heroTitle = activeCat ? { light: isAr ? 'تسوق' : 'SHOP', bold: pick(activeCat.node.name_en, activeCat.node.name_ar, lang).toUpperCase() } : { light: isAr ? 'تشكيلة' : DEFAULT_HERO.light, bold: isAr ? 'الشنط' : DEFAULT_HERO.bold };
-  const heroDesc = activeCat ? pick(activeCat.node.description_en, activeCat.node.description_ar, lang) : (isAr ? 'تصفح الشنط المتاحة واختار الموديل المناسب ليومك.' : DEFAULT_HERO.desc);
+  const parentCat = activeCat && activeCat.path.length > 1 ? activeCat.path[activeCat.path.length - 2] : null;
+  const subCategories = activeCat?.node.children ?? [];
+  const heroTitleText = activeCat
+    ? pick(activeCat.node.name_en, activeCat.node.name_ar, lang)
+    : (isAr ? 'تشكيلة الشنط' : `${DEFAULT_HERO.light} ${DEFAULT_HERO.bold}`);
+  const heroDesc = activeCat
+    ? pick(activeCat.node.description_en, activeCat.node.description_ar, lang)
+    : (isAr ? 'تصفح الشنط المتاحة واختار الموديل المناسب ليومك.' : DEFAULT_HERO.desc);
   const heroImg = activeCat?.node.image ?? DEFAULT_HERO.img;
+  const countLabel = isAr
+    ? (total === 1 ? 'منتج واحد' : total === 2 ? 'منتجان' : `${total} منتج`)
+    : `${total} ${total === 1 ? 'piece' : 'pieces'}`;
 
   return (
     <main id="main-content" tabIndex={-1} className="categories-page">
@@ -180,31 +211,81 @@ export function CategoriesContent() {
         <div className="categories-container">
           {/* Category Hero Banner */}
           <section className="cat-hero-banner">
-            <div className="cat-hero-text">
-              <div className="cat-breadcrumbs">
-                <Link href="/">{isAr ? 'الرئيسية' : 'HOME'}</Link> &nbsp;/&nbsp; <Link href="/shop">{isAr ? 'المتجر' : 'SHOP'}</Link> &nbsp;/&nbsp;{' '}
-                {activeCat ? (
-                  <span className="active">
-                    {activeCat.path.map((c, i) => (
-                      <span key={c.slug}>
-                        {i > 0 && ' / '}
-                        <Link href={`${pathname}?category=${c.slug}`}>{pick(c.name_en, c.name_ar, lang).toUpperCase()}</Link>
-                      </span>
-                    ))}
+            <nav aria-label={isAr ? 'مسار التصفح' : 'Breadcrumb'} className="cat-breadcrumbs">
+              <Link href="/">{isAr ? 'الرئيسية' : 'HOME'}</Link>
+              <span aria-hidden="true" className="cat-breadcrumb-sep">/</span>
+              <Link href="/shop">{isAr ? 'المتجر' : 'SHOP'}</Link>
+              {activeCat ? (
+                activeCat.path.map((c, i) => {
+                  const isLast = i === activeCat.path.length - 1;
+                  return (
+                    <React.Fragment key={c.slug}>
+                      <span aria-hidden="true" className="cat-breadcrumb-sep">/</span>
+                      {isLast ? (
+                        <span className="active" aria-current="page">
+                          {pick(c.name_en, c.name_ar, lang)}
+                        </span>
+                      ) : (
+                        <Link href={`${pathname}?category=${c.slug}`}>
+                          {pick(c.name_en, c.name_ar, lang)}
+                        </Link>
+                      )}
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+                <>
+                  <span aria-hidden="true" className="cat-breadcrumb-sep">/</span>
+                  <span className="active" aria-current="page">{isAr ? 'تشكيلة الشنط' : 'BAG COLLECTION'}</span>
+                </>
+              )}
+            </nav>
+
+            <div className="cat-hero-main">
+              <div className="cat-hero-text">
+                <h1 className="cat-hero-title">
+                  {heroTitleText}
+                </h1>
+                {heroDesc && <p className="cat-hero-desc">{heroDesc}</p>}
+
+                <div className="cat-hero-meta">
+                  <span className="cat-hero-count-pill">
+                    <span className="cat-hero-count-dot" aria-hidden="true" />
+                    <span>{countLabel}</span>
                   </span>
-                ) : (
-                  <span className="active">{isAr ? 'تشكيلة الشنط' : 'BAG COLLECTION'}</span>
+                  {parentCat && (
+                    <Link
+                      href={`${pathname}?category=${parentCat.slug}`}
+                      className="cat-hero-parent-link"
+                    >
+                      {pick(parentCat.name_en, parentCat.name_ar, lang)}
+                    </Link>
+                  )}
+                </div>
+
+                {subCategories.length > 0 && (
+                  <div className="cat-hero-subcats" aria-label={isAr ? 'الأقسام الفرعية' : 'Subcategories'}>
+                    {subCategories.map((child) => (
+                      <button
+                        key={child.slug}
+                        type="button"
+                        className="cat-hero-subcat-pill"
+                        onClick={() => updateFilters({ category: child.slug })}
+                      >
+                        {pick(child.name_en, child.name_ar, lang)}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-              <h1 className="cat-hero-title">
-                <span className="light-text">{heroTitle.light}</span>
-                <span className="bold-text">{heroTitle.bold}</span>
-              </h1>
-              <p className="cat-hero-desc">{heroDesc}</p>
-            </div>
 
-            <div className="cat-hero-decor">
-              <StoreImage src={heroImg} className="" alt="Sophie Signature Bag" />
+              {heroImg && (
+                <div className="cat-hero-decor">
+                  <div className="cat-hero-img-frame">
+                    <StoreImage src={heroImg} className="" alt={heroTitleText} />
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -220,13 +301,19 @@ export function CategoriesContent() {
               <div className="catalog-toolbar">
                 <div className="toolbar-left">
                   <button
+                    type="button"
                     className={`btn-filter-toggle ${isSidebarOpen ? '' : 'open'}`}
                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                     aria-controls="catalog-filters"
                     aria-expanded={isSidebarOpen}
                   >
-                    <i className="fa-solid fa-sliders" />
-                    <span>{isSidebarOpen ? (isAr ? 'إخفاء الفلاتر' : 'Hide Filters') : (isAr ? 'عرض الفلاتر' : 'Show Filters')}</span>
+                    <i className="fa-solid fa-sliders" aria-hidden="true" />
+                    <span>{isSidebarOpen ? (isAr ? 'إخفاء الفلاتر' : 'Hide Filters') : (isAr ? 'الفلاتر' : 'Filters')}</span>
+                    {activeFilterCount > 0 && (
+                      <span className="filter-active-badge" aria-label={isAr ? `${activeFilterCount} فلاتر مفعلة` : `${activeFilterCount} active filters`}>
+                        {activeFilterCount}
+                      </span>
+                    )}
                   </button>
                   <span className="filter-count-badge">
                     {isAr ? 'عدد المنتجات ' : 'Showing '}<AnimatedNumber value={total} /> {isAr ? '' : 'pieces'}
@@ -236,6 +323,7 @@ export function CategoriesContent() {
                 {/* Quick Category Pills */}
                 <div className="category-pills">
                   <button
+                    type="button"
                     className={`cat-pill ${filters.category === null ? 'active' : ''}`}
                     onClick={() => updateFilters({ category: null })}
                   >
@@ -243,6 +331,7 @@ export function CategoriesContent() {
                   </button>
                   {roots.map((c) => (
                     <button
+                      type="button"
                       key={c.slug}
                       className={`cat-pill ${filters.category === c.slug ? 'active' : ''}`}
                       onClick={() => updateFilters({ category: c.slug })}
@@ -256,7 +345,7 @@ export function CategoriesContent() {
                   <div className="sort-wrap">
                     <span>{isAr ? 'الترتيب' : 'Sort by'}</span>
                     <select
-                      aria-label="Sort products"
+                      aria-label={isAr ? 'ترتيب المنتجات' : 'Sort products'}
                       className="sort-select"
                       value={filters.sort}
                       onChange={(e) => updateFilters({ sort: e.target.value as CatalogFilterState['sort'] })}
@@ -270,143 +359,210 @@ export function CategoriesContent() {
               </div>
 
               <div className="catalog-layout">
+                {!isDesktop && isSidebarOpen && (
+                  <div
+                    className="cat-filter-backdrop"
+                    onClick={() => setIsSidebarOpen(false)}
+                    aria-hidden="true"
+                  />
+                )}
                 {/* Sidebar Filters */}
-                <aside id="catalog-filters" hidden={!isSidebarOpen} aria-label="Product filters" className="filter-sidebar">
+                <aside
+                  id="catalog-filters"
+                  hidden={!isSidebarOpen}
+                  role={!isDesktop && isSidebarOpen ? 'dialog' : undefined}
+                  aria-modal={!isDesktop && isSidebarOpen ? true : undefined}
+                  aria-label={isAr ? 'فلاتر المنتجات' : 'Product filters'}
+                  className={`filter-sidebar ${!isDesktop && isSidebarOpen ? 'is-mobile-drawer' : ''}`}
+                >
                   <div className="filter-sidebar-inner">
                     <div className="sidebar-header">
                       <div className="sidebar-header-left">
                         <span className="sidebar-title">{isAr ? 'تصفية حسب' : 'Refine By'}</span>
-                        <button className="btn-reset-filters" onClick={resetFilters}>
-                          {isAr ? 'مسح الفلاتر' : 'Reset All'}
-                        </button>
+                        {activeFilterCount > 0 && (
+                          <button type="button" className="btn-reset-filters" onClick={resetFilters}>
+                            {isAr ? 'مسح الكل' : 'Reset All'}
+                          </button>
+                        )}
                       </div>
                       <button
+                        type="button"
                         className="btn-close-sidebar"
                         onClick={() => setIsSidebarOpen(false)}
-                        title="Hide Filters" aria-label="Hide Filters"
+                        title={isAr ? 'إخفاء الفلاتر' : 'Hide Filters'}
+                        aria-label={isAr ? 'إخفاء الفلاتر' : 'Hide Filters'}
                       >
-                        <i className="fa-solid fa-xmark" />
+                        <i className="fa-solid fa-xmark" aria-hidden="true" />
                       </button>
                     </div>
 
-                    {facetsQ.isPending && <p role="status">جاري تحميل فلاتر السعر والألوان...</p>}
-                    {facetsQ.isError && <div role="alert">
-                      <p>تعذّر تحميل فلاتر السعر والألوان.</p>
-                      <button type="button" className="btn-reset-filters" onClick={() => { void facetsQ.refetch(); }}>إعادة المحاولة</button>
-                    </div>}
-
-                    {/* Category Filter */}
-                    <div className="filter-group">
-                      <div className="group-heading">{isAr ? 'التصنيفات' : 'Categories'}</div>
-                      <div className="filter-list">
-                        <button type="button"
-                          className={`filter-item ${filters.category === null ? 'active' : ''}`}
-                          onClick={() => updateFilters({ category: null })}
-                        >
-                          <span>{isAr ? 'كل التصنيفات' : 'All Collections'}</span>
-                          <span className="count"><AnimatedNumber value={allCount} /></span>
-                        </button>
-                        {roots.map((c) => (
-                          <React.Fragment key={c.slug}>
-                            <button type="button"
-                              className={`filter-item ${filters.category === c.slug ? 'active' : ''}`}
-                              onClick={() => updateFilters({ category: c.slug })}
-                            >
-                              <span>{pick(c.name_en, c.name_ar, lang)}</span>
-                              <span className="count"><AnimatedNumber value={c.products_count} /></span>
-                            </button>
-                            {(c.children ?? []).map((child) => (
-                              <button type="button"
-                                key={child.slug}
-                                className={`filter-item ${filters.category === child.slug ? 'active' : ''}`}
-                                style={{ paddingLeft: 12 }}
-                                onClick={() => updateFilters({ category: child.slug })}
-                              >
-                                <span>{pick(child.name_en, child.name_ar, lang)}</span>
-                                <span className="count"><AnimatedNumber value={child.products_count} /></span>
-                              </button>
-                            ))}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Occasion Filter */}
-                    <div className="filter-group">
-                      <div className="group-heading">{isAr ? 'الاستخدام' : 'Occasion'}</div>
-                      <div className="filter-list">
-                        {(facetsQ.data?.occasions ?? []).map((o) => {
-                          const checked = filters.occasions.includes(o.id);
-                          return (
-                            <label key={o.id} className="checkbox-label">
-                              <input type="checkbox" checked={checked} onChange={() => toggleOccasion(o.id)} />
-                              <span className="custom-box">{checked ? '✓' : ''}</span>
-                              {isAr ? OCCASION_AR[o.id] : OCCASION_LABELS[o.id]} <span className="count">{o.count}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Color Palette */}
-                    <div className="filter-group">
-                      <div className="group-heading">{isAr ? 'الألوان' : 'Color Palette'}</div>
-                      <div className="color-swatches-grid">
-                        <button
-                          className={`swatch-btn ${filters.color === null ? 'active' : ''}`}
-                          onClick={() => updateFilters({ color: null })}
-                          title="All"
-                        >
-                          <span className="swatch-circle" style={{ background: ALL_COLOR_BG }} />
-                          <span className="swatch-name">{isAr ? 'الكل' : 'All'}</span>
-                        </button>
-                        {(facetsQ.data?.colors ?? []).map((c) => (
-                          <button
-                            key={c.id}
-                            className={`swatch-btn ${filters.color === c.id ? 'active' : ''}`}
-                            onClick={() => toggleColor(c.id)}
-                            title={pick(c.name_en, c.name_ar, lang)}
-                          >
-                            <span className="swatch-circle" style={{ background: c.hex ?? '#ccc' }} />
-                            <span className="swatch-name">{pick(c.name_en, c.name_ar, lang)} <span className="count">{c.count}</span></span>
+                    <div className="sidebar-scroll-body">
+                      {facetsQ.isPending && (
+                        <span className="sr-only" role="status">
+                          {isAr ? 'جاري تحميل فلاتر البحث' : 'Loading filters'}
+                        </span>
+                      )}
+                      {facetsQ.isError && (
+                        <div role="alert" className="filter-error-box">
+                          <p>{isAr ? 'تعذّر تحميل الفلاتر.' : 'Could not load filters.'}</p>
+                          <button type="button" className="btn-reset-filters" onClick={() => { void facetsQ.refetch(); }}>
+                            {isAr ? 'إعادة المحاولة' : 'Retry'}
                           </button>
-                        ))}
+                        </div>
+                      )}
+
+                      {/* Category Filter */}
+                      <div className="filter-group">
+                        <div className="group-heading">{isAr ? 'التصنيفات' : 'Categories'}</div>
+                        <div className="filter-list">
+                          <button type="button"
+                            className={`filter-item ${filters.category === null ? 'active' : ''}`}
+                            onClick={() => updateFilters({ category: null })}
+                          >
+                            <span>{isAr ? 'كل التصنيفات' : 'All Collections'}</span>
+                            <span className="count"><AnimatedNumber value={allCount} /></span>
+                          </button>
+                          {roots.map((c) => (
+                            <React.Fragment key={c.slug}>
+                              <button type="button"
+                                className={`filter-item ${filters.category === c.slug ? 'active' : ''}`}
+                                onClick={() => updateFilters({ category: c.slug })}
+                              >
+                                <span>{pick(c.name_en, c.name_ar, lang)}</span>
+                                <span className="count"><AnimatedNumber value={rollupCategoryProductCount(c)} /></span>
+                              </button>
+                              {(c.children ?? []).map((child) => (
+                                <button type="button"
+                                  key={child.slug}
+                                  className={`filter-item ${filters.category === child.slug ? 'active' : ''}`}
+                                  style={{ paddingInlineStart: 12 }}
+                                  onClick={() => updateFilters({ category: child.slug })}
+                                >
+                                  <span>{pick(child.name_en, child.name_ar, lang)}</span>
+                                  <span className="count"><AnimatedNumber value={rollupCategoryProductCount(child)} /></span>
+                                </button>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Occasion Filter */}
+                      <div className="filter-group">
+                        <div className="group-heading">{isAr ? 'الاستخدام' : 'Occasion'}</div>
+                        <div className="filter-list" aria-busy={facetsQ.isPending}>
+                          {facetsQ.isPending ? (
+                            Array.from({ length: 3 }).map((_, idx) => (
+                              <div key={idx} className="filter-skel-row" aria-hidden="true" />
+                            ))
+                          ) : (
+                            (facetsQ.data?.occasions ?? []).map((o) => {
+                              const checked = filters.occasions.includes(o.id);
+                              return (
+                                <label key={o.id} className="checkbox-label">
+                                  <input type="checkbox" checked={checked} onChange={() => toggleOccasion(o.id)} />
+                                  <span className="custom-box">{checked ? '✓' : ''}</span>
+                                  {isAr ? OCCASION_AR[o.id] : OCCASION_LABELS[o.id]} <span className="count">{o.count}</span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Color Palette */}
+                      <div className="filter-group">
+                        <div className="group-heading">{isAr ? 'الألوان' : 'Color Palette'}</div>
+                        <div className="color-swatches-grid" aria-busy={facetsQ.isPending}>
+                          {facetsQ.isPending ? (
+                            Array.from({ length: 8 }).map((_, idx) => (
+                              <div key={idx} className="filter-skel-swatch" aria-hidden="true">
+                                <span className="filter-skel-circle" />
+                                <span className="filter-skel-label" />
+                              </div>
+                            ))
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className={`swatch-btn ${filters.color === null ? 'active' : ''}`}
+                                onClick={() => updateFilters({ color: null })}
+                                title={isAr ? 'الكل' : 'All'}
+                              >
+                                <span className="swatch-circle" style={{ background: ALL_COLOR_BG }} />
+                                <span className="swatch-name">{isAr ? 'الكل' : 'All'}</span>
+                              </button>
+                              {(facetsQ.data?.colors ?? []).map((c) => (
+                                <button
+                                  type="button"
+                                  key={c.id}
+                                  className={`swatch-btn ${filters.color === c.id ? 'active' : ''}`}
+                                  onClick={() => toggleColor(c.id)}
+                                  title={pick(c.name_en, c.name_ar, lang)}
+                                >
+                                  <span className="swatch-circle" style={{ background: c.hex ?? '#ccc' }} />
+                                  <span className="swatch-name">{pick(c.name_en, c.name_ar, lang)} <span className="count">{c.count}</span></span>
+                                </button>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Price Range */}
+                      <div className="filter-group">
+                        <div className="group-heading">{isAr ? 'السعر' : 'Price Range'}</div>
+                        <div className="filter-list" aria-busy={facetsQ.isPending}>
+                          {facetsQ.isPending ? (
+                            Array.from({ length: 4 }).map((_, idx) => (
+                              <div key={idx} className="filter-skel-row" aria-hidden="true" />
+                            ))
+                          ) : (
+                            <>
+                              <label className="checkbox-label">
+                                <input
+                                  type="radio" name="priceRange" value="all"
+                                  checked={filters.priceMin === null && filters.priceMax === null}
+                                  onChange={() => updateFilters({ priceMin: null, priceMax: null })}
+                                />
+                                <span className="custom-box">
+                                  {filters.priceMin === null && filters.priceMax === null ? '✓' : ''}
+                                </span>
+                                <span>{isAr ? 'كل الأسعار' : 'All Prices'}</span>
+                              </label>
+                              {(facetsQ.data?.price_ranges ?? []).map((r) => {
+                                const isActive = filters.priceMin === r.min && filters.priceMax === r.max;
+                                return (
+                                  <label key={r.id} className="checkbox-label">
+                                    <input
+                                      type="radio"
+                                      name="priceRange"
+                                      value={r.id}
+                                      checked={isActive}
+                                      onChange={() => updateFilters({ priceMin: r.min, priceMax: r.max })}
+                                    />
+                                    <span className="custom-box">{isActive ? '✓' : ''}</span>
+                                    <span>{priceRangeLabel(r, lang)} <span className="count">{r.count}</span></span>
+                                  </label>
+                                );
+                              })}
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Price Range */}
-                    <div className="filter-group">
-                      <div className="group-heading">{isAr ? 'السعر' : 'Price Range'}</div>
-                      <div className="filter-list">
-                        <label className="checkbox-label">
-                          <input
-                            type="radio" name="priceRange" value="all"
-                            checked={filters.priceMin === null && filters.priceMax === null}
-                            onChange={() => updateFilters({ priceMin: null, priceMax: null })}
-                          />
-                          <span className="custom-box">
-                            {filters.priceMin === null && filters.priceMax === null ? '✓' : ''}
-                          </span>
-                          <span>{isAr ? 'كل الأسعار' : 'All Prices'}</span>
-                        </label>
-                        {(facetsQ.data?.price_ranges ?? []).map((r) => {
-                          const isActive = filters.priceMin === r.min && filters.priceMax === r.max;
-                          return (
-                            <label key={r.id} className="checkbox-label">
-                              <input
-                                type="radio"
-                                name="priceRange"
-                                value={r.id}
-                                checked={isActive}
-                                onChange={() => updateFilters({ priceMin: r.min, priceMax: r.max })}
-                              />
-                              <span className="custom-box">{isActive ? '✓' : ''}</span>
-                              <span>{priceRangeLabel(r)} <span className="count">{r.count}</span></span>
-                            </label>
-                          );
-                        })}
+                    {!isDesktop && (
+                      <div className="sidebar-mobile-footer">
+                        <button
+                          type="button"
+                          className="sidebar-apply-btn"
+                          onClick={() => setIsSidebarOpen(false)}
+                        >
+                          {isAr ? `عرض النتائج (${total})` : `Show Results (${total})`}
+                        </button>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </aside>
 
